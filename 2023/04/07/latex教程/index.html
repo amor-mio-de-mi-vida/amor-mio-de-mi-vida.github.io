@@ -4,15 +4,116 @@
   <meta charset="utf-8">
   
   
-  <title>Hexo</title>
+  <title>latex教程 | Hexo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="Hexo">
-<meta property="og:url" content="http://example.com/index.html">
+  <meta name="description" content="Latex教程第一章 Latex的基本概念Latex 命令和代码结构Latex 中还包括环境，用以令一些效果在局部生效，或是生成特殊的文档元素。Latex 环境的用法为一对命令 \begin 和 \end： 123\begin&amp;#123;⟨environment name⟩&amp;#125;[⟨optional arguments⟩]&amp;#123;⟨mandatory arguments⟩&amp;#125;…\">
+<meta property="og:type" content="article">
+<meta property="og:title" content="latex教程">
+<meta property="og:url" content="http://example.com/2023/04/07/latex%E6%95%99%E7%A8%8B/index.html">
 <meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="Latex教程第一章 Latex的基本概念Latex 命令和代码结构Latex 中还包括环境，用以令一些效果在局部生效，或是生成特殊的文档元素。Latex 环境的用法为一对命令 \begin 和 \end： 123\begin&amp;#123;⟨environment name⟩&amp;#125;[⟨optional arguments⟩]&amp;#123;⟨mandatory arguments⟩&amp;#125;…\">
 <meta property="og:locale" content="en_US">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406085356682.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406085652453.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406085723116.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406085825080.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406091515757.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406091237482.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406091552331.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406091641523.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406101521016.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406101745753.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102033261.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102309798.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102319747.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102356499.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102416030.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406102430961.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406104842261.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406104907231.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406105026469.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406105035965.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406105129870.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406105157389.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406105734860.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120148049.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120212547.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120249395.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120309845.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120322228.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120523998.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120539742.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120607075.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120623607.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120705106.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120749924.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120823828.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120841326.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406120909552.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121133765.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121359630.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121536101.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121719644.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121811285.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121830258.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406121914544.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406122027301.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406122318554.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406122348527.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406122411318.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123251321.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123309710.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123317028.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123334680.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123347836.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123535825.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123713404.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123839139.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406123910133.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124038150.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124125182.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124150611.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124439610.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124528787.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124631429.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124649705.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124704010.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124745858.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124829963.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124846685.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406124905986.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406130148302.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406130211677.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406130218318.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406130224131.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406130745774.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406162612467.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406162623695.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406162715887.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406162731985.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406162923873.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406163235405.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406163254403.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406163527991.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406163631892.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406163910700.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406164002014.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406164136415.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406165120691.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406171723571.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205142815.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205204303.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205342900.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205454806.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205521748.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205546592.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406205625545.png">
+<meta property="og:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406210450356.png">
+<meta property="article:published_time" content="2023-04-07T03:51:26.000Z">
+<meta property="article:modified_time" content="2023-04-07T03:52:29.490Z">
 <meta property="article:author" content="John Doe">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="c:\Users\W\AppData\Roaming\Typora\typora-user-images\image-20230406085356682.png">
   
     <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
   
@@ -69,9 +170,7 @@
 </header>
 
       <div class="outer">
-        <section id="main">
-  
-    <article id="post-latex教程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+        <section id="main"><article id="post-latex教程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2023/04/07/latex%E6%95%99%E7%A8%8B/" class="article-date">
   <time class="dt-published" datetime="2023-04-07T03:51:26.000Z" itemprop="datePublished">2023-04-07</time>
@@ -84,8 +183,8 @@
       <header class="article-header">
         
   
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2023/04/07/latex%E6%95%99%E7%A8%8B/">latex教程</a>
+    <h1 class="p-name article-title" itemprop="headline name">
+      latex教程
     </h1>
   
 
@@ -878,62 +977,19 @@
     </footer>
   </div>
   
-</article>
-
-
-
+    
+<nav id="article-nav">
   
-    <article id="post-hello-world" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
-  <div class="article-meta">
-    <a href="/2023/04/07/hello-world/" class="article-date">
-  <time class="dt-published" datetime="2023-04-07T03:47:44.181Z" itemprop="datePublished">2023-04-07</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
   
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2023/04/07/hello-world/">Hello World</a>
-    </h1>
+    <a href="/2023/04/07/hello-world/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Older</strong>
+      <div class="article-nav-title">Hello World</div>
+    </a>
   
+</nav>
 
-      </header>
-    
-    <div class="e-content article-entry" itemprop="articleBody">
-      
-        <p>Welcome to <a target="_blank" rel="noopener" href="https://hexo.io/">Hexo</a>! This is your very first post. Check <a target="_blank" rel="noopener" href="https://hexo.io/docs/">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a target="_blank" rel="noopener" href="https://hexo.io/docs/troubleshooting.html">troubleshooting</a> or you can ask me on <a target="_blank" rel="noopener" href="https://github.com/hexojs/hexo/issues">GitHub</a>.</p>
-<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo new <span class="string">&quot;My New Post&quot;</span></span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/writing.html">Writing</a></p>
-<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/server.html">Server</a></p>
-<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/generating.html">Generating</a></p>
-<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/one-command-deployment.html">Deployment</a></p>
-
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="http://example.com/2023/04/07/hello-world/" data-id="clg60ezdt000044v81w3i8afg" data-title="Hello World" class="article-share-link">Share</a>
-      
-      
-      
-    </footer>
-  </div>
   
 </article>
-
-
-
-  
 
 
 </section>
