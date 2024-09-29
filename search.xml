@@ -2,8 +2,8 @@
 <search>
   <entry>
     <title>The Pragmatic Programmer</title>
-    <url>/2024/09/27/the%20pragmatic%20programmer/The%20Pragmatic%20Programmer/</url>
-    <content><![CDATA[<h2 id="goals"><a href="#goals" class="headerlink" title="goals"></a>goals</h2><ul>
+    <url>/2024/09/27/book/The%20Pragmatic%20Programmer/</url>
+    <content><![CDATA[<h2 id="Goals"><a href="#Goals" class="headerlink" title="Goals"></a>Goals</h2><ul>
 <li><p><strong>每年至少学习一种新语言</strong></p>
 <p>  不同语言以不同方式解决相同的问题。通过学习若干不同的方法， 可以帮助你拓宽你的思维，并避免墨守成规。此外，现在学习许多语言已容易了许多，感谢可从网上自由获取的软件财富</p>
 </li>
@@ -29,7 +29,7 @@
 <p>  想要了解某种新语言或其他技术的各种特性?要了解其他人的相关经验，了解他们使用的特定行话，等等，新闻组是一种很好的方式。上网冲浪，查找论文、商业站点，以及其他任何你可以找到的信息来源</p>
 </li>
 </ul>
-<h2 id="Tips"><a href="#Tips" class="headerlink" title="Tips"></a>Tips</h2><ul>
+<h2 id="Tips"><a href="#Tips" class="headerlink" title="Tips"></a>Tips</h2><h3 id="A-pragmatic-philosophy"><a href="#A-pragmatic-philosophy" class="headerlink" title="A pragmatic philosophy"></a>A pragmatic philosophy</h3><ul>
 <li><p><strong>Provide Options, Don’t Make Lame Excuses 提供各种选择，不要找蹩脚的借口</strong></p>
 <p>  如果你确实同意要为某个结果负责，你就应切实负起责任。当你犯错误(就如同我们所有人都 会犯错误一样)、或是判断失误时，诚实地承认它，并设法给出各种选择。不要责备别人或别的东西，或是拼凑借口。除了尽你所能以外，你必须分析风险是否超出了你的控制。</p>
 </li>
@@ -37,10 +37,10 @@
 <p>  不要留着“破窗户” (低劣的设计、错误决策、或是糟糕的代码)不修。发现一个就修一个。 如果没有足够的时间进行适当的修理，就用木板把它钉起来。或许你可以把出问题的代码放人注 释 (comment out)， 或是显示“未实现”消息 ，或是用虚设的数据(dummy data) 加以替代 。 采取某种行动防止进一步的损坏，并说明情势处在你的控制之下。</p>
 </li>
 <li><p><strong>Be a Catalyst for Change 做变化的催化剂</strong></p>
-<p>  这正是拿出石头的时候。设计出你可以合理要求的东西，好好开发它。一旦完成，就拿给大家看，让他们大吃一惊。然后说:“要是我们增加…• 可能就会更好。”假装那并不重要。坐回椅子上，等着他们开始要你增加你本来就想要的功能。人们发现，参与正在发生的成功要更容易。 让他们瞥见未来，你就能让他们聚集在你周围’。</p>
+<p>  这正是拿出石头的时候。设计出你可以合理要求的东西，好好开发它。一旦完成，就拿给大家看，让他们大吃一惊。然后说:“要是我们增加…可能就会更好。”假装那并不重要。坐回椅子上，等着他们开始要你增加你本来就想要的功能。人们发现，参与正在发生的成功要更容易。 让他们瞥见未来，你就能让他们聚集在你周围’。</p>
 </li>
 <li><p><strong>Remember the Big Picture 记住大图景</strong></p>
-<p>  我们没有做过这个— 真的，但有人说，如果你抓一只青蛙放进沸水里，它会一下子跳出来。 但是，如果你把青蛙放进冷水里，然后慢慢加热，青蛙不会注意到温度的缓慢变化，会呆在锅里， 直到被煮熟。</p>
+<p>  我们没有做过这个—真的，但有人说，如果你抓一只青蛙放进沸水里，它会一下子跳出来。 但是，如果你把青蛙放进冷水里，然后慢慢加热，青蛙不会注意到温度的缓慢变化，会呆在锅里， 直到被煮熟。</p>
 </li>
 <li><p><strong>Make Quality a Requirements Issue 使质量成为需求问题</strong></p>
 <p>  你常常会处在须要进行权衡的情形中。让人惊奇的是 ，许多用户宁愿在今天用上有一些 “ 毛 边” 的软件，也不愿等待 一年后的多媒体版本。许多预算吃紧的T部门都会同意这样的说法。 今天的了不起的软件常常比明天的完美软件更可取。如果你给用户某样东西，让他们及早使用， 他们的反馈常常会把你引向更好的最终解决方案</p>
@@ -53,7 +53,7 @@
 </ul>
 </li>
 <li>多元化是长期成功的关键<ul>
-<li>你知道的不同的事情越多，你就越有价值。作为底线，你需要知道你目前所用的特 定技术的各种特性。但不要就此止步。计算技术的面貌变化很快— —今天的热门技术明天就 可能变得近平无用(或至少是不再抢手)。你掌握的技术越多，你就越能更好地进行调整， 赶上变化 。</li>
+<li>你知道的不同的事情越多，你就越有价值。作为底线，你需要知道你目前所用的特 定技术的各种特性。但不要就此止步。计算技术的面貌变化很快— —今天的热门技术明天就可能变得近平无用(或至少是不再抢手)。你掌握的技术越多，你就越能更好地进行调整， 赶上变化 。</li>
 </ul>
 </li>
 <li>聪明的投资者在保守的投资和高风险、高回报的投资之间平衡他们的资产<ul>
@@ -74,6 +74,8 @@
 </li>
 <li><p><strong>It’s Both What You Say and the Way You Say It 你说什么和你怎么说同样重要</strong></p>
 </li>
+</ul>
+<h3 id="A-pragmatic-approach"><a href="#A-pragmatic-approach" class="headerlink" title="A pragmatic approach"></a>A pragmatic approach</h3><ul>
 <li><p><strong>Make It Easy to Reuse 让复用变得容易</strong></p>
 <p>  你所要做的是营造 一种环境，在其中要找到并复用已有的东西，比自己编写更容易。如果不容易，大家就不会去复用。而如果不进行复用，你们就会有重复知识的风险。</p>
 </li>
@@ -93,6 +95,41 @@
       </categories>
       <tags>
         <tag>book</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Welcome to use Hexo Theme Keep</title>
+    <url>/2022/10/25/riscv%20simulation/survey/</url>
+    <content><![CDATA[<p>Welcome to use Hexo Theme Keep.</p>
+<p>This is your very first post. Check <a class="link"   href="https://keep-docs.xpoet.cn/" >documentation<i class="fas fa-external-link-alt"></i></a> for more info. If you get any problems when using Keep theme, you can ask me on <a class="link"   href="https://github.com/XPoet/hexo-theme-keep/issues" >GitHub<i class="fas fa-external-link-alt"></i></a>.</p>
+<span id="more"></span>
+
+<p><img  
+                       lazyload
+                       alt="image"
+                       data-src="/images/keep-slogan.svg"
+                        alt="keep-slogan"
+                 ></p>
+<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo new <span class="string">&quot;My New Post&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>More info: <a class="link"   href="https://hexo.io/docs/writing.html" >Writing<i class="fas fa-external-link-alt"></i></a></p>
+<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></table></figure>
+
+<p>More info: <a class="link"   href="https://hexo.io/docs/server.html" >Server<i class="fas fa-external-link-alt"></i></a></p>
+<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></table></figure>
+
+<p>More info: <a class="link"   href="https://hexo.io/docs/generating.html" >Generating<i class="fas fa-external-link-alt"></i></a></p>
+<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></table></figure>
+
+<p>More info: <a class="link"   href="https://hexo.io/docs/one-command-deployment.html" >Deployment<i class="fas fa-external-link-alt"></i></a></p>
+<p>asdjkajds </p>
+]]></content>
+      <categories>
+        <category>computer architecture</category>
+        <category>software engineering</category>
+      </categories>
+      <tags>
+        <tag>riscv</tag>
       </tags>
   </entry>
 </search>
