@@ -282,7 +282,7 @@
                             <div class="author border-box">
                                 <span class="name">amor mío de mi vida</span>
                                 
-                                    <span class="author-badge">Lv1</span>
+                                    <span class="author-badge">Lv2</span>
                                 
                             </div>
                             <div class="meta-info border-box">
@@ -300,19 +300,10 @@
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Wed Oct 02 2024 16:38:00 GMT+0800">2024-10-02 16:38:00</span>
+                <span class="datetime" data-updated="Wed Oct 02 2024 16:53:00 GMT+0800">2024-10-02 16:53:00</span>
             </span>
         
 
-        
-            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
-                <ul class="post-category-ul">
-                    
-                            <li class="category-item"><a href="/categories/Gradle/">Gradle</a></li>
-                        
-                    
-                </ul>
-            </span>
         
 
         
@@ -320,6 +311,9 @@
                 <ul class="post-tag-ul">
                     
                             <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
+                        
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/gradle/">gradle</a></li>
                         
                     
                 </ul>
@@ -348,7 +342,12 @@
                     
 
                     
-                         <p>Gradle <strong>automates building, testing, and deployment of software</strong> from information in <strong>build scripts</strong>.<br>![[Pasted image 20241002153334.png]]</p>
+                         <p>Gradle <strong>automates building, testing, and deployment of software</strong> from information in <strong>build scripts</strong>.<br><img  
+                       lazyload
+                       alt="image"
+                       data-src="/images/Pasted%20image%2020241002153334.png"
+                       
+                 ></p>
 <h2 id="Gradle-Project-structure"><a href="#Gradle-Project-structure" class="headerlink" title="Gradle Project structure"></a>Gradle Project structure</h2><p>A Gradle project will look similar to the following:</p>
 <figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">project</span><br><span class="line">├── gradle                             (1)        </span><br><span class="line">│   ├── libs.versions.toml             (2)</span><br><span class="line">│   └── wrapper</span><br><span class="line">│       ├── gradle-wrapper.jar</span><br><span class="line">│       └── gradle-wrapper.properties</span><br><span class="line">├── gradlew                            (3)</span><br><span class="line">├── gradlew.bat                        (3) </span><br><span class="line">├── settings.gradle(.kts)              (4) </span><br><span class="line">├── subproject-a                   </span><br><span class="line">│   ├── build.gradle(.kts)             (5)     </span><br><span class="line">│   └── src                            (6) </span><br><span class="line">└── subproject-b                        </span><br><span class="line">    ├── build.gradle(.kts)             (5) </span><br><span class="line">    └── src                            (6) </span><br></pre></td></tr></table></figure>
 <p>(1)  Gradle directory to store wrapper files and more<br>(2) Gradle version catalog for dependency management<br>(3) Gradle wrapper scripts<br>(4) Gradle settings file to define a root project name and subprojects<br>(5) Gradle build scripts of the two subprojects - <code>subproject-a</code> and <code>subproject-b</code><br>(6) Source code and&#x2F;or additional files for the projects</p>
@@ -470,6 +469,10 @@
                                         <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/tools/">tools</a>
                                     </li>
                                 
+                                    <li class="tag-item border-box">
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/gradle/">gradle</a>
+                                    </li>
+                                
                             </ul>
                         
                     </div>
@@ -505,6 +508,22 @@
 
                 
                     <div class="post-nav border-box">
+                        
+                            <div class="prev-post">
+                                <a class="prev"
+                                   rel="prev"
+                                   href="/2024/10/02/tools/Gradle/Authoring%20Gradle%20Builds/1%20Learning%20the%20Basics/"
+                                   title="1 Learning the Basics"
+                                >
+                                    <span class="left arrow-icon flex-center">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </span>
+                                    <span class="title flex-center">
+                                        <span class="post-nav-title-item text-ellipsis">1 Learning the Basics</span>
+                                        <span class="post-nav-item">Prev posts</span>
+                                    </span>
+                                </a>
+                            </div>
                         
                         
                             <div class="next-post">

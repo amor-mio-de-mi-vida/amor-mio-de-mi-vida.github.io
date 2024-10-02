@@ -201,7 +201,7 @@
   </entry>
   <entry>
     <title>How to read paper</title>
-    <url>/2022/10/25/paper/How%20to%20read%20paper/</url>
+    <url>/2024/09/29/paper/How%20to%20read%20paper/</url>
     <content><![CDATA[<h2 id="Structure"><a href="#Structure" class="headerlink" title="Structure"></a>Structure</h2><ul>
 <li>title</li>
 <li>abstract</li>
@@ -221,15 +221,14 @@
       </tags>
   </entry>
   <entry>
-    <title>Welcome to use Hexo Theme Keep</title>
+    <title>DrMIPS</title>
     <url>/2024/10/01/riscv/DrMIPS/</url>
     <content><![CDATA[]]></content>
       <categories>
-        <category>Hexo</category>
+        <category>DrMIPS</category>
       </categories>
       <tags>
-        <tag>Hexo</tag>
-        <tag>Keep</tag>
+        <tag>riscv</tag>
       </tags>
   </entry>
   <entry>
@@ -288,6 +287,7 @@
       </categories>
       <tags>
         <tag>tools</tag>
+        <tag>cmake</tag>
       </tags>
   </entry>
   <entry>
@@ -295,11 +295,10 @@
     <url>/2024/10/02/riscv/RARS/</url>
     <content><![CDATA[<h2 id="Command-Line-Tool"><a href="#Command-Line-Tool" class="headerlink" title="Command Line Tool"></a>Command Line Tool</h2><figure class="highlight text"><table><tr><td class="code"><pre><span class="line">a -- assemble only, do not simulate</span><br><span class="line">ae&lt;n&gt; -- terminate RARS with integer exit code &lt;n&gt; if an assemble error occurs.</span><br><span class="line">ascii -- display memory or register contents interpreted as ASCII codes.</span><br><span class="line">b -- brief - do not display/memory address along with contents.</span><br><span class="line">d -- display RARS debugging statements</span><br><span class="line"></span><br></pre></td></tr></table></figure>]]></content>
       <categories>
-        <category>Hexo</category>
+        <category>RARS</category>
       </categories>
       <tags>
-        <tag>Hexo</tag>
-        <tag>Keep</tag>
+        <tag>riscv</tag>
       </tags>
   </entry>
   <entry>
@@ -361,12 +360,18 @@
       </categories>
       <tags>
         <tag>tools</tag>
+        <tag>cmake</tag>
       </tags>
   </entry>
   <entry>
     <title>Gradle Basics</title>
     <url>/2024/10/02/tools/Gradle/Gradle%20Basics/</url>
-    <content><![CDATA[<p>Gradle <strong>automates building, testing, and deployment of software</strong> from information in <strong>build scripts</strong>.<br>![[Pasted image 20241002153334.png]]</p>
+    <content><![CDATA[<p>Gradle <strong>automates building, testing, and deployment of software</strong> from information in <strong>build scripts</strong>.<br><img  
+                       lazyload
+                       alt="image"
+                       data-src="/images/Pasted%20image%2020241002153334.png"
+                       
+                 ></p>
 <h2 id="Gradle-Project-structure"><a href="#Gradle-Project-structure" class="headerlink" title="Gradle Project structure"></a>Gradle Project structure</h2><p>A Gradle project will look similar to the following:</p>
 <figure class="highlight text"><table><tr><td class="code"><pre><span class="line">project</span><br><span class="line">├── gradle                             (1)        </span><br><span class="line">│   ├── libs.versions.toml             (2)</span><br><span class="line">│   └── wrapper</span><br><span class="line">│       ├── gradle-wrapper.jar</span><br><span class="line">│       └── gradle-wrapper.properties</span><br><span class="line">├── gradlew                            (3)</span><br><span class="line">├── gradlew.bat                        (3) </span><br><span class="line">├── settings.gradle(.kts)              (4) </span><br><span class="line">├── subproject-a                   </span><br><span class="line">│   ├── build.gradle(.kts)             (5)     </span><br><span class="line">│   └── src                            (6) </span><br><span class="line">└── subproject-b                        </span><br><span class="line">    ├── build.gradle(.kts)             (5) </span><br><span class="line">    └── src                            (6) </span><br></pre></td></tr></table></figure>
 <p>(1)  Gradle directory to store wrapper files and more<br>(2) Gradle version catalog for dependency management<br>(3) Gradle wrapper scripts<br>(4) Gradle settings file to define a root project name and subprojects<br>(5) Gradle build scripts of the two subprojects - <code>subproject-a</code> and <code>subproject-b</code><br>(6) Source code and&#x2F;or additional files for the projects</p>
@@ -420,11 +425,23 @@
 <figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./gradlew build --scan</span><br></pre></td></tr></table></figure>
 <h2 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h2><p><a class="link"   href="https://docs.gradle.org/current/userguide/gradle_wrapper.html#gradle_wrapper_reference" >Gradle Wrapper reference<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/command_line_interface.html#command_line_interface" >Gradle Command Line Interface reference<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/writing_settings_files.html#writing_settings_files" >Writing Settings File<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/writing_build_scripts.html#writing_build_scripts" >Writing Build Scripts<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/glossary.html#dependency_management_terminology" >Dependency Management chapter<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/custom_plugins.html#custom_plugins" >Plugin development chapter<i class="fas fa-external-link-alt"></i></a><br><a class="link"   href="https://docs.gradle.org/current/userguide/build_cache.html#build_cache" >Build cache chapter<i class="fas fa-external-link-alt"></i></a></p>
 ]]></content>
+      <tags>
+        <tag>tools</tag>
+        <tag>gradle</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>1 Learning the Basics</title>
+    <url>/2024/10/02/tools/Gradle/Authoring%20Gradle%20Builds/1%20Learning%20the%20Basics/</url>
+    <content><![CDATA[<h2 id="Gradle-Directories"><a href="#Gradle-Directories" class="headerlink" title="Gradle Directories"></a>Gradle Directories</h2><p>Gradle uses two main directories to perform and manage its work: the Gradle User Home directory and the Project Root directory.<br>![[Pasted image 20241002165520.png]]</p>
+<h3 id="Gradle-User-Home-directory"><a href="#Gradle-User-Home-directory" class="headerlink" title="Gradle User Home directory"></a>Gradle User Home directory</h3><p>By default, the Gradle User Home (<code>~/.gradle</code> or <code>C:\Users\&lt;USERNAME&gt;\.gradle</code>) stores global configuration properties, initialization scripts, caches, and log files.</p>
+]]></content>
       <categories>
-        <category>Gradle</category>
+        <category>Authoring Gradle Builds</category>
       </categories>
       <tags>
         <tag>tools</tag>
+        <tag>gradle</tag>
       </tags>
   </entry>
 </search>
