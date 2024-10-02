@@ -9,7 +9,7 @@
     
     <title>
         
-            How to read paper |
+            Gradle Basics |
         
         Hesen&#39;s Blog
     </title>
@@ -267,7 +267,7 @@
             <div class="post-content-bottom border-box">
                 
                     <div class="post-title">
-                        How to read paper
+                        Gradle Basics
                     </div>
                 
 
@@ -295,22 +295,31 @@
         
             <span class="meta-info-item post-create-date">
                 <i class="icon fa-solid fa-calendar-plus"></i>&nbsp;
-                <span class="datetime">2022-10-25 11:40:36</span>
+                <span class="datetime">2024-10-02 15:32:31</span>
             </span>
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Wed Oct 02 2024 16:38:55 GMT+0800">2024-10-02 16:38:55</span>
+                <span class="datetime" data-updated="Wed Oct 02 2024 16:38:00 GMT+0800">2024-10-02 16:38:00</span>
             </span>
         
 
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/Gradle/">Gradle</a></li>
+                        
+                    
+                </ul>
+            </span>
         
 
         
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
                         
                     
                 </ul>
@@ -339,19 +348,59 @@
                     
 
                     
-                         <h2 id="Structure"><a href="#Structure" class="headerlink" title="Structure"></a>Structure</h2><ul>
-<li>title</li>
-<li>abstract</li>
-<li>introduction</li>
-<li>method</li>
-<li>experiment</li>
-<li>conclusion</li>
+                         <p>Gradle <strong>automates building, testing, and deployment of software</strong> from information in <strong>build scripts</strong>.<br>![[Pasted image 20241002153334.png]]</p>
+<h2 id="Gradle-Project-structure"><a href="#Gradle-Project-structure" class="headerlink" title="Gradle Project structure"></a>Gradle Project structure</h2><p>A Gradle project will look similar to the following:</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">project</span><br><span class="line">├── gradle                             (1)        </span><br><span class="line">│   ├── libs.versions.toml             (2)</span><br><span class="line">│   └── wrapper</span><br><span class="line">│       ├── gradle-wrapper.jar</span><br><span class="line">│       └── gradle-wrapper.properties</span><br><span class="line">├── gradlew                            (3)</span><br><span class="line">├── gradlew.bat                        (3) </span><br><span class="line">├── settings.gradle(.kts)              (4) </span><br><span class="line">├── subproject-a                   </span><br><span class="line">│   ├── build.gradle(.kts)             (5)     </span><br><span class="line">│   └── src                            (6) </span><br><span class="line">└── subproject-b                        </span><br><span class="line">    ├── build.gradle(.kts)             (5) </span><br><span class="line">    └── src                            (6) </span><br></pre></td></tr></table></figure>
+<p>(1)  Gradle directory to store wrapper files and more<br>(2) Gradle version catalog for dependency management<br>(3) Gradle wrapper scripts<br>(4) Gradle settings file to define a root project name and subprojects<br>(5) Gradle build scripts of the two subprojects - <code>subproject-a</code> and <code>subproject-b</code><br>(6) Source code and&#x2F;or additional files for the projects</p>
+<p>Gradle Wrapper<br>The Wrapper is a script that invokes a declared version of Gradle and is <strong>the recommended way to execute a Gradle build</strong>. It is found in the project root directory as a <code>gradlew</code> or <code>gradlew.bat</code> file:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gradlew build     // Linux or OSX</span><br><span class="line">gradlew.bat build  // Windows</span><br></pre></td></tr></table></figure>
+<h2 id="Gradle-Wrapper-Basics"><a href="#Gradle-Wrapper-Basics" class="headerlink" title="Gradle Wrapper Basics"></a>Gradle Wrapper Basics</h2><p>The <strong>recommended way to execute any Gradle build</strong> is with the Gradle Wrapper.</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">.</span><br><span class="line">├── gradle </span><br><span class="line">│   └── wrapper</span><br><span class="line">│       ├── gradle-wrapper.jar         (1)</span><br><span class="line">│       └── gradle-wrapper.properties  (2)</span><br><span class="line">├── gradlew  (3)</span><br><span class="line">└── gradlew.bat (4)</span><br></pre></td></tr></table></figure>
+<p>(1) <code>gradle-wrapper.jar</code>: This is a small JAR file that contains the Gradle Wrapper code. It is responsible for downloading and installing the correct version of Gradle for a project if it’s not already installed.<br>(2) <code>gradle-wrapper.properties</code>: This file contains configuration properties for the Gradle Wrapper, such as the distribution URL (where to download Gradle from) and the distribution type (ZIP or TARBALL).<br>(3) <code>gradlew</code>: This is a shell script (Unix-based systems) that acts as a wrapper around <code>gradle-wrapper.jar</code>. It is used to execute Gradle tasks on Unix-based systems without needing to manually install Gradle.<br>(4) <code>gradlew.bat</code>: This is a batch script (Windows) that serves the same purpose as <code>gradlew</code> but is used on Windows systems.</p>
+<p>If you want to view or update the Gradle version of your project, use the command line. Do not edit the wrapper files manually:</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">./gradlew --version</span><br><span class="line">./gradlew wrapper --gradle-version 7.2</span><br></pre></td></tr></table></figure>
+<h2 id="Command-Line-Interface-Basics"><a href="#Command-Line-Interface-Basics" class="headerlink" title="Command-Line Interface Basics"></a>Command-Line Interface Basics</h2><p>Substitute <code>./gradlew</code> (in macOS &#x2F; Linux) or <code>gradlew.bat</code> (in Windows) for <code>gradle</code> in the following examples.</p>
+<p>Executing Gradle on the command line conforms to the following structure:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle [taskName...] [--option-name...]</span><br></pre></td></tr></table></figure>
+<p>Options are allowed <em>before</em> and <em>after</em> task names.</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle [--option-name...] [taskName...]</span><br></pre></td></tr></table></figure>
+<p>If multiple tasks are specified, you should separate them with a space.</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle [taskName1 taskName2...] [--option-name...]</span><br></pre></td></tr></table></figure>
+<p>Options that accept values can be specified with or without <code>=</code> between the option and argument. The use of <code>=</code> is recommended.</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle [...] --console=plain</span><br></pre></td></tr></table></figure>
+<p>Options that enable behavior have long-form options with inverses specified with <code>--no-</code>. The following are opposites.</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gradle [...] --build-cache</span><br><span class="line">gradle [...] --no-build-cache</span><br></pre></td></tr></table></figure>
+<p>Many long-form options have short-option equivalents. The following are equivalent:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gradle --<span class="built_in">help</span></span><br><span class="line">gradle -h</span><br></pre></td></tr></table></figure>
+<p>To execute a task called <code>taskName</code> on the root project, type:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle :taskName</span><br></pre></td></tr></table></figure>
+<p>To pass an option to a task, prefix the option name with <code>--</code> after the task name:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gradle taskName --exampleOption=exampleValue</span><br></pre></td></tr></table></figure>
+<h2 id="Settings-File-Basics"><a href="#Settings-File-Basics" class="headerlink" title="Settings File Basics"></a>Settings File Basics</h2><figure class="highlight gradle"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">rootProject.name = <span class="string">&#x27;root-project&#x27;</span>   (<span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">include</span>(<span class="string">&#x27;sub-project-a&#x27;</span>)            (<span class="number">2</span>)</span><br><span class="line"><span class="keyword">include</span>(<span class="string">&#x27;sub-project-b&#x27;</span>)</span><br><span class="line"><span class="keyword">include</span>(<span class="string">&#x27;sub-project-c&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p>(1) Define the project name<br>(2) Add subprojects</p>
+<h2 id="Build-file-Basics"><a href="#Build-file-Basics" class="headerlink" title="Build file Basics"></a>Build file Basics</h2><figure class="highlight groovy"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">plugins &#123;</span><br><span class="line">    id <span class="string">&#x27;application&#x27;</span>                </span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">application &#123;</span><br><span class="line">    mainClass = <span class="string">&#x27;com.example.Main&#x27;</span>  </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>(1) Add plugins<br>    Plugins extend Gradle’s functionality and can contribute tasks to a project.<br>(2) Use convention properties<br>    A plugin adds tasks to a project. It also adds properties and methods to a project.The <code>application</code> plugin defines tasks that package and distribute an application, such as the <code>run</code> task.</p>
+<h2 id="Dependency-Management-Basics"><a href="#Dependency-Management-Basics" class="headerlink" title="Dependency Management Basics"></a>Dependency Management Basics</h2><p>To add a dependency to your project, specify a dependency in the dependencies block of your <code>build.gradle(.kts)</code> file.<br>Dependencies in Gradle are grouped by <strong>configurations</strong>.<br>You can view your dependency tree in the terminal using the following command</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew :app:dependencies</span><br></pre></td></tr></table></figure>
+<h2 id="Task-Basics"><a href="#Task-Basics" class="headerlink" title="Task Basics"></a>Task Basics</h2><p>A task represents some <strong>independent unit of work</strong> that a build performs, such as compiling classes, creating a JAR, generating Javadoc, or publishing archives to a repository.<br>You run a Gradle <code>build</code> task using the <code>gradle</code> command or by invoking the Gradle Wrapper (<code>./gradlew</code> or <code>gradlew.bat</code>) in your project directory:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew build</span><br></pre></td></tr></table></figure>
+<p>You can list all the available tasks in the project by running the following command in the terminal:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew tasks</span><br></pre></td></tr></table></figure>
+<p>Many times, a task requires another task to run first. Build scripts can optionally define task dependencies. Gradle then automatically determines the task execution order.</p>
+<h2 id="Plugin-Basics"><a href="#Plugin-Basics" class="headerlink" title="Plugin Basics"></a>Plugin Basics</h2><p>Gradle is built on a plugin system. Gradle itself is primarily composed of infrastructure, such as a sophisticated dependency resolution engine. The rest of its functionality comes from plugins. A plugin is a piece of software that <strong>provides additional functionality to the Gradle build system</strong>.</p>
+<p>Plugins can be applied to a Gradle build script to <strong>add new tasks, configurations, or other build-related capabilities</strong>:</p>
+<ul>
+<li>Core plugins<br>  Gradle Core plugins are a set of plugins that are included in the Gradle distribution itself. These plugins provide essential functionality for building and managing projects.<br>  There are many <a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/plugin_reference.html#plugin_reference" >Gradle Core Plugins<i class="fas fa-external-link-alt"></i></a> users can take advantage of.</li>
+<li>Community plugins<br>  Community plugins are plugins developed by the Gradle community, rather than being part of the core Gradle distribution. These plugins provide additional functionality that may be specific to certain use cases or technologies.<br>  Community plugins can be published at the <a class="link"   target="_blank" rel="noopener" href="http://plugins.gradle.org/" >Gradle Plugin Portal<i class="fas fa-external-link-alt"></i></a>, where other Gradle users can easily discover and use them.</li>
+<li>Local plugins<br>  Custom or local plugins are developed and used within a specific project or organization. These plugins are not shared publicly and are tailored to the specific needs of the project or organization.</li>
 </ul>
-<h2 id="Pass-1"><a href="#Pass-1" class="headerlink" title="Pass 1"></a>Pass 1</h2><p>title——是否相关？<br>abstract——论文在做什么？<br>conclusion</p>
-<p>略看论文的图和表<br>论文在大概讲什么东西，方法怎么样，结果怎么样，是否适合自己？</p>
-<h2 id="Pass-2"><a href="#Pass-2" class="headerlink" title="Pass 2"></a>Pass 2</h2><p>主要关注重点的图和表<br>相关的重要文献标记</p>
-<p>继续思考论文的质量以及和自己研究方向的契合程度，决定一下要不要进行第三遍的完完全全彻底的精读。</p>
-<h2 id="Pass-3"><a href="#Pass-3" class="headerlink" title="Pass 3"></a>Pass 3</h2><p>代入自己去思考如果要是我来写这篇文章，我会如何组织这个结构？读实验部分的时候，可以思考一下，作者是如何描述自己的实验的，你可以思考，如果换自己来做的话，能不能比作者做得更好？ 这一遍读的时候，一定要明白作者每句话，每个字在说什么，并且最好可以脑补出它整个流程是什么样子的，似乎是自己在做实验，写论文一样。如果有困难的话，可以借助思维导图或者流程图这样的工具，把他的整个流程以可视化的形式展现出来，帮助自己理解。</p>
+<h2 id="Incremental-Builds-and-Build-Caching"><a href="#Incremental-Builds-and-Build-Caching" class="headerlink" title="Incremental Builds and Build Caching"></a>Incremental Builds and Build Caching</h2><p>Incremental builds are always enabled, and the best way to see them in action is to turn on <em>verbose mode</em>. With verbose mode, each task state is labeled during a build:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew compileJava --console=verbose</span><br></pre></td></tr></table></figure>
+<p>The build cache stores previous build results and restores them when needed. It prevents the redundant work and cost of executing time-consuming and expensive processes.</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew compileJava --build-cache</span><br></pre></td></tr></table></figure>
+<h2 id="Build-Scan"><a href="#Build-Scan" class="headerlink" title="Build Scan"></a>Build Scan</h2><p>To enable build scans on a gradle command, add <code>--scan</code> to the command line option:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew build --scan</span><br></pre></td></tr></table></figure>
+<h2 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h2><p><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/gradle_wrapper.html#gradle_wrapper_reference" >Gradle Wrapper reference<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/command_line_interface.html#command_line_interface" >Gradle Command Line Interface reference<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/writing_settings_files.html#writing_settings_files" >Writing Settings File<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/writing_build_scripts.html#writing_build_scripts" >Writing Build Scripts<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/glossary.html#dependency_management_terminology" >Dependency Management chapter<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/custom_plugins.html#custom_plugins" >Plugin development chapter<i class="fas fa-external-link-alt"></i></a><br><a class="link"   target="_blank" rel="noopener" href="https://docs.gradle.org/current/userguide/build_cache.html#build_cache" >Build cache chapter<i class="fas fa-external-link-alt"></i></a></p>
 
                     
                 </div>
@@ -362,11 +411,11 @@
     <div class="copyright-info-content border-box">
         <div class="copyright-info-top border-box">
             <div class="copyright-post-title border-box text-ellipsis">
-                How to read paper
+                Gradle Basics
             </div>
 
             <div class="copyright-post-link border-box text-ellipsis">
-                2022/10/25/paper/How to read paper/
+                2024/10/02/tools/Gradle/Gradle Basics/
             </div>
         </div>
 
@@ -382,7 +431,7 @@
                 <div class="type">
                     Published
                 </div>
-                <div class="content">2022-10-25 11:40</div>
+                <div class="content">2024-10-02 15:32</div>
             </div>
 
 
@@ -418,7 +467,7 @@
                             <ul class="post-tags-box border-box">
                                 
                                     <li class="tag-item border-box">
-                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/paper/">paper</a>
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/tools/">tools</a>
                                     </li>
                                 
                             </ul>
@@ -457,22 +506,22 @@
                 
                     <div class="post-nav border-box">
                         
-                            <div class="prev-post">
-                                <a class="prev"
-                                   rel="prev"
-                                   href="/2024/09/27/book/The%20Pragmatic%20Programmer/"
-                                   title="The Pragmatic Programmer"
+                        
+                            <div class="next-post">
+                                <a class="next"
+                                   rel="next"
+                                   href="/2024/10/02/riscv/RARS/"
+                                   title="RARS"
                                 >
-                                    <span class="left arrow-icon flex-center">
-                                        <i class="fas fa-chevron-left"></i>
-                                    </span>
                                     <span class="title flex-center">
-                                        <span class="post-nav-title-item text-ellipsis">The Pragmatic Programmer</span>
-                                        <span class="post-nav-item">Prev posts</span>
+                                        <span class="post-nav-title-item text-ellipsis">RARS</span>
+                                        <span class="post-nav-item">Next posts</span>
+                                    </span>
+                                    <span class="right arrow-icon flex-center">
+                                        <i class="fas fa-chevron-right"></i>
                                     </span>
                                 </a>
                             </div>
-                        
                         
                     </div>
                 
@@ -493,7 +542,7 @@
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Structure"><span class="nav-text">Structure</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-1"><span class="nav-text">Pass 1</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-2"><span class="nav-text">Pass 2</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-3"><span class="nav-text">Pass 3</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Project-structure"><span class="nav-text">Gradle Project structure</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Wrapper-Basics"><span class="nav-text">Gradle Wrapper Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Command-Line-Interface-Basics"><span class="nav-text">Command-Line Interface Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Settings-File-Basics"><span class="nav-text">Settings File Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-file-Basics"><span class="nav-text">Build file Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Dependency-Management-Basics"><span class="nav-text">Dependency Management Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Task-Basics"><span class="nav-text">Task Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Plugin-Basics"><span class="nav-text">Plugin Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Incremental-Builds-and-Build-Caching"><span class="nav-text">Incremental Builds and Build Caching</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Scan"><span class="nav-text">Build Scan</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Reference"><span class="nav-text">Reference</span></a></li></ol>
     </div>
 </div>
 
@@ -671,7 +720,7 @@
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Structure"><span class="nav-text">Structure</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-1"><span class="nav-text">Pass 1</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-2"><span class="nav-text">Pass 2</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Pass-3"><span class="nav-text">Pass 3</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Project-structure"><span class="nav-text">Gradle Project structure</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Wrapper-Basics"><span class="nav-text">Gradle Wrapper Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Command-Line-Interface-Basics"><span class="nav-text">Command-Line Interface Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Settings-File-Basics"><span class="nav-text">Settings File Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-file-Basics"><span class="nav-text">Build file Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Dependency-Management-Basics"><span class="nav-text">Dependency Management Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Task-Basics"><span class="nav-text">Task Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Plugin-Basics"><span class="nav-text">Plugin Basics</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Incremental-Builds-and-Build-Caching"><span class="nav-text">Incremental Builds and Build Caching</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Scan"><span class="nav-text">Build Scan</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Reference"><span class="nav-text">Reference</span></a></li></ol>
     </div>
 </div>
 
