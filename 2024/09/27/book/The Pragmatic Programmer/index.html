@@ -300,19 +300,10 @@
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Thu Oct 03 2024 16:13:19 GMT+0800">2024-10-03 16:13:19</span>
+                <span class="datetime" data-updated="Sat Oct 05 2024 15:53:49 GMT+0800">2024-10-05 15:53:49</span>
             </span>
         
 
-        
-            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
-                <ul class="post-category-ul">
-                    
-                            <li class="category-item"><a href="/categories/The-Pragmatic-Programmer/">The Pragmatic Programmer</a></li>
-                        
-                    
-                </ul>
-            </span>
         
 
         
@@ -329,12 +320,12 @@
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>7.8k Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>9.6k Words</span>
             </span>
         
         
             <span class="meta-info-item post-min2read">
-                <i class="icon fas fa-clock"></i>&nbsp;<span>26 Mins</span>
+                <i class="icon fas fa-clock"></i>&nbsp;<span>33 Mins</span>
             </span>
         
         
@@ -518,6 +509,18 @@
 </li>
 <li><p>Analyze Workflow to Improve Concurrency 分析工作流，以改善并发性<br>  我们需要容许并发，并考虑解除任何时间或次序上的依赖。这样做，我们可以获得灵活性， 并减少许多开发领域中的任何基于时间的依赖：工作流分析、架构、设计、还有部署。</p>
 </li>
+<li><p>Design Using Services 用服务进行设计<br>  在饥饿的消费者模型中，你用一些独立的消费者任务和 一个集中式工作队列取代中央调度 〈 154] 器。各个消费者任务从工作队列中抓取一项，并对其进行处理。当各个任务完成其工作时，就回 到队列抓取下一项。这样，如果任何特定的任务陷入停顿，其他任务可以利用这 一空闲，并且各 个组件都可按自己的步伐前进。每个组件都在时间上解除了与其他组件的耦合。</p>
+</li>
+<li><p>Always Design for Concurrency 总是为并发进行设计</p>
+</li>
+<li><p>Separate Views from Models 使视图与模型分离</p>
+</li>
+<li><p>Use Blackboards to Coordinate Workflow</p>
+</li>
+</ul>
+<h3 id="While-You-Are-Coding"><a href="#While-You-Are-Coding" class="headerlink" title="While You Are Coding"></a>While You Are Coding</h3><ul>
+<li>Don’t Program by Coincidence 不要靠巧合编程<br>  巧合可以在所有层面上让人误人歧途—从生成需求直到测试。特别是测试，充满了虚假的 因果关系和巧合的输出。很容易假定X是Y的原因，但正如我们之前所说的:不要假定，要证明。 在所有层面上，人们都在头脑里带着许多假定工作—一但这些假定很少被记人文档，而且在不同的开发者之间常常是冲突的。并非以明确的事实为基础的假定是所有项目的祸害。</li>
+<li></li>
 </ul>
 <h2 id="调试"><a href="#调试" class="headerlink" title="调试"></a>调试</h2><blockquote>
 <p>这是痛苦的事：<br>看着你自己的烦忧，并且知道<br>不是别人，而是你自己一人所致<br>——索福克勒斯：《埃阿斯》</p>
@@ -581,7 +584,36 @@
 <li>无论是谁分配的资源，它都应该负责解除该资源的分配</li>
 </ul>
 <h3 id="函数的得墨忒耳法则"><a href="#函数的得墨忒耳法则" class="headerlink" title="函数的得墨忒耳法则"></a>函数的得墨忒耳法则</h3><p>![[Pasted image 20241003142407.png]]<br>使用得墨忒耳法则将使你的代码适应性更好、更健壮，但也有代价 :作为“总承包人”，你的模块必须直接委托并管理全部子承包人，而不牵涉你的模块的客户。在实践中，这意味着你将 会编写大量包装方法，它们只是把请求转发给被委托者。这些包装方法既会带来运行时代价，也 会带来空间开销，在有些应用中，这可能会有重大影响— 甚至会让你无法承受。</p>
-<p>与任何技术 一样，你必须平衡你的特定应用的各种正面因素和负面因素。在数据库schema 设 计中，常常会为了改善性能而对schema进行“反规范化”:违反规范化规则，以换取速度。在这 里也可进行类似的折衷。事实上，通过反转得墨忒耳法则，使若干模块紧密耦合，你可以获得重 大的性能改进。只要对于那些被耦合在 一起的模块而言，这是众所周知的和可以接受的，你的设 计就没有问题。</p>
+<p>与任何技术一样，你必须平衡你的特定应用的各种正面因素和负面因素。在数据库schema 设 计中，常常会为了改善性能而对schema进行“反规范化”:违反规范化规则，以换取速度。在这 里也可进行类似的折衷。事实上，通过反转得墨忒耳法则，使若干模块紧密耦合，你可以获得重 大的性能改进。只要对于那些被耦合在 一起的模块而言，这是众所周知的和可以接受的，你的设计就没有问题。</p>
+<h3 id="为并发进行设计"><a href="#为并发进行设计" class="headerlink" title="为并发进行设计"></a>为并发进行设计</h3><p>首先，必须对任何全局或静态变量加以保护，使其免于并发访问。现在也许是问问你自己、 你最初为何需要全局变量的好时候。此外，不管调用的次序是什么，你都需要确保你给出的是一致的状态信息。例如，何时查询你的对象的状态才是有效的?如果你的对象在某些调用之间处在无效状态，你也许就是在依赖一个巧合:没有人会在那个时间点调用你的对象。<br>假定你有一个窗口子系统，其中的widget 是先创建，再显示在显示屏上，分两个步骤进行。在其显示出来之前，你不能设置 widget 中的状态。取决于代码的设置方式，你可能会依靠这样一个事实：在你将其显示在屏幕上之前，其他对象都不会使用已创建的widget。<br>但这在并发系统中可能并不为真。在被调用时，对象必须总是处在有效的状态中，而且它们可能会在最尴尬的时候被调用。你必须确保，在任何可能被调用的时刻，对象都处在有效的状态中。这 一问题常常出现在构造器与初始化例程分开定义的类中(构造器没有使对象进入已初始化状态)。</p>
+<h3 id="发布-订阅模式"><a href="#发布-订阅模式" class="headerlink" title="发布-订阅模式"></a>发布-订阅模式</h3><p>尽管在典型情况下，MVC是在GUI 开发的语境中教授的，它其实是一种通用的编程技术。 视图是对模型(也许是其子集)的一种解释——它无需是图形化的。控制器更是 一种协调机制， 不一定要与任何种类的输入设备有关。</p>
+<ul>
+<li>模型：表示目标对象的抽象数据模型。模型对任何视图或控制器都没有直接的了解。</li>
+<li>视图：解释模型的方式。它订阅模型中的变化和来自控制器的逻辑事件。</li>
+<li>控制器：控制视图、并向模型提供新数据的途径。它既向模型、也向视图发布事件。<br>黑板方法的 一些关键特性是:</li>
+<li>没有侦探需要知道其他任何侦探的存在—他们查看黑板，从中了解新的信息，并且加上他们的发现。</li>
+<li>侦探可能接受过不同的训练 ，具有不同程度的教育背景和专业经验，甚至有可能不是在同一 管辖区工作。他们都渴望破案，但这就是全部共同点。</li>
+<li>在这个过程中，不同的侦探可能会来来去去，并且工作班次也可能不同。</li>
+<li>对放在黑板上的内容没有什么限制。可以是图片、判断、物证，等等。<br>黑板。数据到达的次序无关紧要：在收到某项事实时，它可以触发适当的规则。反馈也很容易处理：任何规则集的输出都可以张贴到黑板上，并触发更为适用的规则。</li>
+</ul>
+<h3 id="实现的偶然"><a href="#实现的偶然" class="headerlink" title="实现的偶然"></a>实现的偶然</h3><ul>
+<li>它也许不是真的能工作——它也许只是看起来能工作。</li>
+<li>你依靠的边界条件也许只是一个偶然。在不同的情形下(或许是不同的屏幕分辨率)，它的表现可能就会不同。</li>
+<li>没有记入文档的行为可能会随着库的下一次发布而变化。</li>
+<li>多余的和不必要的调用会使你的代码变慢。</li>
+<li>多余的调用还会增加引人它们自己的新bug 的风险。<br>对于你编写给别人调用的代码，良好的模块化以及把实现隐藏在撰写了良好文档的小接口之后，这样 一些基本原则都能对你有帮助。</li>
+</ul>
+<h3 id="怎样深思熟虑的编程"><a href="#怎样深思熟虑的编程" class="headerlink" title="怎样深思熟虑的编程"></a>怎样深思熟虑的编程</h3><p>我们想要让编写代码所花的时间更少，想要尽可能在开发周期的早期抓住并修正错误，想要 在一开始就少制造错误。如果我们能深思熟虑地编程，那对我们会有所帮助:</p>
+<ul>
+<li>总是意识到你在做什么。</li>
+<li>不要盲目地编程。试图构建你不完全理解的应用，或是使用你不熟悉的技术，就是希望自己被巧合误导。</li>
+<li>按照计划行事，不管计划是在你的头脑中，在鸡尾酒餐巾的背面，还是在某个CASE 工具生成的墙那么大的输出结果上。</li>
+<li>依靠可靠的事物。不要依靠巧合或假定。如果你无法说出各种特定情形的区别，就假定是最坏的。</li>
+<li>为你的假定建立文档。“按合约设计” 有助于澄清你头脑中的假定，并且有助于把它们传达给别人。</li>
+<li>不要只是测试你的代码，还要测试你的假定。不要猜测;要实际尝试它。编写断言测试你的假设。如果你的断言是对的，你就改善了代码中的文档。如果你发现你的假定是错的，那么就为自己庆幸吧。</li>
+<li>为你的工作划分优先级。把时间花在重要的方面;很有可能，它们是最难的部分。如果你的基本原则或基础设施不正确，再花哨的铃声和又哨也是没有用的。</li>
+<li>不要做历史的奴隶。不要让已有的代码支配将来的代码。如果不再适用，所有的代码都可被替换。即使是在一个程序中，也不要让你已经做完的事情约束你下一步要做的事情 —— 准备好进行重构。这一决策可能会影响项目的进度。我们的假定是其影响将小于不进行改动造成的影响”。<br>所以下次有什么东西看起来能工作，而你却不知道为什么，要确定它不是巧合。</li>
+</ul>
 
                     
                 </div>
@@ -723,7 +755,7 @@
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Intro"><span class="nav-text">Intro</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Goals"><span class="nav-text">Goals</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%89%B9%E5%88%A4%E6%80%A7%E6%80%9D%E7%BB%B4"><span class="nav-text">批判性思维</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Tips"><span class="nav-text">Tips</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-philosophy"><span class="nav-text">A pragmatic philosophy</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-approach"><span class="nav-text">A pragmatic approach</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#The-Basic-Tools"><span class="nav-text">The Basic Tools</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Pragmatic-Paranoia"><span class="nav-text">Pragmatic Paranoia</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Bend-or-Break"><span class="nav-text">Bend, or Break</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B0%83%E8%AF%95"><span class="nav-text">调试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E5%BF%83%E7%90%86%E5%AD%A6"><span class="nav-text">调试的心理学</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E6%80%9D%E7%BB%B4%E6%96%B9%E5%BC%8F"><span class="nav-text">调试的思维方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E4%BD%95%E5%A4%84%E5%BC%80%E5%A7%8B"><span class="nav-text">从何处开始</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%A0%E6%88%90%E6%83%8A%E8%AE%B6%E7%9A%84%E8%A6%81%E7%B4%A0"><span class="nav-text">造成惊讶的要素</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Others"><span class="nav-text">Others</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8"><span class="nav-text">代码生成器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%89%E5%90%88%E7%BA%A6%E8%AE%BE%E8%AE%A1"><span class="nav-text">按合约设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B5%8C%E5%A5%97%E7%9A%84%E5%88%86%E9%85%8D"><span class="nav-text">嵌套的分配</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%87%BD%E6%95%B0%E7%9A%84%E5%BE%97%E5%A2%A8%E5%BF%92%E8%80%B3%E6%B3%95%E5%88%99"><span class="nav-text">函数的得墨忒耳法则</span></a></li></ol></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Intro"><span class="nav-text">Intro</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Goals"><span class="nav-text">Goals</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%89%B9%E5%88%A4%E6%80%A7%E6%80%9D%E7%BB%B4"><span class="nav-text">批判性思维</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Tips"><span class="nav-text">Tips</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-philosophy"><span class="nav-text">A pragmatic philosophy</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-approach"><span class="nav-text">A pragmatic approach</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#The-Basic-Tools"><span class="nav-text">The Basic Tools</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Pragmatic-Paranoia"><span class="nav-text">Pragmatic Paranoia</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Bend-or-Break"><span class="nav-text">Bend, or Break</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#While-You-Are-Coding"><span class="nav-text">While You Are Coding</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B0%83%E8%AF%95"><span class="nav-text">调试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E5%BF%83%E7%90%86%E5%AD%A6"><span class="nav-text">调试的心理学</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E6%80%9D%E7%BB%B4%E6%96%B9%E5%BC%8F"><span class="nav-text">调试的思维方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E4%BD%95%E5%A4%84%E5%BC%80%E5%A7%8B"><span class="nav-text">从何处开始</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%A0%E6%88%90%E6%83%8A%E8%AE%B6%E7%9A%84%E8%A6%81%E7%B4%A0"><span class="nav-text">造成惊讶的要素</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Others"><span class="nav-text">Others</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8"><span class="nav-text">代码生成器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%89%E5%90%88%E7%BA%A6%E8%AE%BE%E8%AE%A1"><span class="nav-text">按合约设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B5%8C%E5%A5%97%E7%9A%84%E5%88%86%E9%85%8D"><span class="nav-text">嵌套的分配</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%87%BD%E6%95%B0%E7%9A%84%E5%BE%97%E5%A2%A8%E5%BF%92%E8%80%B3%E6%B3%95%E5%88%99"><span class="nav-text">函数的得墨忒耳法则</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E5%B9%B6%E5%8F%91%E8%BF%9B%E8%A1%8C%E8%AE%BE%E8%AE%A1"><span class="nav-text">为并发进行设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%91%E5%B8%83-%E8%AE%A2%E9%98%85%E6%A8%A1%E5%BC%8F"><span class="nav-text">发布-订阅模式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%81%B6%E7%84%B6"><span class="nav-text">实现的偶然</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%8E%E6%A0%B7%E6%B7%B1%E6%80%9D%E7%86%9F%E8%99%91%E7%9A%84%E7%BC%96%E7%A8%8B"><span class="nav-text">怎样深思熟虑的编程</span></a></li></ol></li></ol>
     </div>
 </div>
 
@@ -901,7 +933,7 @@
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Intro"><span class="nav-text">Intro</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Goals"><span class="nav-text">Goals</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%89%B9%E5%88%A4%E6%80%A7%E6%80%9D%E7%BB%B4"><span class="nav-text">批判性思维</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Tips"><span class="nav-text">Tips</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-philosophy"><span class="nav-text">A pragmatic philosophy</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-approach"><span class="nav-text">A pragmatic approach</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#The-Basic-Tools"><span class="nav-text">The Basic Tools</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Pragmatic-Paranoia"><span class="nav-text">Pragmatic Paranoia</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Bend-or-Break"><span class="nav-text">Bend, or Break</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B0%83%E8%AF%95"><span class="nav-text">调试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E5%BF%83%E7%90%86%E5%AD%A6"><span class="nav-text">调试的心理学</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E6%80%9D%E7%BB%B4%E6%96%B9%E5%BC%8F"><span class="nav-text">调试的思维方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E4%BD%95%E5%A4%84%E5%BC%80%E5%A7%8B"><span class="nav-text">从何处开始</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%A0%E6%88%90%E6%83%8A%E8%AE%B6%E7%9A%84%E8%A6%81%E7%B4%A0"><span class="nav-text">造成惊讶的要素</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Others"><span class="nav-text">Others</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8"><span class="nav-text">代码生成器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%89%E5%90%88%E7%BA%A6%E8%AE%BE%E8%AE%A1"><span class="nav-text">按合约设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B5%8C%E5%A5%97%E7%9A%84%E5%88%86%E9%85%8D"><span class="nav-text">嵌套的分配</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%87%BD%E6%95%B0%E7%9A%84%E5%BE%97%E5%A2%A8%E5%BF%92%E8%80%B3%E6%B3%95%E5%88%99"><span class="nav-text">函数的得墨忒耳法则</span></a></li></ol></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Intro"><span class="nav-text">Intro</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Goals"><span class="nav-text">Goals</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%89%B9%E5%88%A4%E6%80%A7%E6%80%9D%E7%BB%B4"><span class="nav-text">批判性思维</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Tips"><span class="nav-text">Tips</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-philosophy"><span class="nav-text">A pragmatic philosophy</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#A-pragmatic-approach"><span class="nav-text">A pragmatic approach</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#The-Basic-Tools"><span class="nav-text">The Basic Tools</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Pragmatic-Paranoia"><span class="nav-text">Pragmatic Paranoia</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Bend-or-Break"><span class="nav-text">Bend, or Break</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#While-You-Are-Coding"><span class="nav-text">While You Are Coding</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B0%83%E8%AF%95"><span class="nav-text">调试</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E5%BF%83%E7%90%86%E5%AD%A6"><span class="nav-text">调试的心理学</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95%E7%9A%84%E6%80%9D%E7%BB%B4%E6%96%B9%E5%BC%8F"><span class="nav-text">调试的思维方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E4%BD%95%E5%A4%84%E5%BC%80%E5%A7%8B"><span class="nav-text">从何处开始</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%A0%E6%88%90%E6%83%8A%E8%AE%B6%E7%9A%84%E8%A6%81%E7%B4%A0"><span class="nav-text">造成惊讶的要素</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Others"><span class="nav-text">Others</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81%E7%94%9F%E6%88%90%E5%99%A8"><span class="nav-text">代码生成器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%89%E5%90%88%E7%BA%A6%E8%AE%BE%E8%AE%A1"><span class="nav-text">按合约设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B5%8C%E5%A5%97%E7%9A%84%E5%88%86%E9%85%8D"><span class="nav-text">嵌套的分配</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%87%BD%E6%95%B0%E7%9A%84%E5%BE%97%E5%A2%A8%E5%BF%92%E8%80%B3%E6%B3%95%E5%88%99"><span class="nav-text">函数的得墨忒耳法则</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E5%B9%B6%E5%8F%91%E8%BF%9B%E8%A1%8C%E8%AE%BE%E8%AE%A1"><span class="nav-text">为并发进行设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%91%E5%B8%83-%E8%AE%A2%E9%98%85%E6%A8%A1%E5%BC%8F"><span class="nav-text">发布-订阅模式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%81%B6%E7%84%B6"><span class="nav-text">实现的偶然</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%8E%E6%A0%B7%E6%B7%B1%E6%80%9D%E7%86%9F%E8%99%91%E7%9A%84%E7%BC%96%E7%A8%8B"><span class="nav-text">怎样深思熟虑的编程</span></a></li></ol></li></ol>
     </div>
 </div>
 

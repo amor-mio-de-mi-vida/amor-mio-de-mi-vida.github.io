@@ -165,6 +165,18 @@
 </li>
 <li><p>Analyze Workflow to Improve Concurrency 分析工作流，以改善并发性<br>  我们需要容许并发，并考虑解除任何时间或次序上的依赖。这样做，我们可以获得灵活性， 并减少许多开发领域中的任何基于时间的依赖：工作流分析、架构、设计、还有部署。</p>
 </li>
+<li><p>Design Using Services 用服务进行设计<br>  在饥饿的消费者模型中，你用一些独立的消费者任务和 一个集中式工作队列取代中央调度 〈 154] 器。各个消费者任务从工作队列中抓取一项，并对其进行处理。当各个任务完成其工作时，就回 到队列抓取下一项。这样，如果任何特定的任务陷入停顿，其他任务可以利用这 一空闲，并且各 个组件都可按自己的步伐前进。每个组件都在时间上解除了与其他组件的耦合。</p>
+</li>
+<li><p>Always Design for Concurrency 总是为并发进行设计</p>
+</li>
+<li><p>Separate Views from Models 使视图与模型分离</p>
+</li>
+<li><p>Use Blackboards to Coordinate Workflow</p>
+</li>
+</ul>
+<h3 id="While-You-Are-Coding"><a href="#While-You-Are-Coding" class="headerlink" title="While You Are Coding"></a>While You Are Coding</h3><ul>
+<li>Don’t Program by Coincidence 不要靠巧合编程<br>  巧合可以在所有层面上让人误人歧途—从生成需求直到测试。特别是测试，充满了虚假的 因果关系和巧合的输出。很容易假定X是Y的原因，但正如我们之前所说的:不要假定，要证明。 在所有层面上，人们都在头脑里带着许多假定工作—一但这些假定很少被记人文档，而且在不同的开发者之间常常是冲突的。并非以明确的事实为基础的假定是所有项目的祸害。</li>
+<li></li>
 </ul>
 <h2 id="调试"><a href="#调试" class="headerlink" title="调试"></a>调试</h2><blockquote>
 <p>这是痛苦的事：<br>看着你自己的烦忧，并且知道<br>不是别人，而是你自己一人所致<br>——索福克勒斯：《埃阿斯》</p>
@@ -228,11 +240,37 @@
 <li>无论是谁分配的资源，它都应该负责解除该资源的分配</li>
 </ul>
 <h3 id="函数的得墨忒耳法则"><a href="#函数的得墨忒耳法则" class="headerlink" title="函数的得墨忒耳法则"></a>函数的得墨忒耳法则</h3><p>![[Pasted image 20241003142407.png]]<br>使用得墨忒耳法则将使你的代码适应性更好、更健壮，但也有代价 :作为“总承包人”，你的模块必须直接委托并管理全部子承包人，而不牵涉你的模块的客户。在实践中，这意味着你将 会编写大量包装方法，它们只是把请求转发给被委托者。这些包装方法既会带来运行时代价，也 会带来空间开销，在有些应用中，这可能会有重大影响— 甚至会让你无法承受。</p>
-<p>与任何技术 一样，你必须平衡你的特定应用的各种正面因素和负面因素。在数据库schema 设 计中，常常会为了改善性能而对schema进行“反规范化”:违反规范化规则，以换取速度。在这 里也可进行类似的折衷。事实上，通过反转得墨忒耳法则，使若干模块紧密耦合，你可以获得重 大的性能改进。只要对于那些被耦合在 一起的模块而言，这是众所周知的和可以接受的，你的设 计就没有问题。</p>
+<p>与任何技术一样，你必须平衡你的特定应用的各种正面因素和负面因素。在数据库schema 设 计中，常常会为了改善性能而对schema进行“反规范化”:违反规范化规则，以换取速度。在这 里也可进行类似的折衷。事实上，通过反转得墨忒耳法则，使若干模块紧密耦合，你可以获得重 大的性能改进。只要对于那些被耦合在 一起的模块而言，这是众所周知的和可以接受的，你的设计就没有问题。</p>
+<h3 id="为并发进行设计"><a href="#为并发进行设计" class="headerlink" title="为并发进行设计"></a>为并发进行设计</h3><p>首先，必须对任何全局或静态变量加以保护，使其免于并发访问。现在也许是问问你自己、 你最初为何需要全局变量的好时候。此外，不管调用的次序是什么，你都需要确保你给出的是一致的状态信息。例如，何时查询你的对象的状态才是有效的?如果你的对象在某些调用之间处在无效状态，你也许就是在依赖一个巧合:没有人会在那个时间点调用你的对象。<br>假定你有一个窗口子系统，其中的widget 是先创建，再显示在显示屏上，分两个步骤进行。在其显示出来之前，你不能设置 widget 中的状态。取决于代码的设置方式，你可能会依靠这样一个事实：在你将其显示在屏幕上之前，其他对象都不会使用已创建的widget。<br>但这在并发系统中可能并不为真。在被调用时，对象必须总是处在有效的状态中，而且它们可能会在最尴尬的时候被调用。你必须确保，在任何可能被调用的时刻，对象都处在有效的状态中。这 一问题常常出现在构造器与初始化例程分开定义的类中(构造器没有使对象进入已初始化状态)。</p>
+<h3 id="发布-订阅模式"><a href="#发布-订阅模式" class="headerlink" title="发布-订阅模式"></a>发布-订阅模式</h3><p>尽管在典型情况下，MVC是在GUI 开发的语境中教授的，它其实是一种通用的编程技术。 视图是对模型(也许是其子集)的一种解释——它无需是图形化的。控制器更是 一种协调机制， 不一定要与任何种类的输入设备有关。</p>
+<ul>
+<li>模型：表示目标对象的抽象数据模型。模型对任何视图或控制器都没有直接的了解。</li>
+<li>视图：解释模型的方式。它订阅模型中的变化和来自控制器的逻辑事件。</li>
+<li>控制器：控制视图、并向模型提供新数据的途径。它既向模型、也向视图发布事件。<br>黑板方法的 一些关键特性是:</li>
+<li>没有侦探需要知道其他任何侦探的存在—他们查看黑板，从中了解新的信息，并且加上他们的发现。</li>
+<li>侦探可能接受过不同的训练 ，具有不同程度的教育背景和专业经验，甚至有可能不是在同一 管辖区工作。他们都渴望破案，但这就是全部共同点。</li>
+<li>在这个过程中，不同的侦探可能会来来去去，并且工作班次也可能不同。</li>
+<li>对放在黑板上的内容没有什么限制。可以是图片、判断、物证，等等。<br>黑板。数据到达的次序无关紧要：在收到某项事实时，它可以触发适当的规则。反馈也很容易处理：任何规则集的输出都可以张贴到黑板上，并触发更为适用的规则。</li>
+</ul>
+<h3 id="实现的偶然"><a href="#实现的偶然" class="headerlink" title="实现的偶然"></a>实现的偶然</h3><ul>
+<li>它也许不是真的能工作——它也许只是看起来能工作。</li>
+<li>你依靠的边界条件也许只是一个偶然。在不同的情形下(或许是不同的屏幕分辨率)，它的表现可能就会不同。</li>
+<li>没有记入文档的行为可能会随着库的下一次发布而变化。</li>
+<li>多余的和不必要的调用会使你的代码变慢。</li>
+<li>多余的调用还会增加引人它们自己的新bug 的风险。<br>对于你编写给别人调用的代码，良好的模块化以及把实现隐藏在撰写了良好文档的小接口之后，这样 一些基本原则都能对你有帮助。</li>
+</ul>
+<h3 id="怎样深思熟虑的编程"><a href="#怎样深思熟虑的编程" class="headerlink" title="怎样深思熟虑的编程"></a>怎样深思熟虑的编程</h3><p>我们想要让编写代码所花的时间更少，想要尽可能在开发周期的早期抓住并修正错误，想要 在一开始就少制造错误。如果我们能深思熟虑地编程，那对我们会有所帮助:</p>
+<ul>
+<li>总是意识到你在做什么。</li>
+<li>不要盲目地编程。试图构建你不完全理解的应用，或是使用你不熟悉的技术，就是希望自己被巧合误导。</li>
+<li>按照计划行事，不管计划是在你的头脑中，在鸡尾酒餐巾的背面，还是在某个CASE 工具生成的墙那么大的输出结果上。</li>
+<li>依靠可靠的事物。不要依靠巧合或假定。如果你无法说出各种特定情形的区别，就假定是最坏的。</li>
+<li>为你的假定建立文档。“按合约设计” 有助于澄清你头脑中的假定，并且有助于把它们传达给别人。</li>
+<li>不要只是测试你的代码，还要测试你的假定。不要猜测;要实际尝试它。编写断言测试你的假设。如果你的断言是对的，你就改善了代码中的文档。如果你发现你的假定是错的，那么就为自己庆幸吧。</li>
+<li>为你的工作划分优先级。把时间花在重要的方面;很有可能，它们是最难的部分。如果你的基本原则或基础设施不正确，再花哨的铃声和又哨也是没有用的。</li>
+<li>不要做历史的奴隶。不要让已有的代码支配将来的代码。如果不再适用，所有的代码都可被替换。即使是在一个程序中，也不要让你已经做完的事情约束你下一步要做的事情 —— 准备好进行重构。这一决策可能会影响项目的进度。我们的假定是其影响将小于不进行改动造成的影响”。<br>所以下次有什么东西看起来能工作，而你却不知道为什么，要确定它不是巧合。</li>
+</ul>
 ]]></content>
-      <categories>
-        <category>The Pragmatic Programmer</category>
-      </categories>
       <tags>
         <tag>book</tag>
       </tags>
@@ -678,8 +716,66 @@
       </tags>
   </entry>
   <entry>
+    <title>Ideas</title>
+    <url>/2024/10/04/paper/Ideas/</url>
+    <content><![CDATA[<p>**How should software systems be designed to support the full machine learning lifecycle, from programming interfaces and data preprocessing to output interpretation, debugging and monitoring? **</p>
+<ul>
+<li>How can we enable users to quickly “program” the modern machine learning stack through emerging interfaces such as manipulating or labeling training data, imposing simple priors or constraints, or defining loss functions?</li>
+<li>How can we enable developers to define and measure ML models, architectures, and systems in higher-level ways?</li>
+<li>How can we support efficient development, monitoring, interpretation, debugging, adaptation, tuning, and overall maintenance of production ML applications - including not just models, but the data, features, labels, and other inputs that define them?</li>
+</ul>
+<p><strong>How should hardware systems be designed for machine learning?</strong></p>
+<ul>
+<li>How can we develop specialized, heterogeneous hardware for training and deploying machine learning models, fit to their new operation sets and data access patterns?</li>
+<li>How can we take advantage of the stochastic nature of ML workloads to discover new trade-offs with respect to precision, stability, fidelity, and more?</li>
+<li>How should distributed systems be designed to support ML training and serving?</li>
+</ul>
+<p><strong>How should machine learning systems to be designed to satisfy metrics beyond predictive accuracy such as power and memory efficiency, accessibility, cost, latency, privacy, security, fairness, and interpretability?</strong></p>
+<ul>
+<li><p>How can machine learning algorithms and systems be designed for device constrains such as power, latency, and memory limits?</p>
+</li>
+<li><p>How can ML systems be designed to support full-stack privacy and security guarantees, including, e.g., federated learning and other similar settings?</p>
+</li>
+<li><p>How can we increase the accessibility of ML, to empower an increasingly broad range of users who may be neither ML nor systems experts?</p>
+</li>
+<li><p>部署问题：随着机器学习在越来越多样化和任务关键性的方式中得到使用，一系列系统范围内的关切变得越来越普遍。这些包括对抗性影响或其他虚假因素的鲁棒性；更广泛考虑的安全性；隐私和安全性，尤其是随着敏感数据的越来越多使用；可解释性，因为法律和操作上越来越需要；公平性，因为机器学习算法开始对我们的日常生活产生重大影响；以及许多其他类似的关切。</p>
+</li>
+<li><p>成本：最初默认的解决方案是在ImageNet上学习CNN，其计算成本为2300美元，训练时间为13天。仅对大量训练数据进行标注的成本就可能高达数十万到数百万美元。以其他指标（如延迟或功率）衡量，降低成本对于越来越多的设备和生产部署配置也至关重要。</p>
+</li>
+<li><p>可访问性：随着越来越多的人急于将机器学习用于实际生产目的——包括大学里大型新项目培养的一批新一代多语言数据科学家——机器学习系统需要能够被没有博士学位水平的机器学习和系统专业知识的开发者和组织使用。</p>
+</li>
+</ul>
+]]></content>
+      <tags>
+        <tag>paper</tag>
+        <tag>idea</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Vim</title>
+    <url>/2024/10/03/tools/Vim/</url>
+    <content><![CDATA[<p><img  
+                       lazyload
+                       alt="image"
+                       data-src="/images/Pasted%20image%2020241003232510.png"
+                       
+                 ></p>
+
+
+	<div class="row">
+    <embed src="https://cdn.jsdelivr.net/gh/amor-mio-de-mi-vida/document/paper/MLSys-2024/MLSys-2024-hetegen-efficient-heterogeneous-parallel-inference-for-large-language-models-on-resource-constrained-devices-Paper-Conference.pdf" width="100%" height="550" type="application/pdf">
+	</div>
+
+
+]]></content>
+      <tags>
+        <tag>tools</tag>
+        <tag>Vim</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>tmux cheat sheet</title>
-    <url>/2024/10/03/tools/tmux%20cheat%20sheet/</url>
+    <url>/2024/10/03/tools/Tmux%20cheat%20sheet/</url>
     <content><![CDATA[<h2 id="Session"><a href="#Session" class="headerlink" title="Session"></a>Session</h2><h3 id="Start-a-new-session"><a href="#Start-a-new-session" class="headerlink" title="Start a new session"></a>Start a new session</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">tmux</span><br></pre></td></tr></table></figure>
 <figure class="highlight vim"><table><tr><td class="code"><pre><span class="line">:<span class="keyword">new</span></span><br></pre></td></tr></table></figure>
 <h3 id="Start-a-new-session-or-attach-to-an-existing-session-named-mysession"><a href="#Start-a-new-session-or-attach-to-an-existing-session-named-mysession" class="headerlink" title="Start a new session or attach to an existing session named mysession"></a>Start a new session or attach to an existing session named mysession</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">tmux new-session -A -s mysession</span><br></pre></td></tr></table></figure>
@@ -738,6 +834,57 @@
       <tags>
         <tag>tools</tag>
         <tag>tmux</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MLSys 2024</title>
+    <url>/2024/10/04/paper/MLSys%20paper/</url>
+    <content><![CDATA[<h2 id="MLSys-2024"><a href="#MLSys-2024" class="headerlink" title="MLSys 2024"></a>MLSys 2024</h2><ul>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/054de805fcceb78a201f5e9d53c85908-Abstract-Conference.html"  title="paper title">Punica: Multi-Tenant LoRA Serving<i class="fas fa-external-link-alt"></i></a> Lequn Chen, Zihao Ye, Yongji Wu, Danyang Zhuo, Luis Ceze, Arvind Krishnamurthy </li>
+<li><input disabled="" type="checkbox"> <ul>
+<li> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/096b1019463f34eb241e87cfce8dfe16-Abstract-Conference.html"  title="paper title">ACROBAT: Optimizing Auto-batching of Dynamic Deep Learning at Compile Time<i class="fas fa-external-link-alt"></i></a> Pratik Fegade, Tianqi Chen, Phillip Gibbons, Todd Mowry</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/0badcb4e95306df76a719409155e46e8-Abstract-Conference.html"  title="paper title">HeteroSwitch: Characterizing and Taming System-Induced Data Heterogeneity in Federated Learning<i class="fas fa-external-link-alt"></i></a> Gyudong Kim, Mehdi Ghasemi, Soroush Heidari, Seungryong Kim, Young Geun Kim, Sarma Vrudhula, Carole-Jean Wu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/136b9a13861308c8948cd308ccd02658-Abstract-Conference.html"  title="paper title">JIT-Q: Just-in-time Quantization with Processing-In-Memory for Efficient ML Training<i class="fas fa-external-link-alt"></i></a> Mohamed Ibrahim, Shaizeen Aga, Ada Li, Suchita Pati, Mahzabeen Islam</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/185087ea328b4f03ea8fd0c8aa96f747-Abstract-Conference.html"  title="paper title">Schrodinger’s FP Training Neural Networks with Dynamic Floating-Point Containers<i class="fas fa-external-link-alt"></i></a> Milos Nikolic, Enrique Torres Sanchez, Jiahui Wang, Ali Hadi Zadeh, Mostafa Mahmoud, Ameer Abdelhadi, Kareem Ibrahim, Andreas Moshovos</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/339caf45a6fa281cae8adc6465343464-Abstract-Conference.html"  title="paper title">Lancet: Accelerating Mixture-of-Experts Training via Whole Graph Computation-Communication Overlapping<i class="fas fa-external-link-alt"></i></a> Chenyu Jiang, Ye Tian, Zhen Jia, Shuai Zheng, Chuan Wu, Yida Wang</li>
+<li><input disabled="" type="checkbox">  <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/42a452cbafa9dd64e9ba4aa95cc1ef21-Abstract-Conference.html"  title="paper title">AWQ: Activation-aware Weight Quantization for On-Device LLM Compression and Acceleration<i class="fas fa-external-link-alt"></i></a> Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao, Xingyu Dang, Chuang Gan, Song Han</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/45c1f6a8cbf2da59ebf2c802b4f742cd-Abstract-Conference.html"  title="paper title">DiffusionPipe: Training Large Diffusion Models with Efficient Pipelines<i class="fas fa-external-link-alt"></i></a> Ye Tian, Zhen Jia, Ziyue Luo, Yida Wang, Chuan Wu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/48fecef47b19fe501d27d338b6d52582-Abstract-Conference.html"  title="paper title">Keyformer: KV Cache reduction through key tokens selection for Efficient Generative Inference<i class="fas fa-external-link-alt"></i></a> Muhammad Adnan, Akhil Arunkumar, Gaurav Jain, Prashant Nair, Ilya Soloveychik, Purushotham Kamath</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/4e3157021c5f833bb2204081f1dda573-Abstract-Conference.html"  title="paper title">Accelerating ReLU for MPC-Based Private Inference with a Communication-Efficient Sign Estimation<i class="fas fa-external-link-alt"></i></a> Kiwan Maeng, G. Edward Suh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5321b1dabcd2be188d796c21b733e8c7-Abstract-Conference.html"  title="paper title">FlashDecoding++: Faster Large Language Model Inference with Asynchronization, Flat GEMM Optimization, and Heuristics<i class="fas fa-external-link-alt"></i></a> Ke Hong, Guohao Dai, Jiaming Xu, Qiuli Mao, Xiuhong Li, Jun Liu, kangdi chen, Yuhan Dong, Yu Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5431dca75a8d2abc1fb51e89e8324f10-Abstract-Conference.html"  title="paper title">HeteGen: Efficient Heterogeneous Parallel Inference for Large Language Models on Resource-Constrained Devices<i class="fas fa-external-link-alt"></i></a> ZHAO XUANLEI, Bin Jia, Haotian Zhou, Ziming Liu, Shenggan Cheng, Yang You</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/554e056fe2b6d9fd27ffcd3367ae1267-Abstract-Conference.html"  title="paper title">CloudEval-YAML: A Practical Benchmark for Cloud Configuration Generation<i class="fas fa-external-link-alt"></i></a> Yifei Xu, Yuning Chen, Xumiao Zhang, Xianshang Lin, Pan Hu, Yunfei Ma, Songwu Lu, Wan Du, Zhuoqing Mao, Ennan Zhai, Dennis Cai</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5edb57c05c81d04beb716ef1d542fe9e-Abstract-Conference.html"  title="paper title">Atom: Low-Bit Quantization for Efficient and Accurate LLM Serving<i class="fas fa-external-link-alt"></i></a> Yilong Zhao, Chien-Yu Lin, Kan Zhu, Zihao Ye, Lequn Chen, Size Zheng, Luis Ceze, Arvind Krishnamurthy, Tianqi Chen, Baris Kasikci</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/621d0fd41c720ab252e178b77c200d90-Abstract-Conference.html"  title="paper title">ACCURATE LOW-DEGREE POLYNOMIAL APPROXIMATION OF NON-POLYNOMIAL OPERATORS FOR FAST PRIVATE INFERENCE IN HOMOMORPHIC ENCRYPTION<i class="fas fa-external-link-alt"></i></a> Jingtian Dang, Jianming Tong, Anupam Golder, Cong “Callie” Hao, Arijit Raychowdhury, Tushar Krishna</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/698cfaf72a208aef2e78bcac55b74328-Abstract-Conference.html"  title="paper title">SiDA: Sparsity-Inspired Data-Aware Serving for Efficient and Scalable Large Mixture-of-Experts Models<i class="fas fa-external-link-alt"></i></a> Zhixu Du, Shiyu Li, Yuhao Wu, Xiangyu Jiang, Jingwei Sun, Qilin Zheng, Yongkai Wu, Ang Li, Hai Li, Yiran Chen</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/71381211d0abef73ed1887b83c4547b1-Abstract-Conference.html"  title="paper title">Does Compressing Activations Help Model Parallel Training?<i class="fas fa-external-link-alt"></i></a> Song Bian, Dacheng Li, Hongyi Wang, Eric Xing, Shivaram Venkataraman</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/75bb91b908e6924763c9f2bbe87e921e-Abstract-Conference.html"  title="paper title">Distributed Matrix-Based Sampling for Graph Neural Network Training<i class="fas fa-external-link-alt"></i></a> Alok Tripathy, Katherine Yelick, Aydin Buluc</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/78834433edc3291f4c6cbbd2759324db-Abstract-Conference.html"  title="paper title">Disaggregated Multi-Tower: Topology-aware Modeling Technique for Efficient Large Scale Recommendation<i class="fas fa-external-link-alt"></i></a> Liang Luo, Buyun Zhang, Michael Tsang, Yinbin Ma, Ching-Hsiang Chu, Yuxin Chen, Shen Li, Yuchen Hao, Yanli Zhao, Guna Lakshminarayanan, Ellie Wen, Jongsoo Park, Dheevatsa Mudigere, Maxim Naumov</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/87eaaa8605a1a472d9a9756e7500517b-Abstract-Conference.html"  title="paper title">VQPy: An Object-Oriented Approach to Modern Video Analytics<i class="fas fa-external-link-alt"></i></a> Shan Yu, Zhenting Zhu, Yu Chen, Hanchen Xu, Pengzhan Zhao, Yang Wang, Arthi Padmanabhan, Hugo Latapie, Harry Xu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/906419cd502575b617cc489a1a696a67-Abstract-Conference.html"  title="paper title">SLoRA: Scalable Serving of Thousands of LoRA Adapters<i class="fas fa-external-link-alt"></i></a> Ying Sheng, Shiyi Cao, Dacheng Li, Coleman Hooper, Nicholas Lee, Shuo Yang, Christopher Chou, Banghua Zhu, Lianmin Zheng, Kurt Keutzer, Joseph Gonzalez, Ion Stoica</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/9069a8976ff06f6443e7f4172990a580-Abstract-Conference.html"  title="paper title">L-GreCo: Layerwise-adaptive Gradient Compression For Efficient Data-parallel Deep Learning<i class="fas fa-external-link-alt"></i></a> Ilia Markov, Kaveh Alim, Elias Frantar, Dan Alistarh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/a66caa1703fe34705a4368c3014c1966-Abstract-Conference.html"  title="paper title">Prompt Cache: Modular Attention Reuse for Low-Latency Inference<i class="fas fa-external-link-alt"></i></a> In Gim, Guojun Chen, Seung-seob Lee, Nikhil Sarda, Anurag Khandelwal, Lin Zhong</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b0131b6ee02a00b03fc3320176fec8f5-Abstract-Conference.html"  title="paper title">Fine-Tuning Language Models Using Formal Methods Feedback: A Use Case in Autonomous Systems<i class="fas fa-external-link-alt"></i></a> Yunhao Yang, Neel P. Bhatt, Tyler Ingebrand, William Ward, Steven Carr, Atlas Wang, Ufuk Topcu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b74a8de47d2b3c928360e0a011f48351-Abstract-Conference.html"  title="paper title">VIDUR: A LARGE-SCALE SIMULATION FRAMEWORK FOR LLM INFERENCE<i class="fas fa-external-link-alt"></i></a> Amey Agrawal, Nitin Kedia, Jayashree Mohan, Ashish Panwar, Nipun Kwatra, Bhargav Gulavani, Ramachandran Ramjee, Alexey Tumanov</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b8bf2c0dd0b48511889b7d3b2c5fc8f5-Abstract-Conference.html"  title="paper title">Torch2Chip: An End-to-end Customizable Deep Neural Network Compression and Deployment Toolkit for Prototype Hardware Accelerator Design<i class="fas fa-external-link-alt"></i></a> Jian Meng, Yuan Liao, Anupreetham Anupreetham, Ahmed Hasssan, Shixing Yu, Han-sok Suh, Xiaofeng Hu, Jae-sun Seo</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/bbb7506579431a85861a05fff048d3e1-Abstract-Conference.html"  title="paper title">Q-Hitter: A Better Token Oracle for Efficient LLM Inference via Sparse-Quantized KV Cache<i class="fas fa-external-link-alt"></i></a> Zhenyu Zhang, Shiwei Liu, Runjin Chen, Bhavya Kailkhura, Beidi Chen, Atlas Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/bbd7d8bd780fcf7143add2317ba04638-Abstract-Conference.html"  title="paper title">FedTrans: Efficient Federated Learning via Multi-Model Transformation<i class="fas fa-external-link-alt"></i></a> Yuxuan Zhu, Jiachen Liu, Mosharaf Chowdhury, Fan Lai</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c2a0e26dd9ee7d57e92bb1c24b39659a-Abstract-Conference.html"  title="paper title">LIFL: A Lightweight, Event-driven Serverless Platform for Federated Learning<i class="fas fa-external-link-alt"></i></a> Shixiong Qi, K. K. Ramakrishnan, Myungjin Lee</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c66a9db149261435664284a20b6f1d42-Abstract-Conference.html"  title="paper title">Proteus: Preserving Model Confidentiality during Graph Optimizations<i class="fas fa-external-link-alt"></i></a> Yubo Gao, Maryam Haghifam, Christina Giannoula, Renbo Tu, Gennady Pekhimenko, Nandita Vijaykumar</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c74b624843218d9b6713fcf299d6d5e4-Abstract-Conference.html"  title="paper title">QMoE: Sub-1-Bit Compression of Trillion Parameter Models<i class="fas fa-external-link-alt"></i></a> Elias Frantar, Dan Alistarh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/d5a655b8b373737b4f2aea8f78e5e754-Abstract-Conference.html"  title="paper title">vMCU: Coordinated Memory Management and Kernel Optimization for DNN Inference on MCUs<i class="fas fa-external-link-alt"></i></a> Size Zheng, Renze Chen, Meng Li, Zihao Ye, Luis Ceze, Yun Liang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/dcb38c6ad7911842ab31081be9540b89-Abstract-Conference.html"  title="paper title">UniDM: A Unified Framework for Data Manipulation with Large Language Models<i class="fas fa-external-link-alt"></i></a> Yichen Qian, Yongyi He, Rong Zhu, Jintao Huang, Zhijian Ma, Haibin Wang, Yaohua Wang, Xiuyu Sun, Defu Lian, Bolin Ding, Jingren Zhou</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/dea9b4b6f55ae611c54065d6fc750755-Abstract-Conference.html"  title="paper title">Efficient Post-training Quantization with FP8 Formats<i class="fas fa-external-link-alt"></i></a> Haihao Shen, Naveen Mellempudi, Xin He, Qun Gao, Chang Wang, Mengni Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/eb261df4322a8bd0a73093c4d8a0d02d-Abstract-Conference.html"  title="paper title">COMET: Neural Cost Model Explanation Framework<i class="fas fa-external-link-alt"></i></a> Isha Chaudhary, Alex Renda, Charith Mendis, Gagandeep Singh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/f03cb785864596fa5901f1359d23fd81-Abstract-Conference.html"  title="paper title">On Latency Predictors for Neural Architecture Search<i class="fas fa-external-link-alt"></i></a> Yash Akhauri, Mohamed Abdelfattah</li>
+<li><input disabled="" type="checkbox"> <a class="link"   href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/f502981cbe221d857ad409450a7917c3-Abstract-Conference.html"  title="paper title">FLASH: Fast Model Adaptation in ML-Centric Cloud Platforms<i class="fas fa-external-link-alt"></i></a> Haoran Qiu, Weichao Mao, Archit Patke, Shengkun Cui, Chen Wang, Hubertus Franke, Zbigniew Kalbarczyk, Tamer Basar, Ravi Iyer</li>
+</ul>
+]]></content>
+      <tags>
+        <tag>paper</tag>
+        <tag>idea</tag>
       </tags>
   </entry>
 </search>

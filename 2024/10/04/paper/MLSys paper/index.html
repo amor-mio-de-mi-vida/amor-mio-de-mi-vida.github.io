@@ -9,7 +9,7 @@
     
     <title>
         
-            1 Learning the Basics |
+            MLSys 2024 |
         
         Hesen&#39;s Blog
     </title>
@@ -267,7 +267,7 @@
             <div class="post-content-bottom border-box">
                 
                     <div class="post-title">
-                        1 Learning the Basics
+                        MLSys 2024
                     </div>
                 
 
@@ -295,34 +295,25 @@
         
             <span class="meta-info-item post-create-date">
                 <i class="icon fa-solid fa-calendar-plus"></i>&nbsp;
-                <span class="datetime">2024-10-02 16:51:12</span>
+                <span class="datetime">2024-10-04 18:34:44</span>
             </span>
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Wed Oct 02 2024 20:44:01 GMT+0800">2024-10-02 20:44:01</span>
+                <span class="datetime" data-updated="Sat Oct 05 2024 16:15:58 GMT+0800">2024-10-05 16:15:58</span>
             </span>
         
 
-        
-            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
-                <ul class="post-category-ul">
-                    
-                            <li class="category-item"><a href="/categories/Authoring-Gradle-Builds/">Authoring Gradle Builds</a></li>
-                        
-                    
-                </ul>
-            </span>
         
 
         
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
                         
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/gradle/">gradle</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/idea/">idea</a></li>
                         
                     
                 </ul>
@@ -332,7 +323,7 @@
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>817 Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>902 Words</span>
             </span>
         
         
@@ -359,143 +350,49 @@
                     
 
                     
-                         <h2 id="Gradle-Directories"><a href="#Gradle-Directories" class="headerlink" title="Gradle Directories"></a>Gradle Directories</h2><p>Gradle uses two main directories to perform and manage its work: the Gradle User Home directory and the Project Root directory.<br>![[Pasted image 20241002165520.png]]</p>
-<h3 id="Gradle-User-Home-directory"><a href="#Gradle-User-Home-directory" class="headerlink" title="Gradle User Home directory"></a>Gradle User Home directory</h3><p>By default, the Gradle User Home (<code>~/.gradle</code> or <code>C:\Users\&lt;USERNAME&gt;\.gradle</code>) stores global configuration properties, initialization scripts, caches, and log files.</p>
-<h2 id="Build-Lifecycle"><a href="#Build-Lifecycle" class="headerlink" title="Build Lifecycle"></a>Build Lifecycle</h2><h2 id="Writing-Settings-Files"><a href="#Writing-Settings-Files" class="headerlink" title="Writing Settings Files"></a>Writing Settings Files</h2><p>The settings file is the entry point of every Gradle build.<br>![[Pasted image 20241002165822.png]]<br>As the settings script executes, it configures this <code>Settings</code>. Therefore, the <em>settings file</em> defines the <code>Settings</code> object.</p>
-<p>Many top-level properties and blocks in a settings script are part of the Settings API.</p>
-<p>The following table lists a few commonly used properties:</p>
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>buildCache</code></td>
-<td>The build cache configuration.</td>
-</tr>
-<tr>
-<td><code>plugins</code></td>
-<td>The container of plugins that have been applied to the settings.</td>
-</tr>
-<tr>
-<td><code>rootDir</code></td>
-<td>The root directory of the build. The root directory is the project directory of the root project.</td>
-</tr>
-<tr>
-<td><code>rootProject</code></td>
-<td>The root project of the build.</td>
-</tr>
-<tr>
-<td><code>settings</code></td>
-<td>Returns this settings object.</td>
-</tr>
-</tbody></table>
-<p>The following table lists a few commonly used methods:</p>
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>include()</code></td>
-<td>Adds the given projects to the build.</td>
-</tr>
-<tr>
-<td><code>includeBuild()</code></td>
-<td>Includes a build at the specified path to the composite build.</td>
-</tr>
-</tbody></table>
-<h2 id="Write-Build-Scripts"><a href="#Write-Build-Scripts" class="headerlink" title="Write Build Scripts"></a>Write Build Scripts</h2><p>![[Pasted image 20241002170658.png]]<br>A <strong>build script</strong> configures a <strong>project</strong> and is associated with an object of type Project.</p>
-<p>The following table lists a few commonly used properties:</p>
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Type</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>name</code></td>
-<td><code>String</code></td>
-<td>The name of the project directory.</td>
-</tr>
-<tr>
-<td><code>path</code></td>
-<td><code>String</code></td>
-<td>The fully qualified name of the project.</td>
-</tr>
-<tr>
-<td><code>description</code></td>
-<td><code>String</code></td>
-<td>A description for the project.</td>
-</tr>
-<tr>
-<td><code>dependencies</code></td>
-<td><code>DependencyHandler</code></td>
-<td>Returns the dependency handler of the project.</td>
-</tr>
-<tr>
-<td><code>repositories</code></td>
-<td><code>RepositoryHandler</code></td>
-<td>Returns the repository handler of the project.</td>
-</tr>
-<tr>
-<td><code>layout</code></td>
-<td><code>ProjectLayout</code></td>
-<td>Provides access to several important locations for a project.</td>
-</tr>
-<tr>
-<td><code>group</code></td>
-<td><code>Object</code></td>
-<td>The group of this project.</td>
-</tr>
-<tr>
-<td><code>version</code></td>
-<td><code>Object</code></td>
-<td>The version of this project.</td>
-</tr>
-</tbody></table>
-<p>The following table lists a few commonly used methods:</p>
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>uri()</code></td>
-<td>Resolves a file path to a URI, relative to the project directory of this project.</td>
-</tr>
-<tr>
-<td><code>task()</code></td>
-<td>Creates a Task with the given name and adds it to this project.</td>
-</tr>
-</tbody></table>
-<h2 id="Using-Tasks"><a href="#Using-Tasks" class="headerlink" title="Using Tasks"></a>Using Tasks</h2><p>The work that Gradle can do on a project is defined by one or more <em>tasks</em>.<br>![[Pasted image 20241002172201.png]]<br>Gradle provides several default tasks for a project, which are listed by running</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew tasks</span><br></pre></td></tr></table></figure>
+                         <h2 id="MLSys-2024"><a href="#MLSys-2024" class="headerlink" title="MLSys 2024"></a>MLSys 2024</h2><ul>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/054de805fcceb78a201f5e9d53c85908-Abstract-Conference.html"  title="paper title">Punica: Multi-Tenant LoRA Serving<i class="fas fa-external-link-alt"></i></a> Lequn Chen, Zihao Ye, Yongji Wu, Danyang Zhuo, Luis Ceze, Arvind Krishnamurthy </li>
+<li><input disabled="" type="checkbox"> <ul>
+<li> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/096b1019463f34eb241e87cfce8dfe16-Abstract-Conference.html"  title="paper title">ACROBAT: Optimizing Auto-batching of Dynamic Deep Learning at Compile Time<i class="fas fa-external-link-alt"></i></a> Pratik Fegade, Tianqi Chen, Phillip Gibbons, Todd Mowry</li>
+</ul>
+</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/0badcb4e95306df76a719409155e46e8-Abstract-Conference.html"  title="paper title">HeteroSwitch: Characterizing and Taming System-Induced Data Heterogeneity in Federated Learning<i class="fas fa-external-link-alt"></i></a> Gyudong Kim, Mehdi Ghasemi, Soroush Heidari, Seungryong Kim, Young Geun Kim, Sarma Vrudhula, Carole-Jean Wu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/136b9a13861308c8948cd308ccd02658-Abstract-Conference.html"  title="paper title">JIT-Q: Just-in-time Quantization with Processing-In-Memory for Efficient ML Training<i class="fas fa-external-link-alt"></i></a> Mohamed Ibrahim, Shaizeen Aga, Ada Li, Suchita Pati, Mahzabeen Islam</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/185087ea328b4f03ea8fd0c8aa96f747-Abstract-Conference.html"  title="paper title">Schrodinger’s FP Training Neural Networks with Dynamic Floating-Point Containers<i class="fas fa-external-link-alt"></i></a> Milos Nikolic, Enrique Torres Sanchez, Jiahui Wang, Ali Hadi Zadeh, Mostafa Mahmoud, Ameer Abdelhadi, Kareem Ibrahim, Andreas Moshovos</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/339caf45a6fa281cae8adc6465343464-Abstract-Conference.html"  title="paper title">Lancet: Accelerating Mixture-of-Experts Training via Whole Graph Computation-Communication Overlapping<i class="fas fa-external-link-alt"></i></a> Chenyu Jiang, Ye Tian, Zhen Jia, Shuai Zheng, Chuan Wu, Yida Wang</li>
+<li><input disabled="" type="checkbox">  <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/42a452cbafa9dd64e9ba4aa95cc1ef21-Abstract-Conference.html"  title="paper title">AWQ: Activation-aware Weight Quantization for On-Device LLM Compression and Acceleration<i class="fas fa-external-link-alt"></i></a> Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao, Xingyu Dang, Chuang Gan, Song Han</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/45c1f6a8cbf2da59ebf2c802b4f742cd-Abstract-Conference.html"  title="paper title">DiffusionPipe: Training Large Diffusion Models with Efficient Pipelines<i class="fas fa-external-link-alt"></i></a> Ye Tian, Zhen Jia, Ziyue Luo, Yida Wang, Chuan Wu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/48fecef47b19fe501d27d338b6d52582-Abstract-Conference.html"  title="paper title">Keyformer: KV Cache reduction through key tokens selection for Efficient Generative Inference<i class="fas fa-external-link-alt"></i></a> Muhammad Adnan, Akhil Arunkumar, Gaurav Jain, Prashant Nair, Ilya Soloveychik, Purushotham Kamath</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/4e3157021c5f833bb2204081f1dda573-Abstract-Conference.html"  title="paper title">Accelerating ReLU for MPC-Based Private Inference with a Communication-Efficient Sign Estimation<i class="fas fa-external-link-alt"></i></a> Kiwan Maeng, G. Edward Suh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5321b1dabcd2be188d796c21b733e8c7-Abstract-Conference.html"  title="paper title">FlashDecoding++: Faster Large Language Model Inference with Asynchronization, Flat GEMM Optimization, and Heuristics<i class="fas fa-external-link-alt"></i></a> Ke Hong, Guohao Dai, Jiaming Xu, Qiuli Mao, Xiuhong Li, Jun Liu, kangdi chen, Yuhan Dong, Yu Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5431dca75a8d2abc1fb51e89e8324f10-Abstract-Conference.html"  title="paper title">HeteGen: Efficient Heterogeneous Parallel Inference for Large Language Models on Resource-Constrained Devices<i class="fas fa-external-link-alt"></i></a> ZHAO XUANLEI, Bin Jia, Haotian Zhou, Ziming Liu, Shenggan Cheng, Yang You</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/554e056fe2b6d9fd27ffcd3367ae1267-Abstract-Conference.html"  title="paper title">CloudEval-YAML: A Practical Benchmark for Cloud Configuration Generation<i class="fas fa-external-link-alt"></i></a> Yifei Xu, Yuning Chen, Xumiao Zhang, Xianshang Lin, Pan Hu, Yunfei Ma, Songwu Lu, Wan Du, Zhuoqing Mao, Ennan Zhai, Dennis Cai</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/5edb57c05c81d04beb716ef1d542fe9e-Abstract-Conference.html"  title="paper title">Atom: Low-Bit Quantization for Efficient and Accurate LLM Serving<i class="fas fa-external-link-alt"></i></a> Yilong Zhao, Chien-Yu Lin, Kan Zhu, Zihao Ye, Lequn Chen, Size Zheng, Luis Ceze, Arvind Krishnamurthy, Tianqi Chen, Baris Kasikci</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/621d0fd41c720ab252e178b77c200d90-Abstract-Conference.html"  title="paper title">ACCURATE LOW-DEGREE POLYNOMIAL APPROXIMATION OF NON-POLYNOMIAL OPERATORS FOR FAST PRIVATE INFERENCE IN HOMOMORPHIC ENCRYPTION<i class="fas fa-external-link-alt"></i></a> Jingtian Dang, Jianming Tong, Anupam Golder, Cong “Callie” Hao, Arijit Raychowdhury, Tushar Krishna</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/698cfaf72a208aef2e78bcac55b74328-Abstract-Conference.html"  title="paper title">SiDA: Sparsity-Inspired Data-Aware Serving for Efficient and Scalable Large Mixture-of-Experts Models<i class="fas fa-external-link-alt"></i></a> Zhixu Du, Shiyu Li, Yuhao Wu, Xiangyu Jiang, Jingwei Sun, Qilin Zheng, Yongkai Wu, Ang Li, Hai Li, Yiran Chen</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/71381211d0abef73ed1887b83c4547b1-Abstract-Conference.html"  title="paper title">Does Compressing Activations Help Model Parallel Training?<i class="fas fa-external-link-alt"></i></a> Song Bian, Dacheng Li, Hongyi Wang, Eric Xing, Shivaram Venkataraman</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/75bb91b908e6924763c9f2bbe87e921e-Abstract-Conference.html"  title="paper title">Distributed Matrix-Based Sampling for Graph Neural Network Training<i class="fas fa-external-link-alt"></i></a> Alok Tripathy, Katherine Yelick, Aydin Buluc</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/78834433edc3291f4c6cbbd2759324db-Abstract-Conference.html"  title="paper title">Disaggregated Multi-Tower: Topology-aware Modeling Technique for Efficient Large Scale Recommendation<i class="fas fa-external-link-alt"></i></a> Liang Luo, Buyun Zhang, Michael Tsang, Yinbin Ma, Ching-Hsiang Chu, Yuxin Chen, Shen Li, Yuchen Hao, Yanli Zhao, Guna Lakshminarayanan, Ellie Wen, Jongsoo Park, Dheevatsa Mudigere, Maxim Naumov</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/87eaaa8605a1a472d9a9756e7500517b-Abstract-Conference.html"  title="paper title">VQPy: An Object-Oriented Approach to Modern Video Analytics<i class="fas fa-external-link-alt"></i></a> Shan Yu, Zhenting Zhu, Yu Chen, Hanchen Xu, Pengzhan Zhao, Yang Wang, Arthi Padmanabhan, Hugo Latapie, Harry Xu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/906419cd502575b617cc489a1a696a67-Abstract-Conference.html"  title="paper title">SLoRA: Scalable Serving of Thousands of LoRA Adapters<i class="fas fa-external-link-alt"></i></a> Ying Sheng, Shiyi Cao, Dacheng Li, Coleman Hooper, Nicholas Lee, Shuo Yang, Christopher Chou, Banghua Zhu, Lianmin Zheng, Kurt Keutzer, Joseph Gonzalez, Ion Stoica</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/9069a8976ff06f6443e7f4172990a580-Abstract-Conference.html"  title="paper title">L-GreCo: Layerwise-adaptive Gradient Compression For Efficient Data-parallel Deep Learning<i class="fas fa-external-link-alt"></i></a> Ilia Markov, Kaveh Alim, Elias Frantar, Dan Alistarh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/a66caa1703fe34705a4368c3014c1966-Abstract-Conference.html"  title="paper title">Prompt Cache: Modular Attention Reuse for Low-Latency Inference<i class="fas fa-external-link-alt"></i></a> In Gim, Guojun Chen, Seung-seob Lee, Nikhil Sarda, Anurag Khandelwal, Lin Zhong</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b0131b6ee02a00b03fc3320176fec8f5-Abstract-Conference.html"  title="paper title">Fine-Tuning Language Models Using Formal Methods Feedback: A Use Case in Autonomous Systems<i class="fas fa-external-link-alt"></i></a> Yunhao Yang, Neel P. Bhatt, Tyler Ingebrand, William Ward, Steven Carr, Atlas Wang, Ufuk Topcu</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b74a8de47d2b3c928360e0a011f48351-Abstract-Conference.html"  title="paper title">VIDUR: A LARGE-SCALE SIMULATION FRAMEWORK FOR LLM INFERENCE<i class="fas fa-external-link-alt"></i></a> Amey Agrawal, Nitin Kedia, Jayashree Mohan, Ashish Panwar, Nipun Kwatra, Bhargav Gulavani, Ramachandran Ramjee, Alexey Tumanov</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/b8bf2c0dd0b48511889b7d3b2c5fc8f5-Abstract-Conference.html"  title="paper title">Torch2Chip: An End-to-end Customizable Deep Neural Network Compression and Deployment Toolkit for Prototype Hardware Accelerator Design<i class="fas fa-external-link-alt"></i></a> Jian Meng, Yuan Liao, Anupreetham Anupreetham, Ahmed Hasssan, Shixing Yu, Han-sok Suh, Xiaofeng Hu, Jae-sun Seo</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/bbb7506579431a85861a05fff048d3e1-Abstract-Conference.html"  title="paper title">Q-Hitter: A Better Token Oracle for Efficient LLM Inference via Sparse-Quantized KV Cache<i class="fas fa-external-link-alt"></i></a> Zhenyu Zhang, Shiwei Liu, Runjin Chen, Bhavya Kailkhura, Beidi Chen, Atlas Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/bbd7d8bd780fcf7143add2317ba04638-Abstract-Conference.html"  title="paper title">FedTrans: Efficient Federated Learning via Multi-Model Transformation<i class="fas fa-external-link-alt"></i></a> Yuxuan Zhu, Jiachen Liu, Mosharaf Chowdhury, Fan Lai</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c2a0e26dd9ee7d57e92bb1c24b39659a-Abstract-Conference.html"  title="paper title">LIFL: A Lightweight, Event-driven Serverless Platform for Federated Learning<i class="fas fa-external-link-alt"></i></a> Shixiong Qi, K. K. Ramakrishnan, Myungjin Lee</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c66a9db149261435664284a20b6f1d42-Abstract-Conference.html"  title="paper title">Proteus: Preserving Model Confidentiality during Graph Optimizations<i class="fas fa-external-link-alt"></i></a> Yubo Gao, Maryam Haghifam, Christina Giannoula, Renbo Tu, Gennady Pekhimenko, Nandita Vijaykumar</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/c74b624843218d9b6713fcf299d6d5e4-Abstract-Conference.html"  title="paper title">QMoE: Sub-1-Bit Compression of Trillion Parameter Models<i class="fas fa-external-link-alt"></i></a> Elias Frantar, Dan Alistarh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/d5a655b8b373737b4f2aea8f78e5e754-Abstract-Conference.html"  title="paper title">vMCU: Coordinated Memory Management and Kernel Optimization for DNN Inference on MCUs<i class="fas fa-external-link-alt"></i></a> Size Zheng, Renze Chen, Meng Li, Zihao Ye, Luis Ceze, Yun Liang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/dcb38c6ad7911842ab31081be9540b89-Abstract-Conference.html"  title="paper title">UniDM: A Unified Framework for Data Manipulation with Large Language Models<i class="fas fa-external-link-alt"></i></a> Yichen Qian, Yongyi He, Rong Zhu, Jintao Huang, Zhijian Ma, Haibin Wang, Yaohua Wang, Xiuyu Sun, Defu Lian, Bolin Ding, Jingren Zhou</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/dea9b4b6f55ae611c54065d6fc750755-Abstract-Conference.html"  title="paper title">Efficient Post-training Quantization with FP8 Formats<i class="fas fa-external-link-alt"></i></a> Haihao Shen, Naveen Mellempudi, Xin He, Qun Gao, Chang Wang, Mengni Wang</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/eb261df4322a8bd0a73093c4d8a0d02d-Abstract-Conference.html"  title="paper title">COMET: Neural Cost Model Explanation Framework<i class="fas fa-external-link-alt"></i></a> Isha Chaudhary, Alex Renda, Charith Mendis, Gagandeep Singh</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/f03cb785864596fa5901f1359d23fd81-Abstract-Conference.html"  title="paper title">On Latency Predictors for Neural Architecture Search<i class="fas fa-external-link-alt"></i></a> Yash Akhauri, Mohamed Abdelfattah</li>
+<li><input disabled="" type="checkbox"> <a class="link"   target="_blank" rel="noopener" href="https://proceedings.mlsys.org/paper_files/paper/2024/hash/f502981cbe221d857ad409450a7917c3-Abstract-Conference.html"  title="paper title">FLASH: Fast Model Adaptation in ML-Centric Cloud Platforms<i class="fas fa-external-link-alt"></i></a> Haoran Qiu, Weichao Mao, Archit Patke, Shengkun Cui, Chen Wang, Hubertus Franke, Zbigniew Kalbarczyk, Tamer Basar, Ravi Iyer</li>
+</ul>
 
-<p>Tasks either come from <strong>build scripts</strong> or <strong>plugins</strong>. Once we apply a plugin to our project, such as the <code>application</code> plugin, additional tasks become available:</p>
-<p>To view information about a task, use </p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/gradlew <span class="built_in">help</span> --task &lt;task-name&gt;</span><br></pre></td></tr></table></figure>
-<blockquote>
-<p>The calls <code>doFirst</code> and <code>doLast</code> can be executed multiple times. They add an action to the beginning or the end of the task’s actions list. When the task executes, the actions in the action list are executed in order.</p>
-</blockquote>
-<h2 id="Writing-Tasks"><a href="#Writing-Tasks" class="headerlink" title="Writing Tasks"></a>Writing Tasks</h2><p>To create a task, inherit from the <code>DefaultTask</code> class and implement a <a target="_blank" rel="noopener" href="https://docs.gradle.org/current/javadoc/org/gradle/api/tasks/TaskAction.html"><code>@TaskAction</code></a> handler:</p>
-<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">val</span> file = File(<span class="string">&quot;myfile.txt&quot;</span>)</span><br><span class="line">        file.createNewFile()</span><br><span class="line">        file.writeText(<span class="string">&quot;HELLO FROM MY TASK&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>A task is <strong>registered</strong> in the build script using the <code>TaskContainer.register()</code> method, which allows it to be then used in the build logic.</p>
-<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">val</span> file = File(<span class="string">&quot;myfile.txt&quot;</span>)</span><br><span class="line">        file.createNewFile()</span><br><span class="line">        file.writeText(<span class="string">&quot;HELLO FROM MY TASK&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.register&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>)</span><br></pre></td></tr></table></figure>
-<p>Setting the <strong>group</strong> and <strong>description</strong> properties on your tasks can help users understand how to use your task:</p>
-<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">val</span> file = File(<span class="string">&quot;myfile.txt&quot;</span>)</span><br><span class="line">        file.createNewFile()</span><br><span class="line">        file.writeText(<span class="string">&quot;HELLO FROM MY TASK&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.register&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>, ) &#123;</span><br><span class="line">    group = <span class="string">&quot;custom&quot;</span></span><br><span class="line">    description = <span class="string">&quot;Create myfile.txt in the current directory&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>For the task to do useful work, it typically needs some <strong>inputs</strong>. A task typically produces <strong>outputs</strong>.</p>
-<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@Input</span></span><br><span class="line">    <span class="keyword">val</span> fileText = <span class="string">&quot;HELLO FROM MY TASK&quot;</span></span><br><span class="line"></span><br><span class="line">    <span class="meta">@Input</span></span><br><span class="line">    <span class="keyword">val</span> fileName = <span class="string">&quot;myfile.txt&quot;</span></span><br><span class="line"></span><br><span class="line">    <span class="meta">@OutputFile</span></span><br><span class="line">    <span class="keyword">val</span> myFile: File = File(fileName)</span><br><span class="line"></span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        myFile.createNewFile()</span><br><span class="line">        myFile.writeText(fileText)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.register&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>) &#123;</span><br><span class="line">    group = <span class="string">&quot;custom&quot;</span></span><br><span class="line">    description = <span class="string">&quot;Create myfile.txt in the current directory&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>A task is optionally <strong>configured</strong> in a build script using the <code>TaskCollection.named()</code> method.</p>
-<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@get:Input</span></span><br><span class="line">    <span class="keyword">abstract</span> <span class="keyword">val</span> fileText: Property&lt;String&gt;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Input</span></span><br><span class="line">    <span class="keyword">val</span> fileName = <span class="string">&quot;myfile.txt&quot;</span></span><br><span class="line"></span><br><span class="line">    <span class="meta">@OutputFile</span></span><br><span class="line">    <span class="keyword">val</span> myFile: File = File(fileName)</span><br><span class="line"></span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        myFile.createNewFile()</span><br><span class="line">        myFile.writeText(fileText.<span class="keyword">get</span>())</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.register&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>) &#123;</span><br><span class="line">    group = <span class="string">&quot;custom&quot;</span></span><br><span class="line">    description = <span class="string">&quot;Create myfile.txt in the current directory&quot;</span></span><br><span class="line">    fileText.convention(<span class="string">&quot;HELLO FROM THE CREATE FILE TASK METHOD&quot;</span>) <span class="comment">// Set convention</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.named&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>) &#123;</span><br><span class="line">    fileText.<span class="keyword">set</span>(<span class="string">&quot;HELLO FROM THE NAMED METHOD&quot;</span>) <span class="comment">// Override with custom message</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
                     
                 </div>
 
@@ -505,11 +402,11 @@
     <div class="copyright-info-content border-box">
         <div class="copyright-info-top border-box">
             <div class="copyright-post-title border-box text-ellipsis">
-                1 Learning the Basics
+                MLSys 2024
             </div>
 
             <div class="copyright-post-link border-box text-ellipsis">
-                2024/10/02/tools/Gradle/Authoring Gradle Builds/1 Learning the Basics/
+                2024/10/04/paper/MLSys paper/
             </div>
         </div>
 
@@ -525,7 +422,7 @@
                 <div class="type">
                     Published
                 </div>
-                <div class="content">2024-10-02 16:51</div>
+                <div class="content">2024-10-04 18:34</div>
             </div>
 
 
@@ -561,11 +458,11 @@
                             <ul class="post-tags-box border-box">
                                 
                                     <li class="tag-item border-box">
-                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/tools/">tools</a>
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/paper/">paper</a>
                                     </li>
                                 
                                     <li class="tag-item border-box">
-                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/gradle/">gradle</a>
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/idea/">idea</a>
                                     </li>
                                 
                             </ul>
@@ -604,31 +501,15 @@
                 
                     <div class="post-nav border-box">
                         
-                            <div class="prev-post">
-                                <a class="prev"
-                                   rel="prev"
-                                   href="/2024/10/03/tools/Tmux%20cheat%20sheet/"
-                                   title="tmux cheat sheet"
-                                >
-                                    <span class="left arrow-icon flex-center">
-                                        <i class="fas fa-chevron-left"></i>
-                                    </span>
-                                    <span class="title flex-center">
-                                        <span class="post-nav-title-item text-ellipsis">tmux cheat sheet</span>
-                                        <span class="post-nav-item">Prev posts</span>
-                                    </span>
-                                </a>
-                            </div>
-                        
                         
                             <div class="next-post">
                                 <a class="next"
                                    rel="next"
-                                   href="/2024/10/02/tools/Gradle/Gradle%20Basics/"
-                                   title="Gradle Basics"
+                                   href="/2024/10/04/paper/Ideas/"
+                                   title="Ideas"
                                 >
                                     <span class="title flex-center">
-                                        <span class="post-nav-title-item text-ellipsis">Gradle Basics</span>
+                                        <span class="post-nav-title-item text-ellipsis">Ideas</span>
                                         <span class="post-nav-item">Next posts</span>
                                     </span>
                                     <span class="right arrow-icon flex-center">
@@ -656,7 +537,7 @@
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Directories"><span class="nav-text">Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Gradle-User-Home-directory"><span class="nav-text">Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Lifecycle"><span class="nav-text">Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Settings-Files"><span class="nav-text">Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Write-Build-Scripts"><span class="nav-text">Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Using-Tasks"><span class="nav-text">Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Tasks"><span class="nav-text">Writing Tasks</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#MLSys-2024"><span class="nav-text">MLSys 2024</span></a></li></ol>
     </div>
 </div>
 
@@ -834,7 +715,7 @@
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Directories"><span class="nav-text">Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Gradle-User-Home-directory"><span class="nav-text">Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Lifecycle"><span class="nav-text">Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Settings-Files"><span class="nav-text">Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Write-Build-Scripts"><span class="nav-text">Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Using-Tasks"><span class="nav-text">Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Tasks"><span class="nav-text">Writing Tasks</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#MLSys-2024"><span class="nav-text">MLSys 2024</span></a></li></ol>
     </div>
 </div>
 
