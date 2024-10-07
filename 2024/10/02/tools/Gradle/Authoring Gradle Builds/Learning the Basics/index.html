@@ -332,7 +332,7 @@
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>817 Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>823 Words</span>
             </span>
         
         
@@ -359,9 +359,16 @@
                     
 
                     
-                         <h2 id="Gradle-Directories"><a href="#Gradle-Directories" class="headerlink" title="Gradle Directories"></a>Gradle Directories</h2><p>Gradle uses two main directories to perform and manage its work: the Gradle User Home directory and the Project Root directory.<br>![[Pasted image 20241002165520.png]]</p>
-<h3 id="Gradle-User-Home-directory"><a href="#Gradle-User-Home-directory" class="headerlink" title="Gradle User Home directory"></a>Gradle User Home directory</h3><p>By default, the Gradle User Home (<code>~/.gradle</code> or <code>C:\Users\&lt;USERNAME&gt;\.gradle</code>) stores global configuration properties, initialization scripts, caches, and log files.</p>
-<h2 id="Build-Lifecycle"><a href="#Build-Lifecycle" class="headerlink" title="Build Lifecycle"></a>Build Lifecycle</h2><h2 id="Writing-Settings-Files"><a href="#Writing-Settings-Files" class="headerlink" title="Writing Settings Files"></a>Writing Settings Files</h2><p>The settings file is the entry point of every Gradle build.<br>![[Pasted image 20241002165822.png]]<br>As the settings script executes, it configures this <code>Settings</code>. Therefore, the <em>settings file</em> defines the <code>Settings</code> object.</p>
+                         <h2 id="gradle-directories"><a class="markdownIt-Anchor" href="#gradle-directories"></a> Gradle Directories</h2>
+<p>Gradle uses two main directories to perform and manage its work: the Gradle User Home directory and the Project Root directory.<br />
+![[Pasted image 20241002165520.png]]</p>
+<h3 id="gradle-user-home-directory"><a class="markdownIt-Anchor" href="#gradle-user-home-directory"></a> Gradle User Home directory</h3>
+<p>By default, the Gradle User Home (<code>~/.gradle</code> or <code>C:\Users\&lt;USERNAME&gt;\.gradle</code>) stores global configuration properties, initialization scripts, caches, and log files.</p>
+<h2 id="build-lifecycle"><a class="markdownIt-Anchor" href="#build-lifecycle"></a> Build Lifecycle</h2>
+<h2 id="writing-settings-files"><a class="markdownIt-Anchor" href="#writing-settings-files"></a> Writing Settings Files</h2>
+<p>The settings file is the entry point of every Gradle build.<br />
+![[Pasted image 20241002165822.png]]<br />
+As the settings script executes, it configures this <code>Settings</code>. Therefore, the <em>settings file</em> defines the <code>Settings</code> object.</p>
 <p>Many top-level properties and blocks in a settings script are part of the Settings API.</p>
 <p>The following table lists a few commonly used properties:</p>
 <table>
@@ -371,7 +378,8 @@
 <th>Description</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td><code>buildCache</code></td>
 <td>The build cache configuration.</td>
 </tr>
@@ -391,7 +399,8 @@
 <td><code>settings</code></td>
 <td>Returns this settings object.</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
 <p>The following table lists a few commonly used methods:</p>
 <table>
 <thead>
@@ -400,7 +409,8 @@
 <th>Description</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td><code>include()</code></td>
 <td>Adds the given projects to the build.</td>
 </tr>
@@ -408,8 +418,11 @@
 <td><code>includeBuild()</code></td>
 <td>Includes a build at the specified path to the composite build.</td>
 </tr>
-</tbody></table>
-<h2 id="Write-Build-Scripts"><a href="#Write-Build-Scripts" class="headerlink" title="Write Build Scripts"></a>Write Build Scripts</h2><p>![[Pasted image 20241002170658.png]]<br>A <strong>build script</strong> configures a <strong>project</strong> and is associated with an object of type Project.</p>
+</tbody>
+</table>
+<h2 id="write-build-scripts"><a class="markdownIt-Anchor" href="#write-build-scripts"></a> Write Build Scripts</h2>
+<p>![[Pasted image 20241002170658.png]]<br />
+A <strong>build script</strong> configures a <strong>project</strong> and is associated with an object of type Project.</p>
 <p>The following table lists a few commonly used properties:</p>
 <table>
 <thead>
@@ -419,7 +432,8 @@
 <th>Description</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td><code>name</code></td>
 <td><code>String</code></td>
 <td>The name of the project directory.</td>
@@ -459,7 +473,8 @@
 <td><code>Object</code></td>
 <td>The version of this project.</td>
 </tr>
-</tbody></table>
+</tbody>
+</table>
 <p>The following table lists a few commonly used methods:</p>
 <table>
 <thead>
@@ -468,7 +483,8 @@
 <th>Description</th>
 </tr>
 </thead>
-<tbody><tr>
+<tbody>
+<tr>
 <td><code>uri()</code></td>
 <td>Resolves a file path to a URI, relative to the project directory of this project.</td>
 </tr>
@@ -476,17 +492,21 @@
 <td><code>task()</code></td>
 <td>Creates a Task with the given name and adds it to this project.</td>
 </tr>
-</tbody></table>
-<h2 id="Using-Tasks"><a href="#Using-Tasks" class="headerlink" title="Using Tasks"></a>Using Tasks</h2><p>The work that Gradle can do on a project is defined by one or more <em>tasks</em>.<br>![[Pasted image 20241002172201.png]]<br>Gradle provides several default tasks for a project, which are listed by running</p>
+</tbody>
+</table>
+<h2 id="using-tasks"><a class="markdownIt-Anchor" href="#using-tasks"></a> Using Tasks</h2>
+<p>The work that Gradle can do on a project is defined by one or more <em>tasks</em>.<br />
+![[Pasted image 20241002172201.png]]<br />
+Gradle provides several default tasks for a project, which are listed by running</p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./gradlew tasks</span><br></pre></td></tr></table></figure>
-
 <p>Tasks either come from <strong>build scripts</strong> or <strong>plugins</strong>. Once we apply a plugin to our project, such as the <code>application</code> plugin, additional tasks become available:</p>
-<p>To view information about a task, use </p>
+<p>To view information about a task, use</p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/gradlew <span class="built_in">help</span> --task &lt;task-name&gt;</span><br></pre></td></tr></table></figure>
 <blockquote>
 <p>The calls <code>doFirst</code> and <code>doLast</code> can be executed multiple times. They add an action to the beginning or the end of the task’s actions list. When the task executes, the actions in the action list are executed in order.</p>
 </blockquote>
-<h2 id="Writing-Tasks"><a href="#Writing-Tasks" class="headerlink" title="Writing Tasks"></a>Writing Tasks</h2><p>To create a task, inherit from the <code>DefaultTask</code> class and implement a <a target="_blank" rel="noopener" href="https://docs.gradle.org/current/javadoc/org/gradle/api/tasks/TaskAction.html"><code>@TaskAction</code></a> handler:</p>
+<h2 id="writing-tasks"><a class="markdownIt-Anchor" href="#writing-tasks"></a> Writing Tasks</h2>
+<p>To create a task, inherit from the <code>DefaultTask</code> class and implement a <a target="_blank" rel="noopener" href="https://docs.gradle.org/current/javadoc/org/gradle/api/tasks/TaskAction.html"><code>@TaskAction</code></a> handler:</p>
 <figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">val</span> file = File(<span class="string">&quot;myfile.txt&quot;</span>)</span><br><span class="line">        file.createNewFile()</span><br><span class="line">        file.writeText(<span class="string">&quot;HELLO FROM MY TASK&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>A task is <strong>registered</strong> in the build script using the <code>TaskContainer.register()</code> method, which allows it to be then used in the build logic.</p>
 <figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">CreateFileTask</span> : <span class="type">DefaultTask</span>() &#123;</span><br><span class="line">    <span class="meta">@TaskAction</span></span><br><span class="line">    <span class="function"><span class="keyword">fun</span> <span class="title">action</span><span class="params">()</span></span> &#123;</span><br><span class="line">        <span class="keyword">val</span> file = File(<span class="string">&quot;myfile.txt&quot;</span>)</span><br><span class="line">        file.createNewFile()</span><br><span class="line">        file.writeText(<span class="string">&quot;HELLO FROM MY TASK&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tasks.register&lt;CreateFileTask&gt;(<span class="string">&quot;createFileTask&quot;</span>)</span><br></pre></td></tr></table></figure>
@@ -656,7 +676,7 @@
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Directories"><span class="nav-text">Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Gradle-User-Home-directory"><span class="nav-text">Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Lifecycle"><span class="nav-text">Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Settings-Files"><span class="nav-text">Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Write-Build-Scripts"><span class="nav-text">Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Using-Tasks"><span class="nav-text">Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Tasks"><span class="nav-text">Writing Tasks</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#gradle-directories"><span class="nav-text"> Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#gradle-user-home-directory"><span class="nav-text"> Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#build-lifecycle"><span class="nav-text"> Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-settings-files"><span class="nav-text"> Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#write-build-scripts"><span class="nav-text"> Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#using-tasks"><span class="nav-text"> Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-tasks"><span class="nav-text"> Writing Tasks</span></a></li></ol>
     </div>
 </div>
 
@@ -834,7 +854,7 @@
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Gradle-Directories"><span class="nav-text">Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Gradle-User-Home-directory"><span class="nav-text">Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Build-Lifecycle"><span class="nav-text">Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Settings-Files"><span class="nav-text">Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Write-Build-Scripts"><span class="nav-text">Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Using-Tasks"><span class="nav-text">Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Tasks"><span class="nav-text">Writing Tasks</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#gradle-directories"><span class="nav-text"> Gradle Directories</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#gradle-user-home-directory"><span class="nav-text"> Gradle User Home directory</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#build-lifecycle"><span class="nav-text"> Build Lifecycle</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-settings-files"><span class="nav-text"> Writing Settings Files</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#write-build-scripts"><span class="nav-text"> Write Build Scripts</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#using-tasks"><span class="nav-text"> Using Tasks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-tasks"><span class="nav-text"> Writing Tasks</span></a></li></ol>
     </div>
 </div>
 

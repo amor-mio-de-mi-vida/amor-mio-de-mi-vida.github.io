@@ -310,10 +310,10 @@
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/make/">make</a></li>
                         
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/make/">make</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
                         
                     
                 </ul>
@@ -323,7 +323,7 @@
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>608 Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>599 Words</span>
             </span>
         
         
@@ -350,22 +350,29 @@
                     
 
                     
-                         <h2 id="Example"><a href="#Example" class="headerlink" title="Example"></a>Example</h2><figure class="highlight make"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">objects = main.o kbd.o command.o display.o \</span><br><span class="line">          insert.o search.o files.o utils.o</span><br><span class="line"></span><br><span class="line">edit : <span class="variable">$(objects)</span></span><br><span class="line">        cc -o edit <span class="variable">$(objects)</span></span><br><span class="line"></span><br><span class="line"><span class="variable">$(objects)</span> : defs.h</span><br><span class="line">kbd.o command.o files.o : command.h</span><br><span class="line">display.o insert.o search.o files.o : buffer.h</span><br><span class="line"></span><br><span class="line">.PHONY : clean</span><br><span class="line">clean :</span><br><span class="line">        -rm edit <span class="variable">$(objects)</span></span><br></pre></td></tr></table></figure>
+                         <h2 id="example"><a class="markdownIt-Anchor" href="#example"></a> Example</h2>
+<figure class="highlight make"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">objects = main.o kbd.o command.o display.o \</span><br><span class="line">          insert.o search.o files.o utils.o</span><br><span class="line"></span><br><span class="line">edit : <span class="variable">$(objects)</span></span><br><span class="line">        cc -o edit <span class="variable">$(objects)</span></span><br><span class="line"></span><br><span class="line"><span class="variable">$(objects)</span> : defs.h</span><br><span class="line">kbd.o command.o files.o : command.h</span><br><span class="line">display.o insert.o search.o files.o : buffer.h</span><br><span class="line"></span><br><span class="line">.PHONY : clean</span><br><span class="line">clean :</span><br><span class="line">        -rm edit <span class="variable">$(objects)</span></span><br></pre></td></tr></table></figure>
 <p>注：最后一个命令前面的<code>-</code>指忽略报错信息执行该命令</p>
-<h2 id="Writing-Makefile"><a href="#Writing-Makefile" class="headerlink" title="Writing Makefile"></a>Writing Makefile</h2><h3 id="Makefile中的内容"><a href="#Makefile中的内容" class="headerlink" title="Makefile中的内容"></a>Makefile中的内容</h3><ul>
+<h2 id="writing-makefile"><a class="markdownIt-Anchor" href="#writing-makefile"></a> Writing Makefile</h2>
+<h3 id="makefile中的内容"><a class="markdownIt-Anchor" href="#makefile中的内容"></a> Makefile中的内容</h3>
+<ul>
 <li><code>explicit rule</code>说明了何时以及如何重新制作一个或多个文件，这些文件被称为 <code>target </code>。它列出了 <code>target</code> 所依赖的其他文件，这些文件被称为 <code>prerequisites</code> ，并且可能还提供了用于创建或更新<code> target</code> 的命令。</li>
 <li><code>implicit rule</code> 说明了何时以及如何根据文件名重新制作一类文件。它描述了 <code>target </code>如何可能依赖于一个与 <code>target</code> 名称相似的文件，并给出了创建或更新此类 <code>target</code> 的配方。</li>
 <li><code>variable definition</code>是一个指定文本字符串值的行，该值可以稍后替换到文本中。</li>
-<li><code>directive</code>是一条指示make在读取Makefile时执行特殊操作的指令。这些包括：<ul>
+<li><code>directive</code>是一条指示make在读取Makefile时执行特殊操作的指令。这些包括：
+<ul>
 <li>读取另一个 makefile 文件</li>
 <li>决定（基于变量值）是否使用或忽略Makefile的一部分</li>
 <li>从包含多行的字符串定义一个变量</li>
 </ul>
 </li>
 </ul>
-<h3 id="引用其他makefile文件"><a href="#引用其他makefile文件" class="headerlink" title="引用其他makefile文件"></a>引用其他makefile文件</h3><p>include 指令告诉 make 暂停读取当前的 makefile，并在继续之前读取一个或多个其他 makefile。该指令是 makefile 中的一行，如下所示：</p>
+<h3 id="引用其他makefile文件"><a class="markdownIt-Anchor" href="#引用其他makefile文件"></a> 引用其他makefile文件</h3>
+<p>include 指令告诉 make 暂停读取当前的 makefile，并在继续之前读取一个或多个其他 makefile。该指令是 makefile 中的一行，如下所示：</p>
 <figure class="highlight make"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">include</span> filenames...</span><br></pre></td></tr></table></figure>
-<p>使用 include 指令的一个场合是，由各个目录中的各个 makefile 处理的多个程序需要使用一组通用的变量定义或模式规则。<br>另一个这样的场合是当您想要从源文件自动生成先决条件时；先决条件可以放在主 makefile 包含的文件中。这种做法通常比以某种方式将先决条件附加到主 makefile 末尾的做法更干净，就像其他版本的 make 传统上所做的那样。<br>如果指定的名称不是以斜杠开头，并且在当前目录中找不到该文件，则会搜索其他几个目录。首先，搜索您使用“-I”或“–include-dir”选项指定的任何目录。然后按以下顺序搜索以下目录（如果存在）：prefix&#x2F;include（通常为 &#x2F;usr&#x2F;local&#x2F;include 1）&#x2F;usr&#x2F;gnu&#x2F;include、&#x2F;usr&#x2F;local&#x2F;include、&#x2F;usr&#x2F;include。 INCLUDE_DIRS 变量将包含 make 将搜索包含文件的当前目录列表。</p>
+<p>使用 include 指令的一个场合是，由各个目录中的各个 makefile 处理的多个程序需要使用一组通用的变量定义或模式规则。<br />
+另一个这样的场合是当您想要从源文件自动生成先决条件时；先决条件可以放在主 makefile 包含的文件中。这种做法通常比以某种方式将先决条件附加到主 makefile 末尾的做法更干净，就像其他版本的 make 传统上所做的那样。<br />
+如果指定的名称不是以斜杠开头，并且在当前目录中找不到该文件，则会搜索其他几个目录。首先，搜索您使用“-I”或“–include-dir”选项指定的任何目录。然后按以下顺序搜索以下目录（如果存在）：prefix/include（通常为 /usr/local/include 1）/usr/gnu/include、/usr/local/include、/usr/include。 INCLUDE_DIRS 变量将包含 make 将搜索包含文件的当前目录列表。</p>
 
                     
                 </div>
@@ -432,11 +439,11 @@
                             <ul class="post-tags-box border-box">
                                 
                                     <li class="tag-item border-box">
-                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/tools/">tools</a>
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/make/">make</a>
                                     </li>
                                 
                                     <li class="tag-item border-box">
-                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/make/">make</a>
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/tools/">tools</a>
                                     </li>
                                 
                             </ul>
@@ -527,7 +534,7 @@
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Example"><span class="nav-text">Example</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Makefile"><span class="nav-text">Writing Makefile</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Makefile%E4%B8%AD%E7%9A%84%E5%86%85%E5%AE%B9"><span class="nav-text">Makefile中的内容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E5%85%B6%E4%BB%96makefile%E6%96%87%E4%BB%B6"><span class="nav-text">引用其他makefile文件</span></a></li></ol></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#example"><span class="nav-text"> Example</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-makefile"><span class="nav-text"> Writing Makefile</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#makefile%E4%B8%AD%E7%9A%84%E5%86%85%E5%AE%B9"><span class="nav-text"> Makefile中的内容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E5%85%B6%E4%BB%96makefile%E6%96%87%E4%BB%B6"><span class="nav-text"> 引用其他makefile文件</span></a></li></ol></li></ol>
     </div>
 </div>
 
@@ -705,7 +712,7 @@
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Example"><span class="nav-text">Example</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Writing-Makefile"><span class="nav-text">Writing Makefile</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Makefile%E4%B8%AD%E7%9A%84%E5%86%85%E5%AE%B9"><span class="nav-text">Makefile中的内容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E5%85%B6%E4%BB%96makefile%E6%96%87%E4%BB%B6"><span class="nav-text">引用其他makefile文件</span></a></li></ol></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#example"><span class="nav-text"> Example</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#writing-makefile"><span class="nav-text"> Writing Makefile</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#makefile%E4%B8%AD%E7%9A%84%E5%86%85%E5%AE%B9"><span class="nav-text"> Makefile中的内容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E5%85%B6%E4%BB%96makefile%E6%96%87%E4%BB%B6"><span class="nav-text"> 引用其他makefile文件</span></a></li></ol></li></ol>
     </div>
 </div>
 
