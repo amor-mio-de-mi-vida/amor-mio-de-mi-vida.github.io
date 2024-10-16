@@ -438,23 +438,44 @@ mjx-container[display="true"] + br {
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Sat Oct 12 2024 23:54:31 GMT+0800">2024-10-12 23:54:31</span>
+                <span class="datetime" data-updated="Mon Oct 14 2024 20:24:57 GMT+0800">2024-10-14 20:24:57</span>
             </span>
         
 
         
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/paper/"> paper</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
 
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
+                        
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/survey/">survey</a></li>
+                        
+                    
+                </ul>
+            </span>
         
 
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>6.1k Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>8.7k Words</span>
             </span>
         
         
             <span class="meta-info-item post-min2read">
-                <i class="icon fas fa-clock"></i>&nbsp;<span>26 Mins</span>
+                <i class="icon fas fa-clock"></i>&nbsp;<span>36 Mins</span>
             </span>
         
         
@@ -476,14 +497,14 @@ mjx-container[display="true"] + br {
                     
 
                     
-                         <p><a class="link" target="_blank" rel="noopener" href="https://arxiv.org/pdf/2312.15234">Towards Efficient
-Generative Large Language Model Serving: A Survey from Algorithms to
-Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
-<h2 id="abstract">Abstract</h2>
-<p>LLM
-的空前成功也带来了一些挑战，最明显的是它们在服务期间的巨大计算要求。巨大的模型大小和复杂性，加上对大量计算资源的需求，阻碍了它们在实际应用中的广泛部署。这些模型的资源密集型性质引发了对能耗、可扩展性和可访问性的担忧，阻碍了它们在没有丰富计算资源的更广泛社区中的采用。</p>
+                         <p>LLM
+的空前成功带来了一些挑战，最明显的是它们在服务期间的巨大计算要求。巨大的模型大小和复杂性，加上对大量计算资源的需求，阻碍了它们在实际应用中的广泛部署。这些模型的资源密集型性质引发了对能耗、可扩展性和可访问性的担忧，阻碍了它们在没有丰富计算资源的更广泛社区中的采用。</p>
 <p>本调查的主要目的是全面概述 LLM
 服务和推理的最新进展。我们将根据现有技术的基本方法对其进行系统回顾和分类，突出它们的优势和局限性。该调查将涵盖广泛的方法，包括解码算法、架构设计、模型压缩、低位量化、并行计算、内存管理、请求调度和内核优化。</p>
+<p><a class="link" target="_blank" rel="noopener" href="https://arxiv.org/pdf/2312.15234">Towards Efficient
+Generative Large Language Model Serving: A Survey from Algorithms to
+Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
+<span id="more"></span>
 <h3 id="structure">Structure</h3>
 <h2 id="background">Background</h2>
 <h3 id="transformer-based-llm">Transformer-based LLM</h3>
@@ -986,10 +1007,116 @@ Core of PyTorch.</p>
 Transformations.</p></li>
 </ul>
 <h2 id="software-frameworks">Software Frameworks</h2>
+<figure>
+<img lazyload="" alt="Comparison of state-of-the-art open-sourced GPU-based LLM serving systems." data-src="https://github.com/amor-mio-de-mi-vida/picx-images-hosting/raw/master/paper/image.2krwjy3ire.webp">
+<figcaption aria-hidden="true">Comparison of state-of-the-art
+open-sourced GPU-based LLM serving systems.</figcaption>
+</figure>
 <h2 id="benchmarks">Benchmarks</h2>
 <h2 id="connection-with-other-surveys">Connection with other
 surveys</h2>
+<p>我们的调研在高效生成式大型语言模型（LLM）服务和推理方面，补充并拓展了现有领域文献的范围，同时保持了独特的关注点。在相关工作中，[144]的研究主题与我们的调研最为接近，它探讨了更通用的Transformer模型和特定领域的加速器设计。然而，我们的调研通过专门针对生成式LLM服务这一精细领域，与其他研究区分开来，这一领域尚未成为其他研究的中心。此外，一些研究深入进行了LLM在GPU上推理效率[190,
+297]和新型加速器[78]的实验性研究，提供了直接关联我们服务效率研究的宝贵实证见解。此外，LLMCarbon
+[79]
+关注了LLM部署中越来越重要的一个方面——对环境的影响（例如，碳足迹）。尽管我们的调研主要从性能角度关注效率，但这类研究提供的环境视角无疑在我们的广泛讨论中是相关且值得尊敬的。一些调研和基准测试[126]提供了关于模型压缩[113,
+248, 314, 314]和量化[99,
+280]的宝贵见解，这些研究为我们的相关方向探索间接提供了基础。一些研究[65,
+187]为理解LLM的有效性（例如，准确性、困惑度、事实性等）提供了必要的背景，这超出了我们调研的范围。我们的调研也认可了先前专注于大规模深度神经网络（DNN）模型分布式训练的调研[42,
+175]的贡献，因为它们为考虑LLM服务提供了背景信息。从本质上讲，我们的调研位于众多研究之中，从中吸取并贡献了对LLM服务效率更全面的理解，包括算法创新和系统优化。通过整合这些领域的见解，我们旨在提供一个细致而全面的概述，涵盖该领域最新的进展和挑战。</p>
+<p>Full stack optimization of transformer inference: a survey.</p>
+<p>Cheaply Estimating Inference Efficiency Metrics for Autoregressive
+Transformer Models.</p>
+<p>Dissecting the Runtime Performance of the Training, Fine-tuning, and
+Inference of Large Language Models.</p>
+<p>A Comprehensive Performance Study of Large Language Models on Novel
+AI Accelerators.</p>
+<p>LLMCarbon: Modeling the end-to-end Carbon Footprint of Large Language
+Models.</p>
+<p>Compressing LLMs: The Truth is Rarely Pure and Never Simple.</p>
+<p>Compression of deep learning models for text: A survey.</p>
+<p>Efficient methods for natural language processing: A survey.</p>
+<p>A survey on model compression for large language models.</p>
+<p>A survey of quantization methods for efficient neural network
+inference.</p>
+<p>A comprehensive study on post-training quantization for large
+language models.</p>
+<p>LLMeBench: A Flexible Framework for Accelerating LLMs
+Benchmarking.</p>
+<p>Generating benchmarks for factuality evaluation of language
+models.</p>
+<p>Demystifying parallel and distributed deep learning: An in-depth
+concurrency analysis.</p>
+<p>Scalable deep learning on distributed infrastructures: Challenges,
+techniques, and tools.</p>
 <h2 id="future-direction">Future Direction</h2>
+<h3 id="硬件加速器的发展与增强">硬件加速器的发展与增强</h3>
+<p>提高生成式大型语言模型（LLM）服务效率的未来进展，可能会在很大程度上依赖于专门硬件加速器的开发和完善，以及与硬件和软件优化相协调的共同设计方法。</p>
+<p>例如，将内存更紧密地集成到处理单元附近，或优化芯片架构以更好地适应LLM算法的数据流，可以显著降低延迟和能耗。这一方法在最近的GPU发展中已有体现，如NVIDIA的Hopper架构，它在HBM和SRAM容量、内存带宽、计算单元和分割带宽方面取得了改进，直接有利于LLM的处理。</p>
+<p>在这一领域的持续创新可能包括设计本质上针对生成式LLM计算模式的硬件，比如针对这些模型中常见的注意力机制和张量操作的具体需求进行优化，最终影响LLM服务系统的设计和实施。</p>
+<p>NVIDIA H100 Tensor Core GPU Architecture.
+https://resources.nvidia.com/en-us-tensor-core/gtc22
+whitepaper-hopper.</p>
+<h3 id="高效且有效的解码算法">高效且有效的解码算法</h3>
+<p>开发更高效的解码算法可以大幅提升服务的效率。鉴于对更有效地利用LLM中所包含的丰富知识的迫切需求，未来的研究可以探索不同于传统自回归方法的新途径，以实现实时应用中的生成速度提升，同时保持解码质量。</p>
+<p>一个充满希望的研究方向是广义推测推理，因为它能够在保持生成质量的同时提高效率。具体而言，可以将小型推测模型泛化到任何能够比LLM更高效地生成初步令牌的其他方法，例如知识检索器和用户定义的函数。例如，最近的一些研究工作开始使用早期退出或非自回归解码来替代初步模型。</p>
+<p>总结来说，开发像推测解码这样的高效解码算法，并结合底层系统的优化，是提升生成式LLM服务效率的一个重要机遇。</p>
+<p>SpecInfer: Accelerating Generative LLM Serving with Speculative
+Inference and Token Tree Verification.</p>
+<p>Inference with reference: Lossless acceleration of large language
+models.</p>
+<p>Fast and Robust Early-Exiting Framework for Autoregressive Language
+Models with Synchronized Parallel Decoding.</p>
+<p>SPEED: Speculative Pipelined Execution for Efficient Decoding.</p>
+<p>Predictive Pipelined Decoding: A Compute-Latency Trade-off for Exact
+LLM Decoding.</p>
+<p>Draft &amp; Verify: Lossless Large Language Model Acceleration via
+Self-Speculative Decoding.</p>
+<p>Breaking the Sequential Dependency of LLM Inference Using Lookahead
+Decoding.</p>
+<p>Lossless acceleration for Seq2seq generation with aggressive
+decoding.</p>
+<h3 id="长上下文序列场景的优化">长上下文/序列场景的优化。</h3>
+<p>随着LLM的应用向更复杂的场景扩展，处理更长上下文或序列的需求持续上升。在处理长序列工作负载的LLM服务中，需要从算法和系统两个方面解决挑战。对于LLM来说，当序列长度超过训练期间所观察到的长度时，它们常常会出现长度泛化失效的问题，即使启用了相对位置编码或在更长的语料库上进行微调之后。即便是某些声称支持超长上下文的模型，研究也发现它们会遇到“中间损失”的问题。当前的方法试图通过减少计算序列长度的同时保留相关信息来减轻这些限制，比如采用检索增强、序列压缩和缓存等技术。对于LLM服务系统来说，长序列带来了重要挑战，包括增加的内存消耗、KV缓存的访问以及自注意力计算复杂性的成倍增加。</p>
+<p>Test Long: Attention with Linear Biases Enables Input Length
+Extrapolation.</p>
+<p>Extending context window of large language models via positional
+interpolation.</p>
+<p>LongBench: A Bilingual, Multitask Benchmark for Long Context
+Understanding.</p>
+<p>Lost in the middle: How language models use long contexts.</p>
+<p>Retrieval meets Long Context Large Language Models.</p>
+<p>LongLLM Lingua: Accelerating and Enhancing LLMs in Long Context
+Scenarios via Prompt Compression.</p>
+<p>Prompt Cache: Modular Attention Reuse for Low-Latency Inference.</p>
+<h3 id="探究替代架构">探究替代架构</h3>
+<p>尽管目前Transformer模型和自注意力机制在大型语言模型（LLM）领域占据主导地位，但是探索替代架构是未来研究的一个充满希望的方向。在深度学习（DL）领域的历史上，我们见证了主导架构的持续更迭，每一次范式的转变都会带来重大的进步。基于这种趋势，考虑其他可能带来独特优势的架构方法尤为重要，特别是在提高计算效率方面。例如，一些最新的研究正在探索无注意力方法，使用纯多层感知器（MLP）架构来替代注意力机制。深度神经网络模型架构的演变不仅是一种自然的发展过程，也是为了发现更高效和有效的LLM结构方式的必要探索。</p>
+<p>Rethinking Attention: Exploring Shallow Feed-Forward Neural Networks
+as an Alternative to Attention Layers in Transformers.</p>
+<h3 id="探索在复杂环境中的部署">探索在复杂环境中的部署</h3>
+<p>随着大型语言模型（LLM）应用的不断扩展，一个至关重要的未来方向是探索和优化它们在不同复杂环境中的部署。这种探索不仅限于传统的基于云的部署，还包括边缘计算、混合计算（结合云和边缘计算）、去中心化计算，以及利用更经济的资源，如抢占式实例。每一种环境都为LLM服务带来了独特的挑战和机遇。例如，边缘计算通过在数据源附近处理数据，可以实现更快的响应时间和减少带宽消耗，但同时它也面临着计算资源和存储容量有限的问题。混合计算提供了一种平衡的方法，但需要先进的管理策略来有效地分配计算任务。去中心化计算为众包计算资源提供了一条有希望的道路，但也带来了数据隐私和安全的额外考量。在抢占式资源上提供LLM服务可以显著降低成本，但需要容错机制来应对其固有的不可预测性和变异性，以确保性能的稳定和系统的可靠性。成功应对这些复杂环境中的挑战，将是实现更加强大、可扩展且高效的LLM应用的关键。</p>
+<p>The future of AI is hybrid.
+https://www.qualcomm.com/content/dam/qcomm-martech/dm
+assets/documents/Whitepaper-The-future-of-AI-is-hybrid-Part-2-Qualcomm-is-uniquely-positioned-to-scale
+hybrid-AI.pdf.</p>
+<p>BumbleBee: Secure Two-party Inference Framework for Large
+Transformers.</p>
+<p>LatticeGen: A Cooperative Framework which Hides Generated Text in a
+Lattice for Privacy-Aware Generation on Cloud.</p>
+<p>SpotServe: Serving Generative Large Language Models on Preemptible
+Instances.</p>
+<h3 id="自动适应特定需求">自动适应特定需求</h3>
+<p>多样化的应用特定需求创造了广泛的创新LLM服务优化机遇，例如参数高效微调，从外部向量存储中进行检索，在线学习和知识更新，多模态工作负载，以及将不同LLM的能力串联起来。这些独特的挑战也要求能够自动且无缝地将LLM服务技术集成到现有的IT基础设施中，通过将优化范围扩展到整个LLM生命周期，包括数据采集和处理，自动机器学习（AutoML）和模型管理，资源分配，以及性能监控。</p>
+<p>Punica: Multi-Tenant LoRA Serving.</p>
+<p>S-LoRA: Serving Thousands of Concurrent LoRA Adapters.</p>
+<p>PetS: A Unified Framework for Parameter Efficient Transformers
+Serving.</p>
+<p>Improving language models by retrieving from trillions of tokens.</p>
+<p>Autogen: Enabling next-gen llm applications via multi-agent
+conversation framework.</p>
+<p>AutoML in the Age of Large Language Models: Current Challenges,
+Future Opportunities and Risks.</p>
+<p>Saturn: An Optimized Data System for Large Model Deep Learning
+Workloads.</p>
 
                     
                 </div>
@@ -1004,7 +1131,7 @@ surveys</h2>
             </div>
 
             <div class="copyright-post-link border-box text-ellipsis">
-                2024/10/09/paper-Towards-Efficient-Generative-Large-Language-Model-Serving-A-Survey-from-Algorithms-to-Systems/
+                2024/10/09/paper-survey-Towards-Efficient-Generative-Large-Language-Model-Serving-A-Survey-from-Algorithms-to-Systems/
             </div>
         </div>
 
@@ -1053,6 +1180,18 @@ surveys</h2>
                 <div class="post-bottom-tags-and-share border-box">
                     <div>
                         
+                            <ul class="post-tags-box border-box">
+                                
+                                    <li class="tag-item border-box">
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/paper/">paper</a>
+                                    </li>
+                                
+                                    <li class="tag-item border-box">
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/survey/">survey</a>
+                                    </li>
+                                
+                            </ul>
+                        
                     </div>
                     <div>
                         
@@ -1078,6 +1217,18 @@ surveys</h2>
 
                 
                     <div class="post-nav border-box">
+                        
+                            <div class="prev-post">
+                                <a class="prev" rel="prev" href="/2024/10/13/book-Computer-Architecture-A-Quantitative-Approach-Fundamentals-of-Quantitative-Design-And-Analysis/" title="Fundamentals of Quantitative Design And Analysis">
+                                    <span class="left arrow-icon flex-center">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </span>
+                                    <span class="title flex-center">
+                                        <span class="post-nav-title-item text-ellipsis">Fundamentals of Quantitative Design And Analysis</span>
+                                        <span class="post-nav-item">Prev posts</span>
+                                    </span>
+                                </a>
+                            </div>
                         
                         
                             <div class="next-post">
@@ -1111,9 +1262,9 @@ surveys</h2>
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#abstract"><span class="nav-text">Abstract</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#structure"><span class="nav-text">Structure</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#background"><span class="nav-text">Background</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformer-based-llm"><span class="nav-text">Transformer-based LLM</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#gpus-and-other-accelerators"><span class="nav-text">GPUs and Other Accelerators</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#llm-inference"><span class="nav-text">LLM Inference</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#challenges"><span class="nav-text">Challenges</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#taxonomy"><span class="nav-text">Taxonomy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#algorithmic-innovation"><span class="nav-text">Algorithmic Innovation</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#decoding-algorithm"><span class="nav-text">Decoding Algorithm</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#architecture-design"><span class="nav-text">Architecture Design</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#model-compression"><span class="nav-text">Model Compression</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#system-optimization"><span class="nav-text">System Optimization</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#low-bit-quantization"><span class="nav-text">Low-bit Quantization：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#parallel-computation."><span class="nav-text">Parallel Computation.</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#memory-management"><span class="nav-text">Memory Management</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#request-scheduling"><span class="nav-text">Request Scheduling</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#kernel-optimization"><span class="nav-text">Kernel Optimization</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#software-frameworks"><span class="nav-text">Software Frameworks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#benchmarks"><span class="nav-text">Benchmarks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#connection-with-other-surveys"><span class="nav-text">Connection with other
-surveys</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#future-direction"><span class="nav-text">Future Direction</span></a></li></ol>
-    </div>
+        <ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#structure"><span class="nav-text">Structure</span></a></li></ol><li class="nav-item nav-level-2"><a class="nav-link" href="#background"><span class="nav-text">Background</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformer-based-llm"><span class="nav-text">Transformer-based LLM</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#gpus-and-other-accelerators"><span class="nav-text">GPUs and Other Accelerators</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#llm-inference"><span class="nav-text">LLM Inference</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#challenges"><span class="nav-text">Challenges</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#taxonomy"><span class="nav-text">Taxonomy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#algorithmic-innovation"><span class="nav-text">Algorithmic Innovation</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#decoding-algorithm"><span class="nav-text">Decoding Algorithm</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#architecture-design"><span class="nav-text">Architecture Design</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#model-compression"><span class="nav-text">Model Compression</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#system-optimization"><span class="nav-text">System Optimization</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#low-bit-quantization"><span class="nav-text">Low-bit Quantization：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#parallel-computation."><span class="nav-text">Parallel Computation.</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#memory-management"><span class="nav-text">Memory Management</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#request-scheduling"><span class="nav-text">Request Scheduling</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#kernel-optimization"><span class="nav-text">Kernel Optimization</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#software-frameworks"><span class="nav-text">Software Frameworks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#benchmarks"><span class="nav-text">Benchmarks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#connection-with-other-surveys"><span class="nav-text">Connection with other
+surveys</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#future-direction"><span class="nav-text">Future Direction</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%A1%AC%E4%BB%B6%E5%8A%A0%E9%80%9F%E5%99%A8%E7%9A%84%E5%8F%91%E5%B1%95%E4%B8%8E%E5%A2%9E%E5%BC%BA"><span class="nav-text">硬件加速器的发展与增强</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%AB%98%E6%95%88%E4%B8%94%E6%9C%89%E6%95%88%E7%9A%84%E8%A7%A3%E7%A0%81%E7%AE%97%E6%B3%95"><span class="nav-text">高效且有效的解码算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%95%BF%E4%B8%8A%E4%B8%8B%E6%96%87%E5%BA%8F%E5%88%97%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96"><span class="nav-text">长上下文/序列场景的优化。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8E%A2%E7%A9%B6%E6%9B%BF%E4%BB%A3%E6%9E%B6%E6%9E%84"><span class="nav-text">探究替代架构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8E%A2%E7%B4%A2%E5%9C%A8%E5%A4%8D%E6%9D%82%E7%8E%AF%E5%A2%83%E4%B8%AD%E7%9A%84%E9%83%A8%E7%BD%B2"><span class="nav-text">探索在复杂环境中的部署</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%87%AA%E5%8A%A8%E9%80%82%E5%BA%94%E7%89%B9%E5%AE%9A%E9%9C%80%E6%B1%82"><span class="nav-text">自动适应特定需求</span></a></li></ol>
+    </li></div>
 </div>
 
             </div>
@@ -1283,9 +1434,9 @@ surveys</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#abstract"><span class="nav-text">Abstract</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#structure"><span class="nav-text">Structure</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#background"><span class="nav-text">Background</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformer-based-llm"><span class="nav-text">Transformer-based LLM</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#gpus-and-other-accelerators"><span class="nav-text">GPUs and Other Accelerators</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#llm-inference"><span class="nav-text">LLM Inference</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#challenges"><span class="nav-text">Challenges</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#taxonomy"><span class="nav-text">Taxonomy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#algorithmic-innovation"><span class="nav-text">Algorithmic Innovation</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#decoding-algorithm"><span class="nav-text">Decoding Algorithm</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#architecture-design"><span class="nav-text">Architecture Design</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#model-compression"><span class="nav-text">Model Compression</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#system-optimization"><span class="nav-text">System Optimization</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#low-bit-quantization"><span class="nav-text">Low-bit Quantization：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#parallel-computation."><span class="nav-text">Parallel Computation.</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#memory-management"><span class="nav-text">Memory Management</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#request-scheduling"><span class="nav-text">Request Scheduling</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#kernel-optimization"><span class="nav-text">Kernel Optimization</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#software-frameworks"><span class="nav-text">Software Frameworks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#benchmarks"><span class="nav-text">Benchmarks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#connection-with-other-surveys"><span class="nav-text">Connection with other
-surveys</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#future-direction"><span class="nav-text">Future Direction</span></a></li></ol>
-    </div>
+        <ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#structure"><span class="nav-text">Structure</span></a></li></ol><li class="nav-item nav-level-2"><a class="nav-link" href="#background"><span class="nav-text">Background</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformer-based-llm"><span class="nav-text">Transformer-based LLM</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#gpus-and-other-accelerators"><span class="nav-text">GPUs and Other Accelerators</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#llm-inference"><span class="nav-text">LLM Inference</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#challenges"><span class="nav-text">Challenges</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#taxonomy"><span class="nav-text">Taxonomy</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#algorithmic-innovation"><span class="nav-text">Algorithmic Innovation</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#decoding-algorithm"><span class="nav-text">Decoding Algorithm</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#architecture-design"><span class="nav-text">Architecture Design</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#model-compression"><span class="nav-text">Model Compression</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#system-optimization"><span class="nav-text">System Optimization</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#low-bit-quantization"><span class="nav-text">Low-bit Quantization：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#parallel-computation."><span class="nav-text">Parallel Computation.</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#memory-management"><span class="nav-text">Memory Management</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#request-scheduling"><span class="nav-text">Request Scheduling</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#kernel-optimization"><span class="nav-text">Kernel Optimization</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#software-frameworks"><span class="nav-text">Software Frameworks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#benchmarks"><span class="nav-text">Benchmarks</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#connection-with-other-surveys"><span class="nav-text">Connection with other
+surveys</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#future-direction"><span class="nav-text">Future Direction</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%A1%AC%E4%BB%B6%E5%8A%A0%E9%80%9F%E5%99%A8%E7%9A%84%E5%8F%91%E5%B1%95%E4%B8%8E%E5%A2%9E%E5%BC%BA"><span class="nav-text">硬件加速器的发展与增强</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%AB%98%E6%95%88%E4%B8%94%E6%9C%89%E6%95%88%E7%9A%84%E8%A7%A3%E7%A0%81%E7%AE%97%E6%B3%95"><span class="nav-text">高效且有效的解码算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%95%BF%E4%B8%8A%E4%B8%8B%E6%96%87%E5%BA%8F%E5%88%97%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96"><span class="nav-text">长上下文/序列场景的优化。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8E%A2%E7%A9%B6%E6%9B%BF%E4%BB%A3%E6%9E%B6%E6%9E%84"><span class="nav-text">探究替代架构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8E%A2%E7%B4%A2%E5%9C%A8%E5%A4%8D%E6%9D%82%E7%8E%AF%E5%A2%83%E4%B8%AD%E7%9A%84%E9%83%A8%E7%BD%B2"><span class="nav-text">探索在复杂环境中的部署</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%87%AA%E5%8A%A8%E9%80%82%E5%BA%94%E7%89%B9%E5%AE%9A%E9%9C%80%E6%B1%82"><span class="nav-text">自动适应特定需求</span></a></li></ol>
+    </li></div>
 </div>
 
             </div>
