@@ -151,7 +151,7 @@ mjx-container[display="true"] + br {
   display: none;
 }
 </style><link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
-</head>
+<style type="text/css">#posts-chart,#categories-chart,#tags-chart{width: 100%;height: 300px;margin: 0.5rem auto;padding: 0.5rem;overflow-x: auto;}</style><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/echarts@4.7.0/dist/echarts.min.js"></script></head>
 
 
 <body>
@@ -411,7 +411,152 @@ mjx-container[display="true"] + br {
             <!-- page content -->
             <div class="page-content border-box keep-markdown-body ">
                 
-                    
+                    <h2 id="github-contributions">Github contributions</h2>
+<p><img lazyload="" alt="amor-mio-de-mi-vida's Github chart" data-src="https://ghchart.rshah.org/6992EC/amor-mio-de-mi-vida"></p>
+<script src="https://npm.elemecdn.com/echarts@4.9.0/dist/echarts.min.js">
+</script>
+<h2 id="charts">Charts</h2>
+<!-- 文章发布时间统计图 -->
+<div id="posts-chart" data-start="2021-01" style="border-radius: 8px; height: 300px; padding: 10px;">
+
+</div>
+  <script id="postsChart">
+    let postsChart = echarts.init(document.getElementById('posts-chart'));
+    let postsOption = {
+        title: {
+            text: '文章发布统计图',
+            top: -5,
+            x: 'center'
+        },
+        tooltip: {
+            trigger: 'axis'
+        },
+        xAxis: {
+            type: 'category',
+            data: ["2023-10","2023-11","2023-12","2024-01","2024-02","2024-03","2024-04","2024-05","2024-06","2024-07","2024-08","2024-09","2024-10"]
+        },
+        yAxis: {
+            type: 'value',
+        },
+        series: [
+            {
+                name: '文章篇数',
+                type: 'line',
+                color: ['#6772e5'],
+                data: [0,0,0,0,0,0,0,0,0,0,0,3,28],
+                markPoint: {
+                    symbolSize: 45,
+                    color: ['#fa755a','#3ecf8e','#82d3f4'],
+                    data: [{
+                        type: 'max',
+                        itemStyle: {color: ['#3ecf8e']},
+                        name: '最大值'
+                    }, {
+                        type: 'min',
+                        itemStyle: {color: ['#fa755a']},
+                        name: '最小值'
+                    }]
+                },
+                markLine: {
+                    itemStyle: {color: ['#ab47bc']},
+                    data: [
+                        {type: 'average', name: '平均值'}
+                    ]
+                }
+            }
+        ]
+    };
+    postsChart.setOption(postsOption);
+    </script>
+<!-- 文章标签统计图 -->
+<div id="tags-chart" data-length="10" style="border-radius: 8px; height: 300px; padding: 10px;">
+
+</div>
+  <script id="tagsChart">
+    let tagsChart = echarts.init(document.getElementById('tags-chart'));
+    let tagsOption = {
+        title: {
+            text: 'Top10标签统计图',
+            top: -5,
+            x: 'center'
+        },
+        tooltip: {},
+        xAxis: [
+            {
+                type: 'category',
+                data: ["tools","course","paper","book","riscv","idea","Hexo","Keep","gradle","cmake"]
+            }
+        ],
+        yAxis: [
+            {
+                type: 'value'
+            }
+        ],
+        series: [
+            {
+                type: 'bar',
+                color: ['#82d3f4'],
+                barWidth : 18,
+                data: [7,7,4,3,3,2,2,2,2,2],
+                markPoint: {
+                    symbolSize: 45,
+                    data: [{
+                        type: 'max',
+                        itemStyle: {color: ['#3ecf8e']},
+                        name: '最大值'
+                    }, {
+                        type: 'min',
+                        itemStyle: {color: ['#fa755a']},
+                        name: '最小值'
+                    }],
+                },
+                markLine: {
+                    itemStyle: {color: ['#ab47bc']},
+                    data: [
+                        {type: 'average', name: '平均值'}
+                    ]
+                }
+            }
+        ]
+    };
+    tagsChart.setOption(tagsOption);
+    </script>
+<!-- 文章分类统计图 -->
+<div id="categories-chart" data-parent="true" style="border-radius: 8px; height: 300px; padding: 10px;">
+
+</div>
+  <script id="categoriesChart">
+    let categoriesChart = echarts.init(document.getElementById('categories-chart'));
+    let categoriesOption = {
+        title: {
+            text: '文章分类统计图',
+            top: -4,
+            x: 'center'
+        },
+        tooltip: {
+            trigger: 'item',
+            formatter: "{a} <br/>{b} : {c} ({d}%)"
+        },
+        series: [
+            {
+                name: '分类',
+                type: 'pie',
+                radius: '50%',
+                color: ['#6772e5', '#ff9e0f', '#fa755a', '#3ecf8e', '#82d3f4', '#ab47bc', '#525f7f', '#f51c47', '#26A69A'],
+                data: [{"name":"book","value":1},{"name":"NVIDIA cuda 编程指南","value":1},{"name":"tools","value":1},{"name":"Hexo","value":2},{"name":"DLSystem","value":5},{"name":"Computer Architecture: A Quantitative Approach","value":1},{"name":" paper","value":1},{"name":"DrMIPS","value":1},{"name":"RARS","value":1},{"name":"riscv_simulator","value":1},{"name":"CMakeCookbook","value":2},{"name":"Authoring Gradle Builds","value":1},{"name":"MLCompiler","value":2}],
+                itemStyle: {
+                    emphasis: {
+                        shadowBlur: 10,
+                        shadowOffsetX: 0,
+                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                    }
+                }
+            }
+        ]
+    };
+    categoriesChart.setOption(categoriesOption);
+    </script>
+
                 
             </div>
 
