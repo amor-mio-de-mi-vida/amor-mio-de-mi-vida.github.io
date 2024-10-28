@@ -7,7 +7,7 @@
     
     <title>
         
-            张量程序抽象 |
+            Tensor Program Abstraction |
         
         Hesen's Blog
     </title>
@@ -405,7 +405,7 @@ mjx-container[display="true"] + br {
             <div class="post-content-bottom border-box">
                 
                     <div class="post-title">
-                        张量程序抽象
+                        Tensor Program Abstraction
                     </div>
                 
 
@@ -420,7 +420,7 @@ mjx-container[display="true"] + br {
                             <div class="author border-box">
                                 <span class="name">amor mío de mi vida</span>
                                 
-                                    <span class="author-badge">Lv3</span>
+                                    <span class="author-badge">Lv4</span>
                                 
                             </div>
                             <div class="meta-info border-box">
@@ -438,7 +438,7 @@ mjx-container[display="true"] + br {
 
             <span class="meta-info-item post-update-date">
                 <i class="icon fa-solid fa-file-pen"></i>&nbsp;
-                <span class="datetime" data-updated="Fri Oct 18 2024 15:19:59 GMT+0800">2024-10-18 15:19:59</span>
+                <span class="datetime" data-updated="Fri Oct 18 2024 15:49:53 GMT+0800">2024-10-18 15:49:53</span>
             </span>
         
 
@@ -467,12 +467,12 @@ mjx-container[display="true"] + br {
         
         
             <span class="meta-info-item post-wordcount">
-                <i class="icon fas fa-file-word"></i>&nbsp;<span>107 Words</span>
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>458 Words</span>
             </span>
         
         
             <span class="meta-info-item post-min2read">
-                <i class="icon fas fa-clock"></i>&nbsp;<span>1 Mins</span>
+                <i class="icon fas fa-clock"></i>&nbsp;<span>2 Mins</span>
             </span>
         
         
@@ -521,6 +521,20 @@ programs.</p></li>
 <li><p>Extra structure can help to provide more information to the
 transformations.</p></li>
 </ul>
+<p>implementation of <code>mm-rel</code>u in low level </p><figure class="highlight python"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">lnumpy_mm_relu</span>(<span class="params">A: np.ndarray, B: np.ndarray, C: np.ndarray</span>):</span><br><span class="line">	Y = np.empty((<span class="number">128</span>, <span class="number">128</span>), dtype=<span class="string">"float32"</span>)</span><br><span class="line">	<span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">		<span class="keyword">for</span> j <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">			<span class="keyword">for</span> k <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">			 <span class="keyword">if</span> k == <span class="number">0</span>:</span><br><span class="line">				 Y[i, j] = <span class="number">0</span></span><br><span class="line">			Y[i, j] = Y[i, j] + A[i, k] * B[k, j]</span><br><span class="line">	<span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">		<span class="keyword">for</span> j <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">			C[i, j] = <span class="built_in">max</span>(Y[i, j], <span class="number">0</span>)</span><br></pre></td></tr></tbody></table></figure><p></p>
+<p>Key features:</p>
+<ul>
+<li><p>Multi-dimensional buffer (arrays).</p></li>
+<li><p>Loops over array dimensions.</p></li>
+<li><p>Computations statements are executed under the loops</p></li>
+</ul>
+<p>The code below shows a TensorIR implementation of
+<code>mm_relu</code>. The particular code is implemented in a language
+called TVMScript, which is a domain-specific dialect embedded in python
+AST.</p>
+<figure class="highlight python"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@tvm.script.ir_module</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MyModule</span>:</span><br><span class="line"><span class="meta">	@T.prim_func</span></span><br><span class="line">	<span class="keyword">def</span> <span class="title function_">mm_relu</span>(<span class="params">A: T.Buffer[(<span class="params"><span class="number">128</span>, <span class="number">128</span></span>), <span class="string">"float32"</span>],</span></span><br><span class="line"><span class="params">				B: T.Buffer[(<span class="params"><span class="number">128</span>, <span class="number">128</span></span>), <span class="string">"float32"</span>],</span></span><br><span class="line"><span class="params">				C: T.Buffer[(<span class="params"><span class="number">128</span>, <span class="number">128</span></span>), <span class="string">"float32"</span>]</span>):</span><br><span class="line">		T.func_attr({<span class="string">"flobal_symbol"</span>: <span class="string">"mm_relu"</span>, <span class="string">"tir.noalias"</span>: <span class="literal">True</span>})</span><br><span class="line">		Y = T.alloc_buffer((<span class="number">128</span>, <span class="number">128</span>), dtype=<span class="string">"float32"</span>)</span><br><span class="line">        <span class="keyword">for</span> i, j, k <span class="keyword">in</span> T.grid(<span class="number">128</span>, <span class="number">128</span>, <span class="number">128</span>):</span><br><span class="line">            <span class="keyword">with</span> T.block(<span class="string">"Y"</span>):</span><br><span class="line">                vi = T.axis.spatial(<span class="number">128</span>, i)</span><br><span class="line">                vj = T.axis.spatial(<span class="number">128</span>, j)</span><br><span class="line">                vk = T.axis.reduce(<span class="number">128</span>, k)</span><br><span class="line">                <span class="keyword">with</span> T.init():</span><br><span class="line">                    Y[vi, vj] = T.float32(<span class="number">0</span>)</span><br><span class="line">                Y[vi, vj] = Y[vi, vj] + A[vi, vk] * B[vk, vj]</span><br><span class="line">        <span class="keyword">for</span> i, j <span class="keyword">in</span> T.grid(<span class="number">128</span>, <span class="number">128</span>):</span><br><span class="line">            <span class="keyword">with</span> T.block(<span class="string">"C"</span>):</span><br><span class="line">                vi = T.axis.spatial(<span class="number">128</span>, i)</span><br><span class="line">                vj = T.axis.spatial(<span class="number">128</span>, j)</span><br><span class="line">                C[vi, vj] = T.<span class="built_in">max</span>(Y[vi, vj], T.float32(<span class="number">0</span>))</span><br></pre></td></tr></tbody></table></figure>
+<h3 id="transformation">Transformation</h3>
+<figure class="highlight python"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">lnumpy_mm_relu_v2</span>(<span class="params">A: np.ndarray, B: np.ndarray, C: np.ndarray</span>):</span><br><span class="line">    Y = np.empty((<span class="number">128</span>, <span class="number">128</span>), dtype=<span class="string">"float32"</span>)</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">        <span class="keyword">for</span> j0 <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">32</span>):</span><br><span class="line">            <span class="keyword">for</span> k <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">                <span class="keyword">for</span> j1 <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">4</span>):</span><br><span class="line">                    j = j0 * <span class="number">4</span> + j1</span><br><span class="line">                    <span class="keyword">if</span> k == <span class="number">0</span>:</span><br><span class="line">                        Y[i, j] = <span class="number">0</span></span><br><span class="line">                    Y[i, j] = Y[i, j] + A[i, k] * B[k, j]</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">        <span class="keyword">for</span> j <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">128</span>):</span><br><span class="line">            C[i, j] = <span class="built_in">max</span>(Y[i, j], <span class="number">0</span>)</span><br><span class="line"></span><br><span class="line">c_np = np.empty((<span class="number">128</span>, <span class="number">128</span>), dtype=dtype)</span><br><span class="line">lnumpy_mm_relu_v2(a_np, b_np, c_np)</span><br><span class="line">np.testing.assert_allclose(c_mm_relu, c_np, rtol=<span class="number">1e-5</span>)</span><br></pre></td></tr></tbody></table></figure>
 
                     
                 </div>
@@ -531,11 +545,11 @@ transformations.</p></li>
     <div class="copyright-info-content border-box">
         <div class="copyright-info-top border-box">
             <div class="copyright-post-title border-box text-ellipsis">
-                张量程序抽象
+                Tensor Program Abstraction
             </div>
 
             <div class="copyright-post-link border-box text-ellipsis">
-                2024/10/14/course-Machine-Learning-Compiler-1-张量程序抽象/
+                2024/10/14/course-Machine-Learning-Compiler-1-Tensor-Program-Abstraction/
             </div>
         </div>
 
@@ -619,12 +633,12 @@ transformations.</p></li>
                     <div class="post-nav border-box">
                         
                             <div class="prev-post">
-                                <a class="prev" rel="prev" href="/2024/10/16/cuda-cuda-%E4%BB%8B%E7%BB%8D/" title="cuda 介绍">
+                                <a class="prev" rel="prev" href="/2024/10/16/cuda-cuda-introduction/" title="cuda introduction">
                                     <span class="left arrow-icon flex-center">
                                         <i class="fas fa-chevron-left"></i>
                                     </span>
                                     <span class="title flex-center">
-                                        <span class="post-nav-title-item text-ellipsis">cuda 介绍</span>
+                                        <span class="post-nav-title-item text-ellipsis">cuda introduction</span>
                                         <span class="post-nav-item">Prev posts</span>
                                     </span>
                                 </a>
@@ -662,7 +676,7 @@ transformations.</p></li>
             <div class="pc-post-toc right-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#primitive-tensor-function"><span class="nav-text">Primitive Tensor Function</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tensor-program-abstraction"><span class="nav-text">Tensor Program Abstraction</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#primitive-tensor-function"><span class="nav-text">Primitive Tensor Function</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tensor-program-abstraction"><span class="nav-text">Tensor Program Abstraction</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformation"><span class="nav-text">Transformation</span></a></li></ol></li></ol>
     </div>
 </div>
 
@@ -833,7 +847,7 @@ transformations.</p></li>
             <div class="tablet-post-toc">
                 <div class="post-toc-wrap border-box">
     <div class="post-toc border-box">
-        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#primitive-tensor-function"><span class="nav-text">Primitive Tensor Function</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tensor-program-abstraction"><span class="nav-text">Tensor Program Abstraction</span></a></li></ol>
+        <ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#primitive-tensor-function"><span class="nav-text">Primitive Tensor Function</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#tensor-program-abstraction"><span class="nav-text">Tensor Program Abstraction</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#transformation"><span class="nav-text">Transformation</span></a></li></ol></li></ol>
     </div>
 </div>
 
