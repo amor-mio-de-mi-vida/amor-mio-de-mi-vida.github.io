@@ -482,17 +482,32 @@ mjx-container[display="true"] + br {
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/28/course-DLSystem-9-Implementing-Convolutions/">
-                            Implementing Convolutions
+                        <a href="/2024/11/10/course-CS267-6-More-on-Communication-optimal-Matmul-and-beyond/">
+                            More on Communication-optimal Matmul (and beyond)
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            Storage Order
-We could represent a hidden unit as an array
-float Z[BATCHES][HEIGHT][WEIGHT][CHANNELS];
-as NHWC format (number...
+                            <p>Communication = moving data</p>
+<ul>
+<li><p>Between main memory and cache</p></li>
+<li><p>Between processors over a network</p></li>
+<li><p>Most expensive operation (in time or energy)</p></li>
+</ul>
+<p>Goal: Provably minimize communication for algorithms that look like
+nested loops accessing arrays</p>
+<ul>
+<li>Includes matmul, linear algebra (dense and sparse), n-body,
+convolutional neural nets (CNNs), ...</li>
+</ul>
+<p>Simple case: n-body (sequential, with main memory and cache)</p>
+<ul>
+<li>Communication lower bound and optimal algorithm</li>
+</ul>
+<p>Extension to Matmul</p>
+<p>Extension to algorithms that look like nested loops accessing arrays,
+like CNNs (and open questions)</p>
                         
                     </div>
 
@@ -502,58 +517,7 @@ as NHWC format (number...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 28 2024 14:33:09 GMT+0800">2024-10-28 14:33:09</span>
-            </span>
-        
-
-        
-
-        
-
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/28/course-DLSystem-9-Implementing-Convolutions/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/19/course-DLSystem-8-Hardware-Acceleration/">
-                            Hardware Acceleration
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            General acceleration
-techniques
-Vectorization
-12345678void vecadd(float* A, float* B, float* C) {	for (int i = 0; i &lt; 64: ...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Oct 20 2024 16:45:08 GMT+0800">2024-10-20 16:45:08</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Nov 10 2024 17:27:35 GMT+0800">2024-11-10 17:27:35</span>
             </span>
         
 
@@ -563,7 +527,7 @@ Vectorization
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                            <li class="category-item"><a href="/categories/cs267/">cs267</a></li>
                         
                     
                 </ul>
@@ -588,7 +552,7 @@ Vectorization
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/19/course-DLSystem-8-Hardware-Acceleration/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/10/course-CS267-6-More-on-Communication-optimal-Matmul-and-beyond/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -602,17 +566,85 @@ Vectorization
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/19/course-DLSystem-7-Convolutional-Networks/">
+                        <a href="/2024/11/09/course-CS267-5-Sources-of-Parallelism-and-Locality-in-Simulation/">
+                            Sources of Parallelism and Locality in Simulation
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            <p>Introduce you to certain patterns that come up over and over again in
+parallel computing.</p>
+<p>What you can parallelize?</p>
+<p>How you can keep data together on one processor or in one part of the
+memory in order to minimize communication.
+                        
+                    </p></div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Nov 10 2024 15:06:49 GMT+0800">2024-11-10 15:06:49</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/cs267/">cs267</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/11/09/course-CS267-5-Sources-of-Parallelism-and-Locality-in-Simulation/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/11/06/course-Machine-Learning-Compiler-2-Build-End-to-End-Model/">
                             Welcome to use Hexo Theme Keep
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            Convolutional
-operators in deep networks
-The reason that fully connected layer won't work very well besides
-just involving to...
+                            Most MLC process can be viewed as transformation among tensor
+functions (that can be represented with different abstractions)...
                         
                     </div>
 
@@ -622,7 +654,7 @@ just involving to...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 16:18:35 GMT+0800">2024-10-19 16:18:35</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Wed Nov 06 2024 20:29:17 GMT+0800">2024-11-06 20:29:17</span>
             </span>
         
 
@@ -660,7 +692,7 @@ just involving to...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/19/course-DLSystem-7-Convolutional-Networks/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/06/course-Machine-Learning-Compiler-2-Build-End-to-End-Model/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -674,16 +706,18 @@ just involving to...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/18/course-DLSystem-6-Normalization-and-Regularization/">
-                            Normalization and Regularization
+                        <a href="/2024/11/04/course-CS267-4-Shared-Memory-Programming-Mostly-OpenMP/">
+                            Shared Memory Programming Mostly OpenMP
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            Normalization
-Initialization matters a lot for training, and vary over the course
-of training to no longer be "consistent" ac...
+                            Shared Memory
+
+Program is a collection of threads of control (Can be created
+dynamically, mid-execution, in some languages).
+...
                         
                     </div>
 
@@ -693,7 +727,7 @@ of training to no longer be "consistent" ac...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 14:23:38 GMT+0800">2024-10-19 14:23:38</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Nov 08 2024 11:39:24 GMT+0800">2024-11-08 11:39:24</span>
             </span>
         
 
@@ -703,7 +737,7 @@ of training to no longer be "consistent" ac...
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                            <li class="category-item"><a href="/categories/cs267/">cs267</a></li>
                         
                     
                 </ul>
@@ -728,7 +762,7 @@ of training to no longer be "consistent" ac...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/18/course-DLSystem-6-Normalization-and-Regularization/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/04/course-CS267-4-Shared-Memory-Programming-Mostly-OpenMP/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -742,16 +776,17 @@ of training to no longer be "consistent" ac...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/18/template-Welcome-to-use-Hexo-Theme-Keep/">
-                            Welcome to use Hexo Theme Keep
+                        <a href="/2024/11/04/course-CS267-3-Matrix-Multiplication-and-the-Roofline-Model/">
+                            Matrix Multiplication and  the Roofline Model
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            <p>Welcome to use Hexo Theme Keep.</p>
-<p>This is your very first post. Check <a class="link" target="_blank" rel="noopener" href="https://keep-docs.xpoet.cn/">documentation<i class="fas fa-external-link-alt"></i></a> for more info. If
-you get any problems when using Keep theme, you can ask me on <a class="link" target="_blank" rel="noopener" href="https://github.com/XPoet/hexo-theme-keep/issues">GitHub<i class="fas fa-external-link-alt"></i></a>.</p>
+                            Matrix Multiplication
+A Simple Model of Memory
+Assume just 2 levels in hierarchy, fast and slow
+All data initially in slow me...
                         
                     </div>
 
@@ -761,7 +796,78 @@ you get any problems when using Keep theme, you can ask me on <a class="link" ta
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Oct 18 2024 15:13:47 GMT+0800">2024-10-18 15:13:47</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Nov 04 2024 10:57:36 GMT+0800">2024-11-04 10:57:36</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/cs267/">cs267</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/11/04/course-CS267-3-Matrix-Multiplication-and-the-Roofline-Model/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/11/03/course-CS267-2-Memory-Hierarchies-and-Matrix-Multiplication/">
+                            Welcome to use Hexo Theme Keep
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            Memory Hierarchies
+Temporal and spatial
+locality
+Memory accesses (load / store) have two costs
+
+Latency: cost to load or stor...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Nov 04 2024 07:15:51 GMT+0800">2024-11-04 07:15:51</span>
             </span>
         
 
@@ -799,7 +905,7 @@ you get any problems when using Keep theme, you can ask me on <a class="link" ta
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/18/template-Welcome-to-use-Hexo-Theme-Keep/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/03/course-CS267-2-Memory-Hierarchies-and-Matrix-Multiplication/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -813,18 +919,19 @@ you get any problems when using Keep theme, you can ask me on <a class="link" ta
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/18/course-DLSystem-5-Neural-Network-Library-Abstractions/">
-                            Neural Network Library Abstractions
+                        <a href="/2024/11/03/course-DLSystem-14-Model-Deployment/">
+                            Model Deployment
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            Programming abstractions
-Forward and backward layer
-interface
-Defines the forward computation and backward (gradient)
-operati...
+                            Model deployment overview
+Model deployment
+considerations
+Application environment bring restrictions (model size,
+no-python)
+...
                         
                     </div>
 
@@ -834,7 +941,7 @@ operati...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 14:54:55 GMT+0800">2024-10-19 14:54:55</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Nov 03 2024 20:11:45 GMT+0800">2024-11-03 20:11:45</span>
             </span>
         
 
@@ -869,7 +976,7 @@ operati...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/18/course-DLSystem-5-Neural-Network-Library-Abstractions/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/03/course-DLSystem-14-Model-Deployment/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -883,16 +990,19 @@ operati...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/17/paper-GShard-Scaling-Giant-Models-with-Conditional-Computation-and-Automatic-Sharding/">
-                            GShard: Scaling Giant Models with Conditional
- Computation and Automatic Sharding
+                        <a href="/2024/11/02/course-DLSystem-13-Generative-Adversarial-Training/">
+                            Generative Adversarial Training
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            摘要：
-神经网络扩展对于提高许多现实世界机器学习应用中的模型质量至关重要，这些应用拥有大量的训练数据和计算资源。尽管这种扩展趋势被证实是提高模型质量的可靠方法，但在实现过程中仍存在挑战，如计算成本、编程的便利性以及在并行设备上的高效实现。GShard...
+                            Generative Adversarial
+Training
+From classifier to generator
+Learn generator
+through an oracle discriminator
+ Assume that we ...
                         
                     </div>
 
@@ -902,7 +1012,7 @@ operati...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 21:52:21 GMT+0800">2024-10-19 21:52:21</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Nov 02 2024 20:08:27 GMT+0800">2024-11-02 20:08:27</span>
             </span>
         
 
@@ -912,7 +1022,7 @@ operati...
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/paper/"> paper</a></li>
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
                         
                     
                 </ul>
@@ -923,7 +1033,7 @@ operati...
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
                         
                     
                 </ul>
@@ -937,7 +1047,7 @@ operati...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/17/paper-GShard-Scaling-Giant-Models-with-Conditional-Computation-and-Automatic-Sharding/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/02/course-DLSystem-13-Generative-Adversarial-Training/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -951,14 +1061,90 @@ operati...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/17/code-reading-Untitled/">
+                        <a href="/2024/11/02/course-CS267-1-Introduction/">
+                            Introduction
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            What is a Parallel Computer ?
+
+
+image
+
+SMP
+A shared Memory multiprocessor (SMP*) by connecting multiple
+processors to a singl...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Nov 03 2024 21:29:25 GMT+0800">2024-11-03 21:29:25</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/cs267/">cs267</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/11/02/course-CS267-1-Introduction/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/11/01/course-DLSystem-12-Training-Large-Models/">
                             Welcome to use Hexo Theme Keep
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            
+                            Techniques for memory saving
+Can we fit as big of neural network training onto the limited memory
+devices?
+Source of memory c...
                         
                     </div>
 
@@ -968,57 +1154,7 @@ operati...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Oct 18 2024 15:13:47 GMT+0800">2024-10-18 15:13:47</span>
-            </span>
-        
-
-        
-
-        
-
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/17/code-reading-Untitled/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/17/course-DLSystem-4-Optimization/">
-                            Optimization
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            Fully connected networks
-A L-layer, fully connected network, MLP, now with an explicit bias
-term, is defined by the iteration...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Oct 18 2024 11:32:12 GMT+0800">2024-10-18 11:32:12</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Nov 01 2024 19:46:54 GMT+0800">2024-11-01 19:46:54</span>
             </span>
         
 
@@ -1028,7 +1164,7 @@ term, is defined by the iteration...
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                            <li class="category-item"><a href="/categories/Hexo/">Hexo</a></li>
                         
                     
                 </ul>
@@ -1039,7 +1175,10 @@ term, is defined by the iteration...
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/Hexo/">Hexo</a></li>
+                        
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/Keep/">Keep</a></li>
                         
                     
                 </ul>
@@ -1053,59 +1192,7 @@ term, is defined by the iteration...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/17/course-DLSystem-4-Optimization/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/16/cuda-CUDA-C-Programming-Guide-Programming-Model-and-Interface/">
-                            Programming Model and Interface
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            Programming Model
-Kernels
-CUDA
-C++通过允许程序员定义称为内核的C++函数来扩展C++，这些函数在被调用时，由N个不同的CUDA线程并行执行N次，这与只执行一次的常规C++函数不同。
-内核是通过使用__global__...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Thu Oct 17 2024 11:06:24 GMT+0800">2024-10-17 11:06:24</span>
-            </span>
-        
-
-        
-
-        
-
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/16/cuda-CUDA-C-Programming-Guide-Programming-Model-and-Interface/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/11/01/course-DLSystem-12-Training-Large-Models/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -1125,7 +1212,7 @@ C++通过允许程序员定义称为内核的C++函数来扩展C++，这些函�
 
 
         <div class="page-number-box border-box flex-center">
-            <input class="page-number-input border-box base-style" type="number" value="1" min="1" max="4"><span class="delimiter base-style">/</span><span class="base-style">4</span>
+            <input class="page-number-input border-box base-style" type="number" value="1" min="1" max="5"><span class="delimiter base-style">/</span><span class="base-style">5</span>
         </div>
 
 
