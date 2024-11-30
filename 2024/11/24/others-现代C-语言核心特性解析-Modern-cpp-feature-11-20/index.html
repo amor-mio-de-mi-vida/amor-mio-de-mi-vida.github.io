@@ -1,0 +1,1072 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="keywords" content="Hexo Theme Keep">
+    <meta name="description" content="Hexo Theme Keep">
+    <meta name="author" content="amor mío de mi vida">
+    
+    <title>
+        
+            Modern cpp feature 11~20 |
+        
+        Hesen's Blog
+    </title>
+    
+<link rel="stylesheet" href="/css/style.css">
+
+    
+        <link rel="shortcut icon" href="/images/avatar.svg">
+    
+    
+<link rel="stylesheet" href="/font/css/fontawesome.min.css">
+
+    
+<link rel="stylesheet" href="/font/css/regular.min.css">
+
+    
+<link rel="stylesheet" href="/font/css/solid.min.css">
+
+    
+<link rel="stylesheet" href="/font/css/brands.min.css">
+
+    
+    <script class="keep-theme-configurations">
+    const KEEP = window.KEEP || {}
+    KEEP.hexo_config = {"hostname":"example.com","root":"/","language":"en","path":"search.xml"}
+    KEEP.theme_config = {"title":"Keep","subtitle":"Hexo theme keep quick starter","description":"","keywords":null,"author":"Keep Team","language":"en","timezone":"","url":"http://example.com","permalink":":year/:month/:day/:name/","permalink_defaults":null,"pretty_urls":{"trailing_index":true,"trailing_html":true},"source_dir":"source","public_dir":"public","tag_dir":"tags","archive_dir":"archives","category_dir":"categories","code_dir":"downloads/code","i18n_dir":":lang","skip_render":null,"new_post_name":":title.md","default_layout":"post","titlecase":false,"external_link":{"enable":true,"field":"site","exclude":""},"filename_case":0,"render_drafts":false,"post_asset_folder":false,"relative_link":false,"future":true,"highlight":{"enable":true,"line_number":true,"auto_detect":false,"tab_replace":"","wrap":true,"hljs":false},"prismjs":{"enable":false,"preprocess":true,"line_number":true,"tab_replace":""},"index_generator":{"path":"","per_page":10,"order_by":"-date"},"default_category":"uncategorized","category_map":null,"tag_map":null,"meta_generator":true,"date_format":"YYYY-MM-DD","time_format":"HH:mm:ss","updated_option":"mtime","per_page":10,"pagination_dir":"page","include":null,"exclude":null,"ignore":null,"theme":"keep","deploy":{"type":""},"search":{"path":"search.json","field":"post","content":true,"format":"striptags"},"feed":{"type":"atom","path":"atom.xml","limit":20},"math":{"perpage":true,"mathjax":{"enable":true,"mhchem":false}},"root":"","base_info":{"primary_color":"#0066cc","title":"Hesen's Blog","author":"amor mío de mi vida","avatar":"/images/avatar.svg","logo":"/images/avatar.svg","favicon":"/images/avatar.svg"},"menu":{"home":"/                       || fa-solid fa-home","archives":"/archives           || fa-solid fa-box-archive","tags":"/tags                   || fa-solid fa-tags","categories":"/categories       || fa-solid fa-layer-group","about":"/about                 || fa-solid fa-user","github":"https://github.com/amor-mio-de-mi-vida || fa-brands fa-github"},"first_screen":{"enable":true,"background_img":"/images/bg.svg","background_img_dark":"/images/bg.svg","description":"Audentis fortuna iuvat.","hitokoto":false},"social_contact":{"enable":true,"links":{"github":"https://github.com/amor-mio-de-mi-vida","weixin":"img |","qq":null,"weibo":null,"zhihu":null,"twitter":null,"x":null,"facebook":null,"email":null}},"scroll":{"progress_bar":false,"percent":true,"hide_header":true},"home":{"announcement":null,"category":true,"tag":true,"post_datetime":"updated"},"post":{"author_badge":{"enable":true,"level_badge":true,"custom_badge":["One","Two","Three"]},"word_count":{"wordcount":true,"min2read":true},"datetime_format":"YYYY-MM-DD HH:mm:ss","copyright_info":true,"share":true,"reward":{"enable":false,"img_link":null,"text":null}},"code_block":{"tools":{"enable":true,"style":"default"},"highlight_theme":"default"},"toc":{"enable":true,"number":false,"expand_all":true,"init_open":true,"layout":"right"},"website_count":{"busuanzi_count":{"enable":true,"site_uv":true,"site_pv":true,"page_pv":true}},"local_search":{"enable":true,"preload":true},"comment":{"enable":false,"use":"valine","valine":{"appid":null,"appkey":null,"server_urls":null,"placeholder":null},"gitalk":{"github_id":null,"github_admins":null,"repository":null,"client_id":null,"client_secret":null,"proxy":null},"twikoo":{"env_id":null,"region":null,"version":"1.6.36"},"waline":{"server_url":null,"reaction":false,"version":"3.2.1"},"giscus":{"repo":null,"repo_id":null,"category":"Announcements","category_id":null,"reactions_enabled":false},"artalk":{"server":null},"disqus":{"shortname":null}},"rss":{"enable":false},"lazyload":{"enable":true},"cdn":{"enable":false,"provider":"cdnjs"},"pjax":{"enable":true},"footer":{"since":2020,"word_count":false,"site_deploy":{"enable":false,"provider":"github","url":null},"record":{"enable":false,"list":[{"code":null,"link":null}]}},"inject":{"enable":false,"css":[null],"js":[null]},"source_data":{},"version":"4.2.3"}
+    KEEP.language_ago = {"second":"%s seconds ago","minute":"%s minutes ago","hour":"%s hours ago","day":"%s days ago","week":"%s weeks ago","month":"%s months ago","year":"%s years ago"}
+    KEEP.language_code_block = {"copy":"Copy code","copied":"Copied","fold":"Fold code block","folded":"Folded"}
+    KEEP.language_copy_copyright = {"copy":"Copy copyright info","copied":"Copied","title":"Original post title","author":"Original post author","link":"Original post link"}
+  </script>
+<meta name="generator" content="Hexo 7.3.0"><style>mjx-container[jax="SVG"] {
+  direction: ltr;
+}
+
+mjx-container[jax="SVG"] > svg {
+  overflow: visible;
+}
+
+mjx-container[jax="SVG"][display="true"] {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+mjx-container[jax="SVG"][justify="left"] {
+  text-align: left;
+}
+
+mjx-container[jax="SVG"][justify="right"] {
+  text-align: right;
+}
+
+g[data-mml-node="merror"] > g {
+  fill: red;
+  stroke: red;
+}
+
+g[data-mml-node="merror"] > rect[data-background] {
+  fill: yellow;
+  stroke: none;
+}
+
+g[data-mml-node="mtable"] > line[data-line] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > rect[data-frame] {
+  stroke-width: 70px;
+  fill: none;
+}
+
+g[data-mml-node="mtable"] > .mjx-dashed {
+  stroke-dasharray: 140;
+}
+
+g[data-mml-node="mtable"] > .mjx-dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 0,140;
+}
+
+g[data-mml-node="mtable"] > svg {
+  overflow: visible;
+}
+
+[jax="SVG"] mjx-tool {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+[jax="SVG"] mjx-tool > mjx-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+mjx-tool > mjx-tip {
+  display: inline-block;
+  padding: .2em;
+  border: 1px solid #888;
+  font-size: 70%;
+  background-color: #F8F8F8;
+  color: black;
+  box-shadow: 2px 2px 5px #AAAAAA;
+}
+
+g[data-mml-node="maction"][data-toggle] {
+  cursor: pointer;
+}
+
+mjx-status {
+  display: block;
+  position: fixed;
+  left: 1em;
+  bottom: 1em;
+  min-width: 25%;
+  padding: .2em .4em;
+  border: 1px solid #888;
+  font-size: 90%;
+  background-color: #F8F8F8;
+  color: black;
+}
+
+foreignObject[data-mjx-xml] {
+  font-family: initial;
+  line-height: normal;
+  overflow: visible;
+}
+
+.MathJax path {
+  stroke-width: 3;
+}
+
+mjx-container[display="true"] {
+  overflow: auto hidden;
+}
+
+mjx-container[display="true"] + br {
+  display: none;
+}
+</style><link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+</head>
+
+
+<body>
+<div class="progress-bar-container">
+    
+
+    
+        <span class="pjax-progress-bar"></span>
+        <i class="pjax-progress-icon fas fa-circle-notch fa-spin"></i>
+    
+</div>
+
+
+
+<main class="page-container border-box">
+    <!-- home first screen  -->
+    
+
+    <!-- page content -->
+    <div class="page-main-content border-box">
+        <div class="page-main-content-top">
+            
+<header class="header-wrapper">
+
+    <div class="border-box header-content">
+        <div class="left flex-start border-box">
+            
+                <a class="logo-image border-box" href="/">
+                    <img src="/images/avatar.svg">
+                </a>
+            
+            <a class="site-name border-box" href="/">
+               Hesen's Blog
+            </a>
+        </div>
+
+        <div class="right border-box">
+            <div class="pc border-box">
+                <ul class="menu-list border-box">
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" href="/">
+                                
+                                    <i class="menu-text-color menu-icon fa-solid fa-home"></i>
+                                
+                                HOME
+                                
+                            </a>
+                            
+                        </li>
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" href="/archives">
+                                
+                                    <i class="menu-text-color menu-icon fa-solid fa-box-archive"></i>
+                                
+                                ARCHIVES
+                                
+                            </a>
+                            
+                        </li>
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" href="/tags">
+                                
+                                    <i class="menu-text-color menu-icon fa-solid fa-tags"></i>
+                                
+                                TAGS
+                                
+                            </a>
+                            
+                        </li>
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" href="/categories">
+                                
+                                    <i class="menu-text-color menu-icon fa-solid fa-layer-group"></i>
+                                
+                                CATEGORIES
+                                
+                            </a>
+                            
+                        </li>
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" href="/about">
+                                
+                                    <i class="menu-text-color menu-icon fa-solid fa-user"></i>
+                                
+                                ABOUT
+                                
+                            </a>
+                            
+                        </li>
+                    
+                        
+                        <li class="menu-item flex-start border-box">
+                            <a class="menu-text-color border-box" target="_blank" rel="noopener" href="https://github.com/amor-mio-de-mi-vida">
+                                
+                                    <i class="menu-text-color menu-icon fa-brands fa-github"></i>
+                                
+                                GITHUB
+                                
+                            </a>
+                            
+                        </li>
+                    
+                    
+                        <li class="menu-item search search-popup-trigger">
+                            <i class="menu-text-color fas search fa-search"></i>
+                        </li>
+                    
+                </ul>
+            </div>
+            <div class="mobile border-box flex-start">
+                
+                    <div class="icon-item search search-popup-trigger"><i class="fas fa-search"></i></div>
+                
+                <div class="icon-item menu-bar">
+                    <div class="menu-bar-middle"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="header-drawer">
+        <ul class="drawer-menu-list border-box">
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" href="/">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-solid fa-home"></i>
+                                </span>
+                            
+                            HOME
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" href="/archives">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-solid fa-box-archive"></i>
+                                </span>
+                            
+                            ARCHIVES
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" href="/tags">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-solid fa-tags"></i>
+                                </span>
+                            
+                            TAGS
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" href="/categories">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-solid fa-layer-group"></i>
+                                </span>
+                            
+                            CATEGORIES
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" href="/about">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-solid fa-user"></i>
+                                </span>
+                            
+                            ABOUT
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+                
+                <li class="drawer-menu-item border-box not-sub-menu">
+                    <label class="drawer-menu-label border-box">
+                        <a class="drawer-menu-text-color left-side flex-start border-box" target="_blank" rel="noopener" href="https://github.com/amor-mio-de-mi-vida">
+                            
+                                <span class="menu-icon-wrap border-box flex-center">
+                                    <i class="drawer-menu-text-color menu-icon fa-brands fa-github"></i>
+                                </span>
+                            
+                            GITHUB
+                        </a>
+                        
+                    </label>
+                    
+                </li>
+            
+        </ul>
+    </div>
+
+    <div class="window-mask"></div>
+
+</header>
+
+
+        </div>
+
+        <div class="page-main-content-middle border-box">
+
+            <div class="main-content border-box">
+                
+
+                    
+<div class="fade-in-down-animation">
+    <div class="post-page-container border-box">
+        <div class="post-content-container border-box">
+            
+
+            <div class="post-content-bottom border-box">
+                
+                    <div class="post-title">
+                        Modern cpp feature 11~20
+                    </div>
+                
+
+                
+                    <div class="post-header border-box">
+                        
+                            <div class="avatar-box border-box">
+                                <img src="/images/avatar.svg">
+                            </div>
+                        
+                        <div class="info-box">
+                            <div class="author border-box">
+                                <span class="name">amor mío de mi vida</span>
+                                
+                                    <span class="author-badge">Lv4</span>
+                                
+                            </div>
+                            <div class="meta-info border-box">
+                                
+
+<div class="post-meta-info-container border-box post">
+    <div class="post-meta-info border-box">
+        
+
+        
+            <span class="meta-info-item post-create-date">
+                <i class="icon fa-solid fa-calendar-plus"></i>&nbsp;
+                <span class="datetime">2024-11-24 22:58:54</span>
+            </span>
+
+            <span class="meta-info-item post-update-date">
+                <i class="icon fa-solid fa-file-pen"></i>&nbsp;
+                <span class="datetime" data-updated="Sat Nov 30 2024 10:58:13 GMT+0800">2024-11-30 10:58:13</span>
+            </span>
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/cpp/">cpp</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/cpp/">cpp</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+            <span class="meta-info-item post-wordcount">
+                <i class="icon fas fa-file-word"></i>&nbsp;<span>5.5k Words</span>
+            </span>
+        
+        
+            <span class="meta-info-item post-min2read">
+                <i class="icon fas fa-clock"></i>&nbsp;<span>23 Mins</span>
+            </span>
+        
+        
+            <span class="meta-info-item post-pv">
+                <i class="icon fas fa-eye"></i>&nbsp;<span id="busuanzi_value_page_pv"></span>
+            </span>
+        
+    </div>
+
+    
+</div>
+
+                            </div>
+                        </div>
+                    </div>
+                
+
+                <div class="post-content keep-markdown-body ">
+                    
+
+                    
+                         <p>Reference: 《现代C++语言核心特性解析》</p>
+<ol start="11" type="1">
+<li><p>非受限联合类型 (C++ 11)</p></li>
+<li><p>委托构造函数</p></li>
+<li><p>继承构造函数</p></li>
+<li><p>强枚举类型</p></li>
+</ol>
+<span id="more"></span>
+<h1 id="非受限联合类型">非受限联合类型</h1>
+<h2 id="联合类型在c中的局限性">联合类型在C++中的局限性</h2>
+<p>在编程的问题中，用尽量少的内存做尽可能多的事情一直都是一个重要的课题。C++中的联合类型（union）可以说是节约内存的一个典型代表。因为在联合类型中多个对象可以共享一片内存，相应的这片内存也只能由一个对象使用，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	U u;</span><br><span class="line">	u.x1 = <span class="number">5</span>;</span><br><span class="line">	std::cout &lt;&lt; u.x1 &lt;&lt; std::endl;</span><br><span class="line">	std::cout &lt;&lt; u.x2 &lt;&lt; std::endl;</span><br><span class="line">	</span><br><span class="line">	u.x2 = <span class="number">5.0</span>;</span><br><span class="line">	std::cout &lt;&lt; u.x1 &lt;&lt; std::endl;</span><br><span class="line">	std::cout &lt;&lt; u.x2 &lt;&lt; std::endl;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>令人遗憾的是，过去的联合类型在C++中的使用并不广泛，因为C++中的大多数对象不能成为联合类型的成员。<strong>过去的C++标准规定，联合类型的成员变量的类型不能是一个非平凡类型，也就是说它的成员类型不能有自定义构造函数</strong>，比如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">	std::string x3;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<h2 id="使用非受限联合类型">使用非受限联合类型</h2>
+<p>在C++11中如果有联合类型中存在非平凡类型，那么这个联合类型的特殊成员函数将被隐式删除，也就是说<strong>我们必须自己至少提供联合类型的构造和析构函数</strong>，比如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="built_in">U</span>() {} <span class="comment">// 存在非平凡类型成员，必须提供构造函数</span></span><br><span class="line">	~<span class="built_in">U</span>() {} <span class="comment">// 存在非平凡类型成员，必须提供析构函数</span></span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">	std::string x3;</span><br><span class="line">	std::vector&lt;<span class="type">int</span>&gt; x4;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	U u;</span><br><span class="line">	u.x3 = <span class="string">"helloworld"</span>;</span><br><span class="line">	std::cout &lt;&lt; u.x3;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>不过请注意，能够编译通过并不代表没有问题，实际上这段代码会运行出错，因为非平凡类型x3并没有被构造，所以在赋值操作的时候必然会出错。现在修改一下代码：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="built_in">U</span>() : <span class="built_in">x3</span>() {}</span><br><span class="line">	~<span class="built_in">U</span>() { x<span class="number">3.</span>~<span class="built_in">basic_string</span>(); }</span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">	std::string x3;</span><br><span class="line">	std::vector&lt;<span class="type">int</span>&gt; x4;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	U u;</span><br><span class="line">	u.x3 = <span class="string">"hello world"</span>;</span><br><span class="line">	std::cout &lt;&lt; u.x3;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="built_in">U</span>() : <span class="built_in">x3</span>() {}</span><br><span class="line">	~<span class="built_in">U</span>() { x<span class="number">3.</span>~<span class="built_in">basic_string</span>(); }</span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">	std::string x3;</span><br><span class="line">	std::vector&lt;<span class="type">int</span>&gt; x4;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	U u;</span><br><span class="line">	u.x<span class="number">4.</span><span class="built_in">push_back</span>(<span class="number">58</span>); </span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>基于这些考虑，我还是比较推荐让联合类型的构造和析构函数为空，也就是什么也不做，并且将其成员的构造和析构函数放在需要使用联合类型的地方。让我们继续修改上面的代码：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="built_in">U</span>() {}</span><br><span class="line">	~<span class="built_in">U</span>() {}</span><br><span class="line">	<span class="type">int</span> x1;</span><br><span class="line">	<span class="type">float</span> x2;</span><br><span class="line">	std::string x3;</span><br><span class="line">	std::vector&lt;<span class="type">int</span>&gt; x4;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	U u;</span><br><span class="line">	<span class="keyword">new</span>(&amp;u.x3) std::<span class="built_in">string</span>(<span class="string">"hello world"</span>);</span><br><span class="line">	std::cout &lt;&lt; u.x3 &lt;&lt; std::endl;</span><br><span class="line">	u.x<span class="number">3.</span>~<span class="built_in">basic_string</span>();</span><br><span class="line"></span><br><span class="line">	<span class="keyword">new</span>(&amp;u.x4) std::vector&lt;<span class="type">int</span>&gt;;</span><br><span class="line">	u.x<span class="number">4.</span><span class="built_in">push_back</span>(<span class="number">58</span>);</span><br><span class="line">	std::cout &lt;&lt; u.x4[<span class="number">0</span>] &lt;&lt; std::endl;</span><br><span class="line">	u.x<span class="number">4.</span>~<span class="built_in">vector</span>();</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>请注意，上面的代码用了<code>placement new</code>的技巧来初始化构造<code>x3</code>和<code>x4</code>对象，在使用完对象后手动调用对象的析构函数。通过这样的方法保证了联合类型使用的灵活性和正确性。</p>
+<p>最后简单介绍一下非受限联合类型对静态成员变量的支持。联合类型的静态成员不属于联合类型的任何对象，所以并不是对象构造时被定义的，不能在联合类型内部初始化。实际上这一点和类的静态成员变量是一样的，当然了，它的初始化方法也和类的静态成员变量相同：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">union</span> <span class="title class_">U</span> {</span><br><span class="line">	<span class="type">static</span> <span class="type">int</span> x1;</span><br><span class="line">};</span><br><span class="line"><span class="type">int</span> U::x1 = <span class="number">42</span>;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	std::cout &lt;&lt; U::x1 &lt;&lt; std::endl;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<h1 id="委托构造函数">委托构造函数</h1>
+<h2 id="冗余的构造函数">冗余的构造函数</h2>
+<p>一个类有多个不同的构造函数在C++中是很常见的，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(<span class="number">0.</span>) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(<span class="number">0.</span>) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>也许有读者会提出将数据成员的初始化放到CommonInit函数里，从而减轻初始化列表代码冗余的问题，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X1</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X1</span>() { <span class="built_in">CommonInit</span>(<span class="number">0</span>, <span class="number">0.</span>); }</span><br><span class="line">	<span class="built_in">X1</span>(<span class="type">int</span> a) { <span class="built_in">CommonInit</span>(a, <span class="number">0.</span>); }</span><br><span class="line">	<span class="built_in">X1</span>(<span class="type">double</span> b) { <span class="built_in">CommonInit</span>(<span class="number">0</span>, b); }</span><br><span class="line">	<span class="built_in">X1</span>(<span class="type">int</span> a, <span class="type">double</span> b) { <span class="built_in">CommonInit</span>(a, b); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">(<span class="type">int</span> a, <span class="type">double</span> b)</span> </span>{</span><br><span class="line">		a_ = a;</span><br><span class="line">		b_ = b;</span><br><span class="line">	}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>如果成员函数中包含复杂的对象，那么就可能引发不确定问题，最好的情况是只影响类的构造效率，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X2</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X2</span>() { <span class="built_in">CommonInit</span>(<span class="number">0</span>, <span class="number">0.</span>); }</span><br><span class="line">	<span class="built_in">X2</span>(<span class="type">int</span> a) { <span class="built_in">CommonInit</span>(a, <span class="number">0.</span>); }</span><br><span class="line">	<span class="built_in">X2</span>(<span class="type">double</span> b) { <span class="built_in">CommonInit</span>(<span class="number">0</span>, b); }</span><br><span class="line">	<span class="built_in">X2</span>(<span class="type">int</span> a, <span class="type">double</span> b) { <span class="built_in">CommonInit</span>(a, b); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">(<span class="type">int</span> a, <span class="type">double</span> b)</span> </span>{</span><br><span class="line">		a_ = a;</span><br><span class="line">		b_ = b;</span><br><span class="line">		c_ = <span class="string">"hello world"</span>;</span><br><span class="line">	}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">	std::string c_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中，<code>std::string</code>类型的对象<code>c_</code>看似是在<code>CommonInit</code>函数中初始化为<code>hello world</code>，但是实际上它并不是一个初始化过程，而是一个赋值过程。<strong>因为对象的初始化过程早在构造函数主体执行之前，也就是初始化列表阶段就已经执行了。</strong>
+所以这里的c_对象进行了两次操作，一次为初始化，另一次才是赋值为<code>hello world</code>，很明显这样对程序造成了不必要的性能损失。另外，有些情况是不能使用函数主体对成员对象进行赋值的，比如禁用了赋值运算符的数据成员。</p>
+<p>当然读者还可能会提出通过为构造函数提供默认参数的方法来解决代码冗余的问题，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X3</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X3</span>(<span class="type">double</span> b) : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X3</span>(<span class="type">int</span> a = <span class="number">0</span>, <span class="type">double</span> b = <span class="number">0.</span>) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>这种做法的作用非常有限，可以看到上面这段代码，虽然通过默认参数的方式优化了两个构造函数，但是对于X3(double
+b)这个构造函数依然需要在初始化列表中重复初始化成员变量。另外，使用默认参数稍不注意就会引发二义性的问题，例如</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X4</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X4</span>(<span class="type">int</span> c) : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(<span class="number">0.</span>), <span class="built_in">c_</span>(c) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X4</span>(<span class="type">double</span> b) : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(b), <span class="built_in">c_</span>(<span class="number">0</span>) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X4</span>(<span class="type">int</span> a = <span class="number">0</span>, <span class="type">double</span> b = <span class="number">0.</span>, <span class="type">int</span> c = <span class="number">0</span>) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b), <span class="built_in">c_</span>(c) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">	<span class="type">int</span> c_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="function">X4 <span class="title">x4</span><span class="params">(<span class="number">1</span>)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>以上代码无法通过编译，因为当main函数对x4进行构造时，编译器不知道应该调用<code>X4(int c)</code>还是<code>X4(int a = 0, double b= 0., int c = 0)</code>。所以让构造函数使用默认参数也不是一个好的解决方案。</p>
+<h2 id="委托构造函数-1">委托构造函数</h2>
+<p>为了合理复用构造函数来减少代码冗余，C++11标准支持了委托构造函数：<strong>某个类型的一个构造函数可以委托同类型的另一个构造函数对对象进行初始化。</strong>
+为了描述方便我们称前者为委托构造函数，后者为代理构造函数（英文直译为目标构造函数）。委托构造函数会将控制权交给代理构造函数，在代理构造函数执行完之后，再执行委托构造函数的主体。委托构造函数的语法非常简单，只需要在委托构造函数的初始化列表中调用代理构造函数即可，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>可以看到X()、X(int a)、X(double
+b)分别作为委托构造函数将控制权交给了代理构造函数X(int a, double
+b)。它们的执行顺序是先执行代理构造函数的初始化列表，接着执行代理构造函数的主体（也就是CommonInit函数），最后执行委托构造函数的主体，在这个例子中委托构造函数的主体都为空。</p>
+<p>委托构造函数的语法很简单，不过想合理使用它还需注意以下5点。</p>
+<p><strong>每个构造函数都可以委托另一个构造函数为代理。也就是说，可能存在一个构造函数，它既是委托构造函数也是代理构造函数，例如：</strong></p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中构造函数<code>X(int a)</code>，它既是一个委托构造函数，也是<code>X()</code>的代理构造函数。另外，除了自定义构造函数以外，我们还能让特殊构造函数也成为委托构造函数，例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">const</span> X&amp; other) : <span class="built_in">X</span>(other.a_, other.b_) {}  <span class="comment">// 委托复制构造函数</span></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p><strong>不要递归循环委托！</strong>
+这一点非常重要，因为循环委托不会被编译器报错，随之而来的是程序运行时发生未定义行为，最常见的结果是程序因栈内存用尽而崩溃：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">X</span>() { <span class="built_in">CommonInit</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p><strong>如果一个构造函数为委托构造函数，那么其初始化列表里就不能对数据成员和基类进行初始化：</strong></p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">a_</span>(<span class="number">0</span>), <span class="built_in">b_</span>(<span class="number">0</span>) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(), <span class="built_in">a_</span>(a) {} <span class="comment">// 编译错误，委托构造函数不能在初始化列表初始化成员变量</span></span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(), <span class="built_in">b_</span>(b) {} <span class="comment">// 编译错误，委托构造函数不能在初始化列表初始化成员变量</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p><strong>委托构造函数的执行顺序是先执行代理构造函数的初始化列表，然后执行代理构造函数的主体，最后执行委托构造函数的主体，</strong>
+例如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>) { <span class="built_in">InitStep3</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) { <span class="built_in">InitStep2</span>(); }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">InitStep1</span>(); }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">InitStep1</span><span class="params">()</span> </span>{ std::cout &lt;&lt; <span class="string">"InitStep1()"</span> &lt;&lt; std::endl; }</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">InitStep2</span><span class="params">()</span> </span>{ std::cout &lt;&lt; <span class="string">"InitStep2()"</span> &lt;&lt; std::endl; }</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">InitStep3</span><span class="params">()</span> </span>{ std::cout &lt;&lt; <span class="string">"InitStep3()"</span> &lt;&lt; std::endl; }</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	X x;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>编译执行以上代码，输出结果如下：</p>
+<figure class="highlight txt"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">InitStep1()</span><br><span class="line">InitStep2()</span><br><span class="line">InitStep3()</span><br></pre></td></tr></tbody></table></figure>
+<p><strong>如果在代理构造函数执行完成后，委托构造函数主体抛出了异常，则自动调用该类型的析构函数。</strong>
+C++标准规定（规则3也提到过），一旦类型有一个构造函数完成执行，那么就会认为其构造的对象已经构造完成，所以发生异常后需要调用析构函数，来看一看具体的例子：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line">	<span class="built_in">X</span>() : <span class="built_in">X</span>(<span class="number">0</span>, <span class="number">0.</span>) { <span class="keyword">throw</span> <span class="number">1</span>; }</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="built_in">CommonInit</span>(); }</span><br><span class="line">	~<span class="built_in">X</span>() { std::cout &lt;&lt; <span class="string">"~X()"</span> &lt;&lt; std::endl; }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">CommonInit</span><span class="params">()</span> </span>{}</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="keyword">try</span> {</span><br><span class="line">		X x;</span><br><span class="line">	} <span class="built_in">catch</span>(...) {</span><br><span class="line">	</span><br><span class="line">	}</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<h2 id="委托模板构造函数">委托模板构造函数</h2>
+<p>委托模板构造函数是指一个构造函数将控制权委托到同类型的一个模板构造函数，简单地说，就是代理构造函数是一个函数模板。这样做的意义在于泛化了构造函数，减少冗余的代码的产生。将代理构造函数编写成函数模板往往会获得很好的效果，让我们看一看例子：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;list&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;deque&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line">	<span class="function"><span class="keyword">template</span>&lt;<span class="keyword">class</span> T&gt; <span class="title">X</span><span class="params">(T first, T last)</span> : l_(first, last) {</span>}</span><br><span class="line">	std::list&lt;<span class="type">int</span>&gt; l_;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>(std::vector&lt;<span class="type">short</span>&gt;&amp;);</span><br><span class="line">	<span class="built_in">X</span>(std::deque&lt;<span class="type">int</span>&gt;&amp;);</span><br><span class="line">};</span><br><span class="line">X::<span class="built_in">X</span>(std::vector&lt;<span class="type">short</span>&gt;&amp; v) : <span class="built_in">X</span>(v.<span class="built_in">begin</span>(), v.<span class="built_in">end</span>()) {}</span><br><span class="line">X::<span class="built_in">X</span>(std::deque&lt;<span class="type">int</span>&gt;&amp; v) : <span class="built_in">X</span>(v.<span class="built_in">begin</span>(), v.<span class="built_in">end</span>()) {}</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	std::vector&lt;<span class="type">short</span>&gt; a{ <span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span> };</span><br><span class="line">	std::deque&lt;<span class="type">int</span>&gt; b{ <span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span> };</span><br><span class="line">	<span class="function">X <span class="title">x1</span><span class="params">(a)</span></span>;</span><br><span class="line">	<span class="function">X <span class="title">x2</span><span class="params">(b)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中<code>template&lt;class T&gt; X(T first, Tlast)</code>是一个代理模板构造函数，<code>X(std::vector&lt;short&gt;&amp;)</code>和<code>X(std::deque&lt;int&gt;&amp;)</code>将控制权委托给了它。这样一来，我们就无须编写<code>std::vector&lt;short&gt;</code>和<code>std::deque &lt;int&gt;</code>版本的代理构造函数。后续增加委托构造函数也不需要修改代理构造函数，只需要保证参数类型支持迭代器就行了。</p>
+<h2 id="捕获委托构造函数的异常">捕获委托构造函数的异常</h2>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">X</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">X</span>() <span class="keyword">try</span> : <span class="built_in">X</span>(<span class="number">0</span>) {}</span><br><span class="line">	<span class="built_in">catch</span> (<span class="type">int</span> e) {</span><br><span class="line">		std::cout &lt;&lt; <span class="string">"catch: "</span> &lt;&lt; e &lt;&lt; std::endl;</span><br><span class="line">		<span class="keyword">throw</span> <span class="number">3</span>;</span><br><span class="line">	}</span><br><span class="line">	</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a) <span class="keyword">try</span> : <span class="built_in">X</span>(a, <span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">catch</span> (<span class="type">int</span> e) {</span><br><span class="line">		std::cout &lt;&lt; <span class="string">"catch: "</span> &lt;&lt; e &lt;&lt; std::endl;</span><br><span class="line">		<span class="keyword">throw</span> <span class="number">2</span>;</span><br><span class="line">	}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">double</span> b) : <span class="built_in">X</span>(<span class="number">0</span>, b) {}</span><br><span class="line">	<span class="built_in">X</span>(<span class="type">int</span> a, <span class="type">double</span> b) : <span class="built_in">a_</span>(a), <span class="built_in">b_</span>(b) { <span class="keyword">throw</span> <span class="number">1</span>; }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="type">int</span> a_;</span><br><span class="line">	<span class="type">double</span> b_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="keyword">try</span> {</span><br><span class="line">		X x;</span><br><span class="line">	} <span class="built_in">catch</span> (<span class="type">int</span> e) {</span><br><span class="line">		std::cout &lt;&lt; <span class="string">"catch: "</span> &lt;&lt; e &lt;&lt; std::endl;</span><br><span class="line">	}</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>编译运行以上代码，输出结果如下：</p>
+<figure class="highlight txt"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">catch: 1</span><br><span class="line">catch: 2</span><br><span class="line">catch: 3</span><br></pre></td></tr></tbody></table></figure>
+<h2 id="委托参数较少的构造函数">委托参数较少的构造函数</h2>
+<p>将参数较少的构造函数委托给参数较多的构造函数。通常情况下我们建议这么做，因为这样做的自由度更高。但是，并不是完全否定从参数较多的构造函数委托参数较少的构造函数的意义。这种情况通常发生在构造函数的参数必须在函数体中使用的场景。以<code>std::fstream</code>作为例子：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">basic_fstream</span>();</span><br><span class="line"><span class="function"><span class="keyword">explicit</span> <span class="title">basic_fstream</span><span class="params">(<span class="type">const</span> <span class="type">char</span>* s, ios_base::openmode mode)</span></span>;</span><br></pre></td></tr></tbody></table></figure>
+<p><code>basic_fstream</code>的这两个构造函数，由于<code>basic_fstream(const char * s, ios_base::openmode mode)</code>需要在构造函数体内执行具体打开文件的操作，所以它完全可以委托<code>basic_fstream()</code>来完成一些最基础的初始化工作，最后执行到自己的主体时再打开文件:</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">basic_fstream::<span class="built_in">basic_fstream</span>(<span class="type">const</span> <span class="type">char</span>* s, ios_base::openmode mode) : <span class="built_in">basic_fstream</span>() {</span><br><span class="line">	<span class="keyword">if</span> (<span class="built_in">open</span>(s, mode) == <span class="number">0</span>) </span><br><span class="line">		<span class="built_in">setstate</span>(failbit);</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<h1 id="继承构造函数">继承构造函数</h1>
+<h2 id="继承关系中构造函数的困局">继承关系中构造函数的困局</h2>
+<p>假设现在有一个类<code>Base</code>提供了很多不同的构造函数。某一天，你发现<code>Base</code>无法满足未来业务需求，需要把<code>Base</code>作为基类派生出一个新类<code>Derived</code>并且对某些函数进行改造以满足未来新的业务需求，比如下面的代码：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base</span>() : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(<span class="number">0.</span>) {};</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span> x, <span class="type">double</span> y) : <span class="built_in">x_</span>(x), <span class="built_in">y_</span>(y) {}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">double</span> y) : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(y) {}</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">SomeFunc</span><span class="params">()</span> </span>{}</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="type">int</span> x_;</span><br><span class="line">	<span class="type">double</span> y_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Derived</span>() {};</span><br><span class="line">	<span class="built_in">Derived</span>(<span class="type">int</span> x, <span class="type">double</span> y) : <span class="built_in">Base</span>(x, y) {}</span><br><span class="line">	<span class="built_in">Derived</span>(<span class="type">int</span> x) : <span class="built_in">Base</span>(x) {}</span><br><span class="line">	<span class="built_in">Derived</span>(<span class="type">double</span> y) : <span class="built_in">Base</span>(y) {}</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">SomeFunc</span><span class="params">()</span> </span>{}</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>基类<code>Base</code>的<code>SomeFunc</code>无法满足当前的业务需求，于是在其派生类<code>Derived</code>中重写了这个函数，但令人头痛的是，面对<code>Base</code>中大量的构造函数，我们不得不在<code>Derived</code>中定义同样多的构造函数，目的仅仅是转发构造参数，因为派生类本身并没有需要初始化的数据成员。单纯地转发构造函数不仅会导致代码的冗余，而且大量重复的代码也会让程序更容易出错。实际上，这个工作完全可以让编译器自动完成，因为它实在太简单了，让编译器代劳不仅消除了代码冗余而且意图上也更加明确。</p>
+<h2 id="使用继承构造函数">使用继承构造函数</h2>
+<p>我们都知道C++中可以使用using关键字将基类的函数引入派生类，比如：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">foo</span><span class="params">(<span class="type">int</span>)</span> </span>{}</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="keyword">using</span> Base::foo;</span><br><span class="line">	<span class="function"><span class="type">void</span> <span class="title">foo</span><span class="params">(<span class="type">char</span>*)</span> </span>{}</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	Derived d;</span><br><span class="line">	d.<span class="built_in">foo</span>(<span class="number">5</span>);</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>C++11的继承构造函数正是利用了这一点，将using关键字的能力进行了扩展，使其能够引入基类的构造函数：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base</span>() : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(<span class="number">0.</span>) {};</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span> x, <span class="type">double</span> y) : <span class="built_in">x_</span>(x), <span class="built_in">y_</span>(y) {}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span> x) : <span class="built_in">x_</span>(x), <span class="built_in">y_</span>(<span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">double</span> y) : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(y) {}</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="type">int</span> x_;</span><br><span class="line">	<span class="type">double</span> y_;</span><br><span class="line">}</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="keyword">using</span> Base::Base;</span><br><span class="line">};</span><br></pre></td></tr></tbody></table></figure>
+<p>使用继承构造函数虽然很方便，但是还有6条规则需要注意。</p>
+<p><strong>派生类是隐式继承基类的构造函数，所以只有在程序中使用了这些构造函数，编译器才会为派生类生成继承构造函数的代码。</strong></p>
+<p><strong>派生类不会继承基类的默认构造函数和复制构造函数。</strong>
+这一点乍看有些奇怪，但仔细想想也是顺理成章的。因为在C++语法规则中，执行派生类默认构造函数之前一定会先执行基类的构造函数。同样的，在执行复制构造函数之前也一定会先执行基类的复制构造函数。所以继承基类的默认构造函数和默认复制构造函数的做法是多余的，这里不会这么做。</p>
+<p><strong>继承构造函数不会影响派生类默认构造函数的隐式声明，也就是说对于继承基类构造函数的派生类，编译器依然会为其自动生成默认构造函数的代码。</strong></p>
+<p><strong>在派生类中声明签名相同的构造函数会禁止继承相应的构造函数。</strong>
+这一条规则不太好理解，让我们结合代码来看一看：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base</span>() : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(<span class="number">0.</span>) {}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span> x, <span class="type">double</span> y) : <span class="built_in">x_</span>(x), <span class="built_in">y_</span>(y) {}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span> x) : <span class="built_in">x_</span>(x), <span class="built_in">y_</span>(<span class="number">0.</span>) { std::cout &lt;&lt; <span class="string">"Base(int x)"</span> &lt;&lt; std::endl; }</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">double</span> y) : <span class="built_in">x_</span>(<span class="number">0</span>), <span class="built_in">y_</span>(y) { std::cout &lt;&lt; <span class="string">"Base(double y)"</span> &lt;&lt; std::endl; }</span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">	<span class="type">int</span> x_;</span><br><span class="line">	<span class="type">double</span> y_;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="keyword">using</span> Base::Base;</span><br><span class="line">	<span class="built_in">Derived</span>(<span class="type">int</span> x) { str::cout &lt;&lt; <span class="string">"Derived(int x)"</span> &lt;&lt; std::endl; }</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="function">Derived <span class="title">d</span><span class="params">(<span class="number">5</span>)</span></span>;</span><br><span class="line">	<span class="function">Derived <span class="title">d1</span><span class="params">(<span class="number">5.5</span>)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中，派生类<code>Derived</code>使用<code>using Base::Base</code>继承了基类的构造函数，但是由于<code>Derived</code>定义了构造函数<code>Derived(int x)</code>，该函数的签名与基类的构造函数<code>Base(int x)</code>相同，因此这个构造函数的继承被禁止了，<code>Derived d(5)</code>会调用派生类的构造函数并且输出"Derived(int
+x)"。另外，这个禁止动作并不会影响到其他签名的构造函数，<code>Derived d1(5.5)</code>依然可以成功地使用基类的构造函数进行构造初始化。</p>
+<p><strong>派生类继承多个签名相同的构造函数会导致编译失败：</strong></p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base1</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base1</span>(<span class="type">int</span>) { std::cout &lt;&lt; <span class="string">"Base1(int x)"</span> &lt;&lt; std::endl; };</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Base2</span> {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base2</span>(<span class="type">int</span>) { std::cout &lt;&lt; <span class="string">"Base2(int x)"</span> &lt;&lt; std::endl; };</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base1, Base2 {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="keyword">using</span> Base1::Base1;</span><br><span class="line">	<span class="keyword">using</span> Base2::Base2;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="function">Derived <span class="title">d</span><span class="params">(<span class="number">5</span>)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中，<code>Derived</code>继承了两个类<code>Base1</code>和<code>Base2</code>，并且继承了它们的构造函数。但是由于这两个类的构造函数<code>Base1(int)</code>和<code>Base2(int)</code>拥有相同的签名，导致编译器在构造对象的时候不知道应该使用哪一个基类的构造函数，因此在编译时给出一个二义性错误。</p>
+<p><strong>继承构造函数的基类构造函数不能为私有：</strong></p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Base</span> {</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span>) {}</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">double</span>) {}</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Derived</span> : <span class="keyword">public</span> Base {</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">	<span class="keyword">using</span> Base::Base;</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="function">Derived <span class="title">d</span><span class="params">(<span class="number">5.5</span>)</span></span>;</span><br><span class="line">	<span class="function">Derived <span class="title">d1</span><span class="params">(<span class="number">5</span>)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>在上面的代码中，Derived
+d1(5)无法通过编译，因为它对应的基类构造函数Base(int)是一个私有函数，Derived
+d(5.5)则没有这个问题。</p>
+<p>最后再介绍一个有趣的问题，在早期的C++11编译器中，继承构造函数会把基类构造函数注入派生类，于是导致了这样一个问题：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;iostream&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">struct</span> <span class="title class_">Base</span> {</span><br><span class="line">	<span class="built_in">Base</span>() = <span class="keyword">default</span>;</span><br><span class="line">	<span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> T&gt; <span class="title">Base</span><span class="params">(T, <span class="keyword">typename</span> T::type=<span class="number">0</span>)</span> </span>{</span><br><span class="line">		std::cout &lt;&lt; <span class="string">"Base(T, typename T::type)"</span> &lt;&lt; std::endl;</span><br><span class="line">	}</span><br><span class="line">	<span class="built_in">Base</span>(<span class="type">int</span>) { std::cout &lt;&lt; <span class="string">"Base(int)"</span> &lt;&lt; std::endl; }</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">struct</span> <span class="title class_">Derived</span> : Base {</span><br><span class="line">	<span class="keyword">using</span> Base::Base;</span><br><span class="line">	<span class="built_in">Derived</span>(<span class="type">int</span>) { std::cout &lt;&lt; <span class="string">"Derived(int)"</span> &lt;&lt; std::endl; }</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	<span class="function">Derived <span class="title">d</span><span class="params">(<span class="number">42L</span>)</span></span>;</span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+<p>上面这段代码用早期的编译器（比如GCC
+6.4）编译运行的输出结果是<code>Base(int)</code>，而用新的GCC编译运行的输出结果是<code>Derived(int)</code>。在老的版本中，<code>template&lt;typename T&gt;Base(T, typename T::type = 0)</code>
+被注入派生类中，形成了这样两个构造函数：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> T&gt; <span class="title">Derived</span><span class="params">(T)</span></span>;</span><br><span class="line"><span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> T&gt; <span class="title">Derived</span><span class="params">(T, <span class="keyword">typename</span> T::type)</span></span>;</span><br></pre></td></tr></tbody></table></figure>
+<p>这是因为继承基类构造函数时，不会继承默认参数，而是在派生类中注入带有各种参数数量的构造函数的重载集合。于是，编译器理所当然地选择推导<code>Derived(T)</code>为<code>Derived(long)</code>作为构造函数。在构造基类时，由于<code>Base(long, typename long::type = 0)</code>显然是一个非法的声明，因此编译器选择使用<code>Base(int)</code>作为基类的构造函数。最终结果就是我们看到的输出了<code>Base(int)</code>。而在新版本中继承构造函数不会注入派生类，所以不存在这个问题，编译器会直接使用派生类的<code>Derived(int)</code>构造函数构造对象。</p>
+<h1 id="强枚举类型">强枚举类型</h1>
+<p>大多数情况下，我们说C++是一门类型安全的强类型语言，但是枚举类型在一定程度上却是一个例外，具体来说有以下几个方面的原因。</p>
+<p>首先，虽然枚举类型存在一定的安全检查功能，一个枚举类型不允许分配到另外一种枚举类型，而且整型也无法隐式转换成枚举类型。但是枚举类型却可以隐式转换为整型，因为C++标准文档提到“枚举类型可以采用整型提升的方法转换成整型”。请看下面的代码示例：</p>
+<figure class="highlight cpp"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">enum</span> <span class="title class_">School</span> {</span><br><span class="line">	principal,</span><br><span class="line">	teacher,</span><br><span class="line">	student</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="keyword">enum</span> <span class="title class_">Company</span> {</span><br><span class="line">	chairman,</span><br><span class="line">	manager,</span><br><span class="line">	employee</span><br><span class="line">};</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>{</span><br><span class="line">	School x = student;</span><br><span class="line">	Company y = manager;</span><br><span class="line">	<span class="type">bool</span> b = student &gt;= manager; <span class="comment">// 不同类型之间的比较操作</span></span><br><span class="line">	b = x &lt; employee;</span><br><span class="line">	<span class="type">int</span> y = student; <span class="comment">// 隐式转换为int</span></span><br><span class="line">}</span><br></pre></td></tr></tbody></table></figure>
+
+                    
+                </div>
+
+                
+                        
+<div class="post-copyright-info-container border-box">
+    <div class="copyright-info-content border-box">
+        <div class="copyright-info-top border-box">
+            <div class="copyright-post-title border-box text-ellipsis">
+                Modern cpp feature 11~20
+            </div>
+
+            <div class="copyright-post-link border-box text-ellipsis">
+                2024/11/24/others-现代C-语言核心特性解析-Modern-cpp-feature-11-20/
+            </div>
+        </div>
+
+        <div class="copyright-info-bottom border-box">
+            <div class="copyright-post-author bottom-item">
+                <div class="type">
+                    Author
+                </div>
+                <div class="content">amor mío de mi vida</div>
+            </div>
+
+            <div class="post-time bottom-item">
+                <div class="type">
+                    Published
+                </div>
+                <div class="content">2024-11-24 22:58</div>
+            </div>
+
+
+            <div class="post-license bottom-item">
+                <div class="type">
+                    License
+                </div>
+                <div class="content tooltip" data-tooltip-content="CC BY-NC-SA 4.0">
+                    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed" target="_blank">
+                        
+                            <i class="fa-brands fa-creative-commons"></i>
+                            <i class="fa-brands fa-creative-commons-by"></i>
+                            <i class="fa-brands fa-creative-commons-nc"></i>
+                            <i class="fa-brands fa-creative-commons-sa"></i>
+                        
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <i class="copyright-bg fa-solid fa-copyright"></i>
+    </div>
+    <div class="copy-copyright-info flex-center tooltip" data-tooltip-content="Copy copyright info" data-tooltip-offset-y="-2px">
+        <i class="fa-solid fa-copy"></i>
+    </div>
+</div>
+
+                
+
+                <div class="post-bottom-tags-and-share border-box">
+                    <div>
+                        
+                            <ul class="post-tags-box border-box">
+                                
+                                    <li class="tag-item border-box">
+                                        <i class="icon fas fa-hashtag"></i>&nbsp;<a href="/tags/cpp/">cpp</a>
+                                    </li>
+                                
+                            </ul>
+                        
+                    </div>
+                    <div>
+                        
+                            <div class="post-share-container border-box">
+    <ul class="share-list-wrap border-box">
+        <li class="qq share-item border-box flex-center tooltip" data-tooltip-content="Share to QQ">
+            <i class="fa-brands fa-qq"></i>
+        </li>
+        <li class="wechat share-item border-box flex-center tooltip tooltip-img" data-tooltip-content="Share to WeChat" data-tooltip-img-tip="Scan by WeChat" data-tooltip-img-style="background-color: #fff; top: -10px; padding: 0.6rem 0.6rem 0.1rem 0.6rem;">
+            <i class="fa-brands fa-weixin"></i>
+        </li>
+        <li class="weibo share-item border-box flex-center tooltip" data-tooltip-content="Share to WeiBo">
+            <i class="fa-brands fa-weibo"></i>
+        </li>
+    </ul>
+</div>
+
+                        
+                    </div>
+                </div>
+
+                
+
+                
+                    <div class="post-nav border-box">
+                        
+                            <div class="prev-post">
+                                <a class="prev" rel="prev" href="/2024/11/25/others-cuda%E4%BC%98%E5%8C%96%E6%80%9D%E8%B7%AF/" title="Welcome to use Hexo Theme Keep">
+                                    <span class="left arrow-icon flex-center">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </span>
+                                    <span class="title flex-center">
+                                        <span class="post-nav-title-item text-ellipsis">Welcome to use Hexo Theme Keep</span>
+                                        <span class="post-nav-item">Prev posts</span>
+                                    </span>
+                                </a>
+                            </div>
+                        
+                        
+                            <div class="next-post">
+                                <a class="next" rel="next" href="/2024/11/22/others-Support-Vector-Machine-SVM/" title="Support Vector Machine SVM">
+                                    <span class="title flex-center">
+                                        <span class="post-nav-title-item text-ellipsis">Support Vector Machine SVM</span>
+                                        <span class="post-nav-item">Next posts</span>
+                                    </span>
+                                    <span class="right arrow-icon flex-center">
+                                        <i class="fas fa-chevron-right"></i>
+                                    </span>
+                                </a>
+                            </div>
+                        
+                    </div>
+                
+
+                
+                    
+
+
+
+
+
+
+                
+            </div>
+        </div>
+
+        
+            <div class="pc-post-toc right-toc">
+                <div class="post-toc-wrap border-box">
+    <div class="post-toc border-box">
+        <ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%9D%9E%E5%8F%97%E9%99%90%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B"><span class="nav-text">非受限联合类型</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B%E5%9C%A8c%E4%B8%AD%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7"><span class="nav-text">联合类型在C++中的局限性</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E9%9D%9E%E5%8F%97%E9%99%90%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B"><span class="nav-text">使用非受限联合类型</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托构造函数</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%86%97%E4%BD%99%E7%9A%84%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">冗余的构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0-1"><span class="nav-text">委托构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%A8%A1%E6%9D%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托模板构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%8D%95%E8%8E%B7%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0%E7%9A%84%E5%BC%82%E5%B8%B8"><span class="nav-text">捕获委托构造函数的异常</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E5%8F%82%E6%95%B0%E8%BE%83%E5%B0%91%E7%9A%84%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托参数较少的构造函数</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%BB%A7%E6%89%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">继承构造函数</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%A7%E6%89%BF%E5%85%B3%E7%B3%BB%E4%B8%AD%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0%E7%9A%84%E5%9B%B0%E5%B1%80"><span class="nav-text">继承关系中构造函数的困局</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E7%BB%A7%E6%89%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">使用继承构造函数</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BC%BA%E6%9E%9A%E4%B8%BE%E7%B1%BB%E5%9E%8B"><span class="nav-text">强枚举类型</span></a></li></ol>
+    </div>
+</div>
+
+            </div>
+        
+    </div>
+</div>
+
+
+                
+            </div>
+        </div>
+
+        <div class="page-main-content-bottom border-box">
+            
+<footer class="footer border-box">
+    <div class="copyright-info info-item">
+        ©&nbsp;<span>2020</span>&nbsp;-&nbsp;2024
+        
+            &nbsp;<i class="fas fa-heart icon-animate"></i>&nbsp;&nbsp;<a href="/">amor mío de mi vida</a>
+        
+    </div>
+
+    <div class="theme-info info-item">
+        Powered by&nbsp;<a target="_blank" href="https://hexo.io">Hexo</a>&nbsp;&amp;&nbsp;Theme&nbsp;<a class="keep-version" target="_blank" href="https://github.com/XPoet/hexo-theme-keep">Keep</a>
+    </div>
+
+    
+
+    
+        <div class="count-info info-item">
+            
+
+            
+                <span class="count-item border-box uv">
+                    <span class="item-type border-box">Unique Visitor</span>
+                    <span class="item-value border-box uv" id="busuanzi_value_site_uv"></span>
+                </span>
+            
+
+            
+                <span class="count-item border-box pv">
+                    <span class="item-type border-box">Page View</span>
+                    <span class="item-value border-box pv" id="busuanzi_value_site_pv"></span>
+                </span>
+            
+        </div>
+    
+
+    
+</footer>
+
+        </div>
+    </div>
+
+    <!-- post tools -->
+    
+        <div class="post-tools right-toc">
+            <div class="post-tools-container border-box">
+    <ul class="post-tools-list border-box">
+        <!-- PC encrypt again -->
+        
+
+        <!-- PC TOC show toggle -->
+        
+            <li class="tools-item flex-center toggle-show-toc">
+                <i class="fas fa-list"></i>
+            </li>
+        
+
+        <!-- PC go comment -->
+        
+
+        <!-- PC full screen -->
+        <li class="tools-item flex-center full-screen">
+            <i class="fa-solid fa-expand"></i>
+        </li>
+    </ul>
+</div>
+
+        </div>
+    
+
+    <!-- side tools -->
+    <div class="side-tools">
+        <div class="side-tools-container border-box ">
+    <ul class="side-tools-list side-tools-show-handle border-box">
+        <li class="tools-item tool-font-adjust-plus flex-center">
+            <i class="fas fa-search-plus"></i>
+        </li>
+
+        <li class="tools-item tool-font-adjust-minus flex-center">
+            <i class="fas fa-search-minus"></i>
+        </li>
+
+        <!-- toggle mode -->
+        
+            <li class="tools-item tool-toggle-theme-mode flex-center">
+                <i class="fas fa-moon"></i>
+            </li>
+        
+
+        <!-- rss -->
+        
+
+        <!-- to bottom -->
+        <li class="tools-item tool-scroll-to-bottom flex-center">
+            <i class="fas fa-arrow-down"></i>
+        </li>
+    </ul>
+
+    <ul class="exposed-tools-list border-box">
+        
+            <li class="tools-item toggle-show-toc-tablet flex-center">
+                <i class="fas fa-list"></i>
+            </li>
+        
+
+        
+
+        <li class="tools-item tool-toggle-show flex-center">
+            <i class="fas fa-cog fa-spin"></i>
+        </li>
+
+        <li class="tools-item tool-scroll-to-top flex-center show-arrow">
+            <i class="arrow fas fa-arrow-up"></i>
+            <span class="percent"></span>
+        </li>
+    </ul>
+</div>
+
+    </div>
+
+    <!-- image mask -->
+    <div class="zoom-in-image-mask">
+    <img class="zoom-in-image">
+</div>
+
+
+    <!-- local search -->
+    
+        <div class="search-pop-overlay">
+    <div class="popup search-popup">
+        <div class="search-header">
+          <span class="search-input-field-pre">
+            <i class="fas fa-keyboard"></i>
+          </span>
+            <div class="search-input-container">
+                <input autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Search..." spellcheck="false" type="search" class="search-input">
+            </div>
+            <span class="close-popup-btn">
+                <i class="fas fa-times"></i>
+            </span>
+        </div>
+        <div id="search-result">
+            <div id="no-result">
+                <i class="fas fa-spinner fa-pulse fa-5x fa-fw"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+    
+
+    <!-- tablet toc -->
+    
+        <div class="tablet-post-toc-mask">
+            <div class="tablet-post-toc">
+                <div class="post-toc-wrap border-box">
+    <div class="post-toc border-box">
+        <ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%9D%9E%E5%8F%97%E9%99%90%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B"><span class="nav-text">非受限联合类型</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B%E5%9C%A8c%E4%B8%AD%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7"><span class="nav-text">联合类型在C++中的局限性</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E9%9D%9E%E5%8F%97%E9%99%90%E8%81%94%E5%90%88%E7%B1%BB%E5%9E%8B"><span class="nav-text">使用非受限联合类型</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托构造函数</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%86%97%E4%BD%99%E7%9A%84%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">冗余的构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0-1"><span class="nav-text">委托构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E6%A8%A1%E6%9D%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托模板构造函数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%8D%95%E8%8E%B7%E5%A7%94%E6%89%98%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0%E7%9A%84%E5%BC%82%E5%B8%B8"><span class="nav-text">捕获委托构造函数的异常</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A7%94%E6%89%98%E5%8F%82%E6%95%B0%E8%BE%83%E5%B0%91%E7%9A%84%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">委托参数较少的构造函数</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%BB%A7%E6%89%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">继承构造函数</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%A7%E6%89%BF%E5%85%B3%E7%B3%BB%E4%B8%AD%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0%E7%9A%84%E5%9B%B0%E5%B1%80"><span class="nav-text">继承关系中构造函数的困局</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E7%BB%A7%E6%89%BF%E6%9E%84%E9%80%A0%E5%87%BD%E6%95%B0"><span class="nav-text">使用继承构造函数</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BC%BA%E6%9E%9A%E4%B8%BE%E7%B1%BB%E5%9E%8B"><span class="nav-text">强枚举类型</span></a></li></ol>
+    </div>
+</div>
+
+            </div>
+        </div>
+    
+</main>
+
+
+
+
+
+<!-- common js -->
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/header-shrink.js"></script>
+
+<script src="/js/back2top.js"></script>
+
+<script src="/js/toggle-theme.js"></script>
+
+<script src="/js/code-block.js"></script>
+
+<script src="/js/main.js"></script>
+
+<script src="/js/libs/anime.min.js"></script>
+
+
+<!-- local search -->
+
+    
+<script src="/js/local-search.js"></script>
+
+
+
+<!-- lazyload -->
+
+    
+<script src="/js/lazyload.js"></script>
+
+
+
+<div class="pjax">
+    <!-- home page -->
+    
+
+    <!-- post page -->
+    
+        <!-- post-helper -->
+        
+<script src="/js/post/post-helper.js"></script>
+
+
+        <!-- toc -->
+        
+            
+<script src="/js/post/toc.js"></script>
+
+        
+
+        <!-- copyright-info -->
+        
+            
+<script src="/js/post/copyright-info.js"></script>
+
+        
+
+        <!-- share -->
+        
+            
+<script src="/js/post/share.js"></script>
+
+        
+    
+
+    <!-- categories page -->
+    
+
+    <!-- links page -->
+    
+
+    <!-- photos page -->
+    
+
+    <!-- tools page -->
+    
+</div>
+
+<!-- mermaid -->
+
+    
+<script src="//cdn.jsdelivr.net/npm/mermaid@10.5.0/dist/mermaid.min.js"></script>
+
+    <script data-pjax="">
+      if (window.mermaid) {
+        mermaid.init()
+      }
+    </script>
+
+
+
+
+
+
+<!-- pjax -->
+
+    
+<script src="/js/libs/pjax.min.js"></script>
+
+<script>
+    window.addEventListener('DOMContentLoaded', () => {
+        window.pjax = new Pjax({
+            selectors: [
+                'head title',
+                '.page-container',
+                '.pjax'
+            ],
+            history: true,
+            debug: false,
+            cacheBust: false,
+            timeout: 0,
+            analytics: false,
+            currentUrlFullReload: false,
+            scrollRestoration: false,
+        });
+
+        document.addEventListener('pjax:send', () => {
+            KEEP.utils.pjaxProgressBarStart()
+        });
+
+        document.addEventListener('pjax:complete', () => {
+            KEEP.utils.pjaxProgressBarEnd()
+            window.pjax.executeScripts(document.querySelectorAll('script[data-pjax], .pjax script'))
+            KEEP.initExecute()
+        });
+    });
+</script>
+
+
+
+
+
+
+<script type="text/javascript" charset="utf-8" src="/js/lazyload-plugin/lazyload.intersectionObserver.min.js"></script></body></html>

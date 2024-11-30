@@ -405,17 +405,17 @@ mjx-container[display="true"] + br {
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/16/cuda-cuda-introduction/">
-                            cuda introduction
+                        <a href="/2024/10/28/course-DLSystem-9-Implementing-Convolutions/">
+                            Implementing Convolutions
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            cuda 介绍
-GPU
-特别适合于并行数据运算的问题－同一个程序在许多并行数据元素，并带有高运算密度（算术运算与内存操作的比例）。由于同一个程序要执行每个数据元素，降低了对复杂的流量控制要求;
-并且，因为它执行许多数据元素并且据有高运算密度，内存访问...
+                            Storage Order
+We could represent a hidden unit as an array
+float Z[BATCHES][HEIGHT][WEIGHT][CHANNELS];
+as NHWC format (number...
                         
                     </div>
 
@@ -425,7 +425,7 @@ GPU
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 21:52:21 GMT+0800">2024-10-19 21:52:21</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 28 2024 14:50:34 GMT+0800">2024-10-28 14:50:34</span>
             </span>
         
 
@@ -435,75 +435,7 @@ GPU
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/NVIDIA-cuda-%E7%BC%96%E7%A8%8B%E6%8C%87%E5%8D%97/">NVIDIA cuda 编程指南</a></li>
-                        
-                    
-                </ul>
-            </span>
-        
-
-        
-            <span class="post-tag meta-info-item border-box">
-                <ul class="post-tag-ul">
-                    
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/cuda/">cuda</a></li>
-                        
-                    
-                </ul>
-            </span>
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/16/cuda-cuda-introduction/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/14/course-Machine-Learning-Compiler-1-Tensor-Program-Abstraction/">
-                            Tensor Program Abstraction
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            Primitive Tensor Function
-Primitive Tensor Function a tensor function that corresponds to a
-single "unit" of computational op...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Oct 18 2024 15:49:53 GMT+0800">2024-10-18 15:49:53</span>
-            </span>
-        
-
-        
-
-        
-            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
-                <ul class="post-category-ul">
-                    
-                            <li class="category-item"><a href="/categories/MLCompiler/">MLCompiler</a></li>
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
                         
                     
                 </ul>
@@ -528,7 +460,7 @@ single "unit" of computational op...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/14/course-Machine-Learning-Compiler-1-Tensor-Program-Abstraction/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/28/course-DLSystem-9-Implementing-Convolutions/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -542,22 +474,17 @@ single "unit" of computational op...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/13/paper-survey-Full-Stack-Optimization-of-Transformer-Inference-a-Survey/">
-                            Full Stack Optimization of Transformer Inference: a Survey
+                        <a href="/2024/10/19/course-DLSystem-8-Hardware-Acceleration/">
+                            Hardware Acceleration
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            <p>最近Transformer模型在进行推理时所需的计算量和带宽正在以显著的速度增长，这使得它们在延迟敏感型应用中的部署变得具有挑战性。因此，人们越来越关注如何提高Transformer模型的效率，方法从改变架构设计，到开发专门的领域特定加速器不等。在这项工作中我们调研了不同的高效Transformer推理方法，包括：</p>
-<ol type="i">
-<li><p>分析和剖析现有Transformer架构中的瓶颈，以及它们与之前的卷积模型在相似性和差异性；</p></li>
-<li><p>Transformer架构对硬件的影响，包括非线性运算如层归一化（Layer
-Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响；</p></li>
-<li><p>优化固定Transformer架构的方法；</p></li>
-<li><p>在为Transformer模型寻找正确的操作映射和调度方面所面临的挑战；以及通过使用神经架构搜索来适应架构，优化Transformer模型的方法。</p></li>
-</ol>
-<p>最后，我们通过对Gemmini（一个开源的全栈深度神经网络加速器生成器）应用所调研的优化方法进行了一个案例研究，并展示了每种方法相比于之前在Gemmini上的基准测试结果所带来的改进。</p>
+                            General acceleration
+techniques
+Vectorization
+12345678void vecadd(float* A, float* B, float* C) {	for (int i = 0; i &lt; 64: ...
                         
                     </div>
 
@@ -567,7 +494,7 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 21:52:21 GMT+0800">2024-10-19 21:52:21</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Oct 20 2024 16:45:08 GMT+0800">2024-10-20 16:45:08</span>
             </span>
         
 
@@ -577,7 +504,7 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/paper/"> paper</a></li>
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
                         
                     
                 </ul>
@@ -588,10 +515,7 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
-                        
-                    
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/survey/">survey</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
                         
                     
                 </ul>
@@ -605,7 +529,7 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/13/paper-survey-Full-Stack-Optimization-of-Transformer-Inference-a-Survey/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/19/course-DLSystem-8-Hardware-Acceleration/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -619,14 +543,153 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/13/course-d2l-Attention-Mechanisms-and-Transformers/">
-                            Attention Mechanisms and Transformers
+                        <a href="/2024/10/19/course-DLSystem-7-Convolutional-Networks/">
+                            Convolutional Networks
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            
+                            Convolutional
+operators in deep networks
+The reason that fully connected layer won't work very well besides
+just involving to...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 28 2024 14:50:41 GMT+0800">2024-10-28 14:50:41</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/10/19/course-DLSystem-7-Convolutional-Networks/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/10/18/course-DLSystem-6-Normalization-and-Regularization/">
+                            Normalization and Regularization
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            Normalization
+Initialization matters a lot for training, and vary over the course
+of training to no longer be "consistent" ac...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 14:23:38 GMT+0800">2024-10-19 14:23:38</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/10/18/course-DLSystem-6-Normalization-and-Regularization/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/10/18/template-Welcome-to-use-Hexo-Theme-Keep/">
+                            Welcome to use Hexo Theme Keep
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            <p>Welcome to use Hexo Theme Keep.</p>
+<p>This is your very first post. Check <a class="link" target="_blank" rel="noopener" href="https://keep-docs.xpoet.cn/">documentation<i class="fas fa-external-link-alt"></i></a> for more info. If
+you get any problems when using Keep theme, you can ask me on <a class="link" target="_blank" rel="noopener" href="https://github.com/XPoet/hexo-theme-keep/issues">GitHub<i class="fas fa-external-link-alt"></i></a>.</p>
                         
                     </div>
 
@@ -643,65 +706,10 @@ Normalization）、Softmax和GELU，以及线性运算对硬件设计的影响�
         
 
         
-
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/13/course-d2l-Attention-Mechanisms-and-Transformers/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/13/book-Computer-Architecture-A-Quantitative-Approach-Fundamentals-of-Quantitative-Design-And-Analysis/">
-                            Fundamentals of Quantitative Design And Analysis
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            
-Introduction
-Classes of Computers
-Defining Computer
-Architecture
-Trends in Technology
-Trends in
-Power and Energy in Integrat...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Oct 13 2024 16:16:32 GMT+0800">2024-10-13 16:16:32</span>
-            </span>
-        
-
-        
-
-        
             <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
                 <ul class="post-category-ul">
                     
-                            <li class="category-item"><a href="/categories/Computer-Architecture-A-Quantitative-Approach/">Computer Architecture: A Quantitative Approach</a></li>
+                            <li class="category-item"><a href="/categories/Hexo/">Hexo</a></li>
                         
                     
                 </ul>
@@ -712,7 +720,10 @@ Power and Energy in Integrat...
             <span class="post-tag meta-info-item border-box">
                 <ul class="post-tag-ul">
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/book/">book</a></li>
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/Hexo/">Hexo</a></li>
+                        
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/Keep/">Keep</a></li>
                         
                     
                 </ul>
@@ -726,7 +737,7 @@ Power and Energy in Integrat...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/13/book-Computer-Architecture-A-Quantitative-Approach-Fundamentals-of-Quantitative-Design-And-Analysis/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/18/template-Welcome-to-use-Hexo-Theme-Keep/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -740,20 +751,18 @@ Power and Energy in Integrat...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/09/paper-survey-Towards-Efficient-Generative-Large-Language-Model-Serving-A-Survey-from-Algorithms-to-Systems/">
-                            Towards Efficient Generative Large Language Model Serving: A Survey from Algorithms to Systems
+                        <a href="/2024/10/18/course-DLSystem-5-Neural-Network-Library-Abstractions/">
+                            Neural Network Library Abstractions
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            <p>LLM
-的空前成功带来了一些挑战，最明显的是它们在服务期间的巨大计算要求。巨大的模型大小和复杂性，加上对大量计算资源的需求，阻碍了它们在实际应用中的广泛部署。这些模型的资源密集型性质引发了对能耗、可扩展性和可访问性的担忧，阻碍了它们在没有丰富计算资源的更广泛社区中的采用。</p>
-<p>本调查的主要目的是全面概述 LLM
-服务和推理的最新进展。我们将根据现有技术的基本方法对其进行系统回顾和分类，突出它们的优势和局限性。该调查将涵盖广泛的方法，包括解码算法、架构设计、模型压缩、低位量化、并行计算、内存管理、请求调度和内核优化。</p>
-<p><a class="link" target="_blank" rel="noopener" href="https://arxiv.org/pdf/2312.15234">Towards Efficient
-Generative Large Language Model Serving: A Survey from Algorithms to
-Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
+                            Programming abstractions
+Forward and backward layer
+interface
+Defines the forward computation and backward (gradient)
+operati...
                         
                     </div>
 
@@ -763,7 +772,75 @@ Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 14 2024 20:24:57 GMT+0800">2024-10-14 20:24:57</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 14:54:55 GMT+0800">2024-10-19 14:54:55</span>
+            </span>
+        
+
+        
+
+        
+            <span class="meta-info-item post-category border-box"><i class="icon fas fa-folder"></i>&nbsp;
+                <ul class="post-category-ul">
+                    
+                            <li class="category-item"><a href="/categories/DLSystem/">DLSystem</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+            <span class="post-tag meta-info-item border-box">
+                <ul class="post-tag-ul">
+                    
+                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/course/">course</a></li>
+                        
+                    
+                </ul>
+            </span>
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/10/18/course-DLSystem-5-Neural-Network-Library-Abstractions/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/10/17/paper-GShard-Scaling-Giant-Models-with-Conditional-Computation-and-Automatic-Sharding/">
+                            GShard: Scaling Giant Models with Conditional
+ Computation and Automatic Sharding
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            摘要：
+神经网络扩展对于提高许多现实世界机器学习应用中的模型质量至关重要，这些应用拥有大量的训练数据和计算资源。尽管这种扩展趋势被证实是提高模型质量的可靠方法，但在实现过程中仍存在挑战，如计算成本、编程的便利性以及在并行设备上的高效实现。GShard...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sat Oct 19 2024 21:52:21 GMT+0800">2024-10-19 21:52:21</span>
             </span>
         
 
@@ -787,9 +864,6 @@ Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
                             <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/paper/">paper</a></li>
                         
                     
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/survey/">survey</a></li>
-                        
-                    
                 </ul>
             </span>
         
@@ -801,7 +875,7 @@ Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/09/paper-survey-Towards-Efficient-Generative-Large-Language-Model-Serving-A-Survey-from-Algorithms-to-Systems/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/17/paper-GShard-Scaling-Giant-Models-with-Conditional-Computation-and-Automatic-Sharding/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -815,19 +889,16 @@ Systems (arxiv.org)<i class="fas fa-external-link-alt"></i></a></p>
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/07/course-DLSystem-2-Manual-Neural-Networks/">
-                            Manual Neural Networks
+                        <a href="/2024/10/17/course-DLSystem-4-Optimization/">
+                            Optimization
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            From linear to
-nonlinear hypothesis classes
-
-
-How can we create the feature function  - Through manual engineering of
-feature...
+                            Fully connected networks
+A L-layer, fully connected network, MLP, now with an explicit bias
+term, is defined by the iteration...
                         
                     </div>
 
@@ -837,7 +908,7 @@ feature...
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 14 2024 21:22:13 GMT+0800">2024-10-14 21:22:13</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Fri Oct 18 2024 11:32:12 GMT+0800">2024-10-18 11:32:12</span>
             </span>
         
 
@@ -872,7 +943,7 @@ feature...
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/07/course-DLSystem-2-Manual-Neural-Networks/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/17/course-DLSystem-4-Optimization/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -886,17 +957,18 @@ feature...
                 <div class="home-post-item-bottom border-box">
                     
                     <h3 class="home-post-title border-box">
-                        <a href="/2024/10/06/course-DLSystem-1-ML-Refresher-Softmax-Regression/">
-                            ML Refresher &amp; Softmax Regression
+                        <a href="/2024/10/16/cuda-CUDA-C-Programming-Guide-Programming-Model-and-Interface/">
+                            Programming Model and Interface
                         </a>
                     </h3>
 
                     <div class="home-post-content keep-markdown-body">
                         
-                            Three
-ingredients of a machine learning algorithm
-Every machine leaning algorithm consists of three different elements
-- The ...
+                            Programming Model
+Kernels
+CUDA
+C++通过允许程序员定义称为内核的C++函数来扩展C++，这些函数在被调用时，由N个不同的CUDA线程并行执行N次，这与只执行一次的常规C++函数不同。
+内核是通过使用__global__...
                         
                     </div>
 
@@ -906,7 +978,60 @@ Every machine leaning algorithm consists of three different elements
     <div class="post-meta-info border-box">
         
             <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Mon Oct 28 2024 14:40:57 GMT+0800">2024-10-28 14:40:57</span>
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Thu Oct 17 2024 11:06:24 GMT+0800">2024-10-17 11:06:24</span>
+            </span>
+        
+
+        
+
+        
+
+        
+
+        
+        
+        
+        
+    </div>
+
+    
+        <a class="home-read-more" href="/2024/10/16/cuda-CUDA-C-Programming-Guide-Programming-Model-and-Interface/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+    
+</div>
+
+                </div>
+            </li>
+        
+            <li class="home-post-item">
+
+                
+
+                <div class="home-post-item-bottom border-box">
+                    
+                    <h3 class="home-post-title border-box">
+                        <a href="/2024/10/16/course-DLSystem-3-Automatic-Differentiation/">
+                            Automatic Differentiation
+                        </a>
+                    </h3>
+
+                    <div class="home-post-content keep-markdown-body">
+                        
+                            General
+introduction to different differentiation methods
+Numerical differentiation
+ 
+Symbolic differentiation
+Write down the...
+                        
+                    </div>
+
+                    
+
+<div class="post-meta-info-container border-box home">
+    <div class="post-meta-info border-box">
+        
+            <span class="meta-info-item border-box">
+                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Wed Oct 16 2024 22:44:46 GMT+0800">2024-10-16 22:44:46</span>
             </span>
         
 
@@ -941,131 +1066,7 @@ Every machine leaning algorithm consists of three different elements
     </div>
 
     
-        <a class="home-read-more" href="/2024/10/06/course-DLSystem-1-ML-Refresher-Softmax-Regression/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/06/book-The-Mythical-Man-Month/">
-                            The Mythical Man-Month
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            
-焦油坑
-
-前车之覆，后车之鉴
-
-左上部分是程序(Program)。它本身是完整的，可以由作者在所开发的系统平台上运行。它通常是车库中产出的产品，以及作为单个程序员生产率的评估标准。
-有两种途径可以使程序转变成更有用但是成本更高的产物，这两种途径表现...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Wed Oct 16 2024 12:45:37 GMT+0800">2024-10-16 12:45:37</span>
-            </span>
-        
-
-        
-
-        
-
-        
-            <span class="post-tag meta-info-item border-box">
-                <ul class="post-tag-ul">
-                    
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/book/">book</a></li>
-                        
-                    
-                </ul>
-            </span>
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/06/book-The-Mythical-Man-Month/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
-    
-</div>
-
-                </div>
-            </li>
-        
-            <li class="home-post-item">
-
-                
-
-                <div class="home-post-item-bottom border-box">
-                    
-                    <h3 class="home-post-title border-box">
-                        <a href="/2024/10/05/tools-Make/">
-                            Make
-                        </a>
-                    </h3>
-
-                    <div class="home-post-content keep-markdown-body">
-                        
-                            Example
-12345678910111213objects = main.o kbd.o command.o display.o \          insert.o search.o files.o utils.oedit : $(obje...
-                        
-                    </div>
-
-                    
-
-<div class="post-meta-info-container border-box home">
-    <div class="post-meta-info border-box">
-        
-            <span class="meta-info-item border-box">
-                <i class="icon fa-solid fa-history"></i>&nbsp;<span class="home-post-history" data-updated="Sun Oct 06 2024 11:10:28 GMT+0800">2024-10-06 11:10:28</span>
-            </span>
-        
-
-        
-
-        
-
-        
-            <span class="post-tag meta-info-item border-box">
-                <ul class="post-tag-ul">
-                    
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/make/">make</a></li>
-                        
-                    
-                            <li class="tag-item"><span class="tag-separator"><i class="icon fas fa-hashtag"></i></span><a href="/tags/tools/">tools</a></li>
-                        
-                    
-                </ul>
-            </span>
-        
-
-        
-        
-        
-        
-    </div>
-
-    
-        <a class="home-read-more" href="/2024/10/05/tools-Make/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
+        <a class="home-read-more" href="/2024/10/16/course-DLSystem-3-Automatic-Differentiation/">Read more&nbsp;<i class="icon fas fa-angle-right"></i></a>
     
 </div>
 
@@ -1085,7 +1086,7 @@ Every machine leaning algorithm consists of three different elements
 
 
         <div class="page-number-box border-box flex-center">
-            <input class="page-number-input border-box base-style" type="number" value="4" min="1" max="6"><span class="delimiter base-style">/</span><span class="base-style">6</span>
+            <input class="page-number-input border-box base-style" type="number" value="4" min="1" max="7"><span class="delimiter base-style">/</span><span class="base-style">7</span>
         </div>
 
 
