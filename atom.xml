@@ -3,11 +3,11 @@
   <title>Hexo</title>
   
   
-  <link href="https://www.hesenyang-ethan.com/atom.xml" rel="self"/>
+  <link href="https://hexo.hesenyang-ethan.com/atom.xml" rel="self"/>
   
-  <link href="https://www.hesenyang-ethan.com/"/>
+  <link href="https://hexo.hesenyang-ethan.com/"/>
   <updated>2026-04-15T13:17:16.332Z</updated>
-  <id>https://www.hesenyang-ethan.com/</id>
+  <id>https://hexo.hesenyang-ethan.com/</id>
   
   <author>
     <name>John Doe</name>
@@ -18,8 +18,8 @@
   
   <entry>
     <title>The Pragmatic Programmer</title>
-    <link href="https://www.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/"/>
-    <id>https://www.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/</id>
+    <link href="https://hexo.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/"/>
+    <id>https://hexo.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/</id>
     <published>2024-09-27T15:09:00.000Z</published>
     <updated>2026-04-15T13:17:16.332Z</updated>
     
@@ -43,33 +43,10 @@
     
     
     
-    <category term="book" scheme="https://www.hesenyang-ethan.com/categories/book/"/>
+    <category term="book" scheme="https://hexo.hesenyang-ethan.com/categories/book/"/>
     
     
-    <category term="coding" scheme="https://www.hesenyang-ethan.com/tags/coding/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>Welcome to use Hexo Theme Keep</title>
-    <link href="https://www.hesenyang-ethan.com/2024/09/25/template-Welcome-to-use-Hexo-Theme-Keep/"/>
-    <id>https://www.hesenyang-ethan.com/2024/09/25/template-Welcome-to-use-Hexo-Theme-Keep/</id>
-    <published>2024-09-25T05:26:08.000Z</published>
-    <updated>2026-04-15T13:17:27.170Z</updated>
-    
-    <content type="html"><![CDATA[<html><head></head><body><p>Welcome to use Hexo Theme Keep.</p><p>This is your very first post. Check <a class="link" href="https://keep-docs.xpoet.cn/">documentation<i class="fas fa-external-link-alt"></i></a> for more info. Ifyou get any problems when using Keep theme, you can ask me on <a class="link" href="https://github.com/XPoet/hexo-theme-keep/issues">GitHub<i class="fas fa-external-link-alt"></i></a>.</p><span id="more"></span><figure><img lazyload="" alt="keep-slogan" data-src="/images/keep-slogan.svg"><figcaption aria-hidden="true">keep-slogan</figcaption></figure><h2 id="quick-start">Quick Start</h2><h3 id="create-a-new-post">Create a new post</h3><figure class="highlight bash"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo new <span class="string">"My New Post"</span></span><br></pre></td></tr></tbody></table></figure><p>More info: <a class="link" href="https://hexo.io/docs/writing.html">Writing<i class="fas fa-external-link-alt"></i></a></p><h3 id="run-server">Run server</h3><figure class="highlight bash"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></tbody></table></figure><p>More info: <a class="link" href="https://hexo.io/docs/server.html">Server<i class="fas fa-external-link-alt"></i></a></p><h3 id="generate-static-files">Generate static files</h3><figure class="highlight bash"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></tbody></table></figure><p>More info: <a class="link" href="https://hexo.io/docs/generating.html">Generating<i class="fas fa-external-link-alt"></i></a></p><h3 id="deploy-to-remote-sites">Deploy to remote sites</h3><figure class="highlight bash"><table><tbody><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></tbody></table></figure><p>More info: <a class="link" href="https://hexo.io/docs/one-command-deployment.html">Deployment<i class="fas fa-external-link-alt"></i></a></p><h3 id="embed-pdf">Embed pdf</h3><div class="row">    <embed src="https://cdn.jsdelivr.net/gh/amor-mio-de-mi-vida/document/paper/MLSys-2024/MLSys-2024-hetegen-efficient-heterogeneous-parallel-inference-for-large-language-models-on-resource-constrained-devices-Paper-Conference.pdf" width="100%" height="550" type="application/pdf"></div><h3 id="embed-html">Embed html</h3><iframe src="https://keep.xpoet.cn/" width="857" height="700"></iframe><h2 id="hexo-中渲染数学公式异常的问题">Hexo中渲染数学公式异常的问题</h2><p>https://www.jianshu.com/p/7ab21c7f0674https://corecabin.cn/2021/08/14/solve-some-problems-of-hexo-renderer-kramed-rendering-conflicts/</p><h2 id="hexo-obsidian">Hexo + obsidian</h2><p>https://blog.csdn.net/isea533/article/details/140190779</p><h3 id="hexo-优化">Hexo 优化</h3><p>https://www.tuonan.fun/2020/02/11/hexo-accelerate/</p></body></html>]]></content>
-    
-    
-    <summary type="html">&lt;p&gt;Welcome to use Hexo Theme Keep.&lt;/p&gt;
-&lt;p&gt;This is your very first post. Check &lt;a class=&quot;link&quot; href=&quot;https://keep-docs.xpoet.cn/&quot;&gt;documentation&lt;i class=&quot;fas fa-external-link-alt&quot;&gt;&lt;/i&gt;&lt;/a&gt; for more info. If
-you get any problems when using Keep theme, you can ask me on &lt;a class=&quot;link&quot; href=&quot;https://github.com/XPoet/hexo-theme-keep/issues&quot;&gt;GitHub&lt;i class=&quot;fas fa-external-link-alt&quot;&gt;&lt;/i&gt;&lt;/a&gt;.&lt;/p&gt;</summary>
-    
-    
-    
-    <category term="Hexo" scheme="https://www.hesenyang-ethan.com/categories/Hexo/"/>
-    
-    
-    <category term="Hexo" scheme="https://www.hesenyang-ethan.com/tags/Hexo/"/>
+    <category term="coding" scheme="https://hexo.hesenyang-ethan.com/tags/coding/"/>
     
   </entry>
   
