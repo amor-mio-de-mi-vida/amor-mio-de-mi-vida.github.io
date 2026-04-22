@@ -50,7 +50,6 @@ https://corecabin.cn/2021/08/14/solve-some-problems-of-hexo-renderer-kramed-rend
       </categories>
       <tags>
         <tag>Hexo</tag>
-        <tag>Keep</tag>
       </tags>
   </entry>
   <entry>
@@ -905,7 +904,7 @@ needs_review状态的所有文件——这表明它们已准备好接受复查�
         <category>book</category>
       </categories>
       <tags>
-        <tag>book</tag>
+        <tag>coding</tag>
       </tags>
   </entry>
 </search>
