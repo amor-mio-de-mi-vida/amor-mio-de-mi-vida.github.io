@@ -3,11 +3,11 @@
   <title>Hexo</title>
   
   
-  <link href="https://hexo.hesenyang-ethan.com/atom.xml" rel="self"/>
+  <link href="https://blog.hesenyang-ethan.com/atom.xml" rel="self"/>
   
-  <link href="https://hexo.hesenyang-ethan.com/"/>
+  <link href="https://blog.hesenyang-ethan.com/"/>
   <updated>2026-04-15T13:17:16.332Z</updated>
-  <id>https://hexo.hesenyang-ethan.com/</id>
+  <id>https://blog.hesenyang-ethan.com/</id>
   
   <author>
     <name>John Doe</name>
@@ -18,8 +18,8 @@
   
   <entry>
     <title>The Pragmatic Programmer</title>
-    <link href="https://hexo.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/"/>
-    <id>https://hexo.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/</id>
+    <link href="https://blog.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/"/>
+    <id>https://blog.hesenyang-ethan.com/2024/09/27/book-The-Pragmatic-Programmer/</id>
     <published>2024-09-27T15:09:00.000Z</published>
     <updated>2026-04-15T13:17:16.332Z</updated>
     
@@ -43,10 +43,10 @@
     
     
     
-    <category term="book" scheme="https://hexo.hesenyang-ethan.com/categories/book/"/>
+    <category term="book" scheme="https://blog.hesenyang-ethan.com/categories/book/"/>
     
     
-    <category term="coding" scheme="https://hexo.hesenyang-ethan.com/tags/coding/"/>
+    <category term="coding" scheme="https://blog.hesenyang-ethan.com/tags/coding/"/>
     
   </entry>
   

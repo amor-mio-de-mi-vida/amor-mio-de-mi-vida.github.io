@@ -1,0 +1,3693 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cpp fundamentals</title>
+<meta name="generator" content="build_html.py">
+<meta name="source-path" content="bytedance_cpp_fundamentals.md">
+<meta name="source-sha256" content="fee53c9fc1633fce">
+<meta name="generated-at" content="2026-09-05 02:31 UTC">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<style>
+:root {
+  --bg: #fdfcf7;
+  --bg-soft: #f4f1ea;
+  --bg-code: #f8f5ec;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --ink-muted: #6b6b6b;
+  --primary: #1a4a8c;
+  --primary-soft: #2d6cb8;
+  --accent: #b8390e;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --info-bg: #dbeafe;
+  --good-bg: #d1fae5;
+  --good: #065f46;
+  --bad-bg: #fee2e2;
+  --bad: #991b1b;
+  --border: #d6d0c0;
+  --border-soft: #e8e3d5;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: "Source Serif Pro", "Source Serif 4", "Crimson Pro", "Georgia", "Songti SC", "STSong", serif;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--bg);
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+
+.layout {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 48px;
+  padding: 40px 32px;
+}
+
+nav.toc {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  font-size: 13px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  padding-right: 16px;
+}
+nav.toc h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+nav.toc ol li { margin: 5px 0; counter-increment: toc; }
+nav.toc ol li::before { content: counter(toc) ". "; color: var(--ink-muted); margin-right: 4px; }
+nav.toc a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px dotted transparent;
+}
+nav.toc a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+nav.toc ul { list-style: none; padding-left: 14px; margin: 3px 0; font-size: 12px; }
+nav.toc ul li::before { content: "→ "; color: var(--border); }
+
+main { min-width: 0; }
+
+header.hero {
+  border-bottom: 3px double var(--primary);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+}
+header.hero .eyebrow {
+  font-family: inherit;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+header.hero h1 {
+  font-size: 32px;
+  line-height: 1.2;
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+header.hero .subtitle {
+  font-size: 16px;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  font-style: italic;
+}
+header.hero .byline {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+header.hero .byline strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+header.hero .meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--border-soft);
+  padding-top: 14px;
+}
+header.hero .meta span strong { color: var(--ink-soft); }
+header.hero .meta code {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11px;
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+}
+
+h2 {
+  font-size: 24px;
+  margin: 44px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  font-weight: 700;
+}
+h2 .num { color: var(--primary); font-weight: 600; margin-right: 8px; }
+h3 { font-size: 19px; margin: 28px 0 10px; color: var(--primary); font-weight: 600; }
+h4 { font-size: 16px; margin: 20px 0 8px; color: var(--ink); font-weight: 600; }
+
+p { margin: 10px 0; }
+ul, ol { padding-left: 22px; margin: 10px 0; }
+ul li, ol li { margin: 4px 0; }
+ul li::marker { color: var(--primary); }
+
+strong { color: var(--accent); font-weight: 600; }
+em { color: var(--ink-soft); }
+
+a { color: var(--primary); }
+a:hover { color: var(--accent); }
+
+code:not(.hljs) {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.86em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  color: var(--accent);
+}
+
+pre {
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  padding: 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+pre code, pre code.hljs {
+  background: transparent !important;
+  display: block;
+  padding: 14px 18px !important;
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: var(--ink);
+}
+pre.diagram {
+  background: #f9f6ed;
+  border-left: 4px solid var(--accent);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.callout {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 4px;
+  border-left: 4px solid;
+  font-size: 15px;
+}
+.callout-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.callout-info { background: var(--info-bg); border-left-color: var(--primary); }
+.callout-info .callout-title { color: var(--primary); }
+.callout-warn { background: var(--warn-bg); border-left-color: var(--warn); }
+.callout-warn .callout-title { color: var(--warn); }
+.callout-good { background: var(--good-bg); border-left-color: var(--good); }
+.callout-good .callout-title { color: var(--good); }
+.callout-bad { background: var(--bad-bg); border-left-color: var(--bad); }
+.callout-bad .callout-title { color: var(--bad); }
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table-wrap table {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+thead { background: var(--primary); color: white; }
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th { font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: var(--bg-soft); }
+
+details.qa, details {
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 0;
+}
+details summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--primary);
+  list-style: none;
+  user-select: none;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::before {
+  content: "▸ ";
+  margin-right: 4px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+details[open] summary::before { transform: rotate(90deg); }
+details[open] summary { border-bottom: 1px solid var(--border-soft); }
+details > :not(summary) { padding: 10px 14px; }
+details p:first-of-type { margin-top: 8px; }
+
+mjx-container[display="true"] { margin: 12px 0 !important; }
+
+footer.aris-footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+footer.aris-footer a { color: var(--ink-muted); border-bottom: 1px dotted var(--border); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 20px; padding: 20px 16px; }
+  nav.toc {
+    position: static;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+  header.hero h1 { font-size: 24px; }
+  h2 { font-size: 20px; }
+}
+@media print {
+  nav.toc { display: none; }
+  .layout { grid-template-columns: 1fr; padding: 0; }
+  body { background: white; }
+  header.hero { border-bottom-color: var(--ink); }
+  #cite-pop, dialog.lightbox { display: none !important; }
+}
+
+/* --- P0 polish: TOC scrollspy active state ---------------------------- */
+nav.toc a.active {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* --- P0 polish: Long-code auto-collapse ------------------------------- */
+details.code-card {
+  margin: 14px 0;
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 4px;
+}
+details.code-card > summary {
+  cursor: pointer;
+  padding: 8px 14px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  list-style: none;
+  user-select: none;
+}
+details.code-card > summary::-webkit-details-marker { display: none; }
+details.code-card > summary::before { content: none; }
+details.code-card > pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: none;
+  border-radius: 0;
+}
+@media print {
+  details.code-card { border: 1px solid #ccc; background: white; }
+  details.code-card > summary { display: none !important; }
+  details.code-card > pre { border: 1px solid #ddd; border-radius: 4px; background: white; }
+}
+
+
+/* ===== 清单专用增强：徽章 / 工具条 / 进度勾选 ===== */
+
+/* --- 优先级徽章 --- */
+.pri {
+  display: inline-block;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pri-p0 { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.pri-p1 { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+.pri-p2 { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.pri-p3 { background: var(--bg-soft); color: var(--ink-muted); border-color: var(--border); }
+
+/* --- 难度徽章 --- */
+.diff {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.diff-easy { background: var(--good-bg); color: var(--good); }
+.diff-mid  { background: var(--warn-bg); color: var(--warn); }
+.diff-hard { background: var(--bad-bg);  color: var(--bad); }
+
+/* --- Hot100 标记 --- */
+.hot {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* --- 表格微调：题号列等宽字体，行内不换行的窄列 --- */
+td .pri, td .diff { vertical-align: middle; }
+tbody tr.prow:hover { background: #f0ece0; }
+tbody tr.done { opacity: 0.42; }
+tbody tr.done td:nth-child(5) { text-decoration: line-through; }
+
+th.ck, td.ck {
+  width: 34px;
+  text-align: center;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+td.ck input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 2px 0 0;
+}
+
+/* --- 顶部工具条 --- */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 160px;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.toolbar input[type="search"]:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.toolbar .pris { display: flex; gap: 4px; }
+.toolbar .pris button,
+.toolbar .reset {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.toolbar .pris button:hover,
+.toolbar .reset:hover { border-color: var(--primary); color: var(--primary); }
+.toolbar .pris button.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.toolbar .only-todo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toolbar .only-todo input { accent-color: var(--primary); cursor: pointer; }
+.toolbar .progress {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.toolbar .progress b { color: var(--accent); }
+
+/* 被筛掉的行 / 整表无结果 */
+tr.hidden, .table-wrap.hidden, h2.hidden, h3.hidden { display: none; }
+
+/* --- 代码块说明条 --- */
+.code-note {
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid #fcd34d;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 3px 10px;
+  margin: 14px 0 3px;
+  display: inline-block;
+}
+
+/* --- 复制按钮 --- */
+.pre-wrap { position: relative; }
+.pre-wrap .copy {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(253, 252, 247, 0.9);
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pre-wrap:hover .copy { opacity: 1; }
+.pre-wrap .copy:hover { color: var(--primary); border-color: var(--primary); }
+.pre-wrap .copy.ok { color: var(--good); border-color: var(--good); }
+
+/* --- 回到顶部 --- */
+.to-top {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-muted);
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.to-top.show { opacity: 1; pointer-events: auto; }
+.to-top:hover { color: var(--primary); border-color: var(--primary); }
+
+@media (max-width: 900px) {
+  .toolbar { position: static; }
+}
+@media print {
+  .toolbar, .to-top, .pre-wrap .copy { display: none !important; }
+  tr.hidden, .table-wrap.hidden { display: revert !important; }
+  tbody tr.done { opacity: 1; }
+}
+
+/* 表头不折行；正文列正常换行 */
+thead th { white-space: nowrap; }
+
+/* 标题自带编号（0. / 一、/ 表 A），关掉目录的自动序号避免双重编号 */
+nav.toc > ol > li { counter-increment: none; margin: 9px 0; }
+nav.toc > ol > li::before { content: none; }
+nav.toc > ol > li > a { font-weight: 600; color: var(--ink); }
+
+/* 表头里的行内代码要在深蓝底上可读 */
+thead th code:not(.hljs) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+/* 长代码卡默认展开，summary 作为折叠把手，不要抢戏 */
+details.code-card > summary { opacity: 0.55; }
+details.code-card > summary:hover { opacity: 1; color: var(--primary); }
+details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft); }
+
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目录</h3>
+<ol><li><a href="#sec-0">0. 回答框架：怎么答才”经得起追问”</a></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（字节原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 字节风格代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li></ul></li></ol>
+</nav>
+<main>
+<header class="hero">
+  <div class="eyebrow">面试准备 · C++ 基础</div>
+  <h1>字节跳动 C++ 一面基础深度面经</h1>
+  <p class="subtitle">每个知识点按「是什么 → 为什么 → 怎么实现 → 追问链」展开</p>
+  <div class="meta">
+    <span><strong>来源</strong> <code>bytedance_cpp_fundamentals.md</code></span>
+    <span><strong>生成</strong> 2026-09-05 02:31 UTC</span>
+  </div>
+</header>
+
+<blockquote>
+<p>适用：字节校招 / 实习 C++ 方向一面、二面基础部分。 结构：每个知识点按 <strong>是什么 → 为什么这样设计 → 底层怎么实现 → 面试官追问链</strong> 展开。 代码块标注 <code>cpp</code> 的均已用 <code>clang++ -std=c++17 -Wall -Wextra</code> 编译通过，可运行的还核对过实际输出（验证环境 Apple clang 21 / arm64 / libc++，并发相关的额外过了 TSan、手写容器额外过了 ASan + UBSan）；标注 <code>cpp-x</code> 的是故意展示未定义行为或伪代码，不保证可编译。 涉及具体数值的结论（<code>sizeof</code>、对齐、SSO 容量）在 libstdc++ 上可能不同，正文已分别标注。</p>
+</blockquote>
+<h2 id="sec-0"><span class="num">0.</span>回答框架：怎么答才”经得起追问”</h2>
+<p>字节面试官的习惯是顺着一个点往下钻三到五层，直到你答不出来为止。所以回答不要一次把知道的全倒出来，而是分层：</p>
+<ol type="1">
+<li><strong>一句话定义</strong>（是什么）。</li>
+<li><strong>设计动机</strong>（为什么需要它，解决了什么问题）。</li>
+<li><strong>实现机制</strong>（编译器 / 运行库 / 操作系统各做了什么）。</li>
+<li><strong>边界与陷阱</strong>（什么时候会出错，怎么排查）。</li>
+<li><strong>主动引出下一层</strong>（“这里其实还涉及到……”），把追问方向引到你熟的地方。</li>
+</ol>
+<p>复杂度、线程安全、异常安全，是三个可以对任何 C++ 问题追加的通用维度，面试官答不出别的追问时就会问这三个，提前准备。</p>
+<hr>
+<h2 id="sec-1"><span class="num">1.</span>内存管理</h2>
+<h3 id="sec-1-1">1.1 进程内存布局</h3>
+<p><strong>是什么</strong>：一个 C++ 程序运行时，虚拟地址空间从低到高大致分为：</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>区域</th>
+<th>内容</th>
+<th>生命周期</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.text</code></td>
+<td>机器指令</td>
+<td>进程</td>
+<td>只读、可执行、可在进程间共享</td>
+</tr>
+<tr>
+<td><code>.rodata</code></td>
+<td>字符串字面量、<code>const</code> 全局常量</td>
+<td>进程</td>
+<td>只读，写入触发 SIGSEGV</td>
+</tr>
+<tr>
+<td><code>.data</code></td>
+<td>已初始化的全局 / 静态变量</td>
+<td>进程</td>
+<td>占可执行文件体积</td>
+</tr>
+<tr>
+<td><code>.bss</code></td>
+<td>未初始化或零初始化的全局 / 静态变量</td>
+<td>进程</td>
+<td>不占文件体积，加载时清零</td>
+</tr>
+<tr>
+<td>堆 heap</td>
+<td><code>malloc</code> / <code>new</code> 分配</td>
+<td>手动管理</td>
+<td>向高地址增长，<code>brk</code> 控制边界</td>
+</tr>
+<tr>
+<td>mmap 区</td>
+<td>动态库、大块 <code>malloc</code>、文件映射、线程栈</td>
+<td>各异</td>
+<td>位于堆和栈之间</td>
+</tr>
+<tr>
+<td>栈 stack</td>
+<td>局部变量、参数、返回地址、保存的寄存器</td>
+<td>函数调用期</td>
+<td>向低地址增长，主线程默认 8MB（<code>ulimit -s</code>）</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>局部 static 变量放哪？</strong> <code>.data</code> 或 <code>.bss</code>，和全局变量一样，只是作用域受限。C++11 起首次执行到定义处才初始化，且线程安全（编译器插入 guard 变量 + 原子检查，即 <code>__cxa_guard_acquire</code>）。</li>
+<li><strong><code>const int x = 10;</code> 全局放哪？</strong> 通常 <code>.rodata</code>。若被取地址或 <code>extern</code>，编译器必须分配存储；否则可能直接被常量折叠进指令，不占内存。</li>
+<li><strong>字符串字面量能修改吗？</strong> <code>char* p = "abc"; p[0] = 'x';</code> 是未定义行为，实际会 SIGSEGV，因为在 <code>.rodata</code>。<code>char a[] = "abc";</code> 是把字面量拷贝到栈上，可以改。</li>
+<li><strong>栈溢出怎么发生？</strong> 递归过深或大数组局部变量（如 <code>int a[1&lt;&lt;20]</code>）。栈底有 guard page，触碰它就 SIGSEGV。解决：改堆分配、改迭代、<code>ulimit -s</code> 或 <code>pthread_attr_setstacksize</code>。</li>
+<li><strong>为什么栈比堆快？</strong> 栈分配只是移动 <code>rsp</code> 寄存器一条指令，释放随函数返回自动完成，局部性好、缓存友好；堆要走 allocator 的查找、分裂、合并、加锁。</li>
+<li><strong>线程栈在哪？</strong> 主线程栈由内核创建；其他线程栈由 <code>pthread_create</code> 用 <code>mmap</code> 分配，默认 8MB，位于 mmap 区。所以线程多了要注意虚拟地址空间消耗（32 位尤其明显）。</li>
+</ul>
+<h3 id="sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</h3>
+<p><strong>为什么要懂</strong>：字节会直接问”malloc 底层怎么实现”、“free 怎么知道要释放多大”、“频繁 malloc 小对象有什么问题”。</p>
+<p><strong>两条系统调用路径</strong></p>
+<ul>
+<li>小于 <code>M_MMAP_THRESHOLD</code>（默认 128KB，且会随释放的大块动态上调，最高 32MB）：从堆上分配，堆不够时调 <code>brk</code>/<code>sbrk</code> 把堆顶上移。</li>
+<li>大于阈值：直接 <code>mmap</code> 一块匿名内存，<code>free</code> 时 <code>munmap</code> 立刻还给内核。</li>
+</ul>
+<p><strong>chunk 结构</strong>（64 位）</p>
+<pre class="diagram"><code class="language-text">+------------------+
+| prev_size        |  前一个 chunk 空闲时才有意义
++------------------+
+| size | A | M | P |  本 chunk 大小（含头），低 3 位是标志：
++------------------+  A: 非主分配区  M: 由 mmap 分配  P: 前一个 chunk 在使用中
+| user data ...    |  &lt;- malloc 返回的指针指向这里
+|                  |
++------------------+</code></pre>
+<ul>
+<li>chunk 头是 <code>prev_size</code>(8) + <code>size</code>(8) 共 16 字节，<code>malloc</code> 返回的 <code>p</code> 指向头之后。所以 <code>free(p)</code> 用 <code>p - 8</code> 读 size 字段、<code>p - 16</code> 定位 chunk 起始，这就是”free 怎么知道大小”的答案。</li>
+<li>最小 chunk 32 字节，返回地址 16 字节对齐。<code>malloc(1)</code> 实际占 32 字节，这是”小对象浪费”的来源之一。</li>
+<li>空闲 chunk 的 user data 区被复用为双向链表指针 <code>fd</code>/<code>bk</code>，所以 <strong>use-after-free 读到的”垃圾”往往是指针值</strong>。</li>
+</ul>
+<p><strong>空闲块管理（bins）</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>结构</th>
+<th>大小范围（64 位）</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tcache（glibc ≥ 2.26）</td>
+<td>≤ 1032 字节，每线程 64 个桶，每桶最多 7 个</td>
+<td>无锁，最快，LIFO 单链表</td>
+</tr>
+<tr>
+<td>fast bins</td>
+<td>≤ 128 字节</td>
+<td>单链表，LIFO，不合并，相邻空闲块不会立刻合并</td>
+</tr>
+<tr>
+<td>unsorted bin</td>
+<td>任意</td>
+<td>free 后先放这里，下次 malloc 时再归类</td>
+</tr>
+<tr>
+<td>small bins</td>
+<td>&lt; 1024 字节，62 个，每个精确一种大小</td>
+<td>双向循环链表</td>
+</tr>
+<tr>
+<td>large bins</td>
+<td>≥ 1024 字节</td>
+<td>按大小范围分桶，桶内有序</td>
+</tr>
+<tr>
+<td>top chunk</td>
+<td>堆顶剩余</td>
+<td>所有 bin 都不满足时从这里切</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>分配流程：tcache → fast bin → small bin → 遍历 unsorted bin（顺手归类）→ large bin → top chunk → 不够则 <code>brk</code> 扩堆或 <code>mmap</code>。</p>
+<p>释放流程：小块进 tcache / fast bin；否则检查前后 chunk 是否空闲，<strong>合并</strong>后放 unsorted bin；若合并后紧邻 top chunk 就并入 top；top 超过 <code>M_TRIM_THRESHOLD</code>（128KB）时调 <code>brk</code> 收缩还给内核。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>多线程下 malloc 怎么保证线程安全？</strong> 每个 arena 一把锁；线程首次 malloc 时尝试获取一个 arena，拿不到就新建（数量上限 8 × 核数）。tcache 是线程私有的，小分配完全无锁。</li>
+<li><strong>内存碎片是什么，怎么减少？</strong> 外部碎片：空闲块总量够但不连续。内部碎片：对齐和最小 chunk 造成的浪费。减少办法：对象池 / slab（同大小对象复用）、内存池预分配大块自己切、使用 tcmalloc / jemalloc（按 size class 分级、线程本地缓存、更好的合并策略）、避免长生命周期对象和短生命周期对象交错分配。</li>
+<li><strong>free 之后内存为什么没还给操作系统？</strong> 只有 top chunk 超阈值时才 trim；中间的空闲块无法 trim，只能等合并。所以 RSS 不降是正常的，不一定是泄漏。</li>
+<li><strong>tcmalloc 和 ptmalloc 的区别？</strong> tcmalloc 按 size class（约 88 级）分配，每线程有 ThreadCache，中央有 CentralFreeList 和 PageHeap，小对象无锁，大对象按页（8KB）管理，用 span 描述连续页，用 pagemap（radix tree）从地址反查 span，所以 free 也不需要 chunk 头。</li>
+<li><strong>malloc(0) 返回什么？</strong> 实现定义。glibc 返回一个最小 chunk 的有效指针，可以 free。</li>
+<li><strong>calloc 和 malloc 的区别？</strong> calloc 会清零。对大块 mmap 分配，内核给的页本来就是零页，calloc 可以跳过 memset，所以有时比 malloc + memset 快。</li>
+</ul>
+<h3 id="sec-1-3">1.3 new / delete 与 malloc / free</h3>
+<p><strong>区别表</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>new</code> / <code>delete</code></th>
+<th><code>malloc</code> / <code>free</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>层次</td>
+<td>C++ 运算符，可重载</td>
+<td>C 库函数</td>
+</tr>
+<tr>
+<td>类型</td>
+<td>返回具体类型指针，编译器算大小</td>
+<td>返回 <code>void*</code>，手工传字节数</td>
+</tr>
+<tr>
+<td>构造 / 析构</td>
+<td>调用</td>
+<td>不调用</td>
+</tr>
+<tr>
+<td>失败</td>
+<td>抛 <code>std::bad_alloc</code>（<code>nothrow</code> 版本返回空）</td>
+<td>返回 <code>NULL</code></td>
+</tr>
+<tr>
+<td>数组</td>
+<td><code>new[]</code> / <code>delete[]</code> 配对</td>
+<td>无区分</td>
+</tr>
+<tr>
+<td>底层</td>
+<td><code>operator new</code> 默认调 <code>malloc</code></td>
+<td>直接分配</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong><code>new</code> 表达式的三步</strong></p>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">T* p = new T(args);
+// 等价于：
+void* raw = operator new(sizeof(T));   // 1. 分配原始内存，失败抛 bad_alloc
+T* p = static_cast&lt;T*&gt;(raw);
+new (p) T(args);                        // 2. placement new：在 raw 上构造
+// 若构造函数抛异常，编译器会自动调 operator delete(raw)，不会泄漏</code></pre>
+<p><code>delete p</code> 则是先调 <code>p-&gt;~T()</code>，再 <code>operator delete(p)</code>。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>new</code> 出来的对象用 <code>free</code> 释放会怎样？</strong> 析构函数不会被调用，若 T 持有资源就泄漏；若类重载了 <code>operator new</code> 走的是别的分配器，<code>free</code> 直接 crash；即使是默认实现，也属于未定义行为。</li>
+<li><strong><code>delete[]</code> 怎么知道数组有多少个元素？</strong> 对有非平凡析构函数的类型，<code>new[]</code> 会在数组前面多分配 8 字节存放元素个数（cookie），<code>delete[]</code> 读它逐个析构。对 <code>int</code> 这类平凡类型不存 cookie，<code>delete[]</code> 只是 <code>free</code>。所以 <code>new[]</code> 配 <code>delete</code> 对 <code>int</code> 数组”碰巧”没事，对 <code>std::string</code> 数组一定崩。</li>
+<li><strong><code>operator new</code> 失败后做什么？</strong> 先调用 <code>std::set_new_handler</code> 设置的处理函数（可以释放缓存后重试），处理函数为空才抛 <code>bad_alloc</code>。</li>
+<li><strong>placement new 有什么用？</strong> 内存池、<code>std::vector</code> 在预留空间上构造元素、在共享内存上构造对象。用完要手动调 <code>p-&gt;~T()</code>，不能 <code>delete</code>。</li>
+<li><strong>为什么要重载 <code>operator new</code>？</strong> 自定义分配策略（内存池）、统计与追踪泄漏、对齐（C++17 有 <code>std::align_val_t</code> 重载）。类内重载是隐式 static 的。</li>
+<li><strong><code>new</code> 一个对象和在栈上定义一个对象，除了位置还有什么区别？</strong> 生命周期、异常安全（栈对象由 RAII 保证析构）、性能、以及多态需要（基类指针指向堆上派生类对象）。</li>
+</ul>
+<h3 id="sec-1-4">1.4 常见内存错误与排查</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>错误</th>
+<th>表现</th>
+<th>排查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存泄漏</td>
+<td>RSS 持续增长</td>
+<td>valgrind memcheck、<code>-fsanitize=leak</code>、tcmalloc heap profiler</td>
+</tr>
+<tr>
+<td>悬垂指针 / use-after-free</td>
+<td>随机崩溃、读到脏数据</td>
+<td><code>-fsanitize=address</code>（ASan）几乎必抓</td>
+</tr>
+<tr>
+<td>double free</td>
+<td>glibc 直接 abort：“double free or corruption”</td>
+<td>ASan、gdb backtrace</td>
+</tr>
+<tr>
+<td>越界写</td>
+<td>破坏相邻 chunk 头，通常在<strong>下一次</strong> malloc/free 时崩</td>
+<td>ASan、<code>MALLOC_CHECK_=3</code></td>
+</tr>
+<tr>
+<td>栈溢出</td>
+<td>SIGSEGV，backtrace 极深</td>
+<td>gdb <code>bt</code>、<code>ulimit -s</code></td>
+</tr>
+<tr>
+<td>返回局部变量地址</td>
+<td>值被后续调用覆盖</td>
+<td>编译器警告 <code>-Wreturn-local-addr</code></td>
+</tr>
+<tr>
+<td>未初始化读</td>
+<td>结果不确定</td>
+<td>valgrind、<code>-fsanitize=memory</code>（MSan，仅 clang）</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>段错误怎么定位？</strong>（字节三面原题）开 core dump（<code>ulimit -c unlimited</code>），<code>gdb ./bin core</code>，<code>bt</code> 看栈，<code>frame N</code> 切帧，<code>info locals</code>。若栈被打坏 bt 不可信，用 ASan 重跑；若是 release 无符号，用 <code>addr2line -e bin 地址</code>。线上环境看 <code>dmesg</code> 拿崩溃地址。</li>
+<li><strong>ASan 原理？</strong> 编译器在每次内存访问前插桩，检查 shadow memory（每 8 字节应用内存对应 1 字节 shadow）；malloc 被替换，释放的内存进隔离区暂不复用，两侧加 redzone。开销约 2 倍时间、2 到 3 倍内存。</li>
+<li><strong>valgrind 原理？</strong> 动态二进制翻译，在虚拟 CPU 上执行并跟踪每个字节的可寻址性和已初始化性。慢 20 到 50 倍，但不需要重新编译。</li>
+</ul>
+<h3 id="sec-1-5">1.5 RAII 与智能指针</h3>
+<p><strong>RAII 是什么</strong>：Resource Acquisition Is Initialization。把资源的生命周期绑定到栈对象的生命周期上，构造获取、析构释放。析构函数在作用域退出时<strong>一定</strong>执行，无论是正常返回、<code>break</code>、还是异常传播，这是 C++ 异常安全的基石。<code>std::lock_guard</code>、<code>std::fstream</code>、智能指针都是 RAII。</p>
+<h4 id="unique_ptr">unique_ptr</h4>
+<ul>
+<li>独占所有权，不可拷贝，可移动。</li>
+<li>默认删除器下 <code>sizeof(unique_ptr&lt;T&gt;) == sizeof(T*)</code>，零开销。传入函数指针作为删除器会变成 16 字节，传入无状态 lambda 或函数对象仍是 8 字节（空基类优化）。</li>
+<li><code>unique_ptr&lt;T[]&gt;</code> 特化调用 <code>delete[]</code>。</li>
+<li><code>release()</code> 放弃所有权返回裸指针，<code>reset()</code> 释放并可接管新指针，<code>get()</code> 只借用。</li>
+</ul>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;cstdio&gt;
+struct FileCloser { void operator()(FILE* f) const { if (f) fclose(f); } };
+using FilePtr = std::unique_ptr&lt;FILE, FileCloser&gt;;
+FilePtr openFile(const char* path) { return FilePtr(fopen(path, "r")); }
+static_assert(sizeof(FilePtr) == sizeof(FILE*), "stateless deleter is free");</code></pre>
+<h4 id="shared_ptr">shared_ptr</h4>
+<p><strong>内存布局</strong>：一个 <code>shared_ptr</code> 对象是两个指针，16 字节。一个指向被管理对象，一个指向<strong>控制块</strong>。控制块里有：强引用计数、弱引用计数、删除器、分配器、（<code>make_shared</code> 时）对象本身。</p>
+<pre class="diagram"><code class="language-text">shared_ptr&lt;T&gt;            控制块 (heap)
++-----------+           +------------------+
+| T* ptr    |----------&gt;| T object         |  (make_shared 时对象内嵌在这里)
+| ctrl*     |----------&gt;| strong_count     |
++-----------+           | weak_count       |
+                        | deleter          |
+                        | allocator        |
+                        +------------------+</code></pre>
+<p><strong>为什么需要两个计数</strong>：strong 归零时析构对象，weak 归零时才释放控制块。<code>weak_ptr</code> 要能在对象已销毁后仍安全地查询 <code>expired()</code>，所以控制块必须比对象活得久。</p>
+<p><strong><code>make_shared</code> vs <code>shared_ptr&lt;T&gt;(new T)</code></strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>make_shared</code></th>
+<th><code>shared_ptr(new T)</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>分配次数</td>
+<td>1 次（对象和控制块一起）</td>
+<td>2 次</td>
+</tr>
+<tr>
+<td>缓存局部性</td>
+<td>好</td>
+<td>差</td>
+</tr>
+<tr>
+<td>异常安全</td>
+<td>天然安全</td>
+<td>C++17 前 <code>f(shared_ptr(new T), g())</code> 中 g 抛异常可能泄漏</td>
+</tr>
+<tr>
+<td>自定义删除器</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+<tr>
+<td>私有构造函数</td>
+<td>不能用</td>
+<td>能用</td>
+</tr>
+<tr>
+<td>内存释放时机</td>
+<td>对象内存要等所有 weak_ptr 消失才释放（因为和控制块一体）</td>
+<td>对象独立释放</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>线程安全语义</strong>（高频追问）</p>
+<ul>
+<li>控制块的引用计数是原子操作，所以<strong>多个线程各自持有不同的 <code>shared_ptr</code> 副本</strong>指向同一对象，并发拷贝 / 析构是安全的。</li>
+<li><strong>同一个 <code>shared_ptr</code> 对象</strong>被一个线程写（<code>reset</code>、赋值）、另一个线程读，是数据竞争。C++20 提供 <code>std::atomic&lt;std::shared_ptr&lt;T&gt;&gt;</code>。</li>
+<li>被管理的对象 T 本身的线程安全由 T 自己负责，<code>shared_ptr</code> 不管。</li>
+</ul>
+<p><strong>循环引用</strong></p>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;iostream&gt;
+struct Node {
+    std::shared_ptr&lt;Node&gt; next;
+    std::weak_ptr&lt;Node&gt;   prev;       // 若这里也是 shared_ptr，a 和 b 互相持有，计数永远不为 0
+    ~Node() { std::cout &lt;&lt; "~Node\n"; }
+};
+int main() {
+    auto a = std::make_shared&lt;Node&gt;();
+    auto b = std::make_shared&lt;Node&gt;();
+    a-&gt;next = b;
+    b-&gt;prev = a;                       // weak 不增加强计数
+    // 离开作用域：a 计数 1→0 析构，其成员 next 析构使 b 计数 1→0 析构。正确打印两次 ~Node
+}</code></pre>
+<p>判断原则：所有权方向用 <code>shared_ptr</code>（父持子），反向观察用 <code>weak_ptr</code>（子看父）；观察者模式中被观察者对观察者也用 <code>weak_ptr</code>。</p>
+<p><strong><code>weak_ptr</code> 用法</strong>：<code>lock()</code> 返回 <code>shared_ptr</code>（对象已销毁则为空），必须用返回值而不能用 <code>expired()</code> 后再操作，因为两步之间对象可能被别的线程释放。</p>
+<p><strong><code>enable_shared_from_this</code></strong></p>
+<ul>
+<li>问题：类内部拿 <code>this</code> 构造一个新 <code>shared_ptr</code> 会产生第二个控制块，双重释放。</li>
+<li>方案：继承 <code>enable_shared_from_this&lt;T&gt;</code>，它内部持有一个 <code>weak_ptr&lt;T&gt;</code>，<code>shared_ptr&lt;T&gt;</code> 的构造函数检测到这个基类时会给 weak 赋值。<code>shared_from_this()</code> 就是 <code>weak.lock()</code>。</li>
+<li>陷阱：在构造函数里调用 <code>shared_from_this()</code> 会抛 <code>bad_weak_ptr</code>，因为此时还没有任何 <code>shared_ptr</code> 接管它；对象必须由 <code>shared_ptr</code> 管理，栈对象调用它同样抛异常。</li>
+</ul>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;functional&gt;
+#include &lt;vector&gt;
+struct Session : std::enable_shared_from_this&lt;Session&gt; {
+    std::vector&lt;std::function&lt;void()&gt;&gt; callbacks;
+    void start() {
+        // 回调里延长自身生命周期，避免异步回调时 this 已被销毁
+        auto self = shared_from_this();
+        callbacks.push_back([self] { /* use self-&gt;... */ });
+    }
+};</code></pre>
+<p><strong>手写 shared_ptr</strong>（字节高频手撕）。要点：拷贝加计数、析构减计数并在归零时销毁、赋值用 copy-and-swap 一次处理自赋值与异常安全、计数用原子、删除器用类型擦除藏进控制块。</p>
+<details class="code-card" open=""><summary>64 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;atomic&gt;
+#include &lt;utility&gt;
+#include &lt;iostream&gt;
+template &lt;class T&gt;
+class SharedPtr {
+    struct Ctrl {                                  // 控制块：强/弱计数分开，weak 要能在对象死后仍查 expired
+        std::atomic&lt;long&gt; strong{1}, weak{1};      // weak 初始 1：所有 shared 合起来算一个 weak 引用
+        virtual void dispose() = 0;                // 销毁被管对象
+        virtual ~Ctrl() = default;
+    };
+    template &lt;class D&gt;
+    struct CtrlImpl : Ctrl {                       // 类型擦除：删除器类型只活在这里，不进 SharedPtr 的模板参数
+        T* p; D d;
+        CtrlImpl(T* p_, D d_) : p(p_), d(std::move(d_)) {}
+        void dispose() override { d(p); }
+    };
+    T* ptr_ = nullptr;
+    Ctrl* ctrl_ = nullptr;
+
+    void incStrong() const { if (ctrl_) ctrl_-&gt;strong.fetch_add(1, std::memory_order_relaxed); }
+    void decStrong() {
+        // release：保证本线程此前对对象的写，对最后那个执行 dispose 的线程可见
+        if (ctrl_ &amp;&amp; ctrl_-&gt;strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            ctrl_-&gt;dispose();
+            if (ctrl_-&gt;weak.fetch_sub(1, std::memory_order_acq_rel) == 1) delete ctrl_;
+        }
+    }
+public:
+    SharedPtr() = default;
+    template &lt;class D = void(*)(T*)&gt;
+    explicit SharedPtr(T* p, D d = [](T* q){ delete q; })
+        : ptr_(p), ctrl_(p ? new CtrlImpl&lt;D&gt;(p, std::move(d)) : nullptr) {}
+
+    SharedPtr(const SharedPtr&amp; o) : ptr_(o.ptr_), ctrl_(o.ctrl_) { incStrong(); }
+    SharedPtr(SharedPtr&amp;&amp; o) noexcept : ptr_(o.ptr_), ctrl_(o.ctrl_) { o.ptr_ = nullptr; o.ctrl_ = nullptr; }
+    ~SharedPtr() { decStrong(); }
+
+    SharedPtr&amp; operator=(SharedPtr o) noexcept { swap(o); return *this; }   // copy-and-swap：自赋值与异常安全一次解决
+    void swap(SharedPtr&amp; o) noexcept { std::swap(ptr_, o.ptr_); std::swap(ctrl_, o.ctrl_); }
+
+    T* get()  const noexcept { return ptr_; }
+    T&amp; operator*()  const noexcept { return *ptr_; }
+    T* operator-&gt;() const noexcept { return ptr_; }
+    explicit operator bool() const noexcept { return ptr_ != nullptr; }
+    long use_count() const noexcept { return ctrl_ ? ctrl_-&gt;strong.load(std::memory_order_relaxed) : 0; }
+    void reset() { SharedPtr().swap(*this); }
+};
+
+struct Res { int id; explicit Res(int i) : id(i) { std::cout &lt;&lt; "ctor" &lt;&lt; id &lt;&lt; " "; } ~Res() { std::cout &lt;&lt; "dtor" &lt;&lt; id &lt;&lt; " "; } };
+int main() {
+    {
+        SharedPtr&lt;Res&gt; a(new Res(1));
+        std::cout &lt;&lt; a.use_count() &lt;&lt; " ";           // 1
+        { SharedPtr&lt;Res&gt; b = a; std::cout &lt;&lt; a.use_count() &lt;&lt; " "; }   // 2
+        std::cout &lt;&lt; a.use_count() &lt;&lt; " ";           // 1
+        SharedPtr&lt;Res&gt; c(new Res(2));
+        c = a;                                       // Res2 在这里析构
+        std::cout &lt;&lt; "| " &lt;&lt; a.use_count() &lt;&lt; " ";   // 2
+    }
+    std::cout &lt;&lt; "\n";
+    bool called = false;
+    { SharedPtr&lt;int&gt; d(new int(5), [&amp;](int* p){ called = true; delete p; }); }
+    std::cout &lt;&lt; "自定义删除器被调用: " &lt;&lt; called &lt;&lt; "\n";
+}</code></pre></details>
+<p>面试时如果时间紧，可以只写强计数版本（去掉 <code>Ctrl</code> 的虚函数和 weak 计数），然后主动说明”完整版还需要 weak 计数和删除器类型擦除”，把追问引到自己熟的地方。</p>
+<p><strong>为什么减计数用 <code>acq_rel</code> 而加计数用 <code>relaxed</code></strong>：加计数只需原子性，不需要与其他内存操作建立顺序；减到 0 的那个线程要销毁对象，必须能看见其他线程此前对对象的所有写，所以需要 acquire 语义，同时自己的写也要对后来者可见，所以是 release —— 合起来就是 <code>acq_rel</code>。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>shared_ptr 能管理数组吗？</strong> C++17 起 <code>shared_ptr&lt;T[]&gt;</code> 支持，之前要自己传 <code>default_delete&lt;T[]&gt;</code>。</li>
+<li><strong>为什么不用 auto_ptr？</strong> 拷贝语义是转移所有权，放进容器会出错，C++17 已删除。</li>
+<li><strong>智能指针有开销吗？</strong> unique_ptr 零开销；shared_ptr 拷贝有原子加减，跨核竞争时缓存行来回失效，热路径上尽量传引用或 <code>const shared_ptr&amp;</code>，不要按值传。</li>
+<li><strong>什么时候用裸指针？</strong> 不拥有所有权的观察、与 C 接口交互、性能敏感且生命周期显然的场合。C++ Core Guidelines：裸指针表示”不拥有”。</li>
+<li><strong>shared_ptr 怎么做到删除器类型不出现在模板参数里？</strong> 类型擦除：控制块是一个带虚函数的基类，<code>shared_ptr&lt;T&gt;(p, deleter)</code> 构造时生成一个派生控制块类型，把 deleter 存在里面。这也是它和 <code>unique_ptr</code> 的关键区别。</li>
+</ul>
+<h3 id="sec-1-6">1.6 内存对齐</h3>
+<p><strong>为什么要对齐</strong>：CPU 按字长访问内存，未对齐访问在 x86 上慢（可能跨两个缓存行），在 ARM 等平台直接总线错误；原子操作要求对齐；SIMD 指令要求 16/32 字节对齐。</p>
+<p><strong>规则</strong>（面试口述版）</p>
+<ol type="1">
+<li>每个成员的偏移量必须是该成员对齐值的整数倍（默认对齐值 = 成员大小，不超过 <code>#pragma pack(n)</code>）。</li>
+<li>结构体总大小必须是最大成员对齐值的整数倍。</li>
+<li>结构体的对齐值 = 最大成员对齐值。</li>
+</ol>
+<pre><code class="language-cpp">#include &lt;cstdint&gt;
+#include &lt;cstddef&gt;
+struct A { char a; int b; char c; };          // 1 + 3(pad) + 4 + 1 + 3(pad) = 12
+struct B { char a; char c; int b; };          // 1 + 1 + 2(pad) + 4 = 8，调整顺序省 4 字节
+struct C { char a; uint32_t b; uint8_t c; uint64_t d[0]; };  // 字节三面原题
+// a(1) pad(3) b(4) c(1) pad(7) = 16。d 是柔性数组不占空间，但把整体对齐提升到 8
+static_assert(sizeof(A) == 12 &amp;&amp; sizeof(B) == 8 &amp;&amp; sizeof(C) == 16);
+static_assert(alignof(C) == 8);
+#pragma pack(push, 1)
+struct P { char a; int b; };                  // 5，无填充
+#pragma pack(pop)
+static_assert(sizeof(P) == 5);
+struct alignas(64) CacheLine { int x; };      // 强制 64 字节对齐，用来避免 false sharing
+static_assert(sizeof(CacheLine) == 64);</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>柔性数组有什么用？</strong> 变长消息头：<code>struct Msg { uint32_t len; char data[]; }</code>，一次 <code>malloc(sizeof(Msg) + n)</code> 得到头和数据连续的内存，内核和网络协议栈大量使用。C99 标准写法是 <code>data[]</code>，<code>data[0]</code> 是 GNU 扩展。</li>
+<li><strong>什么是 false sharing？</strong> 两个线程频繁写的变量落在同一个 64 字节缓存行，导致缓存行在核间来回失效。解决：<code>alignas(64)</code> 或填充，把热点变量隔开。</li>
+<li><strong>空类大小为什么是 1？</strong> 保证两个不同对象地址不同，数组元素能区分。派生类继承空基类时可以做空基类优化（EBO），基类不占空间。</li>
+<li><strong><code>#pragma pack(1)</code> 的代价？</strong> 访问成员可能变慢，某些平台崩溃；取成员地址后交给要求对齐的函数（如原子操作）会出错。仅在协议解析等确实需要时使用。</li>
+</ul>
+<hr>
+<h2 id="sec-2"><span class="num">2.</span>指针与引用</h2>
+<h3 id="sec-2-1">2.1 指针 vs 引用</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>指针</th>
+<th>引用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本质</td>
+<td>一个存地址的变量，自身有地址和大小</td>
+<td>对象的别名，语言层面不是对象</td>
+</tr>
+<tr>
+<td>可否为空</td>
+<td>可以 <code>nullptr</code></td>
+<td>必须绑定有效对象（悬垂引用是 UB，不是”空”）</td>
+</tr>
+<tr>
+<td>可否重绑定</td>
+<td>可以</td>
+<td>初始化后不可改指向，<code>r = x</code> 是给被引对象赋值</td>
+</tr>
+<tr>
+<td>多级</td>
+<td><code>int**</code></td>
+<td>没有”引用的引用”（引用折叠是模板推导规则，不是二级引用）</td>
+</tr>
+<tr>
+<td>算术</td>
+<td><code>p + 1</code> 按类型大小前进</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td><code>sizeof</code></td>
+<td>指针大小（8）</td>
+<td>被引对象大小</td>
+</tr>
+<tr>
+<td>作为参数</td>
+<td>需判空，调用方要取地址</td>
+<td>语义清晰，调用方直接传对象</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>引用底层怎么实现</strong>：编译器通常用一个 <code>const</code> 指针实现，函数参数传引用时汇编里传的就是地址。但标准不要求引用占存储，例如 <code>int&amp; r = x;</code> 在同一作用域内编译器往往直接把 <code>r</code> 替换成 <code>x</code>，不产生任何指针。所以”引用就是指针”这句话在面试里要说成”编译器一般用指针实现引用，但语言层面引用不是对象，没有自己的地址和大小”。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>什么时候必须用指针？</strong> 需要表示”没有”（可空）、需要改变指向（链表遍历）、需要放进容器（<code>vector&lt;int&amp;&gt;</code> 不合法，用 <code>reference_wrapper</code> 或指针）、与 C 接口交互。</li>
+<li><strong>函数参数选 <code>T</code>、<code>const T&amp;</code>、<code>T&amp;&amp;</code> 还是 <code>T*</code>？</strong> 小的平凡类型（int、指针、<code>string_view</code>）按值；只读大对象用 <code>const T&amp;</code>；要拿走所有权用按值 + <code>std::move</code>（或 <code>T&amp;&amp;</code>）；可空用指针或 <code>optional</code>。</li>
+<li><strong>返回引用什么时候安全？</strong> 返回参数引用、成员引用、静态对象引用安全；返回局部变量引用是 UB（gcc 会警告，值在栈被复用后变化）。</li>
+</ul>
+<h3 id="sec-2-2">2.2 值类别与移动语义</h3>
+<p><strong>三种基本值类别</strong></p>
+<ul>
+<li><strong>lvalue</strong>：有身份、不能被移动。变量名、<code>*p</code>、返回左值引用的函数调用、字符串字面量。</li>
+<li><strong>prvalue</strong>：无身份、能被移动。字面量 <code>42</code>、<code>a + b</code>、按值返回的函数调用、lambda 表达式。</li>
+<li><strong>xvalue</strong>：有身份、能被移动。<code>std::move(x)</code>、返回 <code>T&amp;&amp;</code> 的函数调用、<code>std::move(obj).member</code>。</li>
+</ul>
+<p>glvalue = lvalue + xvalue（有身份）；rvalue = prvalue + xvalue（能被移动）。</p>
+<p><strong>右值引用 <code>T&amp;&amp;</code></strong>：只能绑定右值。设计目的是让编译器能区分”可以被掏空的临时对象”和”还要继续用的对象”，从而实现移动语义与完美转发。</p>
+<p><strong><code>std::move</code> 到底做了什么</strong>：什么都不做，只是一个类型转换。</p>
+<pre><code class="language-cpp">#include &lt;type_traits&gt;
+template&lt;class T&gt;
+constexpr std::remove_reference_t&lt;T&gt;&amp;&amp; my_move(T&amp;&amp; t) noexcept {
+    return static_cast&lt;std::remove_reference_t&lt;T&gt;&amp;&amp;&gt;(t);
+}</code></pre>
+<p>它把参数转成 xvalue，从而让重载决议选中移动构造 / 移动赋值。真正”移动”的是移动构造函数的实现（接管指针、把源置空）。</p>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+#include &lt;cstddef&gt;
+#include &lt;algorithm&gt;
+class Buffer {
+    char* data_ = nullptr; size_t size_ = 0;
+public:
+    explicit Buffer(size_t n) : data_(new char[n]), size_(n) {}
+    ~Buffer() { delete[] data_; }
+    Buffer(const Buffer&amp; o) : data_(new char[o.size_]), size_(o.size_) { std::copy(o.data_, o.data_ + size_, data_); }
+    Buffer(Buffer&amp;&amp; o) noexcept : data_(o.data_), size_(o.size_) { o.data_ = nullptr; o.size_ = 0; }  // 接管 + 置空
+    Buffer&amp; operator=(Buffer o) noexcept { swap(o); return *this; }   // copy-and-swap 同时处理拷贝赋值与移动赋值
+    void swap(Buffer&amp; o) noexcept { std::swap(data_, o.data_); std::swap(size_, o.size_); }
+};</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>移动构造为什么要 <code>noexcept</code>？</strong> <code>std::vector</code> 扩容时若移动构造可能抛异常，为了保证异常安全会退化成拷贝（<code>std::move_if_noexcept</code>）。没写 <code>noexcept</code>，你的移动构造在 vector 里根本用不上。</li>
+<li><strong>被移动后的对象是什么状态？</strong> 标准库保证”有效但未指定”（valid but unspecified）：可以析构、可以赋新值，但不要读它的值。自己写的类应保证被移动后至少能安全析构。</li>
+<li><strong>对 <code>const</code> 对象 <code>std::move</code> 会怎样？</strong> 变成 <code>const T&amp;&amp;</code>，匹配不到 <code>T&amp;&amp;</code> 的移动构造，静默退化为拷贝。这是常见的性能陷阱，尤其是 <code>const</code> 成员或 lambda 的 <code>const</code> 捕获。</li>
+<li><strong><code>return std::move(local);</code> 对不对？</strong> 错。它会阻止 NRVO（具名返回值优化），把一次零拷贝变成一次移动。直接 <code>return local;</code> 编译器会先尝试省略拷贝，不行再隐式当作右值移动。</li>
+<li><strong>什么是 RVO / NRVO / 拷贝省略？</strong> RVO：<code>return T(...)</code> 直接在调用方的返回槽上构造，C++17 起强制。NRVO：<code>T t; ...; return t;</code> 编译器把 <code>t</code> 直接放在返回槽上，非强制但主流编译器都做。前提是只有一个返回路径且返回的是同一个局部变量。</li>
+<li><strong>移动比拷贝一定快吗？</strong> 不一定。<code>int</code>、<code>std::array</code>、SSO 范围内的短 <code>std::string</code> 移动和拷贝代价相同；只有持有堆资源的类型移动才有优势。</li>
+</ul>
+<h3 id="sec-2-3">2.3 万能引用与完美转发</h3>
+<p><strong>引用折叠规则</strong>：<code>&amp; &amp;</code> → <code>&amp;</code>，<code>&amp; &amp;&amp;</code> → <code>&amp;</code>，<code>&amp;&amp; &amp;</code> → <code>&amp;</code>，<code>&amp;&amp; &amp;&amp;</code> → <code>&amp;&amp;</code>。只有两个都是右值引用才得到右值引用。</p>
+<p><strong>万能引用（转发引用）</strong>：形如 <code>T&amp;&amp;</code> 且 <code>T</code> 是被推导的模板参数（或 <code>auto&amp;&amp;</code>）。传左值时 <code>T</code> 推导为 <code>X&amp;</code>，折叠后参数类型是 <code>X&amp;</code>；传右值时 <code>T</code> 推导为 <code>X</code>，参数类型 <code>X&amp;&amp;</code>。</p>
+<pre><code class="language-cpp">#include &lt;utility&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+struct Widget { std::string name; explicit Widget(std::string n) : name(std::move(n)) {} };
+template&lt;class T, class... Args&gt;
+T make(Args&amp;&amp;... args) {
+    return T(std::forward&lt;Args&gt;(args)...);   // 左值仍是左值，右值仍是右值
+}
+void demo() {
+    std::string s = "abc";
+    Widget w1 = make&lt;Widget&gt;(s);              // Args = std::string&amp;，拷贝 s
+    Widget w2 = make&lt;Widget&gt;(std::move(s));   // Args = std::string，移动 s
+    (void)w1; (void)w2;
+}</code></pre>
+<p><strong><code>std::forward</code> 做了什么</strong>：<code>forward&lt;T&gt;(x)</code> 就是 <code>static_cast&lt;T&amp;&amp;&gt;(x)</code>。<code>T</code> 是左值引用时折叠成左值引用，<code>T</code> 是非引用时得到右值引用。它和 <code>move</code> 的区别是：<code>move</code> 无条件转右值，<code>forward</code> 有条件地还原原始值类别。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>vector&lt;T&gt;::emplace_back</code> 为什么比 <code>push_back</code> 好？</strong> <code>emplace_back(args...)</code> 用完美转发在容器内存上直接构造，省一次临时对象的构造和移动。<code>push_back(T&amp;&amp;)</code> 至少要一次移动。但对已有对象两者等价，且 <code>emplace_back</code> 会执行隐式转换，可读性略差。</li>
+<li><strong><code>T&amp;&amp;</code> 什么时候不是万能引用？</strong> <code>vector&lt;T&gt;::push_back(T&amp;&amp;)</code> 中 <code>T</code> 是类模板参数不是函数推导的，它就是普通右值引用。<code>const T&amp;&amp;</code> 也不是。</li>
+<li><strong>为什么不能对同一个万能引用参数 <code>forward</code> 两次？</strong> 第一次可能已经把它移走了。</li>
+</ul>
+<h3 id="sec-2-4">2.4 const 的全部用法</h3>
+<pre><code class="language-cpp">#include &lt;string&gt;
+const int a = 1;                 // 常量，必须初始化
+int b = 2;
+const int* p1 = &amp;b;              // 底层 const：不能通过 p1 改 *p1，p1 本身可以改指向
+int* const p2 = &amp;b;              // 顶层 const：p2 不能改指向，可以改 *p2
+const int* const p3 = &amp;b;        // 两者都不能改
+int const* p4 = &amp;b;              // 与 p1 完全等价，const 在 * 左边就是底层
+struct S {
+    mutable int cache = 0;
+    int v = 0;
+    int  get() const { ++cache; return v; }          // const 成员函数：this 是 const S*，只能改 mutable 成员
+    int&amp; ref()       { return v; }
+    const int&amp; ref() const { return v; }             // 按 const 重载，const 对象调用返回 const 引用
+    const std::string&amp; name() const&amp; { return n_; }  // 引用限定符：左值对象返回引用
+    std::string        name() &amp;&amp;     { return std::move(n_); }  // 右值对象直接移出
+private:
+    std::string n_;
+};</code></pre>
+<p><strong>记忆法</strong>：从右往左读。<code>const int* p</code>：“p 是指针，指向 int，int 是 const”。<code>int* const p</code>：“p 是 const，是指针，指向 int”。</p>
+<p><strong>字节原题</strong>：<code>const int&amp; func(const char* p) const</code> 中三个 const 的含义：返回一个不能通过它修改的引用；参数指向的字符不能改；成员函数不修改对象状态。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>const</code> 和 <code>#define</code> 的区别？</strong> <code>const</code> 有类型、有作用域、编译器检查、可调试、可取地址；<code>#define</code> 是预处理文本替换，无类型无作用域，不出现在符号表，宏展开可能有副作用（<code>#define SQR(x) x*x</code>）。C++ 中优先 <code>constexpr</code> / <code>const</code> / <code>inline</code> 函数。</li>
+<li><strong><code>const</code> 变量能改吗？</strong> 通过 <code>const_cast</code> 去掉 const 后写入，若对象本身定义为 const 是 UB（可能放在只读段或被常量折叠）；若对象本身非 const、只是通过 const 引用访问，则合法。</li>
+<li><strong><code>constexpr</code> 和 <code>const</code> 的区别？</strong> <code>const</code> 是”运行期不可修改”，<code>constexpr</code> 是”编译期可求值”。<code>constexpr</code> 变量隐含 <code>const</code>；<code>constexpr</code> 函数在参数是常量时编译期求值，否则退化为普通函数。</li>
+<li><strong><code>const</code> 成员函数中修改成员的合法途径？</strong> <code>mutable</code>（用于缓存、锁、统计计数）、通过指针成员修改指向的对象（<code>const</code> 只作用于指针本身）。</li>
+<li><strong>顶层 const 在函数签名中被忽略</strong>：<code>void f(int)</code> 和 <code>void f(const int)</code> 是同一个函数，重定义报错；但 <code>void f(int*)</code> 和 <code>void f(const int*)</code> 是重载。</li>
+</ul>
+<h3 id="sec-2-5">2.5 四种类型转换</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>转换</th>
+<th>检查时机</th>
+<th>用途</th>
+<th>失败行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>static_cast</code></td>
+<td>编译期</td>
+<td>数值转换、上行转换、有关联类型间转换、<code>void*</code> 与 <code>T*</code></td>
+<td>下行转换不检查，错了是 UB</td>
+</tr>
+<tr>
+<td><code>dynamic_cast</code></td>
+<td>运行期</td>
+<td>多态类型的下行 / 交叉转换</td>
+<td>指针返回 <code>nullptr</code>，引用抛 <code>std::bad_cast</code></td>
+</tr>
+<tr>
+<td><code>const_cast</code></td>
+<td>编译期</td>
+<td>添加 / 去除 <code>const</code> / <code>volatile</code></td>
+<td>修改本身 const 的对象是 UB</td>
+</tr>
+<tr>
+<td><code>reinterpret_cast</code></td>
+<td>编译期</td>
+<td>位模式重新解释：指针 ↔︎ 整数、不相关指针类型</td>
+<td>无检查，几乎总是平台相关</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong><code>dynamic_cast</code> 底层</strong>：要求源类型有虚函数（多态）。通过对象的 vptr 找到 vtable，vtable 前面有 <code>type_info</code> 指针，运行库沿继承链比对 <code>type_info</code>，还要用 vtable 中的 offset-to-top 调整 <code>this</code> 指针（多继承）。开销大约几十到几百 ns，在热路径上应用虚函数或 <code>type tag</code> 替代。</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;cstring&gt;
+#include &lt;cstdint&gt;
+#include &lt;typeinfo&gt;
+struct Base { virtual ~Base() = default; virtual const char* who() const { return "Base"; } };
+struct Derived : Base { const char* who() const override { return "Derived"; } int extra = 1; };
+struct Other  : Base { const char* who() const override { return "Other"; } };
+
+int main() {
+    Derived d;
+    Base* pb = &amp;d;                                   // 上行转换：隐式，不需要 cast
+
+    // dynamic_cast：运行期查 vtable 里的 type_info，失败指针给 nullptr、引用抛 bad_cast
+    if (auto* pd = dynamic_cast&lt;Derived*&gt;(pb)) std::cout &lt;&lt; "dyn 成功 " &lt;&lt; pd-&gt;extra &lt;&lt; " ";
+    Other o; Base* po = &amp;o;
+    std::cout &lt;&lt; "dyn 失败→" &lt;&lt; (dynamic_cast&lt;Derived*&gt;(po) == nullptr) &lt;&lt; " ";
+    try { (void)dynamic_cast&lt;Derived&amp;&gt;(*po); } catch (const std::bad_cast&amp;) { std::cout &lt;&lt; "引用版抛 bad_cast\n"; }
+
+    // static_cast：编译期，下行不检查。你确知动态类型时才用，快但错了是 UB
+    auto* fast = static_cast&lt;Derived*&gt;(pb);
+    std::cout &lt;&lt; "static 下行 " &lt;&lt; fast-&gt;who() &lt;&lt; " ";
+    std::cout &lt;&lt; "typeid " &lt;&lt; (typeid(*pb) == typeid(Derived)) &lt;&lt; "\n";   // 1，typeid 也走 vtable
+
+    // const_cast：只有当对象本身非 const 时，去掉 const 后写入才合法
+    int v = 1; const int&amp; cr = v;
+    const_cast&lt;int&amp;&gt;(cr) = 2;                        // 合法：v 本身不是 const
+    std::cout &lt;&lt; "const_cast " &lt;&lt; v &lt;&lt; " ";          // 2
+    // const int ci = 1; const_cast&lt;int&amp;&gt;(ci) = 2;   // UB：对象本身是 const
+
+    // reinterpret_cast：位模式重解释。float/int 互看要用 memcpy，直接转引用违反严格别名
+    float f = 1.0f; uint32_t bits;
+    std::memcpy(&amp;bits, &amp;f, sizeof bits);             // 正确做法（C++20 可用 std::bit_cast）
+    std::cout &lt;&lt; "float 位模式 0x" &lt;&lt; std::hex &lt;&lt; bits &lt;&lt; std::dec &lt;&lt; "\n";  // 0x3f800000
+}</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么 C 风格强转不好？</strong> 它会按 <code>const_cast</code> → <code>static_cast</code> → <code>static_cast + const_cast</code> → <code>reinterpret_cast</code> 顺序尝���，你不知道最终发生了什么，且无法 grep。</li>
+<li><strong><code>static_cast</code> 下行转换什么时候安全？</strong> 你能从别的途径确认动态类型时（如 tag 字段），此时比 <code>dynamic_cast</code> 快。</li>
+<li><strong>上行转换需要 cast 吗？</strong> 不需要，派生类指针可以隐式转成基类指针。多继承时编译器会自动调整偏移。</li>
+<li><strong><code>reinterpret_cast&lt;float&amp;&gt;(int_var)</code> 合法吗？</strong> 违反严格别名规则，是 UB。正确做法是 <code>memcpy</code> 或 C++20 <code>std::bit_cast</code>。</li>
+</ul>
+<h3 id="sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</h3>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">class C {
+public:
+    // int a;
+    void func() { printf("hello\n"); }
+};
+C* c = nullptr;
+c-&gt;func();          // 通常能正常打印</code></pre>
+<p><strong>分析</strong>：非虚成员函数在编译期就确定地址（在 <code>.text</code> 段），调用时只是把 <code>c</code> 作为隐藏参数 <code>this</code> 传进去。函数体没有解引用 <code>this</code>，所以不会崩。<strong>标准上这是 UB</strong>，但主流编译器的行为如上；面试要先说 UB，再说实际会怎样。</p>
+<p>三种变体：</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>变体</th>
+<th>结果</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>函数体访问成员 <code>a</code></td>
+<td>SIGSEGV</td>
+<td>访问 <code>this-&gt;a</code> 即读地址 <code>0 + offset</code></td>
+</tr>
+<tr>
+<td><code>func</code> 是虚函数</td>
+<td>SIGSEGV</td>
+<td>要先读 <code>*this</code> 拿 vptr 再查表</td>
+</tr>
+<tr>
+<td>函数是 <code>static</code></td>
+<td>正常</td>
+<td>根本没有 <code>this</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-2-7">2.7 数组、指针与函数指针</h3>
+<pre><code class="language-cpp">#include &lt;cstddef&gt;
+void arr_demo() {
+    int a[10];
+    int* p = a;                     // 数组名退化为首元素指针
+    static_assert(sizeof(a) == 40); // 数组本体
+    static_assert(sizeof(p) == 8);  // 指针
+    int (*pa)[10] = &amp;a;             // 指向整个数组的指针，pa + 1 前进 40 字节
+    (void)pa;
+    size_t n = sizeof(a) / sizeof(a[0]);   // 10；但传进函数后 a 已是指针，这个算法失效
+    (void)n;
+}
+void take(int a[]) {                // 等价于 int* a，sizeof(a) == 8
+    (void)a;
+}
+template&lt;class T, size_t N&gt;
+constexpr size_t countof(T (&amp;)[N]) { return N; }   // 用引用接收数组可以保留长度
+static_assert(countof("abc") == 4);                  // 含 '\0'
+
+int add(int x, int y) { return x + y; }
+int (*fp)(int, int) = add;                 // 函数指针
+using Fn = int(*)(int, int);               // 别名更清晰
+int apply(Fn f) { return f(1, 2); }
+struct K { int m(int x) { return x; } };
+int (K::*mp)(int) = &amp;K::m;                 // 成员函数指针，调用要 (obj.*mp)(1) 或 (ptr-&gt;*mp)(1)</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么函数参数里的数组是指针？</strong> C 语言传统，为了避免大数组按值拷贝。C++ 中用 <code>std::array</code>、<code>std::span</code>（C++20）或引用数组来保留长度。</li>
+<li><strong><code>a[i]</code> 和 <code>i[a]</code> 一样吗？</strong> 一样，<code>a[i]</code> 被定义为 <code>*(a + i)</code>。</li>
+<li><strong>成员函数指针为什么大小是 16？</strong> Itanium ABI 下要区分虚函数（存 vtable 偏移 + 1）与非虚（存地址），再加一个 <code>this</code> 调整量，用于多继承。</li>
+</ul>
+<h3 id="sec-2-8">2.8 lambda 与 std::function</h3>
+<p><strong>lambda 是什么</strong>：编译器生成的一个匿名类（闭包类型）的对象，捕获的变量是成员，函数体是 <code>operator()</code>。每个 lambda 表达式类型唯一。</p>
+<pre><code class="language-cpp">#include &lt;functional&gt;
+#include &lt;memory&gt;
+#include &lt;vector&gt;
+int lambda_demo() {
+    int x = 1, y = 2;
+    auto byVal = [x]() { return x; };            // 拷贝 x 进闭包，后续改 x 不影响
+    auto byRef = [&amp;y]() { return y; };           // 存 y 的引用，y 析构后调用是悬垂
+    auto mut   = [x]() mutable { return ++x; };  // 默认 operator() 是 const，改捕获需 mutable
+    auto init  = [p = std::make_unique&lt;int&gt;(3)]() { return *p; };  // 初始化捕获（C++14），可移动进不可拷贝对象
+    auto gen   = [](auto a, auto b) { return a + b; };            // 泛型 lambda，operator() 是模板
+    int (*fp)(int) = [](int v) { return v * 2; };                 // 无捕获 lambda 可转函数指针
+    std::function&lt;int()&gt; f = byVal;                               // 类型擦除，可存任意可调用对象
+    return byVal() + byRef() + mut() + init() + gen(1, 2) + fp(3) + f();
+}</code></pre>
+<p><strong><code>std::function</code> 的实现要点</strong>：类型擦除。内部持有一个指向”可调用对象包装”的基类指针（或小对象优化缓冲区），包装类是模板派生类，虚函数 <code>invoke</code>。开销：一次间接调用、可能一次堆分配（大于 SBO 缓冲区，libstdc++ 为 16 字节时）。热路径上优先用模板参数接收可调用对象，或用 C++23 的 <code>move_only_function</code> / 自写 <code>function_ref</code>。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>lambda 捕获 <code>this</code> 的陷阱？</strong> <code>[this]</code> 捕获的是裸指针，对象析构后回调还在就是悬垂。异步场景用 <code>[self = shared_from_this()]</code> 或 <code>[weak = weak_from_this()]</code>。</li>
+<li><strong><code>[=]</code> 与 <code>[&amp;]</code> 默认捕获选哪个？</strong> 立即调用的局部 lambda 用 <code>[&amp;]</code>；会逃逸出作用域（存起来、发给线程）的用 <code>[=]</code> 或显式列出，禁止默认按引用捕获。</li>
+<li><strong>lambda 与函数对象、函数指针的性能差异？</strong> lambda 和手写函数对象一样可以被内联；函数指针和 <code>std::function</code> 是间接调用，通常不能内联。<code>std::sort</code> 传 lambda 比传函数指针快，就是这个原因。</li>
+<li><strong>lambda 的 <code>sizeof</code>？</strong> 无捕获为 1；有捕获则是捕获成员的大小之和（按对齐）。</li>
+</ul>
+<hr>
+<h2 id="sec-3"><span class="num">3.</span>面向对象</h2>
+<h3 id="sec-3-1">3.1 封装、继承、多态</h3>
+<ul>
+<li><strong>封装</strong>：数据与操作绑定，通过访问控制隐藏实现。<code>private</code> 保证不变量只能被成员函数破坏，缩小排查范围。</li>
+<li><strong>继承</strong>：复用接口和实现，建立 is-a 关系。优先 <code>public</code> 继承表达接口继承；<code>private</code> 继承表达”用……实现”，通常可以用组合替代。</li>
+<li><strong>多态</strong>：同一接口在不同类型上有不同行为。运行期多态靠虚函数，编译期多态靠模板与重载。</li>
+</ul>
+<p><strong>三种继承的访问权限变化</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>基类成员</th>
+<th><code>public</code> 继承后</th>
+<th><code>protected</code> 继承后</th>
+<th><code>private</code> 继承后</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>public</td>
+<td>public</td>
+<td>protected</td>
+<td>private</td>
+</tr>
+<tr>
+<td>protected</td>
+<td>protected</td>
+<td>protected</td>
+<td>private</td>
+</tr>
+<tr>
+<td>private</td>
+<td>不可访问</td>
+<td>不可访问</td>
+<td>不可访问</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>class</code> 默认 private 继承，<code>struct</code> 默认 public 继承。只有 public 继承的派生类指针能隐式转为基类指针（在类外）。</p>
+<h3 id="sec-3-2">3.2 虚函数机制（必考，要能画图）</h3>
+<p><strong>vptr 与 vtable</strong></p>
+<ul>
+<li>有虚函数的类，编译器为<strong>每个类</strong>生成一张虚函数表（vtable），放在 <code>.rodata</code>，表项是虚函数地址。</li>
+<li><strong>每个对象</strong>头部（Itanium ABI 下偏移 0）有一个指向本类 vtable 的指针 vptr，所以 <code>sizeof</code> 多 8 字节。</li>
+<li>调用 <code>p-&gt;f()</code> 编译成：读 <code>p</code> 的 vptr → 取 vtable 中 <code>f</code> 对应槽位（编译期确定的索引）→ 间接调用。</li>
+</ul>
+<pre class="diagram"><code class="language-text">struct Base    { virtual void f(); virtual void g(); int x; };
+struct Derived : Base { void f() override; virtual void h(); int y; };
+
+  Derived 对象                      Derived 的 vtable（.rodata，每个类一份）
+  +----------+                     +---------------------+
+0 | vptr     |------+              | offset_to_top = 0   |  多继承调整 this 用
+  +----------+      |              +---------------------+
+8 | x        |      |              | typeinfo* (Derived) |  dynamic_cast / typeid 用
+  +----------+      |              +=====================+  &lt;-- vptr 指向这里
+12| y        |      +-------------&gt;| &amp;Derived::f         |  slot 0，覆盖了 Base::f
+  +----------+                     | &amp;Base::g            |  slot 1，直接继承
+                                   | &amp;Derived::h         |  slot 2，派生类新增
+                                   +---------------------+
+
+注意 vptr 指向的是"第一个函数槽"，offset_to_top 和 typeinfo 在它前面（负偏移）。</code></pre>
+<p>可以用指针算术把这张表挖出来验证：</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;cstddef&gt;
+// 用指针算术把虚表挖出来，证明“对象头部是 vptr、表项是函数地址”。
+// 这段代码依赖 Itanium ABI 布局，是演示用途，不是可移植代码。
+struct Base {
+    virtual void f() { std::cout &lt;&lt; "Base::f "; }
+    virtual void g() { std::cout &lt;&lt; "Base::g "; }
+    int x = 1;
+};
+struct Derived : Base {
+    void f() override { std::cout &lt;&lt; "Derived::f "; }   // 覆盖 slot 0
+    virtual void h() { std::cout &lt;&lt; "Derived::h "; }    // 新增 slot 2
+    int y = 2;
+};
+using Fn = void(*)(void*);
+
+int main() {
+    Derived d;
+    // 注意都是 16：Base 是 vptr8 + x4 + 尾部填充 4，Derived 的 y 直接复用了这 4 字节填充
+    std::cout &lt;&lt; "sizeof(Base)=" &lt;&lt; sizeof(Base) &lt;&lt; " sizeof(Derived)=" &lt;&lt; sizeof(Derived) &lt;&lt; "\n";  // 16 16
+    // 对象首 8 字节就是 vptr：把对象地址当 void** 解引用，拿到的就是虚表首地址
+    void** vptr = *reinterpret_cast&lt;void***&gt;(&amp;d);
+    auto off = [&amp;](const void* m) { return reinterpret_cast&lt;const char*&gt;(m) - reinterpret_cast&lt;const char*&gt;(&amp;d); };
+    std::cout &lt;&lt; "x 偏移=" &lt;&lt; off(&amp;d.x) &lt;&lt; " y 偏移=" &lt;&lt; off(&amp;d.y) &lt;&lt; "\n";   // 8 12（0..7 是 vptr）
+    // 依次调用虚表的 slot 0/1/2
+    for (int i = 0; i &lt; 3; ++i) reinterpret_cast&lt;Fn&gt;(vptr[i])(&amp;d);
+    std::cout &lt;&lt; "\n";                                  // Derived::f Base::g Derived::h
+    // 同类型对象共享同一张表；不同类型的表不同
+    Derived d2; Base b;
+    std::cout &lt;&lt; "同类共表 " &lt;&lt; (*reinterpret_cast&lt;void***&gt;(&amp;d) == *reinterpret_cast&lt;void***&gt;(&amp;d2))
+              &lt;&lt; " 异类异表 " &lt;&lt; (*reinterpret_cast&lt;void***&gt;(&amp;d) != *reinterpret_cast&lt;void***&gt;(&amp;b)) &lt;&lt; "\n";  // 1 1
+}</code></pre>
+<p>这段同时演示了 §3.4 说的<strong>尾部填充复用</strong>：<code>Base</code> 是 vptr(8) + x(4) + 填充(4) = 16，<code>Derived</code> 的 <code>y</code> 正好落在那 4 字节填充里，所以 <code>sizeof(Derived)</code> 仍是 16，而不是 16 + 4。</p>
+<p><strong>vptr 何时设置</strong>：在<strong>每一层构造函数体执行前</strong>由编译器插入的代码设置为当前层的 vtable，析构时同样逐层回退。这解释了两道经典题：</p>
+<ol type="1">
+<li><strong>构造函数里调用虚函数</strong>：调到的是当前构造层的版本，不是最终派生类的版本，因为派生部分还没构造，vptr 还指向基类表。</li>
+<li><strong>析构函数里调用虚函数</strong>：同理，<code>~Base</code> 里调 <code>f()</code> 得到 <code>Base::f</code>，因为派生部分已析构，vptr 已回退。</li>
+</ol>
+<p><strong>多继承下的布局</strong>：有几个带虚函数的基类就有几个 vptr。派生类指针转成第二个基类指针时要加偏移；第二基类的 vtable 里覆盖函数的表项指向一段 thunk，thunk 先调整 <code>this</code> 再跳到真正的函数。这就是 vtable 里 <code>offset_to_top</code> 的作用。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么构造函数不能是虚函数？</strong> 虚调用依赖对象里的 vptr，而 vptr 是构造函数设置的，构造之前对象还不存在，没有 vptr 可查。语义上构造函数的任务就是创建确定类型的对象，不存在”根据动态类型选择构造函数”。要”虚构造”用工厂方法或 <code>clone()</code> 虚函数。</li>
+<li><strong>为什么析构函数常常需要虚？</strong> 通过基类指针 <code>delete</code> 派生类对象时，非虚析构只调 <code>~Base</code>，派生部分的资源泄漏，且这是 UB。规则：类打算被多态使用（有任何虚函数）就把析构声明为虚。反之不打算做基类的类不要加虚析构，避免多 8 字节和失去平凡性。</li>
+<li><strong>静态成员函数为什么不能虚？</strong> 没有 <code>this</code>，没法查 vptr。</li>
+<li><strong>模板成员函数为什么不能虚？</strong> vtable 大小必须在类定义时确定，而模板成员可以实例化出无限多个版本。</li>
+<li><strong>内联函数能虚吗？</strong> 语法上可以。通过对象直接调用（静态类型已知）时编译器能内联；通过指针 / 引用调用时必须查表，不能内联。所以”虚函数不能内联”是不准确的。</li>
+<li><strong>虚函数调用比普通调用慢多少？</strong> 一次内存读 vptr、一次读表项、一次间接跳转，无法内联、分支预测可能失败。大约几 ns，热循环里几百万次才有感觉。真正的代价是阻止内联导致的优化损失。</li>
+<li><strong><code>final</code> 和 <code>override</code> 的作用？</strong> <code>override</code> 让编译器检查确实覆盖了基类虚函数（防止签名写错变成新函数）。<code>final</code> 禁止进一步覆盖或继承，编译器据此可以把虚调用去虚化（devirtualization）为直接调用。</li>
+<li><strong>纯虚函数与抽象类</strong>：<code>virtual void f() = 0;</code> 使类不能实例化。纯虚函数可以有定义（<code>Base::f() {}</code>），派生类可显式调用，常用于提供默认实现。纯虚析构函数必须有定义，否则链接失败。</li>
+<li><strong>虚函数表存在哪？</strong> <code>.rodata</code>（只读数据段），每个类一份，进程内共享。</li>
+<li><strong>typeid 和 dynamic_cast 用什么信息？</strong> vtable 中的 <code>type_info</code> 指针。没有虚函数的类 <code>typeid</code> 是编译期静态类型。</li>
+</ul>
+<h3 id="sec-3-3">3.3 构造与析构</h3>
+<p><strong>构造顺序</strong>：虚基类（按声明深度优先、从左到右）→ 直接基类（按声明顺序）→ 成员（按<strong>声明顺序</strong>，与初始化列表顺序无关）→ 构造函数体。析构完全相反。</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+struct A { A() { std::cout &lt;&lt; "A "; } virtual ~A() { std::cout &lt;&lt; "~A "; } };
+struct M { M() { std::cout &lt;&lt; "M "; } ~M() { std::cout &lt;&lt; "~M "; } };
+struct B : A { M m; B() { std::cout &lt;&lt; "B "; } ~B() override { std::cout &lt;&lt; "~B "; } };
+int main() { { B b; } std::cout &lt;&lt; "\n"; }   // 输出：A M B ~B ~M ~A</code></pre>
+<p><strong>成员初始化顺序陷阱</strong></p>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">struct T {
+    int a; int b;
+    T(int v) : b(v), a(b) {}   // a 先构造（声明顺序），此时 b 未初始化，a 是垃圾值。-Wreorder 会警告
+};</code></pre>
+<p><strong>析构中调用虚函数的输出题</strong>（字节一面原题，完整分析）</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+using namespace std;
+class A {
+public:
+    virtual void F() { cout &lt;&lt; 1 &lt;&lt; endl; }
+    void CallF() { F(); }
+    virtual ~A() { CallF(); F(); }
+};
+class B : public A {
+public:
+    void F() override { cout &lt;&lt; 2 &lt;&lt; endl; }
+    ~B() override {}
+};
+class C : public B {
+public:
+    void F() override { cout &lt;&lt; 3 &lt;&lt; endl; }
+    void CallF() { F(); A::CallF(); }    // 隐藏了 A::CallF（非虚函数不构成覆盖）
+    ~C() override { CallF(); }
+};
+int main() {
+    A* p = new C();
+    p-&gt;CallF();     // 静态类型 A，CallF 非虚 → A::CallF → F() 虚调用，动态类型 C → 3
+    delete p;       // 虚析构 → ~C 先跑：C::CallF → F() 此时对象仍是 C → 3；A::CallF → F() → 3
+                    // 然后 ~B 空；然后 ~A：CallF → A::CallF → F()，此时 vptr 已回退为 A → 1；F() → 1
+    return 0;       // 输出 3 3 3 1 1
+}</code></pre>
+<p><strong>默认成员函数与 Rule of 0/3/5</strong></p>
+<ul>
+<li>编译器可生成：默认构造、析构、拷贝构造、拷贝赋值、移动构造、移动赋值。</li>
+<li>声明了任意一个拷贝操作或析构，编译器就<strong>不再隐式生成移动操作</strong>（退化为拷贝）。声明了移动操作，拷贝操作被隐式删除。</li>
+<li><strong>Rule of 3</strong>：自定义了析构、拷贝构造、拷贝赋值中的任一个，通常三个都要写（说明类在手动管理资源）。</li>
+<li><strong>Rule of 5</strong>：C++11 起再加移动构造、移动赋值。</li>
+<li><strong>Rule of 0</strong>：用智能指针和标准容器管理资源，一个都不写，最推荐。</li>
+</ul>
+<p><strong>拷贝构造 vs 拷贝赋值</strong>：拷贝构造作用于尚未存在的对象（<code>T b = a;</code>、传值参数、按值返回），拷贝赋值作用于已存在的对象（<code>b = a;</code>）。<code>T b = a;</code> 是拷贝初始化，不是赋值。</p>
+<p><strong>深拷贝 vs 浅拷贝</strong>：默认拷贝是逐成员拷贝，指针成员只拷地址，两个对象指向同一块内存，析构时 double free。持有裸资源的类必须自己实现深拷贝，或者用 <code>unique_ptr</code> 让编译器禁止拷贝。</p>
+<p><strong><code>explicit</code></strong>：禁止单参数构造函数（以及 C++11 起的多参数列表初始化）参与隐式转换。<code>std::vector&lt;int&gt; v = 10;</code> 因为 <code>explicit</code> 而不合法，避免了歧义。单参数构造函数默认都应加 <code>explicit</code>，除了确实想要隐式转换的（如 <code>std::string</code> 从 <code>const char*</code>）。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>拷贝赋值为什么要处理自赋值？</strong> <code>a = a</code> 时若先释放自己的资源再从”源”拷贝，源已经被释放。copy-and-swap 天然免疫，且提供强异常安全（拷贝失败时原对象不变）。</li>
+<li><strong>为什么拷贝赋值要返回 <code>T&amp;</code>？</strong> 支持链式 <code>a = b = c</code>，且与内建类型行为一致。</li>
+<li><strong><code>= default</code> 和不写有什么区别？</strong> <code>= default</code> 显式要求编译器生成，即使你声明了其他特殊成员函数；同时它保留平凡性（trivial），而用户自定义的空实现不是平凡的，会影响 <code>memcpy</code> 优化和 <code>is_trivially_copyable</code>。</li>
+<li><strong><code>= delete</code> 的其他用法？</strong> 删除特定重载防止隐式转换：<code>void f(int); void f(double) = delete;</code> 这样 <code>f(1.0)</code> 报错。</li>
+<li><strong>委托构造函数</strong>：<code>T(int a) : T(a, 0) {}</code>，一个构造函数调另一个，减少重复。</li>
+</ul>
+<h3 id="sec-3-4">3.4 对象大小与布局</h3>
+<pre><code class="language-cpp">#include &lt;cstdint&gt;
+struct Empty {};                                    // 1
+struct V { virtual ~V() = default; };               // 8：只有 vptr
+struct D1 : Empty { int x; };                       // 4：空基类优化，Empty 不占空间
+struct D2 { Empty e; int x; };                      // 8：作为成员的空类占 1 字节 + 对齐
+struct S { static int cnt; int x; };                // 4：静态成员不在对象里
+struct Two : V { int a; char b; };                  // 16：vptr 8 + a 4 + b 1 + pad 3
+static_assert(sizeof(Empty) == 1 &amp;&amp; sizeof(V) == 8 &amp;&amp; sizeof(D1) == 4 &amp;&amp; sizeof(D2) == 8);
+static_assert(sizeof(S) == 4 &amp;&amp; sizeof(Two) == 16);</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么空类不是 0 字节？</strong> 两个不同对象必须有不同地址，<code>Empty arr[2]</code> 才能区分元素。</li>
+<li><strong><code>sizeof(Derived)</code> 一定大于等于 <code>sizeof(Base)</code> 吗？</strong> 是，派生类包含完整基类子对象。但基类的尾部填充可以被派生类成员复用（尾部填充重用），所以不一定是”基类大小 + 成员大小”。</li>
+<li><strong>为什么成员函数不占对象空间？</strong> 函数代码在 <code>.text</code>，所有对象共享，调用时通过 <code>this</code> 区分。只有虚函数需要一个 vptr 来做运行期分发。</li>
+</ul>
+<h3 id="sec-3-5">3.5 多继承与虚继承</h3>
+<p><strong>菱形继承问题</strong>：<code>D : B, C</code>，<code>B : A</code>，<code>C : A</code>，D 里有两份 A，访问 <code>d.x</code> 歧义，A 的构造函数跑两次。</p>
+<p><strong>虚继承</strong>：<code>B : virtual A</code>，<code>C : virtual A</code>，D 中只有一份 A，由<strong>最底层派生类</strong> D 负责构造 A（B、C 构造函数中对 A 的初始化被忽略）。实现上 B、C 子对象里不再直接内嵌 A，而是通过 vtable 中的 <code>vbase_offset</code> 找到共享的 A 子对象，所以访问虚基类成员多一次间接寻址。</p>
+<pre><code class="language-cpp">struct A { int x = 1; };
+struct B : virtual A { int b = 2; };
+struct C : virtual A { int c = 3; };
+struct D : B, C { int d = 4; };
+int diamond() { D d; return d.x; }    // 不再歧义。sizeof(D) 在 x86-64 通常为 40（两个 vptr + 4 个 int + 对齐）</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>虚继承的代价？</strong> 每个虚继承的类多一个 vptr（即使没有虚函数），访问虚基类成员多一次查表，对象布局复杂，<code>static_cast</code> 从虚基类下行转换不允许（只能 <code>dynamic_cast</code>）。</li>
+<li><strong>什么时候用多继承？</strong> 主要是继承多个纯接口类（只有纯虚函数的抽象类），像 Java 的 interface。多个带实现的基类容易产生菱形和二义性。</li>
+<li><strong><code>std::iostream</code> 就是菱形虚继承</strong>：<code>istream</code> 和 <code>ostream</code> 都虚继承 <code>ios_base</code>。</li>
+</ul>
+<h3 id="sec-3-6">3.6 重载、重写、隐藏</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>发生范围</th>
+<th>条件</th>
+<th>决议时机</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>重载 overload</td>
+<td>同一作用域</td>
+<td>函数名同、参数列表不同（返回值不参与）</td>
+<td>编译期</td>
+</tr>
+<tr>
+<td>重写 / 覆盖 override</td>
+<td>派生类对基类</td>
+<td>基类为虚函数、签名完全相同（含 const 与引用限定符，返回类型可协变）</td>
+<td>运行期</td>
+</tr>
+<tr>
+<td>隐藏 hiding</td>
+<td>派生类对基类</td>
+<td>同名即隐藏，无论参数是否相同、是否虚</td>
+<td>编译期</td>
+</tr>
+</tbody>
+</table>
+</div>
+<pre><code class="language-cpp">struct Base { void f(int) {} void f(double) {} };
+struct Der : Base {
+    using Base::f;      // 不加这句，Der::f(char*) 会隐藏 Base 中所有 f，d.f(1) 编译失败
+    void f(const char*) {}
+};
+int hide_demo() { Der d; d.f(1); d.f(1.0); d.f("x"); return 0; }</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么返回类型不能作为重载依据？</strong> 调用表达式可以不使用返回值，编译器无法据此选择。</li>
+<li><strong>协变返回类型</strong>：基类虚函数返回 <code>Base*</code>，派生类覆盖可返回 <code>Derived*</code>，仍算覆盖。<code>clone()</code> 常用。</li>
+<li><strong>重载决议顺序</strong>：精确匹配 → 提升（<code>char</code>→<code>int</code>、<code>float</code>→<code>double</code>）→ 标准转换（<code>int</code>→<code>double</code>、派生指针→基类指针）→ 用户定义转换 → 省略号。有二义性就报错，而不是随便挑一个。</li>
+<li><strong>名字查找先于重载决议</strong>：这就是隐藏的原理。编译器先在 <code>Der</code> 作用域找到 <code>f</code>，找到了就停止，不再看 <code>Base</code>，然后在 <code>Der::f</code> 的候选里做重载决议。</li>
+</ul>
+<h3 id="sec-3-7">3.7 静态多态与 CRTP</h3>
+<p><strong>模板实现的编译期多态</strong>：没有 vptr，没有间接调用，可内联，但每种类型生成一份代码（代码膨胀），且只能在编译期确定类型。</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+template&lt;class Derived&gt;
+struct Shape {
+    double area() const { return static_cast&lt;const Derived*&gt;(this)-&gt;areaImpl(); }  // 编译期"虚函数"
+};
+struct Square : Shape&lt;Square&gt; { double s = 2; double areaImpl() const { return s * s; } };
+struct Circle : Shape&lt;Circle&gt; { double r = 1; double areaImpl() const { return 3.14159 * r * r; } };
+template&lt;class T&gt; void print(const Shape&lt;T&gt;&amp; s) { std::cout &lt;&lt; s.area() &lt;&lt; "\n"; }
+int crtp_demo() { print(Square{}); print(Circle{}); return 0; }</code></pre>
+<p><strong>运行期多态 vs 编译期多态怎么选</strong>：容器里要装异构对象、插件式扩展、跨动态库边界，用虚函数；类型在编译期已知、追求零开销（数值库、策略模式）用模板。<code>std::variant</code> + <code>std::visit</code> 是第三条路：闭集类型、值语义、无堆分配。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>CRTP 的其他用途？</strong> 给派生类注入通用功能（如 <code>enable_shared_from_this</code>、对象计数、操作符生成）、静态接口检查。</li>
+<li><strong>模板会导致代码膨胀怎么缓解？</strong> 把与类型无关的部分抽到非模板基类（<code>vector&lt;T*&gt;</code> 共享 <code>vector&lt;void*&gt;</code> 实现的思路）、<code>extern template</code> 显式实例化。</li>
+</ul>
+<hr>
+<h2 id="sec-4"><span class="num">4.</span>STL</h2>
+<h3 id="sec-4-1">4.1 总览</h3>
+<p><strong>六大组件</strong>：容器、算法、迭代器、仿函数（函数对象）、适配器（<code>stack</code>/<code>queue</code>/<code>priority_queue</code>、迭代器适配器、函数适配器）、分配器。设计核心是<strong>泛型 + 迭代器解耦</strong>：算法只依赖迭代器接口，不依赖容器。</p>
+<p><strong>五类迭代器</strong>（字节原题）</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>能力</th>
+<th>典型容器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入 Input</td>
+<td>只读、单遍、<code>++</code></td>
+<td><code>istream_iterator</code></td>
+</tr>
+<tr>
+<td>输出 Output</td>
+<td>只写、单遍、<code>++</code></td>
+<td><code>ostream_iterator</code>、<code>back_inserter</code></td>
+</tr>
+<tr>
+<td>前向 Forward</td>
+<td>可读写、多遍、<code>++</code></td>
+<td><code>forward_list</code>、<code>unordered_*</code></td>
+</tr>
+<tr>
+<td>双向 Bidirectional</td>
+<td>前向 + <code>--</code></td>
+<td><code>list</code>、<code>map</code>、<code>set</code></td>
+</tr>
+<tr>
+<td>随机访问 Random Access</td>
+<td>双向 + <code>+n</code>、<code>[]</code>、比较</td>
+<td><code>vector</code>、<code>deque</code>、<code>array</code>、原生指针</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>C++20 增加 Contiguous（连续存储）。算法根据迭代器类别选择实现，例如 <code>std::distance</code> 对随机访问是 O(1)，对其他是 O(n)；<code>std::sort</code> 要求随机访问，所以 <code>list</code> 有自己的 <code>sort</code> 成员。</p>
+<h3 id="sec-4-2">4.2 vector</h3>
+<p><strong>内存模型</strong>：三个指针 <code>begin</code>、<code>end</code>、<code>cap</code>（或一个指针 + 两个 size_t），<code>sizeof(vector) == 24</code>。元素在堆上连续存放。</p>
+<p><strong>扩容机制</strong></p>
+<ul>
+<li>容量不足时分配新块，把旧元素<strong>移动</strong>（移动构造 <code>noexcept</code> 时）或拷贝过去，释放旧块。</li>
+<li>增长因子：libstdc++ 是 2 倍，MSVC 是 1.5 倍。</li>
+<li><strong>为什么是常数倍而不是加常数</strong>：摊还分析。倍增下 n 次 <code>push_back</code> 总拷贝次数是 n + n/2 + n/4 + … &lt; 2n，摊还 O(1)。每次加 k 个则是 O(n²/k)。</li>
+<li><strong>为什么 1.5 比 2 可能更好</strong>：2 倍时前面所有释放块的总和 1 + 2 + 4 + … + 2^(k-1) = 2^k - 1 &lt; 2^k，永远装不下新块，旧内存无法复用；因子小于黄金分割 1.618 时，之前释放的块之和才可能容纳下一次分配。</li>
+</ul>
+<p><strong><code>push_back</code> 复杂度分析</strong>（字节三面原题）：不扩容 O(1)；扩容那一次 O(n)；摊还 O(1)。</p>
+<p><strong><code>reserve</code> vs <code>resize</code></strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>reserve(n)</code></th>
+<th><code>resize(n)</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改变</td>
+<td>只改 capacity</td>
+<td>改 size（同时可能改 capacity）</td>
+</tr>
+<tr>
+<td>构造元素</td>
+<td>不构造</td>
+<td>多出来的部分值初始化（或用给定值）</td>
+</tr>
+<tr>
+<td>之后 <code>v[i]</code></td>
+<td><code>i &lt; size</code> 才合法，<code>reserve</code> 后直接 <code>v[5]</code> 是 UB</td>
+<td>合法</td>
+</tr>
+<tr>
+<td>用途</td>
+<td>已知数量，避免多次扩容</td>
+<td>需要立即有 n 个可用元素</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong><code>[]</code> vs <code>at()</code></strong>：<code>[]</code> 不检查越界（UB，Debug 模式下部分实现有断言）；<code>at()</code> 检查，越界抛 <code>std::out_of_range</code>。性能敏感用 <code>[]</code>，边界不可信用 <code>at()</code>。</p>
+<p><strong>迭代器失效规则</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>失效范围</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>push_back</code> / <code>insert</code> 引发扩容</td>
+<td>全部迭代器、指针、引用</td>
+</tr>
+<tr>
+<td><code>insert</code> 未扩容</td>
+<td>插入点及之后</td>
+</tr>
+<tr>
+<td><code>erase</code></td>
+<td>被删点及之后（<code>end()</code> 也失效）</td>
+</tr>
+<tr>
+<td><code>clear</code></td>
+<td>全部</td>
+</tr>
+<tr>
+<td><code>reserve</code></td>
+<td>若容量改变则全部</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>遍历中删除的正确写法</strong></p>
+<pre><code class="language-cpp">#include &lt;vector&gt;
+#include &lt;algorithm&gt;
+void erase_demo(std::vector&lt;int&gt;&amp; v) {
+    for (auto it = v.begin(); it != v.end(); ) {
+        if (*it % 2 == 0) it = v.erase(it);   // erase 返回下一个有效迭代器
+        else ++it;
+    }
+    // 更好：erase-remove 惯用法，O(n) 一次搬移
+    v.erase(std::remove_if(v.begin(), v.end(), [](int x) { return x % 3 == 0; }), v.end());
+    // C++20：std::erase_if(v, pred);
+}</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>vector&lt;bool&gt;</code> 有什么特殊？</strong> 是特化，按位存储，<code>operator[]</code> 返回代理对象而非 <code>bool&amp;</code>，不能取地址，不满足容器要求。需要真 bool 数组用 <code>vector&lt;char&gt;</code> 或 <code>deque&lt;bool&gt;</code>。</li>
+<li><strong><code>emplace_back</code> 和 <code>push_back</code> 的区别？</strong> <code>emplace_back</code> 完美转发参数原地构造；<code>push_back</code> 先构造临时再移动 / 拷贝。传已有对象时一样。</li>
+<li><strong><code>shrink_to_fit</code> 一定生效吗？</strong> 非强制请求，实现可以忽略。要确保释放用 <code>vector&lt;T&gt;(v).swap(v)</code>。</li>
+<li><strong><code>clear</code> 会释放内存吗？</strong> 不会，capacity 不变。</li>
+<li><strong>vector 里存指针还是对象？</strong> 对象：局部性好、少一次间接。指针：元素大、需要多态、需要稳定地址（被别处引用）时用。</li>
+<li><strong><code>vector&lt;T&gt;</code> 的 T 需要满足什么？</strong> 可移动构造或可拷贝构造；<code>resize</code> 需要可默认构造。</li>
+<li><strong>vector 和数组的区别？</strong> 动态大小、自动管理内存、知道自身大小、可作为值传递和返回、可放进其他容器。开销是多 16 字节和一次间接。</li>
+</ul>
+<h3 id="sec-4-3">4.3 deque、list、forward_list</h3>
+<p><strong>deque</strong>：分段连续。一个中控数组（map）存指向多个定长缓冲区（libstdc++ 512 字节）的指针。两端 push 都是 O(1)，随机访问 O(1) 但要两次寻址（先算在哪个块）。中间插入 O(n)。<code>push_back</code>/<code>push_front</code> 会让<strong>迭代器</strong>失效但<strong>引用和指针不失效</strong>（元素不搬家），这一点和 vector 不同。用途：<code>std::queue</code> 和 <code>std::stack</code> 的默认底层、滑动窗口。</p>
+<p><strong>list</strong>：双向链表，每个节点 <code>prev</code>/<code>next</code> + 数据，节点独立分配。插删 O(1) 且不影响其他迭代器；不支持随机访问；<code>sizeof</code> 节点开销 16 字节 + 分配器开销；缓存不友好。<code>splice</code> 可以 O(1) 把节点从一个 list 移到另一个，LRU 就靠它。</p>
+<p><strong>forward_list</strong>：单链表，只有 <code>next</code>，省 8 字节，只能 <code>insert_after</code>/<code>erase_after</code>，没有 <code>size()</code>（保持 O(1) 操作的纯粹性）。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>什么时候 list 比 vector 快？</strong> 频繁在中间插删且已持有迭代器、元素巨大且拷贝昂贵、需要迭代器长期稳定。其他情况几乎总是 vector 更快，即使是”中间插入”，vector 的 memmove 在 n 不大时也常胜过 list 的指针跳转和缓存缺失。</li>
+<li><strong>为什么 <code>list::size()</code> 是 O(1)？</strong> C++11 起要求。代价是 <code>splice</code> 部分区间时要遍历计数。</li>
+</ul>
+<h3 id="sec-4-4">4.4 map / set：红黑树</h3>
+<p><strong>红黑树五条性质</strong></p>
+<ol type="1">
+<li>节点是红或黑。</li>
+<li>根是黑。</li>
+<li>叶子（NIL）是黑。</li>
+<li>红节点的两个孩子都是黑（不能有连续红）。</li>
+<li>任一节点到其所有后代叶子的路径含相同数量的黑节点。</li>
+</ol>
+<p>由 4 和 5 推出：最长路径不超过最短路径的 2 倍，高度 ≤ 2·log₂(n+1)，查找 O(log n)。插入删除通过最多 O(log n) 次变色和最多 3 次旋转恢复性质（插入最多 2 次旋转，删除最多 3 次）。</p>
+<p><strong>为什么 map 用红黑树而不是</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>候选</th>
+<th>为什么不选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AVL</td>
+<td>平衡更严格，查找略快，但插删旋转更多。map 读写混合，红黑树综合更优。Linux 内核、Java TreeMap、C++ STL 都选红黑树</td>
+</tr>
+<tr>
+<td>跳表</td>
+<td>需要随机数，空间 O(n log n) 常数更大，STL 要求确定性和最坏复杂度保证。Redis 用跳表是因为区间遍历和实现简单</td>
+</tr>
+<tr>
+<td>B / B+ 树</td>
+<td>为磁盘 IO 优化（大节点、少层数），内存中缓存行利用率高但实现复杂；数据库索引用它</td>
+</tr>
+<tr>
+<td>哈希</td>
+<td>无序，无法 <code>lower_bound</code> / 范围遍历，最坏 O(n)，迭代器随 rehash 失效</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>map 特性</strong></p>
+<ul>
+<li><code>operator[]</code> 在 key 不存在时<strong>插入默认值</strong>并返回引用，所以 <code>if (m[k] == 0)</code> 会污染 map，只读查询用 <code>find</code> / <code>count</code> / <code>at</code> / C++20 <code>contains</code>。</li>
+<li>迭代器按 key 有序，<code>erase</code> 只让被删元素的迭代器失效，插入不使任何迭代器失效（节点不搬家）。</li>
+<li><code>lower_bound(k)</code> 第一个 ≥ k，<code>upper_bound(k)</code> 第一个 &gt; k，<code>equal_range</code> 两者。</li>
+<li>自定义 key 需要提供 <code>operator&lt;</code> 或比较器，比较器必须是严格弱序（<code>&lt;=</code> 是错的）。</li>
+<li>节点大小：颜色 + 3 指针 + pair，约 40 字节 + 数据。</li>
+</ul>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>map 的 key 能修改吗？</strong> 不能，<code>iterator</code> 指向 <code>pair&lt;const K, V&gt;</code>。要改 key 得 erase 再 insert，或 C++17 <code>extract</code> 改后 <code>insert</code> 节点句柄（不重新分配）。</li>
+<li><strong>multimap / multiset</strong>：允许重复 key，<code>equal_range</code> 取一组，<code>count</code> 是 O(log n + k)。</li>
+<li><strong><code>std::set</code> 怎么实现 O(log n) 删除第 k 大？</strong> 标准 set 不支持按秩访问，需要 GNU 的 <code>__gnu_pbds::tree</code> 或自己维护子树大小（order statistic tree）。</li>
+<li><strong>map 和 unordered_map 怎么选？</strong> 需要有序遍历、范围查询、key 没有好哈希、对最坏情况敏感（防哈希碰撞攻击）时用 map；纯点查且量大用 unordered_map。</li>
+</ul>
+<h3 id="sec-4-5">4.5 unordered_map：开链哈希</h3>
+<p><strong>结构</strong>（libstdc++）：一个桶数组（<code>bucket_count</code> 个指针），所有元素在一条单链表上，桶指向该桶第一个元素的<strong>前驱</strong>，这样 <code>erase</code> 不需要双向链表。每个节点缓存 hash 值（可选）。</p>
+<p><strong>关键参数</strong></p>
+<ul>
+<li>负载因子 <code>load_factor = size / bucket_count</code>，默认 <code>max_load_factor = 1.0</code>。</li>
+<li>超过则 <strong>rehash</strong>：桶数增长到下一个质数（约 2 倍），所有元素重新挂链。rehash 是 O(n)，所以单次 <code>insert</code> 最坏 O(n)，摊还 O(1)。</li>
+<li><code>reserve(n)</code> 预先分配桶，避免多次 rehash。</li>
+</ul>
+<p><strong>迭代器失效</strong>：rehash 使所有<strong>迭代器</strong>失效，但<strong>指针和引用不失效</strong>（节点不搬家，只是重新挂链）；<code>erase</code> 只使被删元素失效。</p>
+<p><strong>哈希冲突的解决方法对比</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>原理</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>链地址法（STL）</td>
+<td>同桶元素链表</td>
+<td>删除简单、负载可 &gt; 1</td>
+<td>节点分配开销、缓存不友好</td>
+</tr>
+<tr>
+<td>开放寻址：线性探测</td>
+<td>冲突就查下一格</td>
+<td>缓存友好、无额外分配</td>
+<td>聚集（primary clustering）、删除需墓碑、负载 &gt; 0.7 性能急降</td>
+</tr>
+<tr>
+<td>开放寻址：二次探测 / 双重哈希</td>
+<td>步长平方或第二个哈希</td>
+<td>减少聚集</td>
+<td>实现复杂，表大小需质数</td>
+</tr>
+<tr>
+<td>Robin Hood / Swiss Table（absl）</td>
+<td>线性探测 + 元数据字节 + SIMD 分组探测</td>
+<td>极快，缓存友好</td>
+<td>实现复杂</td>
+</tr>
+<tr>
+<td>再哈希 / 扩容</td>
+<td>负载高时重建</td>
+<td>控制链长</td>
+<td>一次性 O(n) 停顿</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>为什么桶数取质数</strong>：哈希值 <code>h % n</code> 时若 n 是 2 的幂，只用到 h 的低位，低位分布差（如指针地址、步长为偶数的 key）就会大量冲突；n 是质数时每一位都参与。取 2 的幂的实现（Java HashMap、absl）会先对 h 做一次扰动混合再取低位，用位运算代替取模。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>怎么给自定义类型做 key？</strong> 特化 <code>std::hash&lt;T&gt;</code> 或传哈希函数对象，同时提供 <code>operator==</code>。组合多个字段时用 <code>h1 ^ (h2 &lt;&lt; 1)</code> 或 <code>boost::hash_combine</code>（乘一个大奇数再异或），单纯异或会让 <code>(a,b)</code> 和 <code>(b,a)</code> 冲突。</li>
+<li><strong>unordered_map 的最坏复杂度？</strong> O(n)：所有 key 哈希到同一桶。对外部输入做 key 时存在哈希洪水攻击，防御是随机种子哈希（如 SipHash）。</li>
+<li><strong>怎么实现线程安全的哈希表？</strong>（字节原题）分段锁：桶分成若干段，每段一把 <code>shared_mutex</code>，读用 <code>shared_lock</code>，写用 <code>unique_lock</code>；rehash 时要拿全局锁或做渐进式 rehash（Redis 做法：两张表同时存在，每次操作搬一个桶）。无锁方案：CAS 链表头插入 + 标记删除，实现难度高。</li>
+<li><strong>遍历 unordered_map 顺序稳定吗？</strong> 不保证，依赖实现和插入历史，不同进程可能不同，不要依赖。</li>
+<li><strong><code>std::hash&lt;std::string&gt;</code> 用什么算法？</strong> libstdc++ 用 MurmurHash2 变体（<code>_Hash_bytes</code>），对 <code>int</code> 等整型则是恒等映射。</li>
+<li><strong><code>unordered_map&lt;int,int&gt;</code> 每个元素占多少内存？</strong> 节点：next 指针 8 + pair 8 + 可选缓存 hash 8 + malloc 头 16 ≈ 32 到 40 字节，再加桶数组，比 <code>vector&lt;pair&gt;</code> 大好几倍。</li>
+</ul>
+<h3 id="sec-4-6">4.6 适配器与堆</h3>
+<ul>
+<li><code>stack</code> / <code>queue</code> 默认基于 <code>deque</code>，<code>priority_queue</code> 默认基于 <code>vector</code> + <code>std::make_heap</code> / <code>push_heap</code> / <code>pop_heap</code>。</li>
+<li><code>priority_queue</code> 默认 <code>less&lt;T&gt;</code> 是<strong>大顶堆</strong>。小顶堆用 <code>greater&lt;T&gt;</code>，或自定义比较器 lambda + <code>decltype</code>。</li>
+<li>堆操作：<code>push</code> 上滤 O(log n)，<code>pop</code> 把末尾换到顶再下滤 O(log n)，<code>make_heap</code> 从 n/2 开始下滤 O(n)。</li>
+<li><code>priority_queue</code> 不支持修改元素优先级；需要 decrease-key 时用 <code>set</code> 或懒删除（Dijkstra 常用：出堆时发现已过期就跳过）。</li>
+</ul>
+<h3 id="sec-4-7">4.7 string</h3>
+<p><strong>SSO（短字符串优化）</strong>：<code>std::string</code> 对象内部有一个小缓冲区，短字符串不堆分配。libstdc++（GCC 5 起）容量 15 字节，<code>sizeof(string) == 32</code>；libc++ 容量 22 字节，<code>sizeof == 24</code>。所以短 string 移动和拷贝代价相同，且 <code>data()</code> 指向对象内部，移动后原来的 <code>data()</code> 指针失效。</p>
+<p><strong>COW 的废弃</strong>：GCC 4 时代用写时拷贝（引用计数共享缓冲区），C++11 要求 <code>operator[]</code> 返回的引用在其他操作前保持有效、且多线程下不能有隐藏共享，COW 需要原子引用计数还容易出错，因此被 SSO 取代。这也是 GCC 5 换 ABI（<code>_GLIBCXX_USE_CXX11_ABI</code>）的原因之一。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>c_str()</code> 和 <code>data()</code> 区别？</strong> C++11 起都保证以 <code>\0</code> 结尾，等价。返回指针在 string 被修改或析构后失效。</li>
+<li><strong><code>string</code> 拼接的复杂度？</strong> <code>+=</code> 摊还 O(len)，同 vector；<code>a + b + c</code> 产生多个临时，C++11 移动语义缓解，性能敏感用 <code>reserve</code> 后 <code>append</code>，或 <code>absl::StrCat</code>。</li>
+<li><strong><code>string_view</code>（C++17）</strong>：指针 + 长度，不拥有，零拷贝切片，作只读参数替代 <code>const string&amp;</code>（还能接收 <code>const char*</code> 不构造 string）。陷阱：不保证 <code>\0</code> 结尾，不能传给 C API；不能指向临时对象超过其生命周期。</li>
+<li><strong><code>std::string</code> 和 <code>char*</code> 相互转换的开销？</strong> <code>string(const char*)</code> 要 <code>strlen</code> + 拷贝；<code>c_str()</code> 免费。</li>
+</ul>
+<h3 id="sec-4-8">4.8 算法库要点</h3>
+<ul>
+<li><strong><code>std::sort</code></strong>：introsort。快排为主（三数取中），递归深度超过 2·log₂n 时切堆排序保证 O(n log n) 最坏，区间长度 ≤ 16 时用插入排序。<strong>不稳定</strong>。要求随机访问迭代器。</li>
+<li><strong><code>std::stable_sort</code></strong>：归并排序，有足够缓冲区时 O(n log n)，否则原地归并 O(n log² n)。稳定。</li>
+<li><strong><code>std::nth_element</code></strong>：快速选择，平均 O(n)。</li>
+<li><strong><code>std::partial_sort</code></strong>：堆，O(n log k)。</li>
+<li><strong>比较器要求</strong>：严格弱序。用 <code>&lt;=</code> 会在相等元素上 UB（可能越界或死循环）。</li>
+<li><strong><code>std::lower_bound</code> / <code>upper_bound</code> / <code>binary_search</code></strong>：要求有序，O(log n)；对非随机访问迭代器比较 O(log n) 但移动 O(n)。</li>
+<li><strong><code>std::unique</code></strong>：只移除<strong>相邻</strong>重复，先排序；返回新逻辑末尾，需配合 <code>erase</code>。</li>
+</ul>
+<h3 id="sec-4-9">4.9 容器选型速查</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>需求</th>
+<th>选择</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>默认</td>
+<td><code>vector</code></td>
+</tr>
+<tr>
+<td>两端进出</td>
+<td><code>deque</code></td>
+</tr>
+<tr>
+<td>频繁中间插删且持有迭代器</td>
+<td><code>list</code></td>
+</tr>
+<tr>
+<td>有序 + 范围查询</td>
+<td><code>map</code> / <code>set</code></td>
+</tr>
+<tr>
+<td>点查为主、无序</td>
+<td><code>unordered_map</code> / <code>unordered_set</code></td>
+</tr>
+<tr>
+<td>Top K / 调度</td>
+<td><code>priority_queue</code></td>
+</tr>
+<tr>
+<td>固定大小</td>
+<td><code>array</code></td>
+</tr>
+<tr>
+<td>位集合</td>
+<td><code>bitset</code> / <code>vector&lt;bool&gt;</code></td>
+</tr>
+<tr>
+<td>LRU</td>
+<td><code>list</code> + <code>unordered_map&lt;K, list::iterator&gt;</code></td>
+</tr>
+<tr>
+<td>需要稳定地址且动态增长</td>
+<td><code>deque</code>（引用不失效）或 <code>vector&lt;unique_ptr&lt;T&gt;&gt;</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-4-10">4.10 手写 vector（高频手撕）</h3>
+<p>考察点集中在三处：<strong>扩容策略</strong>、<strong>未初始化内存上的构造/析构</strong>、<strong>移动的 noexcept 约束</strong>。写的时候要主动说出为什么用 <code>operator new</code> 而不是 <code>new T[n]</code>（后者会默认构造所有元素）。</p>
+<details class="code-card" open=""><summary>72 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;utility&gt;
+#include &lt;stdexcept&gt;
+#include &lt;iostream&gt;
+template &lt;class T&gt;
+class Vector {
+    T* data_ = nullptr;
+    size_t size_ = 0, cap_ = 0;
+
+    // 关键点：只有 T 的移动构造是 noexcept 才敢移动。否则搬到一半抛异常，
+    // 旧缓冲区已被掏空、新缓冲区不完整，无法回滚 —— 这就是 vector 的强异常保证要求。
+    static void relocate(T* dst, T* src, size_t n) {
+        if constexpr (std::is_nothrow_move_constructible_v&lt;T&gt;)
+            for (size_t i = 0; i &lt; n; ++i) ::new (dst + i) T(std::move(src[i]));
+        else
+            for (size_t i = 0; i &lt; n; ++i) ::new (dst + i) T(src[i]);       // 拷贝，抛了旧的还在
+    }
+    void grow(size_t want) {
+        size_t ncap = cap_ ? cap_ * 2 : 1;                                  // 倍增 → push_back 摊还 O(1)
+        if (ncap &lt; want) ncap = want;
+        T* nd = static_cast&lt;T*&gt;(::operator new(ncap * sizeof(T)));          // 只分配，不构造
+        relocate(nd, data_, size_);
+        for (size_t i = 0; i &lt; size_; ++i) data_[i].~T();
+        ::operator delete(data_);
+        data_ = nd; cap_ = ncap;
+    }
+public:
+    Vector() = default;
+    ~Vector() { clear(); ::operator delete(data_); }
+    Vector(const Vector&amp; o) { reserve(o.size_); for (size_t i = 0; i &lt; o.size_; ++i) push_back(o.data_[i]); }
+    Vector(Vector&amp;&amp; o) noexcept : data_(o.data_), size_(o.size_), cap_(o.cap_) { o.data_ = nullptr; o.size_ = o.cap_ = 0; }
+    Vector&amp; operator=(Vector o) noexcept { swap(o); return *this; }
+    void swap(Vector&amp; o) noexcept { std::swap(data_, o.data_); std::swap(size_, o.size_); std::swap(cap_, o.cap_); }
+
+    void reserve(size_t n) { if (n &gt; cap_) grow(n); }
+    void push_back(const T&amp; v) { if (size_ == cap_) grow(size_ + 1); ::new (data_ + size_) T(v); ++size_; }
+    void push_back(T&amp;&amp; v)      { if (size_ == cap_) grow(size_ + 1); ::new (data_ + size_) T(std::move(v)); ++size_; }
+    template &lt;class... Args&gt;
+    T&amp; emplace_back(Args&amp;&amp;... a) {                                          // 完美转发，原地构造，省一次临时对象
+        if (size_ == cap_) grow(size_ + 1);
+        ::new (data_ + size_) T(std::forward&lt;Args&gt;(a)...);
+        return data_[size_++];
+    }
+    void pop_back() { data_[--size_].~T(); }
+    void clear() { for (size_t i = 0; i &lt; size_; ++i) data_[i].~T(); size_ = 0; }
+
+    T&amp; operator[](size_t i) { return data_[i]; }                            // 不检查，UB
+    T&amp; at(size_t i) { if (i &gt;= size_) throw std::out_of_range("Vector::at"); return data_[i]; }
+    size_t size() const { return size_; }
+    size_t capacity() const { return cap_; }
+    T* begin() { return data_; }  T* end() { return data_ + size_; }        // 裸指针就是合法的随机访问迭代器
+};
+
+struct Tracked {
+    int v; Tracked(int x) : v(x) {}
+    Tracked(const Tracked&amp; o) : v(o.v) { ++copies; }
+    Tracked(Tracked&amp;&amp; o) noexcept : v(o.v) { ++moves; }
+    static inline int copies = 0, moves = 0;
+};
+int main() {
+    Vector&lt;int&gt; v;
+    for (int i = 0; i &lt; 5; ++i) v.push_back(i * i);
+    for (int x : v) std::cout &lt;&lt; x &lt;&lt; " ";
+    std::cout &lt;&lt; "| size=" &lt;&lt; v.size() &lt;&lt; " cap=" &lt;&lt; v.capacity() &lt;&lt; "\n";  // 0 1 4 9 16 | size=5 cap=8
+    try { v.at(99); } catch (const std::out_of_range&amp; e) { std::cout &lt;&lt; "at 越界: " &lt;&lt; e.what() &lt;&lt; "\n"; }
+
+    Vector&lt;Tracked&gt; t; t.reserve(4);                                        // 预留后扩容不再发生
+    for (int i = 0; i &lt; 4; ++i) t.emplace_back(i);
+    std::cout &lt;&lt; "emplace 拷贝=" &lt;&lt; Tracked::copies &lt;&lt; " 移动=" &lt;&lt; Tracked::moves &lt;&lt; "\n";  // 0 0
+    t.emplace_back(4);                                                      // 触发一次扩容 → 4 次移动
+    std::cout &lt;&lt; "扩容后 拷贝=" &lt;&lt; Tracked::copies &lt;&lt; " 移动=" &lt;&lt; Tracked::moves &lt;&lt; "\n";   // 0 4
+}</code></pre></details>
+<p><strong>要能回答的追问</strong></p>
+<ul>
+<li><strong>为什么用 <code>::operator new</code> + placement new，而不是 <code>new T[cap]</code>？</strong> <code>new T[cap]</code> 会立刻默认构造 cap 个元素，而 <code>capacity</code> 之外的槽位应该是未构造的原始内存；而且 T 可能根本没有默认构造函数。</li>
+<li><strong>扩容时为什么要判 <code>is_nothrow_move_constructible</code>？</strong> 若移动可能抛异常，搬到一半失败时旧缓冲区已被掏空、新缓冲区不完整，无法回滚，就破坏了强异常保证。标准库用 <code>std::move_if_noexcept</code> 做同样的事 —— 这就是”移动构造必须写 <code>noexcept</code>“的根本原因，上面的 <code>Tracked</code> 用例实测出扩容时是 4 次移动 0 次拷贝，把 <code>noexcept</code> 去掉就会变成 4 次拷贝。</li>
+<li><strong><code>emplace_back</code> 返回引用有什么用？</strong> C++17 起返回新元素的引用，可以直接链式使用，省一次 <code>back()</code>。</li>
+<li><strong>迭代器为什么可以直接用 <code>T*</code>？</strong> 裸指针天然满足随机访问迭代器的全部要求。真实实现用包装类是为了类型安全和调试期检查。</li>
+</ul>
+<h3 id="sec-4-11">4.11 分配器与自定义迭代器</h3>
+<p>STL 六大组件里最少被讲清楚的两个，但一旦问”vector 怎么和内存分配解耦”“怎么让 <code>std::sort</code> 认识我的容器”，就是它们。</p>
+<details class="code-card" open=""><summary>61 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;vector&gt;
+#include &lt;iterator&gt;
+#include &lt;iostream&gt;
+#include &lt;cstddef&gt;
+
+// 1. 自定义分配器：统计分配量。STL 容器通过 allocator 与内存分配解耦
+template &lt;class T&gt;
+struct CountingAlloc {
+    using value_type = T;
+    static inline size_t bytes = 0;
+    CountingAlloc() = default;
+    template &lt;class U&gt; CountingAlloc(const CountingAlloc&lt;U&gt;&amp;) {}
+    T* allocate(size_t n) { bytes += n * sizeof(T); return static_cast&lt;T*&gt;(::operator new(n * sizeof(T))); }
+    void deallocate(T* p, size_t n) { bytes -= n * sizeof(T); ::operator delete(p); }
+    template &lt;class U&gt; bool operator==(const CountingAlloc&lt;U&gt;&amp;) const { return true; }
+    template &lt;class U&gt; bool operator!=(const CountingAlloc&lt;U&gt;&amp;) const { return false; }
+};
+
+// 2. 给自己的容器写迭代器：把五个 traits 声明齐，算法库才认得它
+template &lt;class T&gt;
+class Ring {
+    std::vector&lt;T&gt; buf_;
+public:
+    explicit Ring(std::initializer_list&lt;T&gt; xs) : buf_(xs) {}
+    class iterator {
+        T* p_ = nullptr;
+    public:
+        using iterator_category = std::random_access_iterator_tag;   // 决定算法走哪条实现
+        using value_type        = T;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = T*;
+        using reference         = T&amp;;
+        iterator() = default;
+        explicit iterator(T* p) : p_(p) {}
+        reference operator*() const { return *p_; }
+        iterator&amp; operator++() { ++p_; return *this; }
+        iterator  operator++(int) { auto t = *this; ++p_; return t; }
+        iterator&amp; operator--() { --p_; return *this; }
+        iterator  operator+(difference_type n) const { return iterator(p_ + n); }
+        difference_type operator-(const iterator&amp; o) const { return p_ - o.p_; }
+        bool operator==(const iterator&amp; o) const { return p_ == o.p_; }
+        bool operator!=(const iterator&amp; o) const { return p_ != o.p_; }
+    };
+    iterator begin() { return iterator(buf_.data()); }
+    iterator end()   { return iterator(buf_.data() + buf_.size()); }
+};
+
+int main() {
+    {
+        std::vector&lt;int, CountingAlloc&lt;int&gt;&gt; v;
+        for (int i = 0; i &lt; 100; ++i) v.push_back(i);
+        std::cout &lt;&lt; "峰值分配 " &lt;&lt; CountingAlloc&lt;int&gt;::bytes &lt;&lt; " 字节，容量 " &lt;&lt; v.capacity() &lt;&lt; "\n";
+    }
+    std::cout &lt;&lt; "全部释放后 " &lt;&lt; CountingAlloc&lt;int&gt;::bytes &lt;&lt; " 字节\n";   // 0
+
+    Ring&lt;int&gt; r{3, 1, 2};
+    std::cout &lt;&lt; "distance=" &lt;&lt; std::distance(r.begin(), r.end()) &lt;&lt; "\n";  // 3，随机访问 → O(1)
+    for (int x : r) std::cout &lt;&lt; x &lt;&lt; " ";
+    std::cout &lt;&lt; "\n";
+}</code></pre></details>
+<ul>
+<li><strong>分配器的作用</strong>：把”从哪拿内存”从容器里剥离。只需要 <code>value_type</code>、<code>allocate</code>、<code>deallocate</code> 就能用（C++11 起其余由 <code>allocator_traits</code> 补全）。实际用途是内存池、共享内存、统计与调试。</li>
+<li><strong>有状态分配器的坑</strong>：两个容器的分配器不相等时，<code>swap</code>/移动赋值的行为由 <code>propagate_on_container_*</code> 决定，可能退化成逐元素拷贝。</li>
+<li><strong>迭代器五件套</strong>（<code>iterator_category</code>/<code>value_type</code>/<code>difference_type</code>/<code>pointer</code>/<code>reference</code>）少一个，<code>std::iterator_traits</code> 就萃取不到，算法会编译失败。<code>iterator_category</code> 决定算法选哪条实现：上面 <code>std::distance</code> 因为标了 <code>random_access_iterator_tag</code> 走的是 O(1) 的 <code>last - first</code>，若标成 <code>forward_iterator_tag</code> 就会退化成 O(n) 逐个 <code>++</code>。</li>
+</ul>
+<hr>
+<h2 id="sec-5"><span class="num">5.</span>常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</h2>
+<h3 id="sec-5-1">5.1 链表 vs 数组</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>数组 / vector</th>
+<th>链表</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>随机访问</td>
+<td>O(1)</td>
+<td>O(n)</td>
+</tr>
+<tr>
+<td>头 / 中间插删</td>
+<td>O(n) 搬移</td>
+<td>O(1)（已定位时）</td>
+</tr>
+<tr>
+<td>定位</td>
+<td>O(1)</td>
+<td>O(n)</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>连续，预取友好</td>
+<td>节点分散，每次跳转可能 cache miss</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>紧凑</td>
+<td>每节点多 1 到 2 个指针 + 分配器开销</td>
+</tr>
+<tr>
+<td>实际性能</td>
+<td>n 在几千以内几乎总是更快</td>
+<td>仅当元素大、迭代器需稳定、或 O(1) 拼接（<code>splice</code>）时胜出</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>五个必须能默写的链表操作</strong>（覆盖字节链表题的绝大多数变体）</p>
+<details class="code-card" open=""><summary>74 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;iostream&gt;
+struct ListNode {
+    int val; ListNode* next;
+    explicit ListNode(int v) : val(v), next(nullptr) {}
+};
+
+// 1. 反转：三指针。画图确认 next 先存下来，否则断链
+ListNode* reverse(ListNode* head) {
+    ListNode* prev = nullptr;
+    while (head) { ListNode* nxt = head-&gt;next; head-&gt;next = prev; prev = head; head = nxt; }
+    return prev;
+}
+
+// 2. 找中点：偶数长度返回后一个中点（K 个一组、排序链表都按这个约定）
+ListNode* middle(ListNode* head) {
+    ListNode *slow = head, *fast = head;
+    while (fast &amp;&amp; fast-&gt;next) { slow = slow-&gt;next; fast = fast-&gt;next-&gt;next; }
+    return slow;
+}
+
+// 3. 判环 + 找入口：相遇后一个指针回头，同速再走必在入口相遇
+ListNode* cycleStart(ListNode* head) {
+    ListNode *slow = head, *fast = head;
+    while (fast &amp;&amp; fast-&gt;next) {
+        slow = slow-&gt;next; fast = fast-&gt;next-&gt;next;
+        if (slow == fast) {                       // 有环
+            for (slow = head; slow != fast; ) { slow = slow-&gt;next; fast = fast-&gt;next; }
+            return slow;
+        }
+    }
+    return nullptr;                                // 无环
+}
+
+// 4. 合并两个有序链表：dummy 头省掉“第一个节点”的特判
+ListNode* merge(ListNode* a, ListNode* b) {
+    ListNode dummy(0); ListNode* tail = &amp;dummy;
+    while (a &amp;&amp; b) { ListNode*&amp; pick = (a-&gt;val &lt;= b-&gt;val) ? a : b; tail-&gt;next = pick; tail = pick; pick = pick-&gt;next; }
+    tail-&gt;next = a ? a : b;
+    return dummy.next;
+}
+
+// 5. K 个一组翻转：先探测够不够 k 个，再翻转区间，再接回
+ListNode* reverseKGroup(ListNode* head, int k) {
+    ListNode dummy(0); dummy.next = head; ListNode* groupPrev = &amp;dummy;
+    while (true) {
+        ListNode* probe = groupPrev;
+        for (int i = 0; i &lt; k &amp;&amp; probe; ++i) probe = probe-&gt;next;
+        if (!probe) break;                         // 不足 k 个，保持原序
+        ListNode* groupStart = groupPrev-&gt;next;
+        ListNode* nextGroup  = probe-&gt;next;
+        probe-&gt;next = nullptr;                     // 断出这一段
+        groupPrev-&gt;next = reverse(groupStart);     // 翻转后头变成 probe
+        groupStart-&gt;next = nextGroup;              // 原来的头成了尾，接回去
+        groupPrev = groupStart;
+    }
+    return dummy.next;
+}
+
+static ListNode* build(std::initializer_list&lt;int&gt; xs) {
+    ListNode dummy(0); ListNode* t = &amp;dummy;
+    for (int x : xs) { t-&gt;next = new ListNode(x); t = t-&gt;next; }
+    return dummy.next;
+}
+static void print(ListNode* h) { for (; h; h = h-&gt;next) std::cout &lt;&lt; h-&gt;val &lt;&lt; (h-&gt;next ? "-&gt;" : "\n"); }
+
+int main() {
+    print(reverse(build({1,2,3,4,5})));                 // 5-&gt;4-&gt;3-&gt;2-&gt;1
+    std::cout &lt;&lt; middle(build({1,2,3,4}))-&gt;val &lt;&lt; "\n"; // 3（偶数取后中点）
+    print(merge(build({1,3,5}), build({2,4,6})));       // 1-&gt;2-&gt;3-&gt;4-&gt;5-&gt;6
+    print(reverseKGroup(build({1,2,3,4,5}), 2));        // 2-&gt;1-&gt;4-&gt;3-&gt;5
+    ListNode* c = build({1,2,3,4}); c-&gt;next-&gt;next-&gt;next-&gt;next = c-&gt;next;   // 4 指回 2
+    std::cout &lt;&lt; "环入口 " &lt;&lt; cycleStart(c)-&gt;val &lt;&lt; "\n";                   // 2
+    std::cout &lt;&lt; "无环 " &lt;&lt; (cycleStart(build({1,2})) == nullptr) &lt;&lt; "\n";  // 1
+}</code></pre></details>
+<p>面试要点：链表题先画 dummy 头，先想清楚指针改动顺序再写；边界是空链表、单节点、成环。</p>
+<p><strong>为什么快慢指针能找到环入口</strong>：设头到入口距离 a，入口到相遇点 b，环长 L。相遇时慢走 a+b，快走 a+b+kL，且快是慢的两倍，得 a+b = kL，即 a = kL - b。所以从头走 a 步，和从相遇点走 kL-b 步，会同时到达入口。这个推导要能在白板上说出来。</p>
+<h3 id="sec-5-2">5.2 哈希表设计（手写要点）</h3>
+<ol type="1">
+<li><strong>哈希函数</strong>：整数用乘法哈希或 Fibonacci hashing（乘 <code>0x9E3779B97F4A7C15</code> 取高位）；字符串用 FNV-1a / MurmurHash；目标是均匀、快、雪崩性好。</li>
+<li><strong>冲突处理</strong>：链地址法简单可靠；开放寻址（线性探测）缓存友好但要处理墓碑与负载上限。</li>
+<li><strong>扩容</strong>：负载因子超过阈值（链地址 1.0，开放寻址 0.7）时桶数翻倍，全部重哈希。渐进式 rehash 可避免停顿。</li>
+<li><strong>删除</strong>：链地址直接摘节点；开放寻址不能真删（会断开探测链），用墓碑标记，插入时可复用墓碑。</li>
+<li><strong>线程安全</strong>：分段锁；或每桶一把自旋锁；读多写少用 <code>shared_mutex</code>。</li>
+</ol>
+<details class="code-card" open=""><summary>56 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;vector&gt;
+#include &lt;list&gt;
+#include &lt;functional&gt;
+#include &lt;string&gt;
+#include &lt;iostream&gt;
+// 开链哈希表：桶数组 + 每桶一条链。面试手撕的最小可用版本
+template &lt;class K, class V, class Hash = std::hash&lt;K&gt;&gt;
+class HashMap {
+    struct Entry { K k; V v; };
+    std::vector&lt;std::list&lt;Entry&gt;&gt; buckets_;
+    size_t size_ = 0;
+    float maxLoad_ = 1.0f;
+    Hash hash_;
+
+    size_t idx(const K&amp; k, size_t n) const { return hash_(k) % n; }
+    void rehash(size_t n) {
+        std::vector&lt;std::list&lt;Entry&gt;&gt; nb(n);
+        for (auto&amp; b : buckets_)
+            for (auto&amp; e : b) {
+                size_t i = idx(e.k, n);
+                nb[i].push_back(std::move(e));      // 重新挂链：节点搬桶，但元素地址变了（因为 list 节点被 move）
+            }
+        buckets_.swap(nb);
+    }
+public:
+    explicit HashMap(size_t n = 8) : buckets_(n) {}
+
+    V* find(const K&amp; k) {
+        for (auto&amp; e : buckets_[idx(k, buckets_.size())]) if (e.k == k) return &amp;e.v;
+        return nullptr;
+    }
+    void put(const K&amp; k, V v) {
+        if (V* p = find(k)) { *p = std::move(v); return; }
+        if (static_cast&lt;float&gt;(size_ + 1) &gt; maxLoad_ * buckets_.size())
+            rehash(buckets_.size() * 2);            // 负载因子超阈值 → 翻倍重哈希，单次 O(n)，摊还 O(1)
+        buckets_[idx(k, buckets_.size())].push_back(Entry{k, std::move(v)});
+        ++size_;
+    }
+    bool erase(const K&amp; k) {
+        auto&amp; b = buckets_[idx(k, buckets_.size())];
+        for (auto it = b.begin(); it != b.end(); ++it)
+            if (it-&gt;k == k) { b.erase(it); --size_; return true; }   // 链地址法删除很简单：摘节点
+        return false;
+    }
+    size_t size() const { return size_; }
+    size_t bucket_count() const { return buckets_.size(); }
+};
+
+int main() {
+    HashMap&lt;int, std::string&gt; m;
+    for (int i = 0; i &lt; 20; ++i) m.put(i, "v" + std::to_string(i));
+    std::cout &lt;&lt; "size=" &lt;&lt; m.size() &lt;&lt; " buckets=" &lt;&lt; m.bucket_count() &lt;&lt; "\n";  // 20 32
+    std::cout &lt;&lt; *m.find(7) &lt;&lt; " " &lt;&lt; (m.find(99) == nullptr) &lt;&lt; "\n";            // v7 1
+    m.put(7, "new7"); std::cout &lt;&lt; *m.find(7) &lt;&lt; "\n";                            // new7
+    std::cout &lt;&lt; m.erase(7) &lt;&lt; " " &lt;&lt; (m.find(7) == nullptr) &lt;&lt; " size=" &lt;&lt; m.size() &lt;&lt; "\n";  // 1 1 19
+}</code></pre></details>
+<p><strong>加线程安全</strong>：把上面的 <code>buckets_</code> 切成 N 段，每段一把 <code>std::shared_mutex</code>，段号 <code>hash(k) % N</code>。读路径 <code>shared_lock</code>，写路径 <code>unique_lock</code>；<code>rehash</code> 需要按固定顺序拿全部段锁（避免死锁），或者改用 Redis 的渐进式 rehash（新旧两张表并存，每次操作顺手搬一个桶，避免一次性 O(n) 停顿）。</p>
+<h3 id="sec-5-3">5.3 树的对比</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>结构</th>
+<th>查找</th>
+<th>插删</th>
+<th>特点</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BST</td>
+<td>平均 O(log n)，最坏 O(n)</td>
+<td>同</td>
+<td>有序退化成链</td>
+<td>教学</td>
+</tr>
+<tr>
+<td>AVL</td>
+<td>O(log n)</td>
+<td>O(log n)，旋转多</td>
+<td>高度差 ≤ 1，查找最快</td>
+<td>读多写少</td>
+</tr>
+<tr>
+<td>红黑树</td>
+<td>O(log n)</td>
+<td>O(log n)，旋转少</td>
+<td>高度 ≤ 2log n</td>
+<td><code>map</code>、内核调度器 CFS、epoll</td>
+</tr>
+<tr>
+<td>B 树</td>
+<td>O(log_B n)</td>
+<td>同</td>
+<td>节点多 key，每节点一次磁盘 IO</td>
+<td>文件系统</td>
+</tr>
+<tr>
+<td>B+ 树</td>
+<td>O(log_B n)</td>
+<td>同</td>
+<td>数据只在叶子，叶子链表串起</td>
+<td>MySQL InnoDB 索引</td>
+</tr>
+<tr>
+<td>跳表</td>
+<td>期望 O(log n)</td>
+<td>期望 O(log n)</td>
+<td>多层链表，实现简单，范围遍历方便</td>
+<td>Redis zset、LevelDB memtable</td>
+</tr>
+<tr>
+<td>Trie</td>
+<td>O(L)</td>
+<td>O(L)</td>
+<td>按字符逐层</td>
+<td>前缀匹配、敏感词、路由表</td>
+</tr>
+<tr>
+<td>堆</td>
+<td>顶 O(1)</td>
+<td>O(log n)</td>
+<td>完全二叉树用数组存</td>
+<td>Top K、优先队列、定时器</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>为什么数据库索引用 B+ 树不用红黑树</strong>（字节原题）：磁盘按页（16KB）读取，红黑树每个节点只有一个 key，高度 log₂n，上亿数据要 30 层即 30 次 IO；B+ 树一个节点存上千个 key，3 到 4 层就够。叶子有序链表支持范围扫描；非叶子不存数据使扇出更大。</p>
+<p><strong>为什么 epoll 用红黑树</strong>：需要 O(log n) 的 fd 增删查，且内核不想用哈希（大小难定、最坏 O(n)）。</p>
+<h3 id="sec-5-4">5.4 图</h3>
+<p><strong>表示</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>邻接矩阵</th>
+<th>邻接表</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空间</td>
+<td>O(V²)</td>
+<td>O(V + E)</td>
+</tr>
+<tr>
+<td>查边 (u,v)</td>
+<td>O(1)</td>
+<td>O(deg u)</td>
+</tr>
+<tr>
+<td>遍历邻居</td>
+<td>O(V)</td>
+<td>O(deg u)</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>稠密图、需要频繁查边</td>
+<td>稀疏图（绝大多数面试题）</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>BFS</strong>：队列，按层扩展，无权图最短路，O(V + E)。要点：入队时标记 visited（不是出队时），否则同一节点重复入队；用 <code>size</code> 分层可以得到步数。</p>
+<p><strong>DFS</strong>：递归或显式栈，O(V + E)。用途：连通分量、环检测（三色标记：白未访问、灰在栈中、黑已完成，遇灰即有环）、拓扑排序（完成顺序倒序）、割点桥（Tarjan）。递归深度大时用显式栈防栈溢出。</p>
+<p><strong>拓扑排序（Kahn）</strong>：入度为 0 的点入队，出队时把邻居入度减一，减到 0 入队。最后出队数 &lt; V 则有环。</p>
+<p><strong>并查集</strong>：<code>find</code> 路径压缩 + <code>union</code> 按秩合并，单次操作摊还 O(α(n)) ≈ O(1)。用途：连通性、等价类合并、Kruskal。</p>
+<pre><code class="language-cpp">#include &lt;vector&gt;
+#include &lt;numeric&gt;
+struct DSU {
+    std::vector&lt;int&gt; p, r;
+    explicit DSU(int n) : p(n), r(n, 0) { std::iota(p.begin(), p.end(), 0); }
+    int find(int x) { while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; } return x; }   // 路径减半
+    bool unite(int a, int b) {
+        a = find(a); b = find(b);
+        if (a == b) return false;
+        if (r[a] &lt; r[b]) std::swap(a, b);
+        p[b] = a; if (r[a] == r[b]) ++r[a];
+        return true;
+    }
+};</code></pre>
+<p><strong>最短路</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>条件</th>
+<th>复杂度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BFS</td>
+<td>无权</td>
+<td>O(V + E)</td>
+<td></td>
+</tr>
+<tr>
+<td>Dijkstra</td>
+<td>非负权</td>
+<td>O((V + E) log V) 堆</td>
+<td>贪心，出堆即确定；懒删除处理过期项</td>
+</tr>
+<tr>
+<td>Bellman-Ford / SPFA</td>
+<td>可负权</td>
+<td>O(VE)</td>
+<td>能检负环</td>
+</tr>
+<tr>
+<td>Floyd</td>
+<td>全源</td>
+<td>O(V³)</td>
+<td>三重循环 k 在最外层</td>
+</tr>
+<tr>
+<td>拓扑 + DP</td>
+<td>DAG</td>
+<td>O(V + E)</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div>
+<details class="code-card" open=""><summary>71 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;vector&gt;
+#include &lt;queue&gt;
+#include &lt;iostream&gt;
+#include &lt;climits&gt;
+using Graph = std::vector&lt;std::vector&lt;int&gt;&gt;;                 // 邻接表：g[u] = u 的邻居
+
+// BFS 无权最短路。要点：入队时就标记 visited，否则同一点会被重复入队
+std::vector&lt;int&gt; bfs(const Graph&amp; g, int s) {
+    std::vector&lt;int&gt; dist(g.size(), -1);
+    std::queue&lt;int&gt; q; q.push(s); dist[s] = 0;
+    while (!q.empty()) {
+        int u = q.front(); q.pop();
+        for (int v : g[u]) if (dist[v] == -1) { dist[v] = dist[u] + 1; q.push(v); }
+    }
+    return dist;
+}
+
+// DFS 三色判环：0 白未访问，1 灰在栈中，2 黑已完成。遇到灰点 = 有后向边 = 有环
+static bool dfsCycle(const Graph&amp; g, int u, std::vector&lt;int&gt;&amp; color) {
+    color[u] = 1;
+    for (int v : g[u]) {
+        if (color[v] == 1) return true;
+        if (color[v] == 0 &amp;&amp; dfsCycle(g, v, color)) return true;
+    }
+    color[u] = 2;
+    return false;
+}
+bool hasCycle(const Graph&amp; g) {
+    std::vector&lt;int&gt; color(g.size(), 0);
+    for (size_t i = 0; i &lt; g.size(); ++i) if (!color[i] &amp;&amp; dfsCycle(g, i, color)) return true;
+    return false;
+}
+
+// 拓扑排序（Kahn）：入度 0 入队；出队数 &lt; V 说明有环
+std::vector&lt;int&gt; topoSort(const Graph&amp; g) {
+    std::vector&lt;int&gt; indeg(g.size(), 0), order;
+    for (size_t u = 0; u &lt; g.size(); ++u) for (int v : g[u]) ++indeg[v];
+    std::queue&lt;int&gt; q;
+    for (size_t i = 0; i &lt; g.size(); ++i) if (!indeg[i]) q.push(i);
+    while (!q.empty()) {
+        int u = q.front(); q.pop(); order.push_back(u);
+        for (int v : g[u]) if (--indeg[v] == 0) q.push(v);
+    }
+    return order.size() == g.size() ? order : std::vector&lt;int&gt;{};   // 空 = 有环
+}
+
+// Dijkstra 堆优化：小顶堆存 (dist, node)，懒删除处理过期项
+std::vector&lt;long long&gt; dijkstra(const std::vector&lt;std::vector&lt;std::pair&lt;int,int&gt;&gt;&gt;&amp; g, int s) {
+    std::vector&lt;long long&gt; d(g.size(), LLONG_MAX);
+    using P = std::pair&lt;long long,int&gt;;
+    std::priority_queue&lt;P, std::vector&lt;P&gt;, std::greater&lt;P&gt;&gt; pq;
+    d[s] = 0; pq.push({0, s});
+    while (!pq.empty()) {
+        auto [du, u] = pq.top(); pq.pop();
+        if (du &gt; d[u]) continue;                                     // 过期项，跳过
+        for (auto [v, w] : g[u])
+            if (d[u] + w &lt; d[v]) { d[v] = d[u] + w; pq.push({d[v], v}); }
+    }
+    return d;
+}
+
+int main() {
+    Graph g = {{1,2},{3},{3},{4},{}};                                // 0→1,2  1→3  2→3  3→4
+    for (int x : bfs(g, 0)) std::cout &lt;&lt; x &lt;&lt; " ";  std::cout &lt;&lt; "\n";      // 0 1 1 2 3
+    std::cout &lt;&lt; "有环? " &lt;&lt; hasCycle(g) &lt;&lt; "\n";                            // 0
+    for (int x : topoSort(g)) std::cout &lt;&lt; x &lt;&lt; " ";  std::cout &lt;&lt; "\n";    // 0 1 2 3 4
+    Graph cyc = {{1},{2},{0}};
+    std::cout &lt;&lt; "有环? " &lt;&lt; hasCycle(cyc) &lt;&lt; " 拓扑空? " &lt;&lt; topoSort(cyc).empty() &lt;&lt; "\n";  // 1 1
+    std::vector&lt;std::vector&lt;std::pair&lt;int,int&gt;&gt;&gt; w = {{{1,4},{2,1}},{{3,1}},{{1,2},{3,5}},{}};
+    for (long long x : dijkstra(w, 0)) std::cout &lt;&lt; x &lt;&lt; " "; std::cout &lt;&lt; "\n";  // 0 3 1 4
+}</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>BFS 和 DFS 怎么选？</strong> 要最短路 / 最少步数用 BFS；要遍历所有路径、判环、回溯用 DFS；图很深用 BFS 防栈溢出；图很宽用 DFS 省内存。</li>
+<li><strong>BFS 的空间复杂度？</strong> O(最大一层宽度)，二叉树最坏 O(n/2)。DFS 是 O(深度)。</li>
+<li><strong>双向 BFS</strong>：从起点和终点同时扩展，相遇即停，把 O(b^d) 降为 O(b^(d/2))，单词接龙类题必提。</li>
+<li><strong>A*</strong>：Dijkstra + 启发函数，f = g + h，h 不高估时最优。</li>
+</ul>
+<h3 id="sec-5-5">5.5 LRU 与 LFU 设计</h3>
+<p><strong>LRU</strong>：哈希表 + 双向链表。哈希表负责 O(1) 定位节点，双向链表负责 O(1) 调整顺序 —— 两者缺一不可，这是这道题的核心答案。</p>
+<details class="code-card" open=""><summary>52 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;unordered_map&gt;
+#include &lt;iostream&gt;
+// 自己串双向链表（面试更能体现对指针的掌控；用 std::list + splice 也可以，见下方追问）
+class LRUCache {
+    struct Node {
+        int k, v; Node *prev = nullptr, *next = nullptr;
+        Node(int k_, int v_) : k(k_), v(v_) {}
+    };
+    int cap_;
+    Node *head_, *tail_;                       // 哨兵，省掉所有头尾特判
+    std::unordered_map&lt;int, Node*&gt; mp_;
+
+    void remove(Node* n) { n-&gt;prev-&gt;next = n-&gt;next; n-&gt;next-&gt;prev = n-&gt;prev; }
+    void pushFront(Node* n) {                  // 头部 = 最近使用
+        n-&gt;next = head_-&gt;next; n-&gt;prev = head_;
+        head_-&gt;next-&gt;prev = n; head_-&gt;next = n;
+    }
+public:
+    explicit LRUCache(int cap) : cap_(cap), head_(new Node(0,0)), tail_(new Node(0,0)) {
+        head_-&gt;next = tail_; tail_-&gt;prev = head_;
+    }
+    ~LRUCache() { for (Node* p = head_; p; ) { Node* n = p-&gt;next; delete p; p = n; } }
+    LRUCache(const LRUCache&amp;) = delete;             // 手管裸指针 → Rule of 3，禁掉拷贝最省事
+    LRUCache&amp; operator=(const LRUCache&amp;) = delete;
+
+    int get(int key) {
+        auto it = mp_.find(key);
+        if (it == mp_.end()) return -1;
+        remove(it-&gt;second); pushFront(it-&gt;second);  // 命中 → 提到头部
+        return it-&gt;second-&gt;v;
+    }
+    void put(int key, int value) {
+        auto it = mp_.find(key);
+        if (it != mp_.end()) { it-&gt;second-&gt;v = value; remove(it-&gt;second); pushFront(it-&gt;second); return; }
+        if (static_cast&lt;int&gt;(mp_.size()) == cap_) { // 满了 → 淘汰尾部
+            Node* victim = tail_-&gt;prev;
+            remove(victim); mp_.erase(victim-&gt;k); delete victim;
+        }
+        Node* n = new Node(key, value);
+        pushFront(n); mp_[key] = n;
+    }
+};
+
+int main() {
+    LRUCache c(2);
+    c.put(1,1); c.put(2,2);
+    std::cout &lt;&lt; c.get(1) &lt;&lt; " ";     // 1，此时顺序 1,2
+    c.put(3,3);                       // 淘汰 2
+    std::cout &lt;&lt; c.get(2) &lt;&lt; " ";     // -1
+    c.put(4,4);                       // 淘汰 1
+    std::cout &lt;&lt; c.get(1) &lt;&lt; " " &lt;&lt; c.get(3) &lt;&lt; " " &lt;&lt; c.get(4) &lt;&lt; "\n";  // -1 3 4
+}</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么必须是双向链表？</strong> 淘汰时要删尾节点，删除需要它的前驱。单链表找前驱是 O(n)，就退化了。</li>
+<li><strong>为什么用两个哨兵节点？</strong> 省掉”链表为空”“删的是头/尾”这些特判，把出错概率最高的边界代码消掉。面试时主动说这一点是加分项。</li>
+<li><strong>能用 <code>std::list</code> 吗？</strong> 可以，<code>unordered_map&lt;K, list&lt;pair&lt;K,V&gt;&gt;::iterator&gt;</code> + <code>list::splice(begin, lst, it)</code> 把节点 O(1) 挪到头部。代码短很多，但面试官往往想看你自己控制指针，最好两种都能写。</li>
+<li><strong>为什么 <code>mp_.erase(victim-&gt;k)</code> 要用节点里存的 key？</strong> 因为从链表尾拿到的是节点，反查哈希表需要 key。这就是节点里必须存 key 而不只存 value 的原因，是这道题最常见的漏点。</li>
+<li><strong>并发怎么做？</strong> 分片：按 <code>hash(key) % N</code> 切成 N 个独立的 LRU，每片一把锁，把锁竞争降到 1/N。单片内部 <code>get</code> 也会改链表，所以读也要拿写锁，不能用读写锁优化。</li>
+<li><strong>怎么支持过期时间？</strong> 节点加 <code>expireAt</code> 时间戳，<code>get</code> 时惰性判断已过期就当未命中并删除；再配一个后台线程定期抽样清理（Redis 的做法）。</li>
+</ul>
+<p><strong>LFU</strong>：<code>key → (value, freq)</code> 哈希 + <code>freq → 双向链表</code> 哈希 + <code>minFreq</code>。访问时把节点从 freq 链表移到 freq+1 链表；淘汰时删 <code>minFreq</code> 链表的尾。全部 O(1)。难点在维护 <code>minFreq</code>：只有当某次访问使旧 freq 链表变空、且旧 freq 恰好等于 <code>minFreq</code> 时，<code>minFreq</code> 才 +1；插入新 key 时直接置 <code>minFreq = 1</code>。</p>
+<hr>
+<h2 id="sec-6"><span class="num">6.</span>C++11 / 14 / 17 常问特性</h2>
+<h3 id="sec-6-1">6.1 关键字速查</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>关键字</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auto</code></td>
+<td>类型推导，丢弃顶层 const 和引用；<code>auto&amp;</code> 保留引用；<code>auto&amp;&amp;</code> 万能引用；不能用于函数参数（C++20 前）和成员变量</td>
+</tr>
+<tr>
+<td><code>decltype</code></td>
+<td>表达式类型，保留引用和 const；<code>decltype(auto)</code> 用于完美返回</td>
+</tr>
+<tr>
+<td><code>nullptr</code></td>
+<td>类型 <code>nullptr_t</code>，能隐式转任何指针，不能转整数，解决 <code>f(NULL)</code> 重载歧义</td>
+</tr>
+<tr>
+<td><code>constexpr</code></td>
+<td>编译期常量 / 函数；C++14 起函数体可有循环和局部变量；<code>if constexpr</code>（C++17）编译期分支</td>
+</tr>
+<tr>
+<td><code>static_assert</code></td>
+<td>编译期断言</td>
+</tr>
+<tr>
+<td><code>override</code> / <code>final</code></td>
+<td>见 3.2</td>
+</tr>
+<tr>
+<td><code>noexcept</code></td>
+<td>承诺不抛异常，抛了直接 <code>terminate</code>；移动构造必加；允许编译器省去异常表</td>
+</tr>
+<tr>
+<td><code>enum class</code></td>
+<td>强类型枚举，不隐式转 int，有作用域，可指定底层类型</td>
+</tr>
+<tr>
+<td><code>using</code> 别名</td>
+<td><code>using Fn = int(*)(int);</code> 比 <code>typedef</code> 清晰，支持模板别名</td>
+</tr>
+<tr>
+<td><code>thread_local</code></td>
+<td>每线程一份，析构在线程退出时</td>
+</tr>
+<tr>
+<td><code>alignas</code> / <code>alignof</code></td>
+<td>对齐控制</td>
+</tr>
+<tr>
+<td><code>[[nodiscard]]</code> / <code>[[fallthrough]]</code> / <code>[[maybe_unused]]</code></td>
+<td>C++17 属性</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-6-2">6.2 static 的五种用法（字节原题）</h3>
+<ol type="1">
+<li><strong>函数内局部静态变量</strong>：只初始化一次，生命周期到进程结束，存 <code>.data</code>/<code>.bss</code>；C++11 起初始化线程安全（编译器生成 guard 变量 + <code>__cxa_guard_acquire</code>）。</li>
+<li><strong>全局 / 命名空间作用域静态变量与函数</strong>：内部链接，仅本翻译单元可见，避免符号冲突。C++ 推荐用匿名命名空间。</li>
+<li><strong>类静态成员变量</strong>：所有对象共享，不占对象大小，类外定义（C++17 可 <code>inline static</code> 类内定义）。</li>
+<li><strong>类静态成员函数</strong>：无 <code>this</code>，只能访问静态成员，可作为回调函数指针。</li>
+<li><strong><code>static</code> 修饰的类内常量</strong>：<code>static constexpr int N = 10;</code> 编译期常量，可用于数组大小。</li>
+</ol>
+<p><strong>编译器层面</strong>：局部 static 变量在汇编里就是一个带 guard 字节的全局符号，函数每次进入检查 guard；静态成员变量就是一个带类名修饰的全局符号。</p>
+<h3 id="sec-6-3">6.3 inline、extern、volatile、explicit、mutable</h3>
+<ul>
+<li><strong><code>inline</code></strong>：C++ 中真正的作用是<strong>允许多重定义</strong>（ODR 例外），让函数 / 变量（C++17）能定义在头文件里被多个 TU 包含；是否内联展开由编译器决定，<code>inline</code> 只是提示。类内定义的成员函数隐式 inline。</li>
+<li><strong><code>extern</code></strong>：声明而不定义，告诉编译器符号在别处；<code>extern "C"</code> 关闭 C++ 名字修饰以便与 C 链接。</li>
+<li><strong><code>volatile</code></strong>：禁止编译器把变量缓存在寄存器或优化掉读写，每次访问都真的读写内存。用于硬件寄存器、信号处理中的标志。<strong>不提供原子性和内存序</strong>，多线程同步用 <code>atomic</code>，不要用 volatile。</li>
+<li><strong><code>explicit</code></strong>：见 3.3。</li>
+<li><strong><code>mutable</code></strong>：允许在 const 成员函数中修改该成员，用于缓存和互斥锁。</li>
+</ul>
+<h3 id="sec-6-4">6.4 模板基础</h3>
+<ul>
+<li><strong>函数模板参数推导</strong>：只推导，不做隐式转换（<code>max(1, 2.0)</code> 失败）。可显式指定 <code>max&lt;double&gt;(1, 2.0)</code>。</li>
+<li><strong>特化与偏特化</strong>：类模板可偏特化，函数模板只能全特化（要”偏特化”用重载）。</li>
+<li><strong>SFINAE / <code>enable_if</code> / C++20 concepts</strong>：根据类型特征启用重载。</li>
+<li><strong>可变参数模板</strong>：<code>template&lt;class... Args&gt; void f(Args&amp;&amp;... args)</code>，递归展开或 C++17 折叠表达式 <code>(args + ...)</code>。</li>
+<li><strong>模板为什么要放头文件？</strong>（字节原题）编译器实例化模板时需要看到完整定义；放 cpp 里，其他 TU 只有声明，链接时找不到实例化符号。例外：显式实例化 <code>template class Vec&lt;int&gt;;</code> 放在 cpp，头文件 <code>extern template class Vec&lt;int&gt;;</code>，仅适用于类型集合已知的情况。</li>
+<li><strong>两阶段查找</strong>：模板定义时检查非依赖名，实例化时检查依赖名。所以 <code>typename T::type</code> 需要 <code>typename</code> 消歧义。</li>
+</ul>
+<details class="code-card" open=""><summary>45 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;type_traits&gt;
+#include &lt;vector&gt;
+#include &lt;string&gt;
+#include &lt;iostream&gt;
+
+// 1. 变参模板 + 折叠表达式（C++17）
+template &lt;class... Ts&gt; auto sum(Ts... xs) { return (xs + ...); }              // 一元右折叠
+template &lt;class... Ts&gt; void printAll(const Ts&amp;... xs) { ((std::cout &lt;&lt; xs &lt;&lt; " "), ...); }
+
+// 2. SFINAE：用 enable_if 按类型特征挑重载
+template &lt;class T, std::enable_if_t&lt;std::is_integral_v&lt;T&gt;, int&gt; = 0&gt;
+std::string kind(T)  { return "整数"; }
+template &lt;class T, std::enable_if_t&lt;std::is_floating_point_v&lt;T&gt;, int&gt; = 0&gt;
+std::string kind(T)  { return "浮点"; }
+
+// 3. if constexpr（C++17）：编译期分支，未选中的分支不实例化，比 SFINAE 直观得多
+template &lt;class T&gt;
+std::string describe(const T&amp; x) {
+    if constexpr (std::is_pointer_v&lt;T&gt;)            return x ? "非空指针" : "空指针";
+    else if constexpr (std::is_integral_v&lt;T&gt;)      return "整数 " + std::to_string(x);
+    else                                           return "其他";
+}
+
+// 4. 检测某类型是否有 size() 成员：detection idiom（concepts 之前的标准手法）
+template &lt;class T, class = void&gt; struct has_size : std::false_type {};
+template &lt;class T&gt; struct has_size&lt;T, std::void_t&lt;decltype(std::declval&lt;T&gt;().size())&gt;&gt; : std::true_type {};
+
+// 5. 类模板偏特化（函数模板不能偏特化，只能重载）
+template &lt;class T&gt;          struct Traits            { static constexpr const char* name = "普通类型"; };
+template &lt;class T&gt;          struct Traits&lt;T*&gt;        { static constexpr const char* name = "指针"; };
+template &lt;class T, size_t N&gt;struct Traits&lt;T[N]&gt;      { static constexpr const char* name = "数组"; };
+
+// 6. 两阶段查找：依赖名要 typename 消歧义
+template &lt;class C&gt; typename C::value_type firstOf(const C&amp; c) { return *c.begin(); }
+
+int main() {
+    std::cout &lt;&lt; sum(1, 2, 3, 4) &lt;&lt; " ";                       // 10
+    printAll("a", 1, 2.5); std::cout &lt;&lt; "\n";                  // a 1 2.5
+    std::cout &lt;&lt; kind(1) &lt;&lt; " " &lt;&lt; kind(1.0) &lt;&lt; "\n";          // 整数 浮点
+    int v = 7; int* p = &amp;v; int* np = nullptr;
+    std::cout &lt;&lt; describe(p) &lt;&lt; " " &lt;&lt; describe(np) &lt;&lt; " " &lt;&lt; describe(42) &lt;&lt; "\n";  // 非空指针 空指针 整数 42
+    std::cout &lt;&lt; has_size&lt;std::vector&lt;int&gt;&gt;::value &lt;&lt; has_size&lt;int&gt;::value &lt;&lt; "\n";  // 10
+    std::cout &lt;&lt; Traits&lt;int&gt;::name &lt;&lt; " " &lt;&lt; Traits&lt;int*&gt;::name &lt;&lt; " " &lt;&lt; Traits&lt;int[3]&gt;::name &lt;&lt; "\n";
+    std::cout &lt;&lt; firstOf(std::vector&lt;int&gt;{9, 8}) &lt;&lt; "\n";      // 9
+}</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>SFINAE 和 <code>if constexpr</code> 怎么选？</strong> 要在<strong>重载集之间</strong>做选择（不同函数、不同返回类型）只能用 SFINAE / concepts；在<strong>一个函数体内部</strong>分支用 <code>if constexpr</code>，可读性好得多，且未选中的分支不会被实例化（所以可以写只对某些类型合法的代码）。</li>
+<li><strong><code>std::enable_if</code> 放哪？</strong> 推荐放模板参数默认值位（<code>std::enable_if_t&lt;cond, int&gt; = 0</code>），放返回类型会让函数签名难读，放函数参数会污染接口。</li>
+<li><strong>为什么函数模板不能偏特化？</strong> 标准如此。需要”偏特化”的效果就写重载，编译器的重载决议本身就能处理；或者把逻辑转发给一个可偏特化的类模板。</li>
+<li><strong>模板报错为什么这么长？</strong> 实例化链一层层展开。缓解手段：<code>static_assert</code> 提前给出人话错误、C++20 concepts 在约束层就报错、拆小模板。</li>
+</ul>
+<h3 id="sec-6-5">6.5 异常</h3>
+<ul>
+<li><code>throw</code> 后栈展开，沿途局部对象析构（RAII 保证资源释放），匹配到 <code>catch</code> 停止。</li>
+<li><strong>异常安全三级</strong>：基本保证（不泄漏、对象仍有效）、强保证（失败则状态不变，copy-and-swap）、不抛保证（<code>noexcept</code>）。</li>
+<li><strong>析构函数不要抛异常</strong>：栈展开中再抛就 <code>terminate</code>。析构隐式 <code>noexcept</code>。</li>
+<li><strong>异常的开销</strong>：零开销模型下不抛时几乎无成本（只是表驱动），抛出时很慢（微秒级），不要用异常做控制流。</li>
+<li><strong>为什么很多 C++ 项目禁用异常</strong>：二进制体积、可预测性、与 C 代码混用、历史遗留。Google 风格禁用，改用错误码 / <code>StatusOr</code> / <code>expected</code>。</li>
+</ul>
+<details class="code-card" open=""><summary>57 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;vector&gt;
+#include &lt;stdexcept&gt;
+#include &lt;iostream&gt;
+#include &lt;cstring&gt;
+
+// 异常安全三级的具体对照
+class Widget {
+    char* buf_; size_t n_;
+public:
+    explicit Widget(size_t n) : buf_(new char[n]), n_(n) { std::memset(buf_, 0, n); }
+    ~Widget() { delete[] buf_; }
+    Widget(const Widget&amp; o) : buf_(new char[o.n_]), n_(o.n_) { std::memcpy(buf_, o.buf_, n_); }
+
+    // 反例：基本保证都做不到。new 抛异常时 buf_ 已被 delete，对象处于悬垂状态
+    Widget&amp; badAssign(const Widget&amp; o) {
+        delete[] buf_;
+        buf_ = new char[o.n_];              // 这里抛 → buf_ 是野指针，析构时 double free
+        n_ = o.n_; std::memcpy(buf_, o.buf_, n_);
+        return *this;
+    }
+    // 强保证：先在临时上做完所有可能抛异常的操作，最后用 noexcept 的 swap 提交
+    Widget&amp; operator=(const Widget&amp; o) {
+        Widget tmp(o);                      // 抛了就抛了，*this 一个字节都没动
+        swap(tmp);                          // noexcept，不会失败
+        return *this;                       // tmp 析构掉旧资源
+    }
+    void swap(Widget&amp; o) noexcept { std::swap(buf_, o.buf_); std::swap(n_, o.n_); }
+    size_t size() const { return n_; }
+};
+
+// RAII 是异常安全的地基：无论从哪条路径离开，析构一定执行
+struct Guard {
+    const char* tag;
+    explicit Guard(const char* t) : tag(t) { std::cout &lt;&lt; "获取" &lt;&lt; tag &lt;&lt; " "; }
+    ~Guard() { std::cout &lt;&lt; "释放" &lt;&lt; tag &lt;&lt; " "; }
+};
+void mayThrow(bool t) {
+    Guard g("资源");
+    if (t) throw std::runtime_error("boom");   // 栈展开时 g 的析构照样跑
+    std::cout &lt;&lt; "正常路径 ";
+}
+
+int main() {
+    Widget a(10), b(20);
+    a = b;
+    std::cout &lt;&lt; "强保证赋值后 size=" &lt;&lt; a.size() &lt;&lt; "\n";      // 20
+
+    try { mayThrow(false); } catch (...) {}
+    std::cout &lt;&lt; "\n";
+    try { mayThrow(true); }
+    catch (const std::exception&amp; e) { std::cout &lt;&lt; "| 捕获: " &lt;&lt; e.what() &lt;&lt; "\n"; }
+
+    // 按引用捕获，且从最派生到最基类排列，否则派生类的 catch 永远进不去
+    try { throw std::out_of_range("oor"); }
+    catch (const std::out_of_range&amp; e) { std::cout &lt;&lt; "out_of_range: " &lt;&lt; e.what() &lt;&lt; "\n"; }
+    catch (const std::logic_error&amp;)    { std::cout &lt;&lt; "不会到这里\n"; }
+}</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么 <code>catch</code> 要按引用？</strong> 按值捕获会切片（catch 基类时派生部分被切掉），还多一次拷贝。统一写 <code>const std::exception&amp;</code>。</li>
+<li><strong><code>catch</code> 顺序为什么重要？</strong> 按书写顺序匹配，不做最佳匹配。把基类写在前面，派生类的 <code>catch</code> 永远进不去，编译器会警告。</li>
+<li><strong>构造函数抛异常，析构函数会调用吗？</strong> 不会 —— 对象没构造完就不算存在。但<strong>已构造完的成员和基类子对象</strong>会被逆序析构，所以成员用 RAII 就不会泄漏。要在初始化列表里捕获异常得用 function-try-block。</li>
+<li><strong><code>noexcept</code> 函数里抛异常会怎样？</strong> 不是编译错误，运行时直接 <code>std::terminate</code>，不做栈展开。</li>
+</ul>
+<h3 id="sec-6-6">6.6 C++17 常用特性速览</h3>
+<p>面试里最常被问到”你平时用 C++ 几”，答 17 就要能说出这几样在什么场景救过你。</p>
+<details class="code-card" open=""><summary>55 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;optional&gt;
+#include &lt;variant&gt;
+#include &lt;string_view&gt;
+#include &lt;tuple&gt;
+#include &lt;cstdlib&gt;
+#include &lt;map&gt;
+#include &lt;vector&gt;
+#include &lt;iostream&gt;
+
+// optional：表达“可能没有值”，替代“返回 -1 / 空指针 / 额外 bool 出参”
+std::optional&lt;int&gt; parsePort(std::string_view s) {
+    int v = 0;
+    for (char c : s) { if (c &lt; '0' || c &gt; '9') return std::nullopt; v = v * 10 + (c - '0'); }
+    return v &lt;= 65535 ? std::optional&lt;int&gt;{v} : std::nullopt;
+}
+
+// variant：闭集类型的和类型，值语义、无堆分配，是虚函数之外的第三条多态路线
+using Value = std::variant&lt;int, double, std::string&gt;;
+std::string render(const Value&amp; v) {
+    return std::visit([](const auto&amp; x) -&gt; std::string {
+        using T = std::decay_t&lt;decltype(x)&gt;;
+        if constexpr (std::is_same_v&lt;T, std::string&gt;) return "str:" + x;
+        else                                          return "num:" + std::to_string(x);
+    }, v);
+}
+
+int main() {
+    auto p = parsePort("8080");
+    std::cout &lt;&lt; p.value_or(-1) &lt;&lt; " " &lt;&lt; parsePort("80x").value_or(-1) &lt;&lt; "\n";   // 8080 -1
+
+    std::cout &lt;&lt; render(Value{42}) &lt;&lt; " " &lt;&lt; render(Value{1.5}) &lt;&lt; " "
+              &lt;&lt; render(Value{std::string("hi")}) &lt;&lt; "\n";                          // num:42 num:1.500000 str:hi
+    Value v = 42;
+    std::cout &lt;&lt; "index=" &lt;&lt; v.index() &lt;&lt; " get&lt;int&gt;=" &lt;&lt; std::get&lt;int&gt;(v) &lt;&lt; "\n"; // 0 42
+
+    // 结构化绑定：拆 pair / tuple / 聚合体
+    std::map&lt;std::string, int&gt; m{{"a", 1}, {"b", 2}};
+    for (const auto&amp; [k, val] : m) std::cout &lt;&lt; k &lt;&lt; "=" &lt;&lt; val &lt;&lt; " ";
+    std::cout &lt;&lt; "\n";
+    auto [q, r] = std::div(17, 5);
+    std::cout &lt;&lt; "17/5=" &lt;&lt; q &lt;&lt; " 余 " &lt;&lt; r &lt;&lt; "\n";                                // 3 2
+
+    // if 带初始化语句：把变量作用域限制在 if 内
+    if (auto it = m.find("a"); it != m.end()) std::cout &lt;&lt; "找到 " &lt;&lt; it-&gt;second &lt;&lt; "\n";
+
+    // string_view：零拷贝切片。陷阱：不保证 \0 结尾，且不能指向已销毁的临时
+    std::string s = "hello world";
+    std::string_view sv(s);
+    std::cout &lt;&lt; sv.substr(6) &lt;&lt; " 长度 " &lt;&lt; sv.size() &lt;&lt; "\n";                      // world 11
+
+    // try_emplace / insert_or_assign：避免 operator[] 的“不存在就插默认值”
+    m.try_emplace("a", 99);          // 已存在 → 不覆盖
+    m.insert_or_assign("c", 3);      // 不存在 → 插入
+    std::cout &lt;&lt; m["a"] &lt;&lt; " " &lt;&lt; m["c"] &lt;&lt; " size=" &lt;&lt; m.size() &lt;&lt; "\n";            // 1 3 3
+}</code></pre></details>
+<ul>
+<li><strong><code>optional</code></strong>：把”可能没有值”编进类型，替代魔数返回值和出参 bool。注意 <code>value()</code> 在空时抛 <code>bad_optional_access</code>，<code>operator*</code> 不检查。</li>
+<li><strong><code>variant</code></strong>：闭集类型的和类型，配 <code>std::visit</code> 做穷尽分派。相比虚函数：值语义、无堆分配、类型集合固定；相比 <code>union</code>：类型安全、自动管理析构。</li>
+<li><strong><code>string_view</code></strong>：只读参数首选，能同时接 <code>std::string</code>、<code>const char*</code> 和字面量且零拷贝。两个坑：不保证 <code>\0</code> 结尾（不能直接喂 C API），以及绝不能指向已析构的临时对象。</li>
+<li><strong>结构化绑定</strong>：拆 pair/tuple/聚合体，遍历 map 时 <code>for (const auto&amp; [k, v] : m)</code> 比 <code>it-&gt;first</code> 清楚得多。</li>
+<li><strong><code>if</code> / <code>switch</code> 带初始化语句</strong>：把变量作用域收紧到分支内。</li>
+<li><strong><code>try_emplace</code> / <code>insert_or_assign</code></strong>：避开 <code>map::operator[]</code> “不存在就插入默认值”的副作用；<code>try_emplace</code> 在 key 已存在时<strong>不构造</strong> value，比 <code>emplace</code> 少一次无用构造。</li>
+<li><strong><code>if constexpr</code>、折叠表达式、类模板参数推导（CTAD）</strong>：见 §6.4。</li>
+</ul>
+<hr>
+<h2 id="sec-7"><span class="num">7.</span>编译与链接</h2>
+<p><strong>四个阶段</strong></p>
+<ol type="1">
+<li><strong>预处理</strong>：展开 <code>#include</code>、宏替换、条件编译，输出 <code>.i</code>。<code>g++ -E</code>。</li>
+<li><strong>编译</strong>：词法、语法、语义分析，优化，生成汇编 <code>.s</code>。<code>g++ -S</code>。</li>
+<li><strong>汇编</strong>：生成目标文件 <code>.o</code>（ELF，含 <code>.text</code>、<code>.data</code>、符号表、重定位表）。<code>g++ -c</code>。</li>
+<li><strong>链接</strong>：合并各 <code>.o</code> 的段，符号解析（未定义符号找定义），重定位（填地址）。输出可执行文件或库。</li>
+</ol>
+<p><strong>静态链接 vs 动态链接</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>静态 <code>.a</code></th>
+<th>动态 <code>.so</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>时机</td>
+<td>链接期把代码拷进可执行文件</td>
+<td>运行时由 <code>ld.so</code> 加载</td>
+</tr>
+<tr>
+<td>体积</td>
+<td>大</td>
+<td>小</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>每个进程一份</td>
+<td>代码段多进程共享</td>
+</tr>
+<tr>
+<td>更新</td>
+<td>重新链接</td>
+<td>替换 <code>.so</code> 即可，但有 ABI 兼容风险</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>直接调用</td>
+<td>通过 PLT / GOT 间接跳转，首次调用延迟绑定</td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>无运行时依赖</td>
+<td>依赖地狱，<code>ldd</code> 查看</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>PIC 与 GOT/PLT</strong>：动态库被加载到任意地址，代码必须是位置无关的。全局数据访问通过 GOT（全局偏移表）间接；函数调用通过 PLT 跳到 GOT 表项，首次调用触发解析器填表（延迟绑定），之后直接跳。</p>
+<p><strong>常见链接错误</strong></p>
+<ul>
+<li><code>undefined reference</code>：声明了没定义、忘了链接库、C/C++ 混用没加 <code>extern "C"</code>、模板定义放在 cpp。</li>
+<li><code>multiple definition</code>：头文件里定义了非 inline 函数或变量、多个 TU 各有一份。解决：<code>inline</code>、<code>static</code>、匿名命名空间、或移到 cpp。</li>
+<li><strong>头文件为什么要 include guard / <code>#pragma once</code></strong>：防止同一 TU 内重复包含导致重复定义；它不解决跨 TU 的多重定义，那是 ODR 和 <code>inline</code> 的事。</li>
+</ul>
+<p><strong>ODR（单一定义规则）</strong>：每个非 inline 函数 / 变量在整个程序中只能有一个定义；inline 函数 / 类 / 模板可以在多个 TU 中定义，但各定义必须一致。模板实例化产生的重复符号被放在 COMDAT 段，链接器去重。</p>
+<p><strong>名字修饰（mangling）</strong>：C++ 把函数名、参数类型、命名空间、类名编码进符号（如 <code>_ZN3foo3barEi</code>），支持重载和命名空间。<code>nm -C</code> / <code>c++filt</code> 还原。C 没有修饰，所以 C++ 调用 C 函数要 <code>extern "C"</code> 让编译器按 C 方式生成符号。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>static</code> 库和 <code>shared</code> 库里的全局变量初始化顺序？</strong> 同一 TU 内按定义顺序；跨 TU 未定义（static initialization order fiasco），解决用函数内局部静态（Meyers 单例）。</li>
+<li><strong><code>-O2</code> 做了什么？</strong> 内联、循环展开、常量传播、死代码消除、向量化、尾调用优化等。调试时 <code>-O0 -g</code>，发布 <code>-O2</code> 或 <code>-O3</code>，<code>-Og</code> 兼顾。</li>
+<li><strong>LTO（链接时优化）</strong>：把优化推迟到链接期，能跨 TU 内联。</li>
+</ul>
+<hr>
+<h2 id="sec-8"><span class="num">8.</span>并发基础</h2>
+<h3 id="sec-8-1">8.1 进程与线程</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>进程</th>
+<th>线程</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地址空间</td>
+<td>独立</td>
+<td>共享进程的</td>
+</tr>
+<tr>
+<td>独有资源</td>
+<td>全部</td>
+<td>栈、寄存器、PC、TLS、errno</td>
+</tr>
+<tr>
+<td>切换开销</td>
+<td>大：切页表、TLB 刷新、缓存失效</td>
+<td>小：只切寄存器和栈</td>
+</tr>
+<tr>
+<td>通信</td>
+<td>IPC：管道、共享内存、消息队列、socket、信号</td>
+<td>直接读写共享变量（需同步）</td>
+</tr>
+<tr>
+<td>崩溃影响</td>
+<td>隔离</td>
+<td>一个线程崩整个进程崩</td>
+</tr>
+<tr>
+<td>Linux 实现</td>
+<td><code>task_struct</code></td>
+<td>也是 <code>task_struct</code>，共享 <code>mm_struct</code>，用 <code>clone()</code> 带 <code>CLONE_VM</code> 等标志创建</td>
+</tr>
+</tbody>
+</table>
+</div>
+<pre><code class="language-cpp">#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &lt;mutex&gt;
+#include &lt;iostream&gt;
+void work(int id, int&amp; acc, std::mutex&amp; m) { std::lock_guard&lt;std::mutex&gt; lk(m); acc += id; }
+int main() {
+    int acc = 0; std::mutex m;
+    std::vector&lt;std::thread&gt; ts;
+    for (int i = 1; i &lt;= 4; ++i)
+        ts.emplace_back(work, i, std::ref(acc), std::ref(m));   // 陷阱：thread 默认拷贝参数，传引用必须 std::ref
+    for (auto&amp; t : ts) t.join();                                 // 不 join 也不 detach → 析构时 std::terminate
+    std::cout &lt;&lt; "累加 " &lt;&lt; acc &lt;&lt; "\n";                          // 10
+
+    // 陷阱：detach 后主线程结束，子线程访问的栈变量已销毁。局部对象千万别 detach 后引用
+    std::thread([]{ /* 独立任务，不碰外部栈 */ }).detach();
+
+    // thread_local：每线程一份
+    static thread_local int tls = 0;
+    std::thread a([]{ static thread_local int t = 0; t += 5; std::cout &lt;&lt; "线程A tls=" &lt;&lt; t &lt;&lt; " "; });
+    std::thread b([]{ static thread_local int t = 0; t += 7; std::cout &lt;&lt; "线程B tls=" &lt;&lt; t &lt;&lt; "\n"; });
+    a.join(); b.join(); (void)tls;                                // 各自 5 和 7，互不影响
+    std::cout &lt;&lt; "硬件并发数 " &lt;&lt; (std::thread::hardware_concurrency() &gt; 0) &lt;&lt; "\n";
+}</code></pre>
+<p><strong>协程</strong>：用户态调度的”线程”，切换只保存少量寄存器（几十 ns），一个线程可跑百万协程；阻塞 IO 要配合非阻塞 + 事件循环。有栈协程（libco、goroutine）vs 无栈协程（C++20 coroutine，编译器把函数变成状态机）。</p>
+<h3 id="sec-8-2">8.2 同步原语</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>原语</th>
+<th>用途</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>std::mutex</code></td>
+<td>互斥</td>
+<td>用 <code>lock_guard</code> / <code>unique_lock</code> / <code>scoped_lock</code>（C++17，多锁防死锁）持有</td>
+</tr>
+<tr>
+<td><code>recursive_mutex</code></td>
+<td>同线程可重入</td>
+<td>通常是设计问题的信号</td>
+</tr>
+<tr>
+<td><code>shared_mutex</code>（C++17）</td>
+<td>读写锁</td>
+<td>读多写少；写者可能饥饿</td>
+</tr>
+<tr>
+<td><code>condition_variable</code></td>
+<td>等待条件</td>
+<td>必须配 <code>unique_lock</code>，必须用<strong>带谓词的 wait</strong> 防虚假唤醒和丢失唤醒</td>
+</tr>
+<tr>
+<td><code>atomic&lt;T&gt;</code></td>
+<td>无锁原子操作</td>
+<td><code>is_lock_free()</code> 检查；<code>compare_exchange_weak</code> 在循环中用，<code>strong</code> 单次用</td>
+</tr>
+<tr>
+<td><code>std::call_once</code></td>
+<td>一次初始化</td>
+<td>或直接用局部 static</td>
+</tr>
+<tr>
+<td>自旋锁</td>
+<td>极短临界区</td>
+<td>用 <code>atomic_flag</code> 实现，自旋要 <code>yield</code> 或 <code>pause</code></td>
+</tr>
+<tr>
+<td>信号量（C++20）</td>
+<td>计数资源</td>
+<td><code>counting_semaphore</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>条件变量标准写法</strong></p>
+<pre><code class="language-cpp">#include &lt;mutex&gt;
+#include &lt;condition_variable&gt;
+#include &lt;queue&gt;
+template&lt;class T&gt;
+class BlockingQueue {
+    std::mutex mtx; std::condition_variable notEmpty; std::queue&lt;T&gt; q;
+public:
+    void push(T v) {
+        { std::lock_guard&lt;std::mutex&gt; lk(mtx); q.push(std::move(v)); }   // 先解锁再 notify，减少被唤醒线程立刻阻塞
+        notEmpty.notify_one();
+    }
+    T pop() {
+        std::unique_lock&lt;std::mutex&gt; lk(mtx);
+        notEmpty.wait(lk, [this] { return !q.empty(); });   // 谓词循环检查，防虚假唤醒
+        T v = std::move(q.front()); q.pop();
+        return v;
+    }
+};</code></pre>
+<p><strong>为什么会虚假唤醒</strong>：<code>futex_wait</code> 可能被信号中断返回，或 <code>notify_one</code> 与多个等待者的竞争，POSIX 明确允许，所以标准要求用循环检查条件。</p>
+<h3 id="sec-8-3">8.3 原子操作与内存序</h3>
+<ul>
+<li><strong>CAS</strong>：<code>compare_exchange(expected, desired)</code>：若当前值等于 expected 则写入 desired 返回 true，否则把当前值写回 expected 返回 false。硬件上是 <code>lock cmpxchg</code>（x86）或 LL/SC（ARM）。所有无锁结构的基石。</li>
+<li><strong>原子性怎么保证</strong>（字节原题）：x86 上对齐的 8 字节以内读写天然原子；RMW 操作用 <code>lock</code> 前缀锁定缓存行（缓存一致性协议 MESI 保证只有一个核能独占修改），不再锁总线。</li>
+<li><strong>内存序</strong>：<code>relaxed</code> 只保证原子性；<code>acquire</code>（读）/ <code>release</code>（写）配对建立 happens-before，release 之前的写对 acquire 之后的读可见；<code>seq_cst</code> 全局一致顺序，默认，最慢。x86 是强序平台，acquire/release 几乎免费，<code>seq_cst</code> 存储需要 <code>mfence</code>。</li>
+<li><strong>ABA 问题</strong>：CAS 期间值 A → B → A，CAS 误判未变。解决：带版本号的双字 CAS、hazard pointer、epoch 回收。</li>
+</ul>
+<details class="code-card" open=""><summary>77 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &lt;cassert&gt;
+#include &lt;iostream&gt;
+
+// 1. relaxed 只保证单个变量的原子性，不保证跨变量的顺序
+std::atomic&lt;int&gt; data{0};
+std::atomic&lt;bool&gt; ready{false};
+
+void producer() {
+    data.store(42, std::memory_order_relaxed);
+    ready.store(true, std::memory_order_release);   // release：此前的写不会被重排到它之后
+}
+void consumer() {
+    while (!ready.load(std::memory_order_acquire))  // acquire：之后的读不会被重排到它之前
+        std::this_thread::yield();
+    // acquire 读到了 release 写的值 → 建立 happens-before → 这里一定看得到 42
+    assert(data.load(std::memory_order_relaxed) == 42);
+}
+
+// 2. CAS 自旋锁：compare_exchange_weak 允许伪失败，所以必须写在循环里
+class SpinLock {
+    std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+public:
+    void lock()   { while (flag_.test_and_set(std::memory_order_acquire)) ; }
+    void unlock() { flag_.clear(std::memory_order_release); }
+};
+
+// 3. 无锁栈的 push：CAS 循环的标准形态
+template &lt;class T&gt;
+class LockFreeStack {
+    struct Node { T v; Node* next; };
+    std::atomic&lt;Node*&gt; head_{nullptr};
+public:
+    void push(T v) {
+        Node* n = new Node{std::move(v), nullptr};
+        n-&gt;next = head_.load(std::memory_order_relaxed);
+        // 失败时 CAS 会把当前 head 写回 n-&gt;next，直接重试即可
+        while (!head_.compare_exchange_weak(n-&gt;next, n,
+                   std::memory_order_release, std::memory_order_relaxed)) {}
+    }
+    bool pop(T&amp; out) {                                  // 注意：这个 pop 有 ABA 与悬垂问题，见下方说明
+        Node* old = head_.load(std::memory_order_acquire);
+        while (old &amp;&amp; !head_.compare_exchange_weak(old, old-&gt;next,
+                   std::memory_order_acquire, std::memory_order_relaxed)) {}
+        if (!old) return false;
+        out = old-&gt;v; delete old; return true;
+    }
+};
+
+int main() {
+    std::thread t1(producer), t2(consumer);
+    t1.join(); t2.join();
+    std::cout &lt;&lt; "acquire/release 同步 OK\n";
+
+    SpinLock sl; long counter = 0;
+    std::vector&lt;std::thread&gt; ts;
+    for (int i = 0; i &lt; 4; ++i) ts.emplace_back([&amp;] {
+        for (int j = 0; j &lt; 10000; ++j) { sl.lock(); ++counter; sl.unlock(); }
+    });
+    for (auto&amp; t : ts) t.join();
+    std::cout &lt;&lt; "自旋锁计数 " &lt;&lt; counter &lt;&lt; "\n";        // 40000
+
+    std::atomic&lt;long&gt; ac{0};
+    ts.clear();
+    for (int i = 0; i &lt; 4; ++i) ts.emplace_back([&amp;] {
+        for (int j = 0; j &lt; 10000; ++j) ac.fetch_add(1, std::memory_order_relaxed);  // 纯计数用 relaxed 即可
+    });
+    for (auto&amp; t : ts) t.join();
+    std::cout &lt;&lt; "原子计数 " &lt;&lt; ac.load() &lt;&lt; "\n";        // 40000
+
+    LockFreeStack&lt;int&gt; st; int out = 0;
+    st.push(1); st.push(2);
+    st.pop(out); std::cout &lt;&lt; "无锁栈 pop " &lt;&lt; out &lt;&lt; "\n";  // 2
+    std::cout &lt;&lt; "int 无锁? " &lt;&lt; std::atomic&lt;int&gt;{}.is_lock_free() &lt;&lt; "\n";  // 1
+}</code></pre></details>
+<p>上面 <code>LockFreeStack::pop</code> 是<strong>故意留了坑</strong>的版本，面试时要主动指出来：两个线程同时 <code>pop</code>，A 读到 <code>old = head</code>，还没 CAS 就被切走；B 把该节点 pop 并 <code>delete</code>，再 push 回一个地址相同的新节点；A 恢复后 CAS 比较地址发现”没变”而成功，但 <code>old-&gt;next</code> 读的是已释放内存 —— 这就是 ABA 叠加悬垂指针。生产级实现要靠 hazard pointer 或 epoch-based reclamation 延迟回收。<strong>能说出这一点，比写出一个”看起来能跑”的无锁栈重要得多。</strong></p>
+<p><strong>内存序怎么选</strong>：纯计数器（如引用计数的增加、统计量）用 <code>relaxed</code>；用一个标志位发布数据用 <code>release</code>/<code>acquire</code> 配对；拿不准就用默认的 <code>seq_cst</code>，先正确再优化。x86 上 acquire/release 几乎零成本（硬件本身就是强序），但在 ARM 上是真实开销，所以在 arm64 服务器上写错内存序更容易暴露。</p>
+<h3 id="sec-8-4">8.4 死锁</h3>
+<p><strong>四个必要条件</strong>：互斥、持有并等待、不可抢占、循环等待。破坏任一即可避免。</p>
+<p><strong>实践手段</strong>：固定加锁顺序（按地址排序）、<code>std::scoped_lock(m1, m2)</code> 一次锁多把（内部用 try-lock 回退算法）、<code>try_lock</code> + 超时、缩小锁范围、避免在持锁时调用回调 / 未知代码、用锁层级检测工具（TSan、<code>-fsanitize=thread</code>）。</p>
+<h3 id="sec-8-5">8.5 线程安全的单例、线程池</h3>
+<details class="code-card" open=""><summary>98 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;thread&gt;
+#include &lt;mutex&gt;
+#include &lt;condition_variable&gt;
+#include &lt;queue&gt;
+#include &lt;vector&gt;
+#include &lt;functional&gt;
+#include &lt;future&gt;
+#include &lt;atomic&gt;
+#include &lt;iostream&gt;
+
+// ---- 单例：Meyers 版。C++11 保证局部静态的初始化线程安全（编译器插 guard + __cxa_guard_acquire）
+class Singleton {
+public:
+    static Singleton&amp; instance() { static Singleton s; return s; }   // 唯一推荐写法
+    int next() { return ++n_; }
+private:
+    Singleton() = default;
+    Singleton(const Singleton&amp;) = delete;
+    Singleton&amp; operator=(const Singleton&amp;) = delete;
+    std::atomic&lt;int&gt; n_{0};
+};
+
+// ---- 双检锁：只在必须延迟初始化且不能用局部静态时才写。关键是两个内存序
+class DCLPSingleton {
+    static std::atomic&lt;DCLPSingleton*&gt; inst_;
+    static std::mutex mtx_;
+public:
+    static DCLPSingleton* instance() {
+        DCLPSingleton* p = inst_.load(std::memory_order_acquire);    // acquire 配对下面的 release
+        if (!p) {                                                    // 第一次检查：无锁快路径
+            std::lock_guard&lt;std::mutex&gt; lk(mtx_);
+            p = inst_.load(std::memory_order_relaxed);
+            if (!p) {                                                // 第二次检查：拿锁后再确认
+                p = new DCLPSingleton();
+                // release 保证：构造完成的写一定先于指针发布。
+                // 少了它，别的线程可能拿到非空指针却看到未构造完的对象。
+                inst_.store(p, std::memory_order_release);
+            }
+        }
+        return p;
+    }
+};
+std::atomic&lt;DCLPSingleton*&gt; DCLPSingleton::inst_{nullptr};
+std::mutex DCLPSingleton::mtx_;
+
+// ---- 线程池：有界队列 + 两个条件变量 + 优雅关闭
+class ThreadPool {
+    std::vector&lt;std::thread&gt; workers_;
+    std::queue&lt;std::function&lt;void()&gt;&gt; tasks_;
+    std::mutex mtx_;
+    std::condition_variable notEmpty_, notFull_;
+    size_t maxTasks_;
+    bool stop_ = false;
+public:
+    explicit ThreadPool(size_t n, size_t maxTasks = 1024) : maxTasks_(maxTasks) {
+        for (size_t i = 0; i &lt; n; ++i) workers_.emplace_back([this] {
+            for (;;) {
+                std::function&lt;void()&gt; task;
+                {
+                    std::unique_lock&lt;std::mutex&gt; lk(mtx_);
+                    notEmpty_.wait(lk, [this] { return stop_ || !tasks_.empty(); });  // 带谓词，防虚假唤醒
+                    if (stop_ &amp;&amp; tasks_.empty()) return;             // 关闭且排空才退出
+                    task = std::move(tasks_.front()); tasks_.pop();
+                }
+                notFull_.notify_one();
+                task();                                              // 注意：在锁外执行，否则池退化成串行
+            }
+        });
+    }
+    template &lt;class F&gt;
+    auto submit(F f) -&gt; std::future&lt;decltype(f())&gt; {
+        auto p = std::make_shared&lt;std::promise&lt;decltype(f())&gt;&gt;();
+        auto fut = p-&gt;get_future();
+        {
+            std::unique_lock&lt;std::mutex&gt; lk(mtx_);
+            notFull_.wait(lk, [this] { return stop_ || tasks_.size() &lt; maxTasks_; });  // 队列满则阻塞生产者
+            if (stop_) throw std::runtime_error("pool stopped");
+            tasks_.push([p, f]() mutable { p-&gt;set_value(f()); });
+        }
+        notEmpty_.notify_one();
+        return fut;
+    }
+    ~ThreadPool() {
+        { std::lock_guard&lt;std::mutex&gt; lk(mtx_); stop_ = true; }
+        notEmpty_.notify_all(); notFull_.notify_all();               // 必须 all，否则有线程永远醒不来
+        for (auto&amp; t : workers_) t.join();                           // join 而不是 detach，保证任务跑完
+    }
+};
+
+int main() {
+    std::cout &lt;&lt; Singleton::instance().next() &lt;&lt; Singleton::instance().next() &lt;&lt; " ";  // 12：同一个实例
+    std::cout &lt;&lt; (DCLPSingleton::instance() == DCLPSingleton::instance()) &lt;&lt; "\n";     // 1
+    ThreadPool pool(4);
+    std::vector&lt;std::future&lt;int&gt;&gt; fs;
+    for (int i = 0; i &lt; 8; ++i) fs.push_back(pool.submit([i] { return i * i; }));
+    for (auto&amp; f : fs) std::cout &lt;&lt; f.get() &lt;&lt; " ";
+    std::cout &lt;&lt; "\n";                                               // 0 1 4 9 16 25 36 49
+}</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>Meyers 单例为什么线程安全？</strong> C++11 起标准要求局部静态变量的初始化是线程安全的：编译器生成一个 guard 变量，首个线程通过 <code>__cxa_guard_acquire</code> 拿锁初始化，其余线程阻塞等待。C++11 之前没有这个保证，才需要双检锁。</li>
+<li><strong>双检锁为什么必须用 acquire/release？</strong> <code>new DCLPSingleton()</code> 包含”分配内存 → 构造对象 → 把地址写给 inst_“三步，编译器或 CPU 可能把第三步重排到第二步之前。别的线程在第一次检查处读到非空指针，却拿到一个还没构造完的对象。<code>release</code> 存储保证构造的写不会被重排到发布之后，<code>acquire</code> 加载保证读到指针后能看见那些写。<strong>用普通指针 + volatile 是修不好这个 bug 的</strong>，volatile 不提供内存序。</li>
+<li><strong>单例什么时候是坏味道？</strong> 隐藏依赖、难以单测（无法注入 mock）、析构顺序不可控（跨 TU 的静态对象销毁顺序未定义）。能用依赖注入就别用单例。</li>
+<li><strong>线程池任务为什么要在锁外执行？</strong> 持锁执行任务会让整个池退化成串行，这是最常见的实现错误。</li>
+<li><strong>队列满了怎么办？</strong> 三种策略：阻塞生产者（上面的 <code>notFull_</code>）、丢弃任务并返回失败、调用方自己执行（caller-runs）。要能说出取舍。</li>
+<li><strong>为什么关闭时必须 <code>notify_all</code> 而不是 <code>notify_one</code>？</strong> 所有工作线程都阻塞在 <code>wait</code> 上，只唤醒一个，其余永远醒不来，<code>join</code> 就会死锁。</li>
+<li><strong>为什么用 <code>join</code> 而不是 <code>detach</code>？</strong> <code>detach</code> 后主线程退出时子线程可能还在访问已销毁的池成员。析构函数里 <code>join</code> 才能保证任务跑完、资源安全释放。</li>
+<li><strong><code>submit</code> 用 <code>shared_ptr&lt;promise&gt;</code> 包一层是为什么？</strong> <code>std::function</code> 要求可拷贝，而 <code>std::promise</code> 只能移动，直接捕获会编译失败。C++23 的 <code>std::move_only_function</code> 可以省掉这层。</li>
+</ul>
+<hr>
+<h2 id="sec-9"><span class="num">9.</span>字节风格代码输出题合集</h2>
+<p>每题先自己心算，再看分析。这类题考察的是对对象模型、求值顺序和生命周期的理解。</p>
+<h3 id="sec-9-1">9.1 局部静态变量</h3>
+<pre><code class="language-cpp">#include &lt;cstdio&gt;
+int createdIndex() { static int idx = 0; return idx++; }
+int main() { for (int i = 0; i &lt; 5; ++i) printf("%d ", createdIndex()); printf("\n"); }
+// 输出：0 1 2 3 4
+// idx 只初始化一次，每次调用后自增；返回的是自增前的值</code></pre>
+<h3 id="sec-9-2">9.2 构造析构顺序与非虚析构</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+using namespace std;
+class A { public: A() { cout &lt;&lt; "A() "; } ~A() { cout &lt;&lt; "~A() "; } };
+class B : public A { public: B() { cout &lt;&lt; "B() "; } ~B() { cout &lt;&lt; "~B() "; } };
+class C : public B { public: C() { cout &lt;&lt; "C() "; } ~C() { cout &lt;&lt; "~C() "; } };
+int main() { A* p = new C(); delete p; cout &lt;&lt; "\n"; }
+// 输出：A() B() C() ~A()
+// 构造由基到派生；delete 通过 A* 且 ~A 非虚，只调 ~A。标准上这是 UB，实际表现如上，派生部分泄漏
+// 给 A 加 virtual ~A() 后输出：A() B() C() ~C() ~B() ~A()</code></pre>
+<h3 id="sec-9-3">9.3 构造函数中调用虚函数</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+struct Base {
+    Base() { init(); }                       // 此时 vptr 指向 Base 的表
+    virtual void init() { std::cout &lt;&lt; "Base::init "; }
+    virtual ~Base() = default;
+};
+struct Derived : Base {
+    int v = 42;
+    Derived() : Base() { init(); }           // 此时 vptr 已切换到 Derived
+    void init() override { std::cout &lt;&lt; "Derived::init(" &lt;&lt; v &lt;&lt; ") "; }
+};
+int main() { Derived d; std::cout &lt;&lt; "\n"; }
+// 输出：Base::init Derived::init(42)
+// 若 Base 构造时能调到 Derived::init，会读到未初始化的 v，所以语言规定构造期间动态类型是当前构造层</code></pre>
+<h3 id="sec-9-4">9.4 值类别与 move 的退化</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;utility&gt;
+int main() {
+    const std::string s1 = "hello world, long enough to skip SSO";
+    std::string s2 = std::move(s1);          // s1 是 const，move 后是 const string&amp;&amp;，匹配拷贝构造
+    std::cout &lt;&lt; (s1.empty() ? "moved" : "copied") &lt;&lt; "\n";   // copied
+    std::string s3 = "another long string, definitely not SSO";
+    std::string s4 = std::move(s3);
+    std::cout &lt;&lt; (s3.empty() ? "moved" : "copied") &lt;&lt; "\n";   // moved（libstdc++/libc++ 实际把源置空，标准只说 valid but unspecified）
+}</code></pre>
+<h3 id="sec-9-5">9.5 引用与临时对象生命周期</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+#include &lt;string&gt;
+std::string make() { return "temp"; }
+int main() {
+    const std::string&amp; r = make();           // 常量引用延长临时对象生命周期到 r 的作用域结束，合法
+    std::cout &lt;&lt; r &lt;&lt; "\n";                  // temp
+    // std::string&amp; bad = make();            // 非 const 左值引用不能绑定右值，编译错误
+    // const char* p = make().c_str();       // 临时 string 在本语句结束后析构，p 悬垂，UB
+}</code></pre>
+<h3 id="sec-9-6">9.6 迭代器失效</h3>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">std::vector&lt;int&gt; v = {1, 2, 3, 4};
+for (auto it = v.begin(); it != v.end(); ++it)
+    if (*it == 2) v.erase(it);       // erase 后 it 失效，++it 是 UB；实际会跳过一个元素或崩溃
+// 正确：it = v.erase(it) 且不再 ++；或 erase-remove
+std::map&lt;int,int&gt; m = {{1,1},{2,2}};
+for (auto&amp; [k, val] : m) m[k + 10] = val;   // 遍历时插入，map 迭代器不失效但会遍历到新插入的元素，可能无限循环</code></pre>
+<h3 id="sec-9-7">9.7 sizeof 系列</h3>
+<pre><code class="language-cpp">#include &lt;cstdint&gt;
+#include &lt;string&gt;
+#include &lt;vector&gt;
+#include &lt;memory&gt;
+struct E {};
+struct P { char c; double d; int i; };       // 1+7+8+4+4 = 24
+struct Q { double d; int i; char c; };       // 8+4+1+3 = 16
+struct V { virtual void f(); };
+struct W { char a; uint32_t b; uint8_t c; uint64_t d[0]; };
+int main() {
+    static_assert(sizeof(E) == 1);
+    static_assert(sizeof(P) == 24 &amp;&amp; sizeof(Q) == 16);
+    static_assert(sizeof(V) == 8);
+    static_assert(sizeof(W) == 16);
+    static_assert(sizeof(std::vector&lt;int&gt;) == 24);
+    static_assert(sizeof(std::unique_ptr&lt;int&gt;) == 8);
+    static_assert(sizeof(std::shared_ptr&lt;int&gt;) == 16);
+    static_assert(sizeof(std::string) == 32 || sizeof(std::string) == 24);   // libstdc++ 32，libc++ 24
+    char arr[] = "hello";
+    static_assert(sizeof(arr) == 6);           // 含 '\0'
+    const char* p = "hello";
+    static_assert(sizeof(p) == 8);
+    return 0;
+}</code></pre>
+<h3 id="sec-9-8">9.8 空指针调用成员函数</h3>
+<pre><code class="language-cpp">#include &lt;cstdio&gt;
+struct T {
+    int v = 7;
+    void hello() { printf("hello\n"); }        // 不碰 this
+    void show()  { printf("%d\n", v); }        // 读 this-&gt;v
+    virtual void vf() { printf("vf\n"); }      // 需要 vptr
+    virtual ~T() = default;
+};
+int main() {
+    T* p = nullptr;
+    p-&gt;hello();      // 实际输出 hello（标准 UB）
+    // p-&gt;show();    // SIGSEGV：读地址 8
+    // p-&gt;vf();      // SIGSEGV：读地址 0 取 vptr
+    return 0;
+}</code></pre>
+<h3 id="sec-9-9">9.9 shared_ptr 计数</h3>
+<pre><code class="language-cpp">#include &lt;memory&gt;
+#include &lt;iostream&gt;
+struct N { std::shared_ptr&lt;N&gt; next; };
+int main() {
+    auto a = std::make_shared&lt;N&gt;();
+    std::cout &lt;&lt; a.use_count() &lt;&lt; " ";          // 1
+    { auto b = a; std::cout &lt;&lt; a.use_count() &lt;&lt; " "; }   // 2
+    std::cout &lt;&lt; a.use_count() &lt;&lt; " ";          // 1
+    std::weak_ptr&lt;N&gt; w = a;
+    std::cout &lt;&lt; a.use_count() &lt;&lt; " ";          // 1，weak 不计
+    auto c = std::make_shared&lt;N&gt;();
+    a-&gt;next = c; c-&gt;next = a;                   // 循环：a 2，c 2
+    std::cout &lt;&lt; a.use_count() &lt;&lt; " " &lt;&lt; c.use_count() &lt;&lt; "\n";   // 2 2，离开作用域后各减 1 剩 1，永不析构
+}</code></pre>
+<h3 id="sec-9-10">9.10 重载决议与隐式转换</h3>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+void f(int)    { std::cout &lt;&lt; "int "; }
+void f(double) { std::cout &lt;&lt; "double "; }
+void f(char*)  { std::cout &lt;&lt; "char* "; }
+void g(long)   { std::cout &lt;&lt; "long "; }
+void g(void*)  { std::cout &lt;&lt; "void* "; }
+int main() {
+    f(1);        // int：精确匹配
+    f(1.0f);     // double：float→double 是"提升"，优于 float→int 的"转换"
+    f('a');      // int：char→int 是提升
+    f(nullptr);  // char*：nullptr_t 只能转指针类型
+    g(0L);       // long：精确匹配
+    g(nullptr);  // void*
+    // g(0);     // 编译错误：二义性。0 到 long 是整型转换，0 到 void* 是空指针转换，同属"转换"级别
+    // f(NULL);  // NULL 是 0 或 0L 的宏，同样落入二义性或意外选中整数版本，这就是 C++11 引入 nullptr 的原因
+    std::cout &lt;&lt; "\n";
+}
+// 输出：int double int char* long void*</code></pre>
+<p><strong>重载决议排名</strong>：精确匹配 &gt; 提升（<code>char</code>/<code>short</code>→<code>int</code>，<code>float</code>→<code>double</code>）&gt; 标准转换（整型转换、浮点整型互转、指针转换、派生→基类）&gt; 用户定义转换 &gt; 省略号。同一级别内有多个候选且互不更优，就是二义性错误，编译器<strong>不会</strong>随便挑一个。</p>
+<h3 id="sec-9-11">9.11 求值顺序</h3>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">int i = 0;
+int a = i++ + ++i;     // C++17 前 UB；C++17 起仍是未指定顺序（unsequenced），不要写
+printf("%d %d\n", i++, i++);   // 参数求值顺序未指定，gcc 和 clang 结果可能不同
+int x = 1; x = x++ + 1;        // C++17 起赋值右侧��求值，结果 x == 2；C++17 前 UB</code></pre>
+<p>结论：任何一个表达式里对同一变量修改两次或修改 + 读取，除非有 sequenced-before 关系（<code>&amp;&amp;</code>、<code>||</code>、<code>,</code>、<code>?:</code>、函数调用边界、C++17 的赋值和 <code>&lt;&lt;</code>），都不要写。</p>
+<h3 id="sec-9-12">9.12 字面量与数组</h3>
+<div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">char* s = "abc";       // C++11 起不合法（应为 const char*），gcc 警告后允许
+s[0] = 'x';            // SIGSEGV：字面量在 .rodata
+char a[] = "abc";      // 栈上拷贝，可改
+a[0] = 'x';            // OK
+const char* p = "abc"; const char* q = "abc";
+p == q;                // 未指定：编译器通常合并相同字面量，结果 true，但不保证</code></pre>
+
+<footer class="aris-footer">
+  由 <code>build_html.py</code> 从 <code>bytedance_cpp_fundamentals.md</code> 生成 · 2026-09-05 02:31 UTC<br>
+  改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
+</footer>
+</main>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- 语法高亮 ---------- */
+  if (window.hljs) {
+    document.querySelectorAll("pre code[class^='language-']").forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) { /* 未知语言，保持纯文本 */ }
+    });
+  }
+
+  /* ---------- 代码块复制按钮 ---------- */
+  document.querySelectorAll("pre > code").forEach(function (code) {
+    var pre = code.parentElement;
+    var wrap = document.createElement("div");
+    wrap.className = "pre-wrap";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement("button");
+    btn.className = "copy";
+    btn.type = "button";
+    btn.textContent = "复制";
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(code.innerText).then(function () {
+        btn.textContent = "已复制";
+        btn.classList.add("ok");
+        setTimeout(function () {
+          btn.textContent = "复制";
+          btn.classList.remove("ok");
+        }, 1400);
+      });
+    });
+    wrap.appendChild(btn);
+  });
+
+  /* ---------- 目录高亮（scrollspy） ---------- */
+  var links = {};
+  document.querySelectorAll("nav.toc a").forEach(function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  var heads = Array.prototype.filter.call(
+    document.querySelectorAll("main h2[id], main h3[id]"),
+    function (h) { return links[h.id]; }
+  );
+  if (heads.length) {
+    var spy = new IntersectionObserver(function () {
+      var top = null;
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].getBoundingClientRect().top <= 120) top = heads[i];
+      }
+      if (!top) top = heads[0];
+      for (var id in links) links[id].classList.remove("active");
+      links[top.id].classList.add("active");
+      var a = links[top.id];
+      var nav = document.querySelector("nav.toc");
+      if (nav && nav.scrollHeight > nav.clientHeight) {
+        var r = a.getBoundingClientRect(), nr = nav.getBoundingClientRect();
+        if (r.top < nr.top || r.bottom > nr.bottom) {
+          nav.scrollTop += r.top - nr.top - nav.clientHeight / 2;
+        }
+      }
+    }, { rootMargin: "-100px 0px -70% 0px", threshold: [0, 1] });
+    heads.forEach(function (h) { spy.observe(h); });
+    window.addEventListener("scroll", function () {
+      clearTimeout(window.__spyT);
+      window.__spyT = setTimeout(function () {
+        var top = heads[0];
+        heads.forEach(function (h) {
+          if (h.getBoundingClientRect().top <= 120) top = h;
+        });
+        for (var id in links) links[id].classList.remove("active");
+        if (links[top.id]) links[top.id].classList.add("active");
+      }, 60);
+    }, { passive: true });
+  }
+
+  /* ---------- 回到顶部 ---------- */
+  var top = document.createElement("button");
+  top.className = "to-top";
+  top.type = "button";
+  top.title = "回到顶部";
+  top.textContent = "↑";
+  top.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  document.body.appendChild(top);
+  window.addEventListener("scroll", function () {
+    top.classList.toggle("show", window.scrollY > 600);
+  }, { passive: true });
+
+  /* ---------- 进度勾选 + 筛选（仅清单页） ---------- */
+  var boxes = document.querySelectorAll("td.ck input[type=checkbox]");
+  if (!boxes.length) return;
+
+  var KEY = "bytedance-prep:" + (document.querySelector("meta[name=source-path]") || {}).content;
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
+
+  var save = function () {
+    try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) { /* 隐私模式，忽略 */ }
+  };
+
+  var q = document.getElementById("q");
+  var todoOnly = document.getElementById("todo");
+  var progress = document.getElementById("progress");
+  var priBtns = document.querySelectorAll(".toolbar .pris button");
+  var pri = "all";
+
+  var rows = Array.prototype.map.call(boxes, function (box) {
+    return { box: box, tr: box.closest("tr") };
+  });
+
+  function paint() {
+    var total = rows.length, n = 0;
+    var text = (q && q.value || "").trim().toLowerCase();
+    var onlyTodo = todoOnly && todoOnly.checked;
+
+    rows.forEach(function (r) {
+      var isDone = !!done[r.box.dataset.k];
+      r.box.checked = isDone;
+      r.tr.classList.toggle("done", isDone);
+      if (isDone) n++;
+      var ok = true;
+      if (pri !== "all" && r.tr.dataset.pri !== pri) ok = false;
+      if (ok && text && (r.tr.dataset.text || "").indexOf(text) === -1) ok = false;
+      if (ok && onlyTodo && isDone) ok = false;
+      r.tr.classList.toggle("hidden", !ok);
+    });
+
+    // 整张表被筛空时连同它的标题一起收起
+    document.querySelectorAll(".table-wrap").forEach(function (w) {
+      var prows = w.querySelectorAll("tr.prow");
+      if (!prows.length) return;
+      var any = Array.prototype.some.call(prows, function (tr) {
+        return !tr.classList.contains("hidden");
+      });
+      w.classList.toggle("hidden", !any);
+    });
+
+    if (progress) {
+      var pct = total ? Math.round((n / total) * 100) : 0;
+      progress.innerHTML = "已完成 <b>" + n + "</b> / " + total + " · " + pct + "%";
+    }
+  }
+
+  rows.forEach(function (r) {
+    r.box.addEventListener("change", function () {
+      if (r.box.checked) done[r.box.dataset.k] = 1;
+      else delete done[r.box.dataset.k];
+      save();
+      paint();
+    });
+  });
+
+  if (q) q.addEventListener("input", paint);
+  if (todoOnly) todoOnly.addEventListener("change", paint);
+  priBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      pri = b.dataset.p;
+      priBtns.forEach(function (x) { x.classList.toggle("on", x === b); });
+      paint();
+    });
+  });
+  var reset = document.getElementById("reset");
+  if (reset) {
+    reset.addEventListener("click", function () {
+      if (!confirm("清空本页所有勾选进度？")) return;
+      done = {};
+      save();
+      paint();
+    });
+  }
+
+  paint();
+})();
+
+</script>
+
+
+<script type="text/javascript" charset="utf-8" src="/js/lazyload-plugin/lazyload.intersectionObserver.min.js"></script></body></html>
