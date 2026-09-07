@@ -4,8 +4,8 @@
 <title>llm inference</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_llm_inference.md">
-<meta name="source-sha256" content="a82e767085f93482">
-<meta name="generated-at" content="2026-09-07 07:40 UTC">
+<meta name="source-sha256" content="3bf3fbb6fce1b0af">
+<meta name="generated-at" content="2026-09-07 07:56 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -569,7 +569,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
+<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</a></li><li><a href="#sec-3-8">3.8 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -578,7 +578,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">推理基础、引擎机制、kernel、量化、并行、MoE，附公开面经原题与高频考点清单</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_llm_inference.md</code></span>
-    <span><strong>生成</strong> 2026-09-07 07:40 UTC</span>
+    <span><strong>生成</strong> 2026-09-07 07:56 UTC</span>
   </div>
 </header>
 
@@ -1250,7 +1250,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <p>Orca 论文里的 <strong>selective batching</strong>：线性层可以把不同长度的请求拼成一个大矩阵，attention 不行（每个请求 KV 长度不同），所以线性层 batch 化、attention 按请求分别处理。vLLM / SGLang 把 attention 也用 paged kernel 做成一个 batched 调用。</p>
 <p><strong>追问链</strong></p>
 <ul>
-<li><strong>新请求的 prefill 和老请求的 decode 怎么混？</strong> vLLM V0 默认优先 prefill：有新请求时这一步只跑 prefill，decode 请求全部等待，导致 TPOT 抖动；开启 chunked prefill 后把 prefill 切块和 decode 混跑（见 3.4）。SGLang 和 vLLM V1 默认混跑。</li>
+<li><strong>新请求的 prefill 和老请求的 decode 怎么混？</strong> vLLM V0 默认优先 prefill：有新请求时这一步只跑 prefill，decode 请求全部等待，导致 TPOT 抖动；开启 chunked prefill 后把 prefill 切��和 decode 混跑（见 3.4）。SGLang 和 vLLM V1 默认混跑。</li>
 <li><strong><code>max_num_seqs</code> 和 <code>max_num_batched_tokens</code> 的区别？</strong> 前者限制并发请求数，后者限制一步处理的总 token 数（decode 每请求 1 个，prefill 每请求 chunk 大小）。V1 默认 <code>max_num_batched_tokens</code> 8192、<code>max_num_seqs</code> 256 左右（随版本和显存变化）。</li>
 <li><strong>调度开销在哪？</strong> 每步要在 CPU 上做调度决策、准备输入张量、拷贝到 GPU，小模型上这部分可占一步耗时的 30% 以上。SGLang 的 zero-overhead scheduler 和 vLLM V1 都把 CPU 调度与 GPU 执行重叠：在 GPU 跑第 <span class="math inline">n</span> 步时 CPU 准备第 <span class="math inline">n+1</span> 步。</li>
 <li><strong>请求的优先级怎么定？</strong> 默认 FCFS；抢占时从最晚到达的开始。vLLM 支持 priority 调度，SGLang 支持 LPM（longest prefix match）优先以提高 prefix cache 命中率。</li>
@@ -1314,7 +1314,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <li><strong>命中率能到多少？</strong> 多轮对话场景通常 50% 到 90%，取决于 system prompt 长度和显存能容纳多少历史；vLLM V1 把 prefix caching 默认打开，因为几乎没有负收益（hash 计算开销很小）。</li>
 <li><strong>前缀命中后 prefill 计算完全跳过吗？</strong> 命中的 block 不计算 QKV 投影和 attention；未命中的 token 仍需对命中部分的 KV 做 attention（这是必须的），所以 prefill 耗时从 <span class="math inline">O(s)</span> 降到 <span class="math inline">O(s_{new})</span> 的线性部分加 <span class="math inline">O(s_{new} \cdot s)</span> 的 attention 部分。</li>
 <li><strong>多卡 TP 时怎么共享？</strong> 每张卡持有自己那份 head 的 KV，hash 表在调度器进程里统一维护，各 worker 的 block 分配同步。</li>
-<li><strong>跨实例共享？</strong> 需要外部 KV 存储（LMCache、Mooncake Store、Redis 类），配合 PD 分离场景，见 3.6。</li>
+<li><strong>跨实例共享？</strong> 需要外部 KV 存储（LMCache、Mooncake Store、Redis 类），配合 PD 分离场景，见 3.6、3.7。</li>
 <li><strong>一致性问题？</strong> 采样参数、LoRA adapter 不同的请求不能共享 KV（KV 本身只依赖 token 和模型，与采样无关，所以采样参数不同可以共享；LoRA 不同不能共享）。vLLM 把 LoRA id 加进 hash。</li>
 </ul>
 <h3 id="sec-3-4">3.4 Chunked prefill</h3>
@@ -1355,7 +1355,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <li><strong>独立扩缩</strong>：prompt 长、输出短的场景多配 prefill 卡，反之多配 decode 卡。</li>
 <li>DistServe 报告在满足 SLO 的前提下 goodput 提升最高 4.5 倍。</li>
 </ol>
-<p><strong>代价</strong>：KV cache 要跨设备传输。7B MHA 模型 4K prompt 的 KV 是 2 GB，PCIe Gen4 要 60 多毫秒，NVLink 几毫秒，RDMA 400 Gbps 约 40 毫秒；所以要 <strong>传输与计算重叠</strong>（prefill 逐层算完逐层传）、用 GQA / MLA 减小 KV、用高带宽互联。Mooncake 的做法是 KV cache 为中心的架构：所有实例的 CPU 内存和 SSD 组成分布式 KV 池，prefill 结果先落池，decode 从池里拉，池同时做 prefix cache。</p>
+<p><strong>代价</strong>：KV cache 要跨设备传输。7B MHA 模型 4K prompt 的 KV 是 2 GB，PCIe Gen4 要 60 多毫秒，NVLink 几毫秒，RDMA 400 Gbps 约 40 毫秒；所以要 <strong>传输与计算重叠</strong>（prefill 逐层算完逐层传）、用 GQA / MLA 减小 KV、用高带宽互联。Mooncake 的做法是 KV cache 为中心的架构：所有实例的 CPU 内存和 SSD 组成分布式 KV 池，prefill 结果先落池，decode 从池里拉，池同时做 prefix cache，展开见 3.7。</p>
 <p><strong>机制（vLLM 里）</strong>：</p>
 <ul>
 <li><code>KVConnector</code> 抽象：prefill 侧在每层 attention 后把 KV 发出，decode 侧收到后写入自己的 paged cache。</li>
@@ -1368,9 +1368,98 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <li><strong>P 和 D 的配比怎么定？</strong> 按输入输出 token 比例：P 的吞吐用”每秒能 prefill 的 token 数”衡量，D 用”每秒能 decode 的 token 数”，让两边的排队都不成为瓶颈。可以动态调整（Splitwise 的混合池）。</li>
 <li><strong>传输的 KV 需要落盘吗？</strong> Mooncake 会，作为 prefix cache 和容错；DistServe 不落盘。</li>
 <li><strong>attention-FFN 分离是什么？</strong> MoE 模型里 attention 部分 memory-bound（读 KV）而 FFN 专家部分需要大 batch 才能打满，把两者放在不同 GPU 上，attention 结果通过 all-to-all 送给专家层，各自独立扩展。字节 Seed 的 MegaScale-Infer 论文（2025）就是这个方案，报告成本降低 1.5 到 2 倍，并称已在字节的大规模集群上线；豆包 1.5 Pro 的发布说明也提到 PD 分离与异构硬件部署。</li>
-<li><strong>KV 传输能不能和 prefix caching 合并？</strong> 可以，跨实例的 KV 池天然就是全局 prefix cache（Mooncake、LMCache）。</li>
+<li><strong>KV 传输能不能和 prefix caching 合并？</strong> 可以，跨实例的 KV 池天然就是全局 prefix cache（Mooncake、LMCache），Mooncake 的完整做法见 3.7。</li>
 </ul>
-<h3 id="sec-3-7">3.7 框架对比</h3>
+<h3 id="sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</h3>
+<p><strong>一句话</strong>：Kimi 的线上服务平台（月之暗面 + 清华，FAST’25 最佳论文），把 3.2 的 paged KV、3.3 的 prefix cache、3.6 的 PD 分离统一到一个结论——<strong>用存储换计算</strong>：集群里闲置的 CPU DRAM 和 SSD 组成一个全局 KVCache 池，能查到的前缀就不再算。</p>
+<p><strong>四个组件</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Conductor</strong></td>
+<td>全局调度器：请求去哪个 P 实例、哪个 D 实例，以及要不要提前拒绝</td>
+</tr>
+<tr>
+<td><strong>Prefill 池 / Decode 池</strong></td>
+<td>两组独立扩缩的实例，各自选各自最优的并行策略（3.6）</td>
+</tr>
+<tr>
+<td><strong>KVCache 池</strong></td>
+<td>分布在各节点 CPU DRAM 与 SSD 上的 paged block，块的 hash 由「自身内容 + 前缀」共同决定，所以能跨请求去重，天然就是全局 prefix cache</td>
+</tr>
+<tr>
+<td><strong>Transfer Engine</strong></td>
+<td>底层传输库：RDMA 零拷贝、多网卡条带化，也支持 TCP、NVMe-of、GPUDirect</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>三个机制</strong>（论文真正的贡献，也是追问的落点）</p>
+<ol type="1">
+<li><p><strong>layer-wise prefill 与传输重叠</strong>：每层 attention 开始前等这一层的 KV 异步加载完，同时触发下一层的异步加载；算完后异步存回。效果是 prefill 实例的执行时间约等于 <span class="math inline">\max(\text{KV 加载时间}, \text{正常 prefill 时间})</span>，取决于前缀命中比例——传输被完全藏进计算里。这是 3.6 里”逐层算完逐层传”的具体做法。</p></li>
+<li><p><strong>CPP（chunked pipeline parallelism）做长上下文 prefill</strong>：输入切成 chunk（阈值通常大于 1000 token），同一请求的不同 chunk 由不同节点同时算。<strong>为什么不用多机 TP？</strong> TP 每层要两次基于 RDMA 的 all-reduce，而 CPP 只在流水段边界通信且能与计算重叠；而且不用为长短请求频繁调整节点划分，短上下文时也没有额外开销。</p></li>
+<li><p><strong>cache-aware 调度 + 预测式提前拒绝</strong>：</p>
+<ul>
+<li><strong>选 P 实例</strong>：算出输入 token 的块 hash，找最长匹配前缀在哪个实例；然后估 TTFT——本地前缀够好就是 <code>排队时间 + prefill 时间</code>，要从远端拉就是 <code>传输时间 + 排队时间 + prefill 时间</code>——取最小的那个。估出来的 TTFT 或 TBT 超 SLO 就直接拒。难点在传输时间不好估：它不只取决于数据量，还取决于发送方当时是否拥塞。</li>
+<li><strong>热点复制的阈值</strong>：远端最长匹配长度 <span class="math inline">\le</span> 本地可复用前缀 <span class="math inline">\times</span> 阈值时，宁可重算也不拉。这个阈值目前是手调的。</li>
+<li><strong>提前拒绝</strong>：把 decode 实例的负载评估提到 prefill 之前，避免”算完 prefill 才发现 D 满了”的浪费。</li>
+<li><strong>它引入的振荡问题（高频追问）</strong>：P 和 D 的负载会反相摆动——P 轻 → 大量接收 → 几秒后 D 过载 → 开始拒绝 → D 空下来 → 又开始接收，循环往复。修法是不看当前负载而看<strong>预测负载</strong>：假设每个请求 decode 耗时均匀为 <span class="math inline">t_d</span>，把”到时刻 <span class="math inline">t</span> 能被 prefill 完成”的请求都提前算进 D 的未来负载。过载模拟里三种策略的拒绝数：基线 4183、提前拒绝 3771、预测式 3589。</li>
+</ul></li>
+</ol>
+<p><strong>数字</strong></p>
+<ul>
+<li>测试床：每节点 8 × A800-80GB，800 Gbps RDMA；调度实验用 8 个 P 实例 + 8 个 D 实例回放 23000 条真实请求。</li>
+<li>模拟长上下文（128K prompt）吞吐最高 <strong>+525%</strong>；真实负载下 Kimi 多处理 <strong>75%</strong> 的请求，SLO 是 TTFT <span class="math inline">\le</span> 30 s、TBT <span class="math inline">\le</span> 0.1 s/token。</li>
+<li>Kimi-K2 部署在 128 × H200 上，Transfer Engine 报告 prefill 224K token/s、decode 288K token/s。</li>
+</ul>
+<p><strong>开源与生态（2026 现状）</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transfer Engine</td>
+<td>进了 vLLM V1 的 KVConnector 与 TensorRT-LLM；有 NPU、EFA 等多个发行版</td>
+</tr>
+<tr>
+<td>Mooncake Store</td>
+<td>分布式 KVCache，vLLM 2026 年 5 月官方支持；SGLang 的 <strong>HiCache</strong> 用它做外置存储层，等于把 RadixAttention 扩成多级</td>
+</tr>
+<tr>
+<td>P2P Store / checkpoint-engine</td>
+<td>分发模型权重，1T 参数上千卡约 20 秒；SGLang 用它把 Kimi-K2 的权重更新从 53 s 降到 7.2 s（RL 场景反复刷权重时是刚需）</td>
+</tr>
+<tr>
+<td>其他接入方</td>
+<td>LMCache（作为 remote connector）、LMDeploy、NIXL、xLLM、FlexKV</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>Mooncake 和 vLLM 是什么关系？</strong> 不是替代关系。vLLM 是单实例引擎，Mooncake 是集群层的 KV 存储加调度；Mooncake 的 Transfer Engine 和 Store 以 <code>KVConnector</code> 的形式接进 vLLM（3.6）。把它答成”另一个推理框架”是常见失分点。</li>
+<li><strong>为什么叫”用存储换计算”？</strong> prefill 的 FLOPs 随 token 数线性增长、attention 部分随上下文平方增长，而存一份 KV 只花容量和带宽。多轮对话、长文档、system prompt 场景前缀重复率很高（DeepSeek 线上 56.3% 命中，7.3），存下来比重算便宜得多。</li>
+<li><strong>池放 DRAM 还是 SSD？</strong> 分级：最热的在 GPU HBM（3.2 的 paged cache），次热在本机 DRAM，再冷落到远端 DRAM 或 SSD。代价是 PCIe / RDMA 带宽，所以必须靠 layer-wise 重叠把它藏起来。</li>
+<li><strong>块 hash 为什么要带前缀？</strong> 和 3.3 同理：KV 的值依赖全部历史 token，只用块内容做 key 会命中错误的 KV。带前缀 hash 之后，相同前缀的块在全集群自动去重。</li>
+<li><strong>全局 KV 池的一致性和淘汰怎么做？</strong> 内容寻址、只读、写一次不改，所以不需要一致性协议；淘汰用 LRU / LFU 或按请求特征定制。</li>
+<li><strong>什么时候不值得？</strong> 前缀重复率低（一次性短请求）、集群小、网络差：拉 KV 比重算还慢。Conductor 的那个阈值就是在自动做这个判断。</li>
+<li><strong>和 PD 分离是什么关系？</strong> Mooncake 是 PD 分离的一个具体实现，并且顺手把”KV 传输”这条链路变成了全局 prefix cache——这正是 3.6 最后一条追问的展开。</li>
+<li><strong>和 MoonEP 是什么关系？</strong> 都是月之暗面的基础设施但层次完全不同：MoonEP 在 MoE 层内解决 all-to-all 的负载均衡（8.7），Mooncake 在集群层解决 KV 的存放与调度。被一起问到时先把这两层分清楚。</li>
+</ul>
+<h3 id="sec-3-8">3.8 框架对比</h3>
 <div class="table-wrap">
 <table>
 <thead>
@@ -1900,7 +1989,7 @@ def online_softmax_attention(q, k, v, block=64):
 <p><strong>实现细节</strong></p>
 <ul>
 <li>通信原语是 <strong>P2P send / recv</strong>（<code>torch.distributed.send</code> / <code>isend</code>，底层 NCCL 点对点）。vLLM 在 stage 边界传的是 <code>IntermediateTensors</code>，包含 <code>hidden_states</code> 和 <code>residual</code> 两个 <code>[M, d]</code> 张量（Pre-Norm 结构下残差流要一起传，否则下一 stage 无法加残差）。</li>
-<li><strong>micro-batch 调度</strong>：为了让 <span class="math inline">p</span> 个 stage 同时忙，引擎同时保持最多 <span class="math inline">p</span> 个 batch 在飞。vLLM V1 的做法是异步调度：调度器一次发出多个 batch，stage 0 处理第 <span class="math inline">i+1</span> 个 batch 时 stage 1 处理第 <span class="math inline">i</span> 个；SGLang 对长 prefill 用 chunked PP，把一个 prompt 的 chunk 当作 micro-batch 依次送入流水（Kimi K3 的 prefill 实例用 PP8 × TP1）。</li>
+<li><strong>micro-batch 调度</strong>：为了让 <span class="math inline">p</span> 个 stage 同时忙，引擎同时保持最多 <span class="math inline">p</span> 个 batch 在飞。vLLM V1 的做法是异步调度：调度器一次发出多个 batch，stage 0 处理第 <span class="math inline">i+1</span> 个 batch 时 stage 1 处���第 <span class="math inline">i</span> 个；SGLang 对长 prefill 用 chunked PP，把一个 prompt 的 chunk 当作 micro-batch 依次送入流水（Kimi K3 的 prefill 实例用 PP8 × TP1）。</li>
 <li><strong>bubble</strong>：稳态下气泡比例约 <span class="math inline">(p-1)/m</span>（<span class="math inline">m</span> 为在飞 micro-batch 数），所以 PP 要配足够并发；单请求延迟不变甚至略增（多了 <span class="math inline">p-1</span> 次 send / recv 的延迟，每次几十微秒）。</li>
 <li><strong>与 TP 组合</strong>：每个 stage 内部再做 TP，通信组分成 TP 组（机内 NVLink）和 PP 组（机间 IB），vLLM 的 <code>--pipeline-parallel-size</code> 与 <code>--tensor-parallel-size</code> 同时给出时 rank 的排布是 TP 连续、PP 跨节点。</li>
 <li><strong>KV cache</strong>：每张卡只存自己那些层的 KV，block 分配由调度器统一决定、各 stage 用相同的 block table。</li>
@@ -2802,7 +2891,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <p>128K 上下文下，LLaMA-3-70B 的 KV 是 40 GB（1.3），MHA 的 7B 模型是 64 GB；prefill 的 attention FLOPs 是 <span class="math inline">4 L s^2 d</span>，<span class="math inline">s = 128K</span> 时约 <span class="math inline">4 \times 80 \times 1.7 \times 10^{10} \times 8192 \approx 4.5 \times 10^{16}</span>，H100 上要几十秒。所以长上下文要同时解决 <strong>prefill 时间</strong>、<strong>KV 显存</strong> 和 <strong>decode 时读 KV 的带宽</strong> 三个问题。</p>
 <h3 id="sec-9-2">9.2 Prefill：context parallel</h3>
 <ul>
-<li><strong>Ring Attention</strong>：把序列切到 <span class="math inline">n</span> 张卡，每卡持有自己那段��� Q 和 KV；KV 块在卡之间环形传递，每卡对经过的每个 KV 块做一次 online softmax 累加，<span class="math inline">n</span> 步后每卡得到自己 Q 段的完整 attention 输出。通信与计算重叠，理论上支持无限长度。</li>
+<li><strong>Ring Attention</strong>：把序列切到 <span class="math inline">n</span> 张卡，每卡持有自己那段的 Q 和 KV；KV 块在卡之间环形传递，每卡对经过的每个 KV 块做一次 online softmax 累加，<span class="math inline">n</span> 步后每卡得到自己 Q 段的完整 attention 输出。通信与计算重叠，理论上支持无限长度。</li>
 <li><strong>Ulysses（DeepSpeed）</strong>：按头切换序列：输入按序列切分，attention 前 all-to-all 变成”每卡持有全序列的部分头”，attention 后再 all-to-all 换回。通信量比 ring 小，但并行度受头数限制。</li>
 <li><strong>causal 负载均衡</strong>：causal mask 下前面的 Q 段计算少、后面的多，ring attention 会不均衡，做法是把序列切成 <span class="math inline">2n</span> 段，每卡拿一头一尾（zigzag）。</li>
 </ul>
@@ -2905,7 +2994,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li><strong>估算</strong>：输入平均 1K、输出平均 300 token；1000 QPS 意味着每秒 100 万输入 token（prefill）和 30 万输出 token（decode）。70B FP8 单机 8 卡 TP=8 的 decode 上限约 2 到 3K token/s（大 batch），prefill 约 50K token/s。所以一台机远远不够，需要几十到上百台，先说清这个量级。</li>
 <li><strong>并行</strong>：单机内 TP=8 或 TP=4 × 2 副本（后者 batch 更大、通信更少，延迟略高）；MoE 模型用 EP + DP attention。</li>
 <li><strong>PD 分离</strong>：prefill 与 decode 比例按 100 万 : 30 万的 token 量和各自吞吐算，prefill 用 H100，decode 可以用 H20 类高带宽卡降本。</li>
-<li><strong>KV 层</strong>：prefix caching + 分布式 KV 池，多轮对话命中率是成本的关键。</li>
+<li><strong>KV 层</strong>：prefix caching + 分布式 KV 池（3.7 的 Mooncake 是这一层的参考实现），多轮对话命中率是成本的关键。</li>
 <li><strong>量化</strong>：权重 FP8，KV FP8，验证精度。</li>
 <li><strong>调度</strong>：continuous batching、chunked prefill、按 SLO（TTFT &lt; 1 s，TPOT &lt; 50 ms）设 <code>max_num_seqs</code>，超载时排队或降级。</li>
 <li><strong>投机采样</strong>：低峰期 batch 小的时候开启，高峰关闭。</li>
@@ -4001,7 +4090,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td><a href="https://www.nowcoder.com/feed/main/detail/c40d154b3b3847269da3c9fd9e381a72">大模型应用算法实习 2024-05</a></td>
 <td>了解哪些推理框架；SGLang 相比 vLLM 在延迟上的优势</td>
-<td>3.7：RadixAttention 的 token 级前缀复用降低 TTFT，zero-overhead 调度降低小 batch 的 TPOT，前端 DSL 让多轮 / 分支共享 KV</td>
+<td>3.8：RadixAttention 的 token 级前缀复用降低 TTFT，zero-overhead 调度降低小 batch 的 TPOT，前端 DSL 让多轮 / 分支共享 KV</td>
 </tr>
 <tr>
 <td><a href="https://www.nowcoder.com/feed/main/detail/41e59b1a6f734d63ab81d91e289f8949">大模型算法实习 2026-03</a></td>
@@ -4086,7 +4175,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <td>vLLM / PagedAttention / SGLang 对比</td>
 <td>10</td>
 <td>PagedAttention 解决什么、代价是什么；SGLang 延迟优势在哪；vLLM 调度能改什么</td>
-<td>3.1 到 3.7</td>
+<td>3.1 到 3.8</td>
 </tr>
 <tr>
 <td><span class="pri pri-p0">P0</span></td>
@@ -4210,7 +4299,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tbody>
 </table>
 </div>
-<p><strong>复习顺序建议</strong>：先把 2 章的估算方法练到能在白板上 3 分钟推完（这是所有追问的落脚点），然后 1.3、1.4、3.2、5.1 这四个 P0 节，再 8.2、8.3 的手撕，最后按目标团队补 7 章（Seed）或 3.6、3.7（火山引擎）或 11 章（所有团队 2026 年都在问）。</p>
+<p><strong>复习顺序建议</strong>：先把 2 章的估算方法练到能在白板上 3 分钟推完（这是所有追问的落脚点），然后 1.3、1.4、3.2、5.1 这四个 P0 节，再 8.2、8.3 的手撕，最后按目标团队补 7 章（Seed）或 3.6、3.7、3.8（火山引擎）或 11 章（所有团队 2026 年都在问）。</p>
 <hr>
 <h2 id="sec-14"><span class="num">14.</span>手撕题清单与参考实现</h2>
 <h3 id="sec-14-1">14.1 出现过的题目总表</h3>
@@ -5073,13 +5162,14 @@ def generate(model, ids, max_new_tokens, **kw):
 <ul>
 <li>15 章的代码从 15.2 到 15.8 按顺序拼成一个文件即可运行，同样在本地 CPU（PyTorch 2.9，float64）上逐项验证：RoPE 的相对位置性质 <span class="math inline">\langle R_m q, R_n k\rangle = \langle R_0 q, R_{n-m} k\rangle</span> 误差 4e-15；前后半配对与相邻配对两种排布在列置换下完全相等；PI 缩放与「位置除以 k」完全相等；RMSNorm 与 <code>F.rms_norm</code> 误差 0；softmax、cross entropy 与 torch 实现误差 1e-15 量级，且 logits 加 1e4 后不出 NaN；SwiGLU 合并 GEMM 与三矩阵朴素写法误差 0；GQA attention 与 <code>F.scaled_dot_product_attention</code> 误差 2e-16；<strong>整段前向与「prefill 4 个 token 再逐 token decode」的结果误差 4e-17</strong>（KV cache 与 RoPE 位置索引的正确性检查）；greedy <code>generate</code> 与每步全量重算的 argmax 序列逐 token 相同；top-k、top-p、min-p 的候选集合与手算阈值一致，repetition penalty 能改变 argmax。</li>
 <li>14.5 的参数量脚本、4.4 与 14.2 到 14.6 的 PyTorch 代码均在本地 CPU（PyTorch 2.x，float64）上跑通并与朴素实现对齐：GQA attention 与 repeat 后的标准实现误差 0；online softmax 与标准 softmax 误差 1e-15 量级；MLA 的 absorb 实现与展开成显式 K、V 的实现误差 3e-16，prefill 加逐 token decode 的带 cache 结果与整体前向误差 2e-16；linear attention 递归、分块、二次型三种写法互相对齐；MoE 与逐 token 循环对齐；block-sparse 在全 True 掩码下与稠密 causal attention 对齐。</li>
+<li>3.7 的出处：Mooncake 论文（arXiv 2407.00079，FAST’25）与 kvcache-ai/Mooncake 官方文档；525%、75%、拒绝数 4183 / 3771 / 3589、A800 测试床与 SLO 阈值均出自论文，128 × H200 的 224K / 288K token/s 与权重更新 53 s → 7.2 s 出自 Mooncake 与 SGLang 的公开说明，未见第三方复现。</li>
 <li>8.6 到 8.8 的出处：ThunderKittens megakernel 的两篇 Hazy Research 博客（2025-05 低延迟 Llama-1B、2025-09 TP Llama-70B）与 HazyResearch/Megakernels；MPK 的论文（arXiv 2512.22219）与 mirage-project/mirage；DeepGEMM、DeepEP、MoonEP 的 GitHub README（MoonEP 为 2026-07-29 MIT 开源）；FP8 tensor core 只保留 14 位尾数的说法出自 DeepSeek-V3 技术报告；FlashAttention-4 与 CuTe DSL 的定位来自 FA4 论文（2026-03）与 NVIDIA/cutlass。</li>
 <li>GPU 参数来自 NVIDIA 官方规格表，模型参数来自各模型 config.json 与技术报告，论文数字均标注了出处（见各章）。</li>
 <li>本文由 <code>bytedance_llm_inference.md</code> 经 <code>build_html.py</code> 生成，改 markdown 后重跑即可更新。</li>
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 07:40 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 07:56 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
