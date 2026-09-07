@@ -435,18 +435,60 @@ mjx-container[display="true"] + br {
             <div class="main-content border-box">
                 
 
-                    <div class="fade-in-down-animation">
-    <div class="tag-page-container">
-        
-            
-                <div class="tag-list-content">
-                    <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/coding/" rel="tag">coding</a><span class="tag-list-count">1</span></li></ul>
-                </div>
-            
-        
-        
-    </div>
-</div>
+                    .tag-page-container {
+
+  keep-container(1, 2rem, 0)
+
+  .tagcloud-content {
+
+    text-align justify
+
+    a {
+      display inline-block
+      box-sizing border-box
+      padding 0.68rem 0.5rem
+    }
+  }
+
+
+  .tag-list-content {
+    .tag-list {
+      position relative
+      display flex
+      flex-wrap wrap
+      gap 0.82rem
+      justify-content flex-start
+      box-sizing border-box
+
+      .tag-list-item {
+        position relative
+        box-sizing border-box
+        overflow hidden
+        border-radius 0.3rem
+
+
+        .tag-list-link {
+          display inline-block
+          padding 0.4rem 0.6rem
+          color var(--text-color-3)
+          background var(--background-color-2)
+
+          &amp;:hover {
+            color var(--primary-color)
+          }
+        }
+
+
+        .tag-list-count {
+          display inline-block
+          padding 0.4rem 0.6rem
+          color var(--text-color-3)
+          background var(--background-color-3)
+        }
+      }
+    }
+  }
+}
 
 
                 
@@ -552,38 +594,9 @@ mjx-container[display="true"] + br {
     </div>
 
     <!-- image mask -->
-    .zoom-in-image-mask {
-  position fixed
-  top 0
-  right 0
-  bottom 0
-  left 0
-  z-index $z-index-8
-  display flex
-  align-items center
-  justify-content center
-  box-sizing border-box
-  background rgba(0, 0, 0, 0)
-  visibility hidden
-  transition-t("visibility, background", "0, 0", "0.3, 0.3", "linear, linear")
-
-  &amp;.show {
-    background rgba(0, 0, 0, 0.5)
-    visibility visible
-
-    .zoom-in-image {
-      cursor zoom-out
-    }
-  }
-
-  .zoom-in-image {
-    position absolute
-    z-index $z-index-9
-    transform-origin center center
-    will-change transform
-    transition-t("transform", "0", "0.3", "linear")
-  }
-}
+    <div class="zoom-in-image-mask">
+    <img class="zoom-in-image">
+</div>
 
 
     <!-- local search -->
