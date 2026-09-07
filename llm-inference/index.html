@@ -4,8 +4,8 @@
 <title>llm inference</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_llm_inference.md">
-<meta name="source-sha256" content="45bb702637b8fc08">
-<meta name="generated-at" content="2026-09-07 08:46 UTC">
+<meta name="source-sha256" content="2663b6b579f94435">
+<meta name="generated-at" content="2026-09-07 09:11 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -569,7 +569,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</a></li><li><a href="#sec-3-8">3.8 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3 / v4</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
+<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</a></li><li><a href="#sec-3-8">3.8 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3 / v4</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 线上排障：延迟尖刺与长尾</a></li><li><a href="#sec-10-4">10.4 常见系统设计题</a></li><li><a href="#sec-10-5">10.5 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -578,7 +578,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">推理基础、引擎机制、kernel、量化、并行、MoE，附公开面经原题与高频考点清单</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_llm_inference.md</code></span>
-    <span><strong>生成</strong> 2026-09-07 08:46 UTC</span>
+    <span><strong>生成</strong> 2026-09-07 09:11 UTC</span>
   </div>
 </header>
 
@@ -1231,8 +1231,9 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <ul>
 <li><strong>TTFT 和 TPOT 怎么权衡？</strong> 同一批设备上加 batch 提高吞吐会拉长 TPOT；chunked prefill 让 prefill 和 decode 混跑能降 TTFT 但让 TPOT 抖动；PD 分离让两者独立扩缩。</li>
 <li><strong>怎么压测？</strong> <code>vllm bench serve</code> 或 genai-perf，指定请求速率（泊松到达）、输入输出长度分布（ShareGPT 或固定长度），记录 TTFT / TPOT 的 P50 / P90 / P99 和吞吐，扫描请求速率画出”延迟 - 吞吐”曲线，找 SLO 下的最大吞吐。</li>
-<li><strong>为什么看 P99 不看平均？</strong> 尾延迟由抢占、prefill 插队、GC、长请求造成，平均值掩盖了这些问题。</li>
+<li><strong>为什么看 P99 不看平均？</strong> 尾延迟由抢占、prefill 插队、GC、长请求造成，平均值掩盖了这些问题。更进一步要区分尖刺、长尾和双峰三种形状，逐项排查见 10.3。</li>
 <li><strong>流式和非流式的指标差异？</strong> 非流式只有 E2E；流式关注 TTFT 和 ITL，用户感知的”卡顿”来自 ITL 的 P99。</li>
+<li><strong>线上真出了尖刺怎么查？</strong> 见 10.3，这是这一节所有指标真正的用武之地。</li>
 </ul>
 <hr>
 <h2 id="sec-3"><span class="num">3.</span>推理引擎核心机制</h2>
@@ -2059,7 +2060,7 @@ def online_softmax_attention(q, k, v, block=64):
 <ul>
 <li><strong>batch 小</strong>：单请求或低并发时 decode 远离脊点，验证多 token 几乎免费。batch 大到接近 compute-bound 后，验证的额外 FLOPs 变成真实开销，加速消失甚至变负。vLLM 有基于 batch 大小自动关闭投机采样的选项。</li>
 <li><strong>接受率高</strong>：任务可预测（代码、结构化输出、复制粘贴场景）时高；开放式创作低。</li>
-<li><strong>draft 便宜</strong>：draft 耗时要远小于目标模型���步；EAGLE 的 head 只有一层，成本极低。</li>
+<li><strong>draft 便宜</strong>：draft 耗时要远小于目标模型一步；EAGLE 的 head 只有一层，成本极低。</li>
 <li><strong>温度</strong>：温度高时目标分布更平，draft 猜中难度大，接受率下降；贪心解码时验证退化成”token 相等即接受”。</li>
 </ul>
 <p><strong>追问链</strong></p>
@@ -2852,6 +2853,10 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <td>单 kernel：DRAM 带宽利用率、SM 利用率、achieved occupancy、bank conflict、warp stall 原因、roofline 图</td>
 </tr>
 <tr>
+<td>服务层指标与引擎打点</td>
+<td>线上问题九成在这一层就能定位，<code>nsys</code> 之前先看它，顺序见 10.3</td>
+</tr>
+<tr>
 <td><code>torch.profiler</code></td>
 <td>Python 视角的算子耗时、调用栈，能导出 Chrome trace</td>
 </tr>
@@ -3217,9 +3222,273 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <ul>
 <li><strong>PyTorch caching allocator</strong>：<code>cudaMalloc</code> 很慢，PyTorch 自己维护 block 池；碎片来自不同大小的分配交错，表现为 <code>reserved</code> 远大于 <code>allocated</code>。<code>PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True</code> 用虚拟内存映射减少碎片；推理引擎通常自己预分配 KV cache 大块，绕开 allocator。</li>
 <li><strong>显存构成</strong>：权重 + KV cache + 激活峰值（prefill 时最大，由 <code>max_num_batched_tokens</code> 决定）+ CUDA context（几百 MB）+ NCCL buffer + CUDA graph 池。vLLM 启动时跑一次最大 batch 的 profile 前向测激活峰值，再用剩余显存算 KV block 数。</li>
-<li><strong>OOM 排查</strong>：<code>torch.cuda.memory_summary()</code>，看是 reserved 碎片还是 allocated 真的满；降低 <code>gpu_memory_utilization</code> 留余量、减小 <code>max_num_batched_tokens</code>、开量化。</li>
+<li><strong>OOM 排查</strong>：<code>torch.cuda.memory_summary()</code>，看是 reserved 碎片还是 allocated 真的满；降低 <code>gpu_memory_utilization</code> 留余量、减小 <code>max_num_batched_tokens</code>、开量化。跑了几小时才 OOM 的情况见 10.3。</li>
 </ul>
-<h3 id="sec-10-3">10.3 常见系统设计题</h3>
+<h3 id="sec-10-3">10.3 线上排障：延迟尖刺与长尾</h3>
+<p>前面几章讲的是”怎么让它快”，这一节是”它变慢了怎么办”。有线上经验的候选人和只读过论文的候选人，差别几乎全在这里。面试官问”你们线上 P99 出过什么问题”，想听的是<strong>分解 → 定位 → 证实 → 修复</strong>这一整条链，而不是一个原因名词。</p>
+<h4 id="先分清尖刺长尾和双峰">先分清尖刺、长尾和双峰</h4>
+<p>三种形状的病因完全不同，先分清能省掉一半排查：</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>形状</th>
+<th>特征</th>
+<th>第一反应</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>尖刺（spike）</strong></td>
+<td><strong>时间</strong>维度：某几秒内所有请求都慢，之后恢复</td>
+<td>外部事件：抢占风暴、扩容/重启、GPU 降频、cache 被清、某个巨型请求进来、上游重试风暴</td>
+</tr>
+<tr>
+<td><strong>长尾（tail）</strong></td>
+<td><strong>请求</strong>维度：少数请求持续比别人慢</td>
+<td>请求特征：prompt 特别长、前缀没命中、被路由到慢副本、输出特别长</td>
+</tr>
+<tr>
+<td><strong>双峰（bimodal）</strong></td>
+<td>P50 和 P99 差一个数量级，中间几乎没有请求</td>
+<td>存在两条不同的代码路径：prefix cache 命中 vs 未命中、CUDA graph 命中桶 vs 回退 eager、投机采样接受 vs 拒绝</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>双峰最容易被误当成长尾</strong>，然后去优化尾部，方向就错了。判断方法很简单：看 TTFT 的直方图而不是分位数表；如果是双峰，正确的动作是提高命中率（把 P99 那一峰搬到 P50），而不是压尾。</p>
+<h4 id="ttft-的分解与病因">TTFT 的分解与病因</h4>
+<p>先把 TTFT 拆开，每一段都要能单独打点：</p>
+<pre class="diagram"><code class="language-text">TTFT = 网络与反序列化 + tokenize + 排队等待 + prefill 执行 + 首 token 采样与首包下发
+                                    ↑ 最常见           ↑ 第二常见</code></pre>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>病因</th>
+<th>典型表现</th>
+<th>怎么证实</th>
+<th>怎么修</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>排队</strong></td>
+<td>并发一上来 TTFT 线性恶化，GPU 利用率却不高</td>
+<td>等待队列长度、KV 使用率两个指标同时看：队列长但 KV 没满是并发上限卡住，KV 满是显存卡住</td>
+<td>提 <code>max_num_seqs</code> 或扩容；KV 满则减小 <code>max_model_len</code> / 量化 KV / 加卡</td>
+</tr>
+<tr>
+<td><strong>长 prompt 阻塞</strong></td>
+<td>平时正常，偶尔全体 TTFT 跳一下</td>
+<td>尖刺时刻的 batch 里有超长 prompt</td>
+<td>开 chunked prefill 并调小 <code>max_num_batched_tokens</code>；长短请求分池</td>
+</tr>
+<tr>
+<td><strong>prefix cache 未命中</strong></td>
+<td>TTFT 双峰，P50 几十毫秒、P99 几百毫秒到秒级</td>
+<td>命中率指标 + 按命中与否分组看 TTFT</td>
+<td>cache-aware 路由（把同前缀的请求粘到同一副本）、加大 cache、上全局 KV 池（3.7）</td>
+</tr>
+<tr>
+<td><strong>被抢占后重算</strong></td>
+<td>个别请求 TTFT 正常但中途长时间无输出</td>
+<td>抢占计数指标；vLLM 的 recompute 模式会把请求打回 waiting</td>
+<td>见下面”抢占风暴”</td>
+</tr>
+<tr>
+<td><strong>CUDA graph / 编译冷启动</strong></td>
+<td>服务刚起或流量形状变化时的一批尖刺</td>
+<td>首次遇到新 batch 桶的那一步耗时异常</td>
+<td>warmup 时枚举所有 batch 桶；readiness 探针必须等 warmup 完再放流量</td>
+</tr>
+<tr>
+<td><strong>tokenize 阻塞调度</strong></td>
+<td>长 prompt 场景 TTFT 与 prompt 长度超线性相关</td>
+<td>在 API server 与 EngineCore 两侧分别打点</td>
+<td>拆进程（10.1），tokenize 放 API server 侧</td>
+</tr>
+<tr>
+<td><strong>首包被缓冲</strong></td>
+<td>服务端指标漂亮，客户端测出来慢</td>
+<td>服务端 TTFT 与端到端 TTFT 对不上</td>
+<td>nginx / 网关关掉响应缓冲，SSE 立即 flush</td>
+</tr>
+<tr>
+<td><strong>路由不均</strong></td>
+<td>各副本 TTFT 分布差异大</td>
+<td>按实例分组看分位数</td>
+<td>round-robin 换成 least-outstanding 或 cache-aware</td>
+</tr>
+<tr>
+<td><strong>GPU 降频</strong></td>
+<td>持续高负载几十分钟后整体变慢，且不恢复</td>
+<td><code>nvidia-smi -q -d PERFORMANCE</code> 看 throttle reasons（功耗墙 / 温度墙）</td>
+<td>机房散热、功耗上限、降低单卡负载</td>
+</tr>
+<tr>
+<td><strong>cgroup CPU 被 throttle</strong></td>
+<td>GPU 有明显空隙但没人在跑 kernel</td>
+<td>容器的 CFS throttled 时间指标；nsys 上表现为周期性空白</td>
+<td>提高容器 CPU limit，绑核，把 CPU 密集的活挪出调度进程</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>一个能现场算的例子</strong>：按 10.4 的估算，70B 在 8 × H100 上 prefill 约 50K token/s。那么一个 32K 的 prompt 独占 GPU 约 <strong>650 ms</strong>。不开 chunked prefill 时，这 650 ms 内到达的所有请求 TTFT 全部 +650 ms——这就是”平时 P99 是 300 ms，偶尔跳到 900 ms”的来源。开了 chunked prefill 切成 2048 一块，它变成 16 个小块，别的请求可以插进来，但代价见下一小节。</p>
+<h4 id="tpot-itl-的分解与病因">TPOT / ITL 的分解与病因</h4>
+<p>TPOT 是平均值，<strong>ITL 的 P99 才是用户感知的”卡顿”</strong>，两者要分开看。decode 每步的时间构成：</p>
+<pre class="diagram"><code class="language-text">每步时间 = CPU 调度与准备输入 + 前向（权重读取 + attention 读 KV + TP 通信）+ 采样 + 输出下发</code></pre>
+<p>关键结论：<strong>权重读取对每步是固定成本，attention 的成本正比于 batch 内所有序列的 KV 长度之和</strong>。这一句话能解释大部分 TPOT 问题。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>病因</th>
+<th>机制</th>
+<th>怎么证实</th>
+<th>怎么修</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>长请求拖累全 batch</strong></td>
+<td>同 batch 内每一步都要读所有序列的 KV</td>
+<td>把每步的”batch 内 KV token 总数”打出来，和步耗时做散点</td>
+<td>按长度分桶路由、限制单 batch 的 KV 总量、长请求单独一池</td>
+</tr>
+<tr>
+<td><strong>chunked prefill 插队</strong></td>
+<td>混合 batch 里 prefill chunk 的算力开销远大于 decode</td>
+<td>ITL 直方图上出现固定位置的第二峰</td>
+<td>调小 <code>max_num_batched_tokens</code>；给 decode 留保底预算；彻底解法是 PD 分离（3.6）</td>
+</tr>
+<tr>
+<td><strong>抢占风暴</strong></td>
+<td>KV 满 → 抢占 → 重算 → 又满，反复</td>
+<td>GPU 利用率 100% 但有效吞吐掉底；抢占计数飙升</td>
+<td>见下</td>
+</tr>
+<tr>
+<td><strong>CPU 调度开销</strong></td>
+<td>小 batch 时 Python 侧耗时超过 GPU 前向</td>
+<td>nsys 上 kernel 之间有大片空隙</td>
+<td>CUDA graph、V1 多进程、SGLang zero-overhead（3.5）</td>
+</tr>
+<tr>
+<td><strong>投机采样的方差</strong></td>
+<td>接受率随内容波动，ITL 天然锯齿</td>
+<td>ITL 分布双峰</td>
+<td>动态调 <span class="math inline">\gamma</span>；高负载时关闭；SLO 用”平均每 token 间隔”而非 raw ITL</td>
+</tr>
+<tr>
+<td><strong>MoE 专家倾斜</strong></td>
+<td>某步路由集中，all-to-all 出现长尾</td>
+<td>各 rank 的 dispatch 耗时分布</td>
+<td>EPLB、MoonEP 的在线冗余专家（8.7）</td>
+</tr>
+<tr>
+<td><strong>通信 straggler</strong></td>
+<td>多机 all-reduce 同步，一张慢卡拖住全部</td>
+<td>各 rank 在 barrier 前的到达时间</td>
+<td>排查那张卡（降频、ECC、网卡），或换成能容忍抖动的重叠方案（7.8）</td>
+</tr>
+<tr>
+<td><strong>结构化输出的 mask</strong></td>
+<td>每步要算合法 token 掩码</td>
+<td>开关 JSON 模式对比 ITL</td>
+<td>用 XGrammar 的预计算 + CPU/GPU 重叠（1.7）</td>
+</tr>
+<tr>
+<td><strong>显存分配器同步</strong></td>
+<td>触发 <code>cudaMalloc</code> 或 <code>cudaFree</code> 会隐式同步</td>
+<td>nsys 上看到 runtime API 的同步点</td>
+<td>预分配、<code>expandable_segments</code>（10.2）</td>
+</tr>
+<tr>
+<td><strong>输出侧背压</strong></td>
+<td>客户端读得慢，队列堆积反压到调度</td>
+<td>输出队列长度指标</td>
+<td>限制单连接缓冲、慢客户端断连</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>再算一个例子（chunked prefill 的两难）</strong>：70B 在 8 × H100（总带宽约 26.8 TB/s）上，FP8 权重 70 GB，纯读权重约 2.6 ms，加 KV 与开销，一个 decode 步大致在 3 到 5 ms 量级。而按 50K token/s 的 prefill 吞吐，插入一个 2048 token 的 chunk 需要约 <strong>41 ms</strong>。也就是说，<strong>那一步的 ITL 会从 4 ms 跳到 45 ms</strong>，同 batch 里所有用户都感受到一次卡顿。把 chunk 降到 512 能压到约 10 ms，但 prefill 吞吐下降、TTFT 上升。<strong>这就是 TTFT 与 ITL 之间那条最实在的 trade-off，也是”为什么要做 PD 分离”最有说服力的论证</strong>。</p>
+<p><strong>长请求的量化影响</strong>：LLaMA-3-70B 的 KV 是每 token 每层 <span class="math inline">8 \times 128 \times 2 \times 2 = 4</span> KB，80 层就是 320 KB；128K 上下文一个请求的 KV 是 40 GB。以 26.8 TB/s 算，<strong>这一个请求给 batch 里的每一步都加了约 1.5 ms</strong>，而一个 decode 步本身才 3 到 5 ms。所以”一个长请求进来，全体 TPOT 变差 30% 以上”是算得出来的，不是玄学。</p>
+<h4 id="抢占风暴gpu-利用率-100-而吞吐掉底">抢占风暴：GPU 利用率 100% 而吞吐掉底</h4>
+<p>值得单独讲，因为它是最反直觉的一个：</p>
+<ol type="1">
+<li>KV 使用率长期贴着 100%，调度器为了让新请求进来，抢占已在跑的请求。</li>
+<li>vLLM 默认的 recompute 模式会丢掉被抢占请求的 KV，把它打回等待队列。</li>
+<li>该请求重新调度时要<strong>从头 prefill 一遍</strong>，消耗算力和 KV。</li>
+<li>于是 KV 更紧张，抢占更频繁——GPU 一直在满负荷地做重复劳动。</li>
+</ol>
+<p>症状是”利用率 100%、功耗满、吞吐却在掉”，指标上是抢占计数持续增长。处理：把并发压到 KV 使用率长期低于 90%（限流比排队好，排队比抢占好），或改用 swap 模式（KV 换到 CPU 内存，恢复时拷回来，省掉重算但占 PCIe 带宽），根治要靠更大的 KV 空间——量化 KV、GQA/MLA 模型、或外置 KV 池（3.7）。</p>
+<h4 id="其他高频线上问题">其他高频线上问题</h4>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>真正的原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>同样的输入两次结果不同（温度为 0 也是）</strong></td>
+<td>浮点加法不满足结合律，batch 组成变了 → 归约的划分和顺序变了 → logits 有 <span class="math inline">10^{-6}</span> 量级差异 → 恰好在两个候选接近时 argmax 翻转</td>
+<td>固定 seed 只能解决采样随机性，解决不了这个。要 <strong>batch-invariant kernel</strong>：固定 split-K / split-KV 的划分数、固定归约顺序，代价是牺牲一部分性能。这是高频面试题，能说到”batch 不变性”就够了</td>
+</tr>
+<tr>
+<td><strong>升级引擎版本后吞吐下降</strong></td>
+<td>默认参数变了（chunked prefill 默认开、CUDA graph 模式变化、attention 后端切换）</td>
+<td>升级前后固定同一套压测脚本与参数，逐项 diff 配置，别只看 release note</td>
+</tr>
+<tr>
+<td><strong>跑了几小时之后 OOM</strong></td>
+<td>碎片（<code>reserved</code> 远大于 <code>allocated</code>），或者终于来了一个 <code>max_model_len</code> 的请求把激活峰值顶起来</td>
+<td><code>expandable_segments</code>、预分配、按最坏情况而不是平均情况做容量规划（10.2）</td>
+</tr>
+<tr>
+<td><strong>多机偶发 hang</strong></td>
+<td>某 rank 异常退出或慢到超时，NCCL 集合通信卡死</td>
+<td>开 NCCL 的 watchdog 与超时、打印各 rank 的心跳、把 hang 转成快速失败再拉起</td>
+</tr>
+<tr>
+<td><strong>量化后线上掉点但离线评测正常</strong></td>
+<td>离线评测集与线上分布不一致；或长上下文、特定语言上退化更明显</td>
+<td>逐层替换定位敏感层（常见是首末层与 lm_head），并用线上采样流量做 A/B</td>
+</tr>
+<tr>
+<td><strong>扩容之后 P99 反而更差</strong></td>
+<td>新副本冷启动（无 prefix cache、未 warmup）却被均匀分流量</td>
+<td>readiness 探针等 warmup 完；新副本按权重逐步放量</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="工具与打点顺序">工具与打点顺序</h4>
+<ol type="1">
+<li><strong>服务层指标</strong>（先看这个，最便宜）：等待/运行请求数、KV 使用率、抢占计数、前缀命中率、每步的 batch 大小与 token 数分布，以及 TTFT / ITL 的<strong>直方图</strong>。vLLM 以 <code>vllm:</code> 前缀暴露 Prometheus 指标，具体名字各版本有变动，接入时以实际 <code>/metrics</code> 为准。</li>
+<li><strong>引擎层打点</strong>：把每步拆成调度、准备输入、前向、采样、输出，各自累计耗时。90% 的问题到这一步就定位了。</li>
+<li><strong><code>nsys</code> 时间线</strong>：看 GPU 有没有空隙（CPU 瓶颈）、通信和计算有没有重叠、哪个 kernel 变长了（8.5）。</li>
+<li><strong><code>ncu</code> 单 kernel</strong>：只有确认是某个 kernel 本身慢时才用。</li>
+</ol>
+<p><strong>压测要点</strong>：用真实的输入输出长度分布（ShareGPT 或线上采样）而不是定长；泊松到达而不是恒定速率；扫描 QPS 画”延迟 - 吞吐”曲线，找 SLO 下的拐点。<strong>容量规划的一个硬约束是排队论</strong>：M/M/1 的等待时间正比于 <span class="math inline">\rho / (1 - \rho)</span>，利用率 <span class="math inline">\rho = 0.8</span> 时排队时间是服务时间的 4 倍，<span class="math inline">\rho = 0.9</span> 时是 9 倍。所以按 P99 SLO 规划容量时，稳态利用率通常只能放到 60% 到 70%，“平均利用率 90% 才够本”是训练侧的思维，搬到在线服务上必然 P99 崩掉。</p>
+<h4 id="追问链">追问链</h4>
+<ul>
+<li><strong>TTFT P99 高，你第一步看什么？</strong> 看等待队列长度和 KV 使用率。队列长而 KV 没满是并发上限设小了；两者都满是真的容量不够；两者都不高说明问题不在调度，去查网络、tokenize、路由或降频。<strong>能先排除”不是排队”，就比大多数人答得好。</strong></li>
+<li><strong>ITL 的 P99 差但 TPOT 平均值正常，说明什么？</strong> 说明有周期性的插队或抖动，最可能是 chunked prefill 的 prefill chunk，其次是投机采样的验证步、结构化输出的 mask 计算、或周期性的通信抖动。看 ITL 直方图有没有第二峰，峰的位置就是插队开销的大小。</li>
+<li><strong>为什么不能只靠加 batch 提吞吐？</strong> 加 batch 会同时抬高 ITL（attention 成本随 batch 内 KV 总量增长）和排队风险，goodput（满足 SLO 的吞吐，2.5）会先升后降。要扫 QPS 找拐点，而不是把 <code>max_num_seqs</code> 调到显存上限。</li>
+<li><strong>过载了应该排队还是拒绝？</strong> 拒绝。排队会让所有人的 TTFT 一起恶化并触发上游重试，进一步放大负载；提前拒绝还能省掉注定要超时的那部分 prefill 算力（Mooncake 的 early rejection，3.7）。配套要做的是上游的重试退避和熔断。</li>
+<li><strong>限流应该限什么？</strong> 不是限 QPS 而是限<strong>在途 token 量</strong>：限 QPS 时一个 128K 的请求和一个 100 token 的请求同权，而它们的代价差三个数量级。实践中限并发请求数 + 限在途 KV token 总量。</li>
+<li><strong>怎么向业务方解释”你们的 P99 是被别人的长请求拖累的”？</strong> 用上面那个算式：长请求的 KV 长度直接加进每一步的读取量。这也是为什么要按长度分池——它不是运维洁癖，是隔离故障域。</li>
+<li><strong>PD 分离能解决哪些问题、不能解决哪些？</strong> 能解决 prefill 与 decode 的互相干扰（TTFT 尖刺和 ITL 插队），能让两边独立扩缩；不能解决单个长请求在 decode 侧拖累同 batch、也不能解决抢占风暴，那些还要靠分池和限流。</li>
+<li><strong>你怎么知道修好了？</strong> 不看平均值，看修复前后的 ITL / TTFT 直方图形状变化，以及固定 SLO 下的 goodput 提升。只报”平均延迟降了 20%“会被追问。</li>
+</ul>
+<h3 id="sec-10-4">10.4 常见系统设计题</h3>
 <p><strong>“8 张 H100 部署 70B 模型服务 1000 QPS 的对话产品，怎么设计？”</strong> 回答骨架：</p>
 <ol type="1">
 <li><strong>估算</strong>：输入平均 1K、输出平均 300 token；1000 QPS 意味着每秒 100 万输入 token（prefill）和 30 万输出 token（decode）。70B FP8 单机 8 卡 TP=8 的 decode 上限约 2 到 3K token/s（大 batch），prefill 约 50K token/s。所以一台机远远不够，需要几十到上百台，先说清这个量级。</li>
@@ -3233,7 +3502,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </ol>
 <p><strong>“单卡 A10（24 GB）跑 7B 模型，延迟要求 TPOT &lt; 30 ms，怎么做？”</strong>：INT4 权重（3.5 GB）留 20 GB 给 KV；A10 带宽 600 GB/s，读 3.5 GB 权重约 6 ms，加 KV 读取和开销可以做到 15 ms 以内；开 CUDA graph 减 launch 开销；并发按 KV 显存与延迟预算折中；小 batch 下可以加 EAGLE 投机采样。</p>
 <p><strong>“如何把一个新模型接入 vLLM？”</strong>：实现模型类（用 vLLM 的 <code>QKVParallelLinear</code> / <code>RowParallelLinear</code> / <code>Attention</code> 层，自动获得 TP 和 paged attention）、权重名映射与加载、注册到模型表；有新结构（如新的 attention 变体）时要实现 attention backend；用 HF 实现对齐 logits 验证。</p>
-<h3 id="sec-10-4">10.4 C++ / Python 工程问题</h3>
+<h3 id="sec-10-5">10.5 C++ / Python 工程问题</h3>
 <p>推理岗一面常穿插基础工程题：</p>
 <ul>
 <li>C++：智能指针、移动语义、虚函数、内存对齐、多线程与锁、无锁队列（请求队列）、RAII 管理 CUDA 资源、CMake 与 nvcc 编译流程、pybind11 暴露接口。</li>
@@ -4447,7 +4716,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <td><span class="pri pri-p1">P1</span></td>
 <td>FlashAttention 原理与版本</td>
 <td>5</td>
-<td>online softmax 推导；v2 为什么外层循环 Q；v3 的 pingpong；随机 mask 怎么办</td>
+<td>online softmax 推导；v2 为什么外层循环 Q；v3 的 pingpong；v4 为什么 softmax 成了瓶颈；随机 mask 怎么办</td>
 <td>4.1 到 4.3</td>
 </tr>
 <tr>
@@ -4475,8 +4744,15 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <td><span class="pri pri-p2">P2</span></td>
 <td>prefix caching / chunked prefill / continuous batching / PD 分离</td>
 <td>3</td>
-<td>chunked prefill 的缺点；PD 比例怎么定；KV 传输开销</td>
-<td>3.3、3.4、3.6</td>
+<td>chunked prefill 的缺点（10.3 有定量算例）；PD 比例怎么定；KV 传输开销</td>
+<td>3.3、3.4、3.6、3.7</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>线上排障：TTFT / ITL 的尖刺与长尾、抢占、限流与容量</td>
+<td>—</td>
+<td>P99 高第一步看什么；ITL 出现第二峰说明什么；过载该排队还是拒绝；同样输入为什么结果不同</td>
+<td>2.5、10.3</td>
 </tr>
 <tr>
 <td><span class="pri pri-p2">P2</span></td>
@@ -4530,7 +4806,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tbody>
 </table>
 </div>
-<p><strong>复习顺序建议</strong>：先把 2 章的估算方法练到能在白板上 3 分钟推完（这是所有追问的落脚点），然后 1.3、1.4、3.2、5.1 这四个 P0 节，再 8.2、8.3 的手撕，最后按目标团队补 7 章（Seed）或 3.6、3.7、3.8（火山引擎）或 11 章（所有团队 2026 年都在问）。</p>
+<p><strong>复习顺序建议</strong>：先把 2 章的估算方法练到能在白板上 3 分钟推完（这是所有追问的落脚点），然后 1.3、1.4、3.2、5.1 这四个 P0 节，再 8.2、8.3 的手撕，最后按目标团队补 7 章（Seed）或 3.6、3.7、3.8（火山引擎）或 11 章（所有团队 2026 年都在问）。有线上经验的话，10.3 那一节的算例值得背下来，它是把「我做过」和「我读过」区分开的地方。</p>
 <hr>
 <h2 id="sec-14"><span class="num">14.</span>手撕题清单与参考实现</h2>
 <h3 id="sec-14-1">14.1 出现过的题目总表</h3>
@@ -5401,7 +5677,7 @@ def generate(model, ids, max_new_tokens, **kw):
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 08:46 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 09:11 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
