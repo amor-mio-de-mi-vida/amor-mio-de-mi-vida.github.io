@@ -4,10 +4,11 @@
 <title>cpp fundamentals</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_cpp_fundamentals.md">
-<meta name="source-sha256" content="fee53c9fc1633fce">
-<meta name="generated-at" content="2026-09-05 02:31 UTC">
+<meta name="source-sha256" content="1da6a2ccae4f46c0">
+<meta name="generated-at" content="2026-09-07 09:33 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
 <style>
 :root {
   --bg: #fdfcf7;
@@ -567,7 +568,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 回答框架：怎么答才”经得起追问”</a></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（字节原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 字节风格代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li></ul></li></ol>
+<ol><li><a href="#sec-0">0. 回答框架：怎么答才”经得起追问”</a></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li><li><a href="#sec-3-8">3.8 运算符重载与友元</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（字节原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 字节风格代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li><li><a href="#sec-9-13">9.13 大小端与位域</a></li></ul></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -576,7 +577,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">每个知识点按「是什么 → 为什么 → 怎么实现 → 追问链」展开</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_cpp_fundamentals.md</code></span>
-    <span><strong>生成</strong> 2026-09-05 02:31 UTC</span>
+    <span><strong>生成</strong> 2026-09-07 09:33 UTC</span>
   </div>
 </header>
 
@@ -1294,7 +1295,7 @@ int main() {
 }</code></pre>
 <p><strong>追问链</strong></p>
 <ul>
-<li><strong>为什么 C 风格强转不好？</strong> 它会按 <code>const_cast</code> → <code>static_cast</code> → <code>static_cast + const_cast</code> → <code>reinterpret_cast</code> 顺序尝���，你不知道最终发生了什么，且无法 grep。</li>
+<li><strong>为什么 C 风格强转不好？</strong> 它会按 <code>const_cast</code> → <code>static_cast</code> → <code>static_cast + const_cast</code> → <code>reinterpret_cast</code> 顺序尝试，你不知道最终发生了什么，且无法 grep。</li>
 <li><strong><code>static_cast</code> 下行转换什么时候安全？</strong> 你能从别的途径确认动态类型时（如 tag 字段），此时比 <code>dynamic_cast</code> 快。</li>
 <li><strong>上行转换需要 cast 吗？</strong> 不需要，派生类指针可以隐式转成基类指针。多继承时编译器会自动调整偏移。</li>
 <li><strong><code>reinterpret_cast&lt;float&amp;&gt;(int_var)</code> 合法吗？</strong> 违反严格别名规则，是 UB。正确做法是 <code>memcpy</code> 或 C++20 <code>std::bit_cast</code>。</li>
@@ -1659,6 +1660,90 @@ int crtp_demo() { print(Square{}); print(Circle{}); return 0; }</code></pre>
 <ul>
 <li><strong>CRTP 的其他用途？</strong> 给派生类注入通用功能（如 <code>enable_shared_from_this</code>、对象计数、操作符生成）、静态接口检查。</li>
 <li><strong>模板会导致代码膨胀怎么缓解？</strong> 把与类型无关的部分抽到非模板基类（<code>vector&lt;T*&gt;</code> 共享 <code>vector&lt;void*&gt;</code> 实现的思路）、<code>extern template</code> 显式实例化。</li>
+</ul>
+<hr>
+<h3 id="sec-3-8">3.8 运算符重载与友元</h3>
+<p><strong>不能重载的运算符</strong>：<code>.</code>（成员访问）、<code>.*</code>（成员指针访问）、<code>::</code>（作用域解析）、<code>?:</code>（三目）、<code>sizeof</code>、<code>alignof</code>、<code>typeid</code>。原因是这几个要么作用于<strong>名字</strong>而非值（<code>.</code>、<code>::</code> 的左边是标识符，不是可求值的对象），要么由编译器在<strong>编译期</strong>求值（<code>sizeof</code>、<code>alignof</code>），重载它们等于让语言的基本语义可被用户改写，无法保证任何代码的可读性。同理，重载不能改变优先级、结合性、操作数个数，也不能发明新符号 —— 这些是语法层面的信息，在重载决议发生之前就已经被解析器定死了。</p>
+<p><strong>成员 vs 非成员</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>运算符</th>
+<th>位置</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>=</code>、<code>[]</code>、<code>()</code>、<code>-&gt;</code></td>
+<td><strong>必须</strong>成员</td>
+<td>标准强制。它们语义上与对象的身份强绑定，允许非成员会让「赋值」这类操作可以被外部随意劫持</td>
+</tr>
+<tr>
+<td><code>&lt;&lt;</code>、<code>&gt;&gt;</code></td>
+<td><strong>必须</strong>非成员</td>
+<td>左操作数是 <code>std::ostream</code>，你无权往标准库的类里加成员</td>
+</tr>
+<tr>
+<td>双目 <code>+ - * / == &lt;</code></td>
+<td>推荐非成员</td>
+<td>保证对称性，见下</td>
+</tr>
+<tr>
+<td>单目 <code>++ -- ! * -&gt;</code></td>
+<td>推荐成员</td>
+<td>只作用于自身，没有对称性问题，写成成员能直接访问私有成员</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>对称性问题（这是选非成员的真正原因）</strong>：成员函数的左操作数必须是 <code>this</code>，编译器不会对它做隐式转换。所以 <code>operator+</code> 写成成员时，<code>money + 2</code> 能编译（2 隐式转成 <code>Money</code>），但 <code>2 + money</code> 不能 —— <code>int</code> 里没有这个成员函数。写成非成员后两个参数地位平等，都能走隐式转换，两种写法就都成立了。</p>
+<pre><code class="language-cpp">#include &lt;iostream&gt;
+class Money {
+    long cents_;
+public:
+    Money(long c) : cents_(c) {}                    // 故意不 explicit，允许 2 → Money
+    long cents() const { return cents_; }
+
+    Money&amp; operator+=(const Money&amp; o) { cents_ += o.cents_; return *this; }
+
+    Money&amp; operator++()    { ++cents_; return *this; }          // 前置：返回自身引用
+    Money  operator++(int) { Money old = *this; ++cents_; return old; }  // 后置：int 是哑元
+
+    friend std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Money&amp; m);   // 需要读私有成员
+};
+
+// 非成员 + 复用成员 +=：逻辑只写一处。按值收 lhs，它正好充当累加器，省一次拷贝
+inline Money operator+(Money lhs, const Money&amp; rhs) { lhs += rhs; return lhs; }
+inline bool  operator==(const Money&amp; a, const Money&amp; b) { return a.cents() == b.cents(); }
+inline bool  operator!=(const Money&amp; a, const Money&amp; b) { return !(a == b); }
+
+std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Money&amp; m) { return os &lt;&lt; m.cents_ &lt;&lt; "分"; }
+
+int main() {
+    Money m{100};
+    std::cout &lt;&lt; m + 5 &lt;&lt; " " &lt;&lt; 5 + m &lt;&lt; " ";   // 105分 105分：非成员才让 5 + m 成立
+    std::cout &lt;&lt; m++ &lt;&lt; " " &lt;&lt; m &lt;&lt; " ";         // 100分 101分：后置返回的是旧值副本
+    std::cout &lt;&lt; ++m &lt;&lt; "\n";                    // 102分
+}</code></pre>
+<p><strong><code>operator[]</code> 要成对重载</strong>：<code>T&amp; operator[](size_t)</code> 与 <code>const T&amp; operator[](size_t) const</code>。只写非 const 版本，const 对象和 <code>const&amp;</code> 参数就无法下标访问；只写 const 版本则无法赋值。去重的经典写法是让非 const 版转发给 const 版：<code>return const_cast&lt;T&amp;&gt;(static_cast&lt;const C&amp;&gt;(*this)[i]);</code> —— 这里 <code>const_cast</code> 是安全的，因为对象本身确实非 const，只是我们临时加 const 去复用实现（C++23 的 deducing this 可以彻底消除这段样板）。</p>
+<p><strong>友元</strong></p>
+<ul>
+<li><code>friend</code> 授予某个函数或类访问私有 / 保护成员的权限。声明写在类内任意访问区都一样，因为它授予的是<strong>别人</strong>的权限，不是自己的成员，所以 <code>public:</code> / <code>private:</code> 对它无意义。</li>
+<li><strong>不可继承</strong>：父类的友元不是子类的友元。原因是子类可能有父类作者完全不知道的新私有成员，自动放行等于让基类作者替派生类作者做了不该做的决定。</li>
+<li><strong>不可传递</strong>：朋友的朋友不是朋友。同理，A 信任 B 不代表 A 信任 B 信任的人，否则封装的边界会随依赖链无限扩散。</li>
+<li><strong>单向</strong>：A 声明 B 为友元，只是 B 能看 A，A 看不了 B。</li>
+<li>典型用途：<code>operator&lt;&lt;</code>、需要同时访问两个类内部的二元操作、单元测试类。</li>
+<li>关于「破坏封装」：友元其实是<strong>把类接口的一部分显式写在类内声明出来</strong>。它可控、可见、可审计，比为了让外部函数能访问而把成员改成 <code>public</code> 严格得多 —— 后者是对所有人开放，前者只对点名的那一个开放。</li>
+</ul>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>后置 <code>++</code> 为什么返回值而不是引用？</strong> 因为它要返回的是自增<strong>前</strong>的旧值，而旧值只存在于函数内的局部副本 <code>old</code> 里；返回引用就是返回一个即将析构的局部对象的引用，必然悬垂。这也是循环里推荐 <code>++it</code> 的原因：后置版无法避免构造一份副本，而这份副本在 <code>for</code> 里根本没人用。</li>
+<li><strong><code>operator&lt;&lt;</code> 为什么不能写成成员？</strong> 成员函数的左操作数固定是 <code>this</code>。写成 <code>Money</code> 的成员，调用就得写成 <code>m &lt;&lt; std::cout</code>，参数顺序是反的。而要写成 <code>std::ostream</code> 的成员，你得去改标准库的类 —— 没这个权限。所以只能是非成员，再用 <code>friend</code> 或公有接口拿数据。</li>
+<li><strong>重载 <code>&amp;&amp;</code>、<code>||</code>、<code>,</code> 有什么坑？</strong> 内建版本保证短路求值和求值顺序；一旦重载，它们退化成普通函数调用，而函数调用的所有实参在进入函数体前都必须求值完毕，短路和顺序保证同时消失。调用者看着还是 <code>a &amp;&amp; b</code>，行为却变了，所以基本不要重载。</li>
+<li><strong><code>operator-&gt;</code> 为什么能「链式穿透」？</strong> 标准规定 <code>x-&gt;m</code> 在 <code>x</code> 是类对象时展开为 <code>x.operator-&gt;()-&gt;m</code>；如果返回的还是类对象，就继续对结果调 <code>operator-&gt;</code>，递归直到得到裸指针再做成员访问。智能指针正是靠这条规则，只写一层 <code>operator-&gt;</code> 就实现了 <code>p-&gt;member</code>。</li>
+<li><strong>C++20 的 <code>&lt;=&gt;</code> 解决了什么？</strong> 手写六个关系运算符（<code>&lt; &lt;= &gt; &gt;= == !=</code>）不仅重复，还极易出现不一致（比如 <code>&lt;</code> 和 <code>==</code> 用了不同字段），而不一致的比较器喂给 <code>std::sort</code> 是 UB。<code>auto operator&lt;=&gt;(const T&amp;) const = default;</code> 让编译器按成员声明顺序生成一套必然自洽的比较，<code>==</code> 再单独默认生成一个（因为相等常有比三路比较更快的短路实现，如先比 size）。</li>
 </ul>
 <hr>
 <h2 id="sec-4"><span class="num">4.</span>STL</h2>
@@ -2725,6 +2810,15 @@ int main() {
 </tbody>
 </table>
 </div>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>auto</code> 为什么要丢弃顶层 const 和引用？</strong> 因为 <code>auto</code> 复用的是模板实参推导规则，而按值传参本来就是拷贝 —— 拷贝出来的新对象是否 const、是否是引用，与源对象无关。<code>const int&amp; r = x; auto a = r;</code> 推出 <code>int</code>，正是「我拿一份副本」的语义。要保留就写 <code>auto&amp;</code>、<code>const auto&amp;</code> 或 <code>decltype(auto)</code>。</li>
+<li><strong><code>decltype(x)</code> 和 <code>decltype((x))</code> 为什么不一样？</strong> 前者作用于<strong>标识符</strong>，得到声明类型 <code>int</code>；后者 <code>(x)</code> 是<strong>表达式</strong>，而 <code>x</code> 作为表达式是左值，规则规定对左值表达式推出 <code>T&amp;</code>，于是得到 <code>int&amp;</code>。这条区别是 <code>decltype(auto)</code> 完美返回的基础，也是常见坑：多写一层括号就从返回值变成返回引用。</li>
+<li><strong><code>nullptr</code> 到底解决了什么？</strong> <code>NULL</code> 通常是 <code>0</code> 或 <code>0L</code> 的宏，类型是整数，所以 <code>f(int)</code> 和 <code>f(char*)</code> 同时存在时 <code>f(NULL)</code> 会选中整数版本，与直觉相反。<code>nullptr</code> 的类型是独立的 <code>std::nullptr_t</code>，能隐式转任意指针但<strong>不能</strong>转整数，重载决议因此唯一确定。</li>
+<li><strong><code>constexpr</code> 和 <code>const</code> 的区别？</strong> <code>const</code> 只承诺「不通过这个名字修改」，值可以来自运行期（<code>const int n = rand();</code> 合法）；<code>constexpr</code> 要求编译期就能求出值，因此才能用作数组长度、模板实参、<code>case</code> 标签。<code>constexpr</code> 函数则是「<strong>允许</strong>在编译期求值」，实参不是常量时它照样退化为普通运行期函数。</li>
+<li><strong>移动构造为什么必须加 <code>noexcept</code>？</strong> <code>vector</code> 扩容时要把旧元素搬到新内存。若移动构造可能抛异常，搬到一半失败就既回不去（旧内存已被移空）也走不下去，无法提供强异常保证；所以标准库用 <code>move_if_noexcept</code>，检测到移动<strong>可能抛</strong>就<strong>退化为拷贝</strong>。少写一个 <code>noexcept</code>，扩容性能可能从 O(n) 次移动变成 O(n) 次深拷贝。</li>
+<li><strong><code>enum class</code> 比 <code>enum</code> 好在哪？</strong> 传统 <code>enum</code> 的枚举值会泄漏到外层作用域（两个 enum 各有一个 <code>Red</code> 就冲突），且能隐式转 int（<code>if (color == 3)</code> 这种无意义比较编译得过）。<code>enum class</code> 有独立作用域、不隐式转换，把这两类错误变成编译错误。</li>
+</ul>
 <h3 id="sec-6-2">6.2 static 的五种用法（字节原题）</h3>
 <ol type="1">
 <li><strong>函数内局部静态变量</strong>：只初始化一次，生命周期到进程结束，存 <code>.data</code>/<code>.bss</code>；C++11 起初始化线程安全（编译器生成 guard 变量 + <code>__cxa_guard_acquire</code>）。</li>
@@ -2734,6 +2828,13 @@ int main() {
 <li><strong><code>static</code> 修饰的类内常量</strong>：<code>static constexpr int N = 10;</code> 编译期常量，可用于数组大小。</li>
 </ol>
 <p><strong>编译器层面</strong>：局部 static 变量在汇编里就是一个带 guard 字节的全局符号，函数每次进入检查 guard；静态成员变量就是一个带类名修饰的全局符号。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>局部 static 的线程安全是怎么做到的？</strong> 编译器为它生成一个 guard 变量，进入函数时先原子检查 guard：未初始化则调 <code>__cxa_guard_acquire</code> 上锁初始化，已初始化则直接跳过。C++11 之前标准没规定这一点，所以老代码里的「懒汉单例」需要自己加双检锁；C++11 之后 Meyers 单例（函数内 <code>static T inst;</code>）本身就是线程安全的最简写法。</li>
+<li><strong>为什么推荐匿名命名空间而不是 <code>static</code>？</strong> 两者都给符号内部链接，但 <code>static</code> 修饰的类型无法作为模板实参（C++11 前），而匿名命名空间对<strong>类型、模板、变量、函数</strong>一视同仁，语义统一。此外匿名命名空间里的符号仍有唯一名字，调试时能看到，<code>static</code> 的则更难定位。</li>
+<li><strong>类静态成员变量为什么要类外定义？</strong> 类内的是<strong>声明</strong>，不分配存储；类定义通常在头文件里被多个 TU 包含，若类内即定义就会产生多重定义违反 ODR。类外定义放在唯一一个 cpp 里，保证全程序只有一份。C++17 的 <code>inline static</code> 用 inline 的 ODR 豁免解决了这个问题，才允许类内初始化。</li>
+<li><strong>静态成员函数为什么能当回调函数指针，普通成员函数不能？</strong> 普通成员函数有隐藏的 <code>this</code> 参数，其类型是 <code>R (C::*)(Args)</code>，与 C 风格的 <code>R (*)(Args)</code> 根本不是一种类型，也无法在没有对象的情况下调用。静态成员函数没有 <code>this</code>，签名与普通函数完全一致，所以能直接传给 C API。</li>
+</ul>
 <h3 id="sec-6-3">6.3 inline、extern、volatile、explicit、mutable</h3>
 <ul>
 <li><strong><code>inline</code></strong>：C++ 中真正的作用是<strong>允许多重定义</strong>（ODR 例外），让函数 / 变量（C++17）能定义在头文件里被多个 TU 包含；是否内联展开由编译器决定，<code>inline</code> 只是提示。类内定义的成员函数隐式 inline。</li>
@@ -2741,6 +2842,13 @@ int main() {
 <li><strong><code>volatile</code></strong>：禁止编译器把变量缓存在寄存器或优化掉读写，每次访问都真的读写内存。用于硬件寄存器、信号处理中的标志。<strong>不提供原子性和内存序</strong>，多线程同步用 <code>atomic</code>，不要用 volatile。</li>
 <li><strong><code>explicit</code></strong>：见 3.3。</li>
 <li><strong><code>mutable</code></strong>：允许在 const 成员函数中修改该成员，用于缓存和互斥锁。</li>
+</ul>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>inline</code> 既然不保证内联，那关键字还有什么用？</strong> 它真正的作用是 ODR 豁免：允许同一个函数 / 变量在多个 TU 中出现定义，链接器把重复符号合并成一份，从而使函数能定义在头文件里。是否展开是优化器根据函数体大小、调用频率、是否递归自行决定的，跟这个关键字没有必然联系。</li>
+<li><strong><code>volatile</code> 为什么不能用于多线程同步？</strong> 它只做一件事：禁止编译器把该变量缓存进寄存器或优化掉冗余读写。但它<strong>不保证原子性</strong>（<code>v++</code> 仍是读-改-写三条指令，可被中断）、<strong>不建立内存序</strong>（不阻止 CPU 乱序执行，也不发出任何缓存一致性屏障）。多线程需要的恰恰是后两者，所以必须用 <code>atomic</code>。<code>volatile</code> 的正当用途只有内存映射硬件寄存器和信号处理函数里的 <code>sig_atomic_t</code> 标志。</li>
+<li><strong><code>mutable</code> 为什么不算破坏 const 语义？</strong> const 成员函数承诺的是<strong>逻辑上</strong>不改变对象的可观察状态，而不是物理上一个字节都不动。缓存计算结果、给 const 的读操作加互斥锁，都不改变对象对外表现出的值，却必须写成员 —— <code>mutable</code> 就是为这类「物理写、逻辑只读」的场景准备的。滥用它去改真正的业务字段才是破坏 const。</li>
+<li><strong><code>extern "C"</code> 到底改了什么？</strong> 只改<strong>名字修饰方式</strong>，让编译器按 C 规则生成符号（<code>add</code> 而不是 <code>_Z3addii</code>），使 C 代码能链接到。它不改变调用约定之外的任何 C++ 特性，但因为 C 符号不含参数类型，被它包住的函数<strong>不能重载</strong> —— 两个重载会生成同名符号，链接冲突。</li>
 </ul>
 <h3 id="sec-6-4">6.4 模板基础</h3>
 <ul>
@@ -3079,6 +3187,14 @@ int main() {
     std::cout &lt;&lt; "硬件并发数 " &lt;&lt; (std::thread::hardware_concurrency() &gt; 0) &lt;&lt; "\n";
 }</code></pre>
 <p><strong>协程</strong>：用户态调度的”线程”，切换只保存少量寄存器（几十 ns），一个线程可跑百万协程；阻塞 IO 要配合非阻塞 + 事件循环。有栈协程（libco、goroutine）vs 无栈协程（C++20 coroutine，编译器把函数变成状态机）。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>线程池开多少线程？</strong> CPU 密集型约等于核数（<code>hardware_concurrency()</code>），因为再多也没有空闲核来跑，只会增加上下文切换和缓存抖动；IO 密集型约等于 <code>核数 × (1 + 等待时间/计算时间)</code>，因为线程大部分时间阻塞在 IO 上不占 CPU，需要更多线程才能把核喂饱。公式只用来定初值，真实值必须压测 —— 它假设了所有任务同质，而现实负载往往不是。</li>
+<li><strong><code>join</code> 和 <code>detach</code> 为什么必须二选一？</strong> <code>std::thread</code> 析构时若仍 <code>joinable()</code>，标准规定直接 <code>std::terminate()</code>。这是有意为之：默认 join 会让析构函数悄悄阻塞（析构里做长时间等待是灾难），默认 detach 又会让线程访问已销毁的栈对象。两种默认都危险，所以标准强迫你显式表态。C++20 的 <code>std::jthread</code> 选择了「析构自动 join + 配合 <code>stop_token</code> 请求退出」，让 join 语义变得安全可用。</li>
+<li><strong><code>detach</code> 之后为什么容易出悬垂？</strong> detach 只是断开了 <code>thread</code> 对象与执行线程的关联，线程本身继续跑。主线程一旦返回，它栈上的局部变量全部析构，而被 detach 的线程若捕获了这些变量的引用或指针，就在访问已释放内存。所以 detach 的线程只能碰堆上的、有独立生命周期的数据（如 <code>shared_ptr</code> 拷贝）。</li>
+<li><strong>一个线程崩溃为什么整个进程都挂？</strong> 段错误是发给<strong>进程</strong>的信号（SIGSEGV），默认行为是终止整个进程，而不是某个线程。更根本的原因是线程共享同一个地址空间：一个线程写坏了堆或全局数据，其他线程随时会踩到，即使不立刻崩也已经不可信。需要故障隔离的场景（浏览器渲染、插件宿主）因此用多进程而不是多线程。</li>
+<li><strong>进程间通信哪种最快，为什么？</strong> 共享内存。其他方式（管道、消息队列、socket）都要把数据从发送方用户空间拷进内核缓冲区、再拷到接收方用户空间，至少两次拷贝加两次系统调用；共享内存把同一段物理页映射进两个进程的页表，读写就是普通内存访问，零拷贝零系统调用。代价是它不自带同步，需要自己用信号量或 futex 保护。</li>
+</ul>
 <h3 id="sec-8-2">8.2 同步原语</h3>
 <div class="table-wrap">
 <table>
@@ -3153,6 +3269,14 @@ public:
     }
 };</code></pre>
 <p><strong>为什么会虚假唤醒</strong>：<code>futex_wait</code> 可能被信号中断返回，或 <code>notify_one</code> 与多个等待者的竞争，POSIX 明确允许，所以标准要求用循环检查条件。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>lock_guard</code> / <code>unique_lock</code> / <code>scoped_lock</code> 怎么选？</strong> 默认用 <code>lock_guard</code>：它只有一个成员且构造即加锁、析构即解锁，没有任何运行期状态，是零开销的。需要延迟加锁、中途 <code>unlock</code>、转移锁所有权、或配合条件变量时才用 <code>unique_lock</code> —— 它多存一个「是否持有」的标志，<code>cv.wait</code> 必须能在等待期间解锁再重新加锁，所以只接受 <code>unique_lock</code>。一次锁多把互斥量用 <code>scoped_lock</code>（C++17），它内部用 <code>std::lock</code> 的 try-and-backoff 算法，避免固定顺序加锁带来的死锁。</li>
+<li><strong><code>notify_one</code> 和 <code>notify_all</code> 怎么选？</strong> 只有当所有等待者等的是<strong>同一个条件</strong>、且每次只有一个能继续时（典型如队列出队一个元素）才能用 <code>notify_one</code>。如果等待者的谓词不同，<code>notify_one</code> 可能唤醒一个谓词仍为假的线程，它检查后继续睡，而这次通知就<strong>永久丢失</strong>了 —— 真正该醒的线程还在等。这种情况必须 <code>notify_all</code>，让所有线程自己检查谓词。</li>
+<li><strong>为什么建议在锁外 <code>notify</code>？</strong> 持锁通知时，被唤醒的线程第一件事是重新获取那把锁，而锁还在通知者手里，于是它立刻又阻塞一次（hurry up and wait），多了一轮无谓的上下文切换。注意前提：<strong>状态修改必须在锁内完成</strong>，只把 <code>notify</code> 挪到锁外。</li>
+<li><strong>为什么 <code>wait</code> 必须带谓词？</strong> 两个原因。一是虚假唤醒 —— 底层 <code>futex_wait</code> 可能被信号打断而提前返回，POSIX 明确允许，标准因此不保证 <code>wait</code> 返回时条件成立。二是丢失唤醒的补救 —— 谓词版本在进入等待<strong>之前</strong>先检查一次条件，如果通知发生在你调用 <code>wait</code> 之前，谓词为真就直接不等了。无谓词的裸 <code>wait</code> 这两种情况都会挂死。</li>
+<li><strong>互斥锁到底多贵？</strong> 无竞争时就是一次用户态原子 CAS，几十纳秒，根本不进内核。只有 CAS 失败（真的有竞争）才走 <code>futex</code> 系统调用把线程挂起，代价跳到微秒级。所以「锁很慢」的说法不准确，慢的是<strong>竞争</strong>。推论：临界区要短；但短到只有几十纳秒时，自旋锁反而更划算，因为这时挂起 / 唤醒的开销已经超过忙等本身。</li>
+</ul>
 <h3 id="sec-8-3">8.3 原子操作与内存序</h3>
 <ul>
 <li><strong>CAS</strong>：<code>compare_exchange(expected, desired)</code>：若当前值等于 expected 则写入 desired 返回 true，否则把当前值写回 expected 返回 false。硬件上是 <code>lock cmpxchg</code>（x86）或 LL/SC（ARM）。所有无锁结构的基石。</li>
@@ -3239,9 +3363,25 @@ int main() {
 }</code></pre></details>
 <p>上面 <code>LockFreeStack::pop</code> 是<strong>故意留了坑</strong>的版本，面试时要主动指出来：两个线程同时 <code>pop</code>，A 读到 <code>old = head</code>，还没 CAS 就被切走；B 把该节点 pop 并 <code>delete</code>，再 push 回一个地址相同的新节点；A 恢复后 CAS 比较地址发现”没变”而成功，但 <code>old-&gt;next</code> 读的是已释放内存 —— 这就是 ABA 叠加悬垂指针。生产级实现要靠 hazard pointer 或 epoch-based reclamation 延迟回收。<strong>能说出这一点，比写出一个”看起来能跑”的无锁栈重要得多。</strong></p>
 <p><strong>内存序怎么选</strong>：纯计数器（如引用计数的增加、统计量）用 <code>relaxed</code>；用一个标志位发布数据用 <code>release</code>/<code>acquire</code> 配对；拿不准就用默认的 <code>seq_cst</code>，先正确再优化。x86 上 acquire/release 几乎零成本（硬件本身就是强序），但在 ARM 上是真实开销，所以在 arm64 服务器上写错内存序更容易暴露。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>relaxed</code> 什么时候够用？</strong> 只需要「计数不丢」而不关心与其他数据的先后关系时，比如统计计数器、<code>shared_ptr</code> 的引用计数<strong>递增</strong>（递增只可能发生在你已经持有一个有效引用的时候，不需要同步任何别的数据）。但引用计数<strong>递减</strong>必须是 <code>acq_rel</code> 或在归零时补一个 <code>acquire</code> 屏障 —— 因为最后一个减到 0 的线程要执行析构，它必须能看到其他线程在放弃引用之前对对象做的所有写入，否则析构读到的是过期数据。</li>
+<li><strong><code>compare_exchange_weak</code> 为什么允许伪失败？</strong> ARM / PowerPC 等平台用 LL/SC（Load-Linked / Store-Conditional）实现 CAS，只要这段期间发生上下文切换、中断，或该缓存行被别的核碰过，SC 就会失败 —— 哪怕值一个字节都没变。<code>weak</code> 把这种失败暴露出来，换取不必生成额外的重试循环指令；因为 CAS 本来就要写在 <code>while</code> 循环里，伪失败无非多转一圈。反过来，如果你只想试一次（不在循环里），必须用 <code>strong</code>，否则会把伪失败误判成「值被改了」。</li>
+<li><strong><code>volatile</code> 能替代 <code>atomic</code> 吗？</strong> 不能，而且是两个维度上都不能。原子性：<code>v++</code> 编译出来仍是读、改、写三条指令，中间可被打断，<code>volatile</code> 只保证这三次访存不被优化掉，不保证它们是一个不可分割的操作。内存序：<code>volatile</code> 不发出任何屏障指令，既不阻止编译器重排周围的<strong>非 volatile</strong> 访问，也不阻止 CPU 乱序和写缓冲延迟，别的核可能长时间看不到你的写。Java 的 volatile 有内存语义，C++ 的没有，这是最常见的混淆来源。</li>
+<li><strong>无锁一定比有锁快吗？</strong> 不一定，高竞争下往往更慢。CAS 失败要重试，多个核反复对同一缓存行做 RMW 会导致缓存行在核间乒乓（每次独占都要让其他核失效），CPU 被烧在重试上；而互斥锁在竞争激烈时会把线程挂起，让出核给别人干活。无锁的真正价值不是吞吐，而是<strong>无阻塞保证</strong>（某个线程被抢占或崩溃不会永久拖死其他线程）和<strong>尾延迟可预测</strong>（不会出现持锁线程被换出导致的长尾）。</li>
+<li><strong>ABA 为什么只在带指针的无锁结构里致命？</strong> 对纯计数器，值从 A 变 B 再变回 A，CAS 认为「没变」在语义上通常无害。但对指针，地址相同不代表指向的还是同一个对象 —— 内存被释放后重新分配很容易拿到同一地址，此时 CAS 成功，而你手里 <code>old-&gt;next</code> 读的是已被回收的内存。解决方向都是「让地址不被这么快复用」：带版本号的双字 CAS（地址+计数一起比）、hazard pointer、epoch-based reclamation。</li>
+</ul>
 <h3 id="sec-8-4">8.4 死锁</h3>
 <p><strong>四个必要条件</strong>：互斥、持有并等待、不可抢占、循环等待。破坏任一即可避免。</p>
 <p><strong>实践手段</strong>：固定加锁顺序（按地址排序）、<code>std::scoped_lock(m1, m2)</code> 一次锁多把（内部用 try-lock 回退算法）、<code>try_lock</code> + 超时、缩小锁范围、避免在持锁时调用回调 / 未知代码、用锁层级检测工具（TSan、<code>-fsanitize=thread</code>）。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>四个条件里为什么实践中总是破坏「循环等待」？</strong> 另外三个基本动不了：互斥是锁的本质；不可抢占如果强行破坏（随意剥夺别人的锁）会让临界区失去意义；持有并等待要求一次性申请全部资源，在锁的种类由运行期数据决定时根本做不到。只有循环等待可以用一条不影响正确性的纪律消除 —— 全局固定一个加锁顺序，环就形成不了。</li>
+<li><strong><code>std::scoped_lock(m1, m2)</code> 凭什么不死锁？</strong> 它不按固定顺序硬锁，而是用 try-and-backoff：先锁住第一把，其余用 <code>try_lock</code>；只要有一把失败，就<strong>把已持有的全部释放</strong>，然后从失败的那把重新开始。因为不存在「持有 A 等待 B」的状态，循环等待条件不成立。代价是竞争激烈时可能反复回退。</li>
+<li><strong>为什么持锁时不能调用回调 / 用户代码？</strong> 你不知道那段代码会做什么。它可能去拿另一把锁（顺序不受你控制，直接构成环）、可能重新调用你的接口造成自死锁、也可能阻塞在 IO 上把你的临界区拖到毫秒级。规避方式是把回调移出临界区：在锁内把需要的数据拷出来，解锁后再调。</li>
+<li><strong>递归锁为什么被认为是坏味道？</strong> 它能工作，但它掩盖的是「我不知道调用这个函数时是否已经持有锁」——也就是不变量的边界没想清楚。而且递归锁下，函数返回时对象<strong>不一定</strong>回到一致状态（外层还在临界区中间），依赖「函数返回即状态一致」的代码会出错。正确做法通常是把函数拆成加锁的公有版和不加锁的私有版。</li>
+<li><strong>怎么定位线上的死锁？</strong> <code>gdb -p &lt;pid&gt;</code> 后 <code>thread apply all bt</code>，看哪些线程卡在 <code>__lll_lock_wait</code> / <code>pthread_mutex_lock</code>，顺着栈就能还原出各自持有和等待的锁，环一目了然。事前预防用 TSan（<code>-fsanitize=thread</code>），它维护锁的获取顺序图，即使这次没真的死锁，只要出现了顺序不一致也会报警。</li>
+</ul>
 <h3 id="sec-8-5">8.5 线程安全的单例、线程池</h3>
 <details class="code-card" open=""><summary>98 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;thread&gt;
 #include &lt;mutex&gt;
@@ -3495,7 +3635,7 @@ int main() {
 <div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">int i = 0;
 int a = i++ + ++i;     // C++17 前 UB；C++17 起仍是未指定顺序（unsequenced），不要写
 printf("%d %d\n", i++, i++);   // 参数求值顺序未指定，gcc 和 clang 结果可能不同
-int x = 1; x = x++ + 1;        // C++17 起赋值右侧��求值，结果 x == 2；C++17 前 UB</code></pre>
+int x = 1; x = x++ + 1;        // C++17 起赋值右侧先求值，结果 x == 2；C++17 前 UB</code></pre>
 <p>结论：任何一个表达式里对同一变量修改两次或修改 + 读取，除非有 sequenced-before 关系（<code>&amp;&amp;</code>、<code>||</code>、<code>,</code>、<code>?:</code>、函数调用边界、C++17 的赋值和 <code>&lt;&lt;</code>），都不要写。</p>
 <h3 id="sec-9-12">9.12 字面量与数组</h3>
 <div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">char* s = "abc";       // C++11 起不合法（应为 const char*），gcc 警告后允许
@@ -3504,9 +3644,34 @@ char a[] = "abc";      // 栈上拷贝，可改
 a[0] = 'x';            // OK
 const char* p = "abc"; const char* q = "abc";
 p == q;                // 未指定：编译器通常合并相同字面量，结果 true，但不保证</code></pre>
+<h3 id="sec-9-13">9.13 大小端与位域</h3>
+<pre><code class="language-cpp">#include &lt;cstdio&gt;
+#include &lt;cstdint&gt;
+int main() {
+    // 指针法：小端机器把低位字节放在低地址
+    uint32_t v = 0x12345678;
+    unsigned char* p = reinterpret_cast&lt;unsigned char*&gt;(&amp;v);
+    printf("%02X %02X ", p[0], p[3]);   // x86 / ARM 默认小端：78 12；大端机则是 12 78
+
+    // union 法（字节高频原题）：所有成员共享同一块内存起始地址
+    union U { uint32_t i; char c[4]; } u{0x01020304};
+    printf("%d ", u.c[0]);              // 小端 4（低地址存最低位字节 0x04），大端 1
+
+    // 位域：能压缩空间，但布局是实现定义的
+    struct BF { unsigned a : 1; unsigned b : 3; unsigned c : 4; };
+    printf("%zu\n", sizeof(BF));        // 4：三个域共挤在一个 unsigned 里
+}</code></pre>
+<p><strong>为什么会有大小端之分</strong>：多字节整数在内存里必须决定「最低位字节放前还是放后」，两种选择在硬件上各有道理 —— 小端做类型截断方便（取低 8 位直接读首字节，不用调整地址），大端做数值比较和人眼阅读方便（内存序即书写序）。标准没有规定，所以它是平台属性。x86、ARM（默认）是小端，早期 SPARC、PowerPC 和网络协议是大端。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么网络传输要转字节序？</strong> TCP/IP 协议族规定网络字节序为大端，而主机可能是小端，双方若各按本地序解释同一段字节，读出的数就不是一个数。所以发送前 <code>htons/htonl</code>、接收后 <code>ntohs/ntohl</code>。这几个函数在大端机上是空操作，所以无脑加上不会有额外代价。C++20 起可以用 <code>std::endian::native</code> 在编译期判断。</li>
+<li><strong><code>union</code> 读取非最后写入的成员，标准上合法吗？</strong> 在 C++ 里是<strong>未定义行为</strong>（C 语言明确允许这种 type punning，C++ 没有跟进），只是所有主流编译器都按你期望的方式实现了，所以代码「能跑」。要写合规代码应该用 <code>std::bit_cast</code>（C++20）或 <code>std::memcpy</code> —— 后者被编译器识别为类型双关的惯用法，<code>-O2</code> 下会优化成一条 mov，零开销。</li>
+<li><strong>位域为什么不能用于跨平台的协议解析？</strong> 标准没有规定位域在存储单元内的<strong>分配方向</strong>（从高位还是低位开始填）、是否允许跨存储单元、以及填充规则，全部是实现定义的。同一份结构体在 GCC/x86 和某个嵌入式编译器上布局可能完全不同。协议解析要手写移位和掩码。</li>
+<li><strong>怎么在编译期判断大小端？</strong> C++20 用 <code>if constexpr (std::endian::native == std::endian::little)</code>。C++20 之前没有合规的办法 —— <code>union</code> 法是 UB，<code>reinterpret_cast</code> 法不是常量表达式，所以实践中靠构建系统传宏（<code>__BYTE_ORDER__</code> / <code>__ORDER_LITTLE_ENDIAN__</code>，GCC 和 Clang 都预定义）。</li>
+</ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_cpp_fundamentals.md</code> 生成 · 2026-09-05 02:31 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_cpp_fundamentals.md</code> 生成 · 2026-09-07 09:33 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
