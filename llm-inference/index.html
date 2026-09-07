@@ -4,8 +4,8 @@
 <title>llm inference</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_llm_inference.md">
-<meta name="source-sha256" content="282c1a12ce0e2eec">
-<meta name="generated-at" content="2026-09-07 07:19 UTC">
+<meta name="source-sha256" content="a82e767085f93482">
+<meta name="generated-at" content="2026-09-07 07:40 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -569,7 +569,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
+<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -578,7 +578,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">推理基础、引擎机制、kernel、量化、并行、MoE，附公开面经原题与高频考点清单</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_llm_inference.md</code></span>
-    <span><strong>生成</strong> 2026-09-07 07:19 UTC</span>
+    <span><strong>生成</strong> 2026-09-07 07:40 UTC</span>
   </div>
 </header>
 
@@ -1343,7 +1343,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <p><strong>追问链</strong></p>
 <ul>
 <li><strong>CUDA Graph 为什么对 decode 有效对 prefill 无效？</strong> decode 每步形状固定（batch × 1）且 kernel 极短，launch 开销（每个几微秒）相对显著；prefill 形状随 prompt 变化且 kernel 长，launch 开销可忽略。</li>
-<li><strong>CUDA Graph 的限制？</strong> 录制期间的形状、指针地址必须固定，所以输入 buffer 要预分配并复用；不能有 CPU 同步（如 <code>.item()</code>）；显存池要独立。</li>
+<li><strong>CUDA Graph 的限制？</strong> 录制期间的形状、指针地址必须固定，所以输入 buffer 要预分配并复用；不能有 CPU 同步（如 <code>.item()</code>）；显存池要独立。它也只消掉 CPU 侧的 launch 开销，kernel 边界上的尾波和跨 kernel 预取损失要靠 megakernel 才能动（8.6）。</li>
 <li><strong>调度开销怎么量化？</strong> 用 nsys 看 GPU 时间线的空隙，或比较”每步 GPU kernel 总时间”和”每步 wall time”。</li>
 </ul>
 <h3 id="sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</h3>
@@ -1932,14 +1932,14 @@ def online_softmax_attention(q, k, v, block=64):
 <ul>
 <li><strong>Prefill</strong>：4 节点 32 卡 H800，attention 用 TP4 + SP，MoE 用 EP32；每卡 9 个专家（256 / 32 = 8 个 + 1 个冗余热门专家），冗余专家每 10 分钟按统计重排；两个 micro-batch 交替，一个做 attention 时另一个做 all-to-all，隐藏通信。</li>
 <li><strong>Decode</strong>：40 节点 320 卡，attention TP4 + SP，MoE EP320，每卡 1 个专家（其中 64 卡放冗余专家和共享专家）；用 IB 直接点对点 all-to-all（DeepEP 库，低延迟模式）。</li>
-<li>2025 年 2 月开源周公布的线上系统：prefill EP32（4 节点，每卡 9 个路由专家 + 1 个共享专家），decode <strong>EP144</strong>（18 节点，每卡 2 个路由专家 + 1 个共享专家），比论文里的 EP320 小；H800 集群 prefill 每节点 73.7K token/s 输入，decode 每节点 14.8K token/s 输出；日均输入 6080 亿 token，其中 56.3% 命中 KV cache；峰值 278 节点；配套 DeepEP（all-to-all 库）、DeepGEMM（FP8 grouped GEMM，H800 上 1350+ TFLOPS）、EPLB（专家负载均衡）。</li>
+<li>2025 年 2 月开源周公布的线上系统：prefill EP32（4 节点，每卡 9 个路由专家 + 1 个共享专家），decode <strong>EP144</strong>（18 节点，每卡 2 个路由专家 + 1 个共享专家），比论文里的 EP320 小；H800 集群 prefill 每节点 73.7K token/s 输入，decode 每节点 14.8K token/s 输出；日均输入 6080 亿 token，其中 56.3% 命中 KV cache；峰值 278 节点；配套 DeepEP（all-to-all 库）、DeepGEMM（FP8 grouped GEMM，H800 上 1350+ TFLOPS，现版本 README 报到 1550）、EPLB（专家负载均衡）；这几个库的内部机制见 8.7。</li>
 <li>SGLang 团队在 96 张 H100 上复现：prefill 4 节点 EP32 每节点约 52K token/s 输入，decode 9 节点 EP72 每节点约 22K token/s 输出，分别比 TP16 高 3.3 倍和 5.2 倍；两 micro-batch 重叠（TBO）和 EPLB 是主要收益来源。</li>
 </ul>
 <p><strong>追问链</strong></p>
 <ul>
 <li><strong>EP 和 TP 对 MoE 谁更好？</strong> TP 切每个专家（每卡所有专家的 1/TP），通信是 all-reduce，专家的 GEMM 更碎；EP 整专家放一卡，GEMM 完整但需要 all-to-all 且负载不均。大规模部署用 EP（可能加 TP），小规模（单机 8 卡跑 Mixtral）用 TP 更简单。</li>
-<li><strong>all-to-all 通信量？</strong> 每 token 发 <span class="math inline">k</span> 份 <span class="math inline">d</span> 维激活到 <span class="math inline">k</span> 张卡，与 batch 线性相关（DeepSeek-V3 <span class="math inline">k = 8</span>、<span class="math inline">d = 7168</span>，BF16 下每 token 每层 dispatch 约 115 KB，combine 同量）；跨机时是主要开销，DeepEP 用 NVLink + RDMA 混合并��� FP8 传输。DeepSeek-V3 训练时还限制每个 token 最多路由到 4 个节点（node-limited routing），先选节点再选专家，控制 IB 流量。</li>
-<li><strong>grouped GEMM 是什么？</strong> 多个形状不同（每个专家分到的 token 数不同）的 GEMM 用一个 kernel 完成，CUTLASS 的 grouped GEMM、Triton 实现，避免逐专家 launch 和 padding。</li>
+<li><strong>all-to-all 通信量？</strong> 每 token 发 <span class="math inline">k</span> 份 <span class="math inline">d</span> 维激活到 <span class="math inline">k</span> 张卡，与 batch 线性相关（DeepSeek-V3 <span class="math inline">k = 8</span>、<span class="math inline">d = 7168</span>，BF16 下每 token 每层 dispatch 约 115 KB，combine 同量）；跨机时是主要开销，DeepEP 用 NVLink + RDMA 混合并用 FP8 传输。DeepSeek-V3 训练时还限制每个 token 最多路由到 4 个节点（node-limited routing），先选节点再选专家，控制 IB 流量。</li>
+<li><strong>grouped GEMM 是什么？</strong> 多个形状不同（每个专家分到的 token 数不同）的 GEMM 用一个 kernel 完成，CUTLASS 的 grouped GEMM、Triton 实现，避免逐专家 launch 和 padding。DeepGEMM 为此提供连续、masked、K 轴三种分组布局，分别对应 prefill、decode 和反向（8.7）。</li>
 <li><strong>专家 offload 怎么做？</strong> 单卡跑不下时把冷专家放 CPU 内存，按需预取；或按路由预测提前加载。延迟高，只用于本地小规模推理（如 llama.cpp、KTransformers）。</li>
 <li><strong>共享专家是什么？</strong> 每个 token 都过的专家，承担通用知识，让路由专家更专门化（DeepSeek 的设计）。</li>
 <li><strong>MoE 的 KV cache 有什么不同？</strong> 没有不同，attention 部分与 dense 模型一样；DeepSeek 用 MLA 减小 KV。</li>
@@ -2154,7 +2154,7 @@ for step in 0..P-1:
 <tr>
 <td>GPU 发起的单边通信（NVSHMEM / IBGDA / NCCL Gin）</td>
 <td>GPU 线程直接向对端显存或网卡下发 put，无 CPU 参与、无握手，可与计算 kernel 融合</td>
-<td>DeepEP 的 all-to-all、Flux / Comet 的融合 kernel、Triton-distributed</td>
+<td>DeepEP 的 all-to-all、Flux / Comet 的融合 kernel、Triton-distributed（字节 Seed，见 8.7）</td>
 </tr>
 </tbody>
 </table>
@@ -2554,7 +2554,231 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li>多卡：看通信 kernel（<code>ncclAllReduce</code>）占比，是否与计算重叠。</li>
 <li>常见元凶：非合并访存、shared memory bank conflict、寄存器 spill（<code>-Xptxas -v</code> 看）、隐式的 host-device 同步（<code>.item()</code>、<code>.cpu()</code>、打印）、显存分配器抖动（<code>torch.cuda.memory_stats</code>）。</li>
 </ol>
-<h3 id="sec-8-6">8.6 手撕题清单（CUDA / 性能方向）</h3>
+<h3 id="sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</h3>
+<p><strong>问题</strong>：8.4 的融合是一对一对地消 kernel 边界，但 decode 一步仍要 launch 上百个 kernel（MPK 实测 Qwen3-8B 每 token <strong>293 次 launch</strong>）。每个边界有三笔账：</p>
+<ol type="1">
+<li><strong>launch 与 teardown</strong>：eager 模式下 293 次 launch 约 1.1 ms，CUDA graph 能压到 0.2 ms——<strong>只有这一笔能被 CUDA graph 消掉</strong>。</li>
+<li><strong>尾波（tail effect）</strong>：kernel 结束前最后一波 block 占不满所有 SM，空转等着退出。</li>
+<li><strong>跨 kernel 无法预取</strong>：下一个 kernel 的权重要等上一个完全结束才开始搬。decode 是纯 memory-bound，这一笔最贵——Hazy Research 实测 vLLM 和 SGLang 在 H100 上<strong>只用到约 50% 的显存带宽</strong>，剩下的都耗在边界上。</li>
+</ol>
+<p><strong>是什么</strong>：把整个前向（甚至跨层、跨 GPU）编成<strong>一个</strong> persistent kernel，SM 启动后不退出，内部靠 GPU 上的指令队列和计数器驱动。这样权重预取、计算、通信可以跨”原本的 kernel 边界”流水起来。</p>
+<p><strong>两条技术路线</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>手写指令解释器</th>
+<th>编译器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>代表</td>
+<td>ThunderKittens Megakernels（Stanford Hazy Research）</td>
+<td>Mirage Persistent Kernel（MPK，CMU / UW / Berkeley / NVIDIA / 清华）</td>
+</tr>
+<tr>
+<td>抽象</td>
+<td>把前向拆成若干条 <strong>instruction</strong>，每条自带 load / compute / store 三段；每个 SM 跑一个 interpreter 从队列里取指令执行</td>
+<td>把算子拆成 SM 粒度的 <strong>task</strong>，task 之间用 <strong>event</strong> 连接，得到 ttGraph</td>
+</tr>
+<tr>
+<td>同步</td>
+<td>计数器：指令完成时加一，指令启动前等计数器到目标值</td>
+<td>device memory 上的原子信号量，去中心化调度</td>
+</tr>
+<tr>
+<td>代价</td>
+<td>每换一个模型要重写指令集</td>
+<td>编译期开销，需要 superoptimizer 生成 task 代码</td>
+</tr>
+<tr>
+<td>接口</td>
+<td>直接调 kernel</td>
+<td><code>torch.compile(backend=MPK)</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>ThunderKittens megakernel 的数字</strong>（低延迟场景，batch 1）</p>
+<ul>
+<li>Llama-1B，7 类指令（RMSNorm+QKV+RoPE、attention、attention 归约、O 投影+残差、RMSNorm+up/gate+SiLU、down 投影+残差、RMSNorm+LM head）：H100 上单次前向 <strong>&lt; 1 ms</strong>，比 vLLM 快约 <strong>2.5 倍</strong>、比 SGLang 快 <strong>1.5 倍以上</strong>，显存带宽利用率 <strong>78%</strong>（对比 ≤ 50%）。</li>
+<li>B200 上约 600 微秒的分解：激活存取与一致性等待 250 μs、RMSNorm 与矩阵向量 200 μs（其中 95% 是 matvec，即真正干活的部分）、权重加载 30 μs、同步 40 μs、指令屏障与页管理等 80 μs。</li>
+<li>两个关键机制：<strong>shared memory 分页</strong>——213 KB 切成 13 个 16 KiB 页，指令按需申请释放，下一条指令的权重能在上一条还没结束时就开始搬；<strong>分块交付</strong>——MLP 的中间结果分 4 块、每块一个计数器，down 投影不用等整个 up/gate 算完。</li>
+<li>TP 版（Llama-70B，8 × H100）：9 条融合指令，其中把 attention 之后的 <strong>distributed transpose</strong> 换掉 TP 的 O 投影（改成复制的 DP 版本），8 卡下网络流量降到 <strong>1/8</strong>，代价是每卡多 9 GB、最大 batch 降约 15%；跨卡用 CUDA unified memory 的 PGL 抽象由 SM 直接异步写，<strong>不走 NCCL</strong>。ShareGPT 65536 条 prompt 上总吞吐 23468 vs SGLang 19170 tok/s，<strong>+22.3%</strong>。消融：关掉指令流水 −6.1%，关掉全局工作队列 −14.2%，关掉交错 −6.4%。</li>
+</ul>
+<p><strong>MPK 的数字</strong>（编译器路线）</p>
+<ul>
+<li>SM 分工：H100 上 <strong>128 个 worker + 16 个 scheduler</strong>（共 132 个 SM），A100 是 104 + 16，B200 是 144 + 16；scheduler 每 SM 4 个 warp，调度开销占总运行时 <strong>0.28%</strong>。</li>
+<li>编译流程：算子分解（每个算子平均 32 到 47 个 task）→ 依赖分析 → <strong>event fusion</strong>（把 6.9 万到 16.2 万对 task 依赖压成 1142 到 2366 个 event，37 到 118 倍）→ 归一化（每个 task 至多一进一出）→ 线性化（footprint 降 4.4 到 15 倍）。</li>
+<li>效果：Qwen3-1.7B / 8B / 30B-A3B 在 A100 / H100 / B200 上比 vLLM、SGLang 快 <strong>1.0 到 1.7 倍</strong>（模型越小、硬件越新收益越大）；Qwen3-8B 在 A100 上每 token <strong>12.5 ms vs 14.5 ms</strong>，硬件下界约 10 ms；8 卡 TP 下比 SGLang / vLLM 快 1.1 到 1.4 倍。通信被统一表示成 task（NVSHMEM 的 signal-wait），调度器自动和计算重叠。</li>
+<li>任务启动分两种：<strong>AOT</strong>（依赖满足前就预先入队，延迟低但分配是静态的）和 <strong>JIT</strong>（依赖满足后再入队，能适应负载不均但延迟高），按算子执行时间是否数据相关来选。</li>
+</ul>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>和 CUDA graph 有什么区别？</strong> CUDA graph 只消掉上面第 1 笔（CPU 侧 launch），kernel 还是一个个串行起停，尾波和跨 kernel 预取的损失一分不少。megakernel 动的是第 2、3 笔。所以两者不是替代关系，是 CUDA graph 已经做完之后还剩下的那部分。</li>
+<li><strong>什么时候没收益？</strong> batch 大、prefill、compute-bound：kernel 本身够长，边界占比被摊薄；这时候该关心的是 tensor core 利用率而不是边界。megakernel 的主场是 <strong>小 batch 低延迟 decode</strong>，以及形状动态（变长序列、MoE 路由）导致 CUDA graph 不好用的场景。</li>
+<li><strong>grid 级同步怎么做？</strong> 不能用 <code>__syncthreads()</code>（只到 block 级），也不宜依赖 cooperative groups 的 grid sync（要求所有 block 同时驻留、限制 occupancy）。做法是 persistent kernel + 全局显存上的原子计数器 / 信号量，配合 <code>__threadfence()</code> 或 release-acquire 语义保证可见性。</li>
+<li><strong>占用率（occupancy）为什么会掉？</strong> 一个 kernel 里所有指令共用一套资源，寄存器数按最耗的那条指令算，shared memory 也要按最大需求预留。所以 megakernel 通常要手工做 shared memory 分页、把寄存器压力大的指令拆细。</li>
+<li><strong>动态形状怎么办？</strong> MPK 对 2 的幂 batch 各编一张 ttGraph，运行时选最近的一张；KV 长度这类连续变化的量通过传元数据张量处理，和 CUDA graph 的做法一样。</li>
+<li><strong>attention 为什么最难塞进去？</strong> split-KV 需要两阶段规约（4.3），第二阶段依赖第一阶段所有块，是天然的全局屏障；Hazy 的做法是把 attention 和 attention 归约拆成两条指令，用计数器串起来。</li>
+<li><strong>生产里用了吗？</strong> 整模型 megakernel 目前还主要在研究和自研栈里；工业界更常见的是<strong>局部 megakernel</strong>，比如 DeepGEMM 的 Mega MoE（把 EP dispatch、两次 GEMM、SwiGLU、EP combine 融成一个，见 8.7 和 11.2）。这个回答比”vLLM 已经用了”安全得多。</li>
+</ul>
+<h3 id="sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</h3>
+<p>这几个库是 2025 到 2026 年 MoE 推理的事实标准，面试里经常以”你知道 X 解决什么问题吗”的形式出现。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>库</th>
+<th>出品</th>
+<th>解决什么</th>
+<th>关键机制</th>
+<th>谁在用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>DeepGEMM</strong></td>
+<td>DeepSeek</td>
+<td>FP8 / FP4 GEMM 与 MoE grouped GEMM</td>
+<td>JIT、细粒度 scaling、CUDA core 两级累加、Mega MoE</td>
+<td>SGLang、vLLM 的 DeepSeek 路径</td>
+</tr>
+<tr>
+<td><strong>DeepEP</strong></td>
+<td>DeepSeek</td>
+<td>MoE 的 all-to-all dispatch / combine</td>
+<td>GPU 发起的单边写（IBGDA / NVSHMEM），normal 与 low-latency 双模式</td>
+<td>SGLang、vLLM（<code>deepep_*</code> 后端）；见 7.3</td>
+</tr>
+<tr>
+<td><strong>MoonEP</strong></td>
+<td>月之暗面</td>
+<td>all-to-all 在<strong>路由倾斜</strong>下的长尾与碎片</td>
+<td>动态冗余专家，保证每 rank 恰好 <span class="math inline">S \times K</span> 个 token</td>
+<td>Kimi K3 训练与推理</td>
+</tr>
+<tr>
+<td><strong>EPLB</strong></td>
+<td>DeepSeek</td>
+<td>专家负载长期不均</td>
+<td>按统计周期性重排 + 冗余专家</td>
+<td>见 7.3</td>
+</tr>
+<tr>
+<td><strong>FlashMLA</strong></td>
+<td>DeepSeek</td>
+<td>MLA 的 prefill / decode kernel</td>
+<td>变长 paged KV、tcgen05</td>
+<td>见 11.2</td>
+</tr>
+<tr>
+<td><strong>FlashAttention-4</strong></td>
+<td>Dao AI Lab</td>
+<td>Blackwell 上的 attention</td>
+<td>针对非对称硬件缩放做算法与流水协同设计，用 CuTe DSL 写</td>
+<td>FlexAttention 的新后端（compute-bound 上比 Triton 版快 1.2 到 3.2 倍）</td>
+</tr>
+<tr>
+<td><strong>FlashInfer</strong></td>
+<td>NVIDIA / UW</td>
+<td>可定制的 attention 引擎</td>
+<td>跑在 FA4 之上，管 block-sparse KV、MoE grouped GEMM、FP4 attention、无排序采样</td>
+<td>vLLM、SGLang 默认 attention 后端之一</td>
+</tr>
+<tr>
+<td><strong>Triton-distributed</strong></td>
+<td>字节 Seed</td>
+<td>通信与计算重叠</td>
+<td>把通信原语放进编译器 IR，AllGather 等拆成异步 copy 后自动生成重叠调度</td>
+<td>字节内部；见 7.8</td>
+</tr>
+<tr>
+<td><strong>FlashKDA</strong></td>
+<td>月之暗面</td>
+<td>KDA 的 prefill kernel</td>
+<td>CUTLASS 实现</td>
+<td>见 11.4</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="deepgemm">DeepGEMM</h4>
+<ul>
+<li><strong>提供什么</strong>：FP8、FP4、BF16 的普通 GEMM，加三种分组布局——<strong>M 轴连续分组</strong>（token 按专家排序后连续排布，训练与 prefill 用）、<strong>masked 分组</strong>（形状固定、用 mask 表示每个专家实际多少 token，专为 decode 配 CUDA graph）、<strong>K 轴分组</strong>（权重反向）。这三种布局对应 MoE 的三种场景，是面试里能直接用的答案。</li>
+<li><strong>细粒度 scaling</strong>：激活是 per-token × per-128-channel 的 1D scale，权重是 per-128×128 block 的 2D scale。SM90 上 scale 是 FP32，SM100 上要求打包成 UE8M0（4 个塞进一个 int32）。</li>
+<li><strong>CUDA core 两级累加（promotion）</strong>：Hopper 的 FP8 tensor core 累加时，尾数积按最大指数右对齐后<strong>只保留最高 14 位</strong>，K 很长时误差会累积。DeepGEMM 每 128 次 FP8×FP8 就把 WGMMA 的结果搬到 CUDA core 上用 FP32 寄存器累加一次。warp specialization 让 TMA 搬运、MMA、promotion 三件事重叠起来，所以这个补偿基本不花时间。<strong>这是”低精度推理为什么还要关心累加精度”的标准答案。</strong></li>
+<li><strong>JIT</strong>：安装时不编译任何 CUDA，运行时按实际形状 JIT。好处是 M、N、K、tile 尺寸、流水级数全部变成编译期常量，编译器能充分展开和排流水；核心 kernel 只有几百行。代价是首次调用有编译延迟，靠磁盘 cache 摊掉。</li>
+<li><strong>数字</strong>：README 报告 H800 上最高 <strong>1550 TFLOPS</strong>（7.3 引用的 1350+ 是早期版本），在各种形状上匹配或超过专家手调库。</li>
+<li><strong>Mega MoE</strong>（SM100）：把 EP dispatch、linear 1（FP8 × FP4）、SwiGLU、linear 2、EP combine <strong>融成一个 mega-kernel</strong>，让 NVLink 通信和 tensor core 计算在 kernel 内部重叠。这是 8.6 说的”局部 megakernel”最典型的生产例子，也是 DeepSeek V4 的推理路径（11.2）。</li>
+</ul>
+<h4 id="moonep">MoonEP</h4>
+<p>月之暗面 2026 年 7 月 29 日随 K3 Open Day 开源（MIT），和 K3 权重、技术报告、FlashKDA、AgentEnv 一起发布。</p>
+<ul>
+<li><strong>解决什么</strong>：DeepEP 这类 all-to-all，各 rank 收到的 token 数由路由决定。一旦路由倾斜，<strong>慢的那张卡拖住整步</strong>，而且形状是动态的——显存碎片累积，极端情况直接 OOM。EPLB 的思路是周期性统计后重排冗余专家，但它跟不上单步的抖动。</li>
+<li><strong>怎么做</strong>：<strong>动态冗余专家</strong>。每个 rank 留 <span class="math inline">B</span> 个 prefetch slot，一个轻量的 GPU planning kernel 直接从当前这一步的 router 输出算出需要哪些远端专家，在线把它们的权重 prefetch 过来。于是无论路由多偏，<strong>每个 rank 恰好处理 <span class="math inline">S \times K</span> 个 token</strong>（<span class="math inline">S</span> 是本 rank 的 token 数，<span class="math inline">K</span> 是 top-k）。</li>
+<li><strong>由此得到的性质</strong>：形状静态且对称 → 没有碎片、调度完全可预测、对 CUDA graph 友好；token 直接写到最终位置，省掉 DeepEP 的边界拷贝，<strong>combine 明显更快</strong>；还有 zero-copy 模式，直接在通信 buffer 上原地算。</li>
+<li><strong>API</strong>：<code>dispatch</code>（把 token 置换成按专家分组的排布，返回 <code>[NvS, H]</code> 加 <code>cu_seqlens</code>）、<code>combine</code>（逆操作）、<code>prefetch_weight</code>、<code>reduce_grad</code>（把冗余专家的梯度规约回 home rank）。训练用 <span class="math inline">B = E/R</span> 全量 slot，推理 <span class="math inline">B</span> 取 3 到 4，溢出时回退到对称内存直接读远端。</li>
+<li><strong>数字</strong>：H20 上 EP8，各倾斜度下通信时间都低于 DeepEP v2；dispatch 与 DeepEP 持平（多了 planning kernel 的开销），combine 明显更快；<strong>迭代时间不随倾斜度变化</strong>，而 DeepEP v2 是随倾斜线性退化并最终 OOM。官方称它是 K3 拿到 2.5 倍 scaling 效率的关键组件之一。</li>
+<li><strong>面试怎么对比</strong>：DeepEP 优化的是<strong>通信本身</strong>（GPU 发起、单边写、NVLink 与 RDMA 分层），MoonEP 优化的是<strong>负载分布</strong>（用冗余把动态形状变成静态）；EPLB 和 MoonEP 都用冗余专家，区别是 <strong>EPLB 按统计周期性重排，MoonEP 每步在线决定</strong>。三者正交，可以叠加。</li>
+</ul>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么 MoE 的 all-to-all 这么难？</strong> 通信量随 batch 线性增长且形状数据相关（7.3），既不能提前分配也不能进 CUDA graph；再加上路由倾斜，木桶效应严重。</li>
+<li><strong>冗余专家的显存代价？</strong> 每个 slot 要放一份专家权重，<span class="math inline">B</span> 个 slot 就是 <span class="math inline">B \times 3 d d_{ff}</span>；推理取 3 到 4 是在”覆盖大部分倾斜”和”显存”之间折中，覆盖不了的走回退路径。</li>
+<li><strong>为什么 grouped GEMM 需要三种布局？</strong> 训练与 prefill 的 token 多，排序后连续排布最省；decode 每个专家可能只有几个 token，形状每步都变，masked 布局把形状固定住才能录 CUDA graph；反向要按 K 轴分组。</li>
+<li><strong>FP8 下 GEMM 的精度问题只有累加吗？</strong> 还有 scale 粒度（per-tensor → per-token / per-block，5.1）和异常值（SmoothQuant / 旋转类方法，5.2）。累加精度是 Hopper tensor core 的硬件限制，属于第三类，容易被漏掉。</li>
+<li><strong>这些库和引擎是什么关系？</strong> 引擎（vLLM / SGLang）负责调度、KV 管理、批处理；这些库提供单点算子。所以”DeepSeek 开源周开源的是引擎吗”的正确回答是：不是，是一组 kernel 库加一个通信库，引擎方把它们接进去。</li>
+</ul>
+<h3 id="sec-8-8">8.8 kernel 怎么写：四层抓手</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>代表</th>
+<th>谁来决定 layout 和 shared memory</th>
+<th>什么时候用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>图编译器</td>
+<td><code>torch.compile</code> / Inductor</td>
+<td>全自动</td>
+<td>逐元素算子融合，先跑一遍看够不够</td>
+</tr>
+<tr>
+<td>tile DSL</td>
+<td>Triton</td>
+<td>编译器决定大部分</td>
+<td>写 fused kernel 的默认选择，开发快，性能到手写的 80% 到 90%</td>
+</tr>
+<tr>
+<td>显式 tile DSL</td>
+<td>TileLang、cuTile</td>
+<td>你说 shared memory 布局、流水级数、warp 怎么分，layout inference 补其余</td>
+<td>Triton 压不出性能、又不想上 CUTLASS 模板</td>
+</tr>
+<tr>
+<td>底层</td>
+<td>CUDA C++、CUTLASS / CuTe（4.4+ 有 Python 的 CuTe DSL，2026 年夏末转正）</td>
+<td>全手动</td>
+<td>GEMM、attention 这类要榨到极限的核心算子；FA4 就是 CuTe DSL 写的</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么不全用 Triton？</strong> Triton 把 layout、shared memory 分配、流水都交给编译器，遇到需要精确控制 tensor core 指令形状（WGMMA / tcgen05）、TMA 多播、warp specialization 的场景压不出性能。GEMM 和 attention 这两类基本都要下到 CuTe 或手写。</li>
+<li><strong>为什么 CUTLASS 要出 Python DSL？</strong> C++ 模板的编译时间和可读性是真实成本；CuTe DSL 保留同样的 layout / tensor 抽象但在 Python 里写，编译快、能和 JAX / PyTorch 直接接。FA4 用它写就是这个原因。</li>
+<li><strong>写完怎么证明它快？</strong> 三件事：对齐正确性（和 PyTorch 参考实现比误差）、量 roofline 位置（<code>ncu</code> 看 DRAM 带宽利用率和 achieved occupancy，2.2、8.5）、和 cuBLAS / FlashAttention 这类基线比同形状的绝对时间。只说”快了 x 倍”不给形状和基线，一定会被追问。</li>
+<li><strong>面试问”你会写 CUDA 吗”该怎么答？</strong> 说清你在哪一层工作过、为什么选那一层、遇到的瓶颈是什么（bank conflict、occupancy、访存不合并、launch 开销），比罗列会用什么工具有说服力得多。</li>
+</ul>
+<h3 id="sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</h3>
 <p>按出现频率排序，每题标注考点：</p>
 <ol type="1">
 <li><strong>向量加 / 逐元素 kernel</strong> 与 grid-stride loop：基本语法、边界检查。</li>
@@ -2578,7 +2802,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <p>128K 上下文下，LLaMA-3-70B 的 KV 是 40 GB（1.3），MHA 的 7B 模型是 64 GB；prefill 的 attention FLOPs 是 <span class="math inline">4 L s^2 d</span>，<span class="math inline">s = 128K</span> 时约 <span class="math inline">4 \times 80 \times 1.7 \times 10^{10} \times 8192 \approx 4.5 \times 10^{16}</span>，H100 上要几十秒。所以长上下文要同时解决 <strong>prefill 时间</strong>、<strong>KV 显存</strong> 和 <strong>decode 时读 KV 的带宽</strong> 三个问题。</p>
 <h3 id="sec-9-2">9.2 Prefill：context parallel</h3>
 <ul>
-<li><strong>Ring Attention</strong>：把序列切到 <span class="math inline">n</span> 张卡，每卡持有自己那段的 Q 和 KV；KV 块在卡之间环形传递，每卡对经过的每个 KV 块做一次 online softmax 累加，<span class="math inline">n</span> 步后每卡得到自己 Q 段的完整 attention 输出。通信与计算重叠，理论上支持无限长度。</li>
+<li><strong>Ring Attention</strong>：把序列切到 <span class="math inline">n</span> 张卡，每卡持有自己那段��� Q 和 KV；KV 块在卡之间环形传递，每卡对经过的每个 KV 块做一次 online softmax 累加，<span class="math inline">n</span> 步后每卡得到自己 Q 段的完整 attention 输出。通信与计算重叠，理论上支持无限长度。</li>
 <li><strong>Ulysses（DeepSpeed）</strong>：按头切换序列：输入按序列切分，attention 前 all-to-all 变成”每卡持有全序列的部分头”，attention 后再 all-to-all 换回。通信量比 ring 小，但并行度受头数限制。</li>
 <li><strong>causal 负载均衡</strong>：causal mask 下前面的 Q 段计算少、后面的多，ring attention 会不均衡，做法是把序列切成 <span class="math inline">2n</span> 段，每卡拿一头一尾（zigzag）。</li>
 </ul>
@@ -2764,7 +2988,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <ul>
 <li><strong>注意力</strong>：每层是 <strong>128 token 滑窗注意力</strong> 加两种压缩注意力之一：<strong>CSA</strong>（Compressed Sparse Attention：把 KV 4:1 压缩后再用 DSA 式 top-k 选择）或 <strong>HCA</strong>（Heavily Compressed Attention：128:1 压缩后稠密全看）。CSA 与 HCA 逐层交替。位置编码只在最后 64 维做 RoPE（partial RoPE）。结果：Pro 在 1M 上下文下的注意力 FLOPs 是 V3.2 的 27%、KV 是 10%；Flash 是 10% 与 7%。</li>
 <li><strong>mHC（Manifold-Constrained Hyper-Connections）</strong>：残差流从 1 条变成 4 条并行流，层输出通过 Sinkhorn 归一化的混合矩阵写回各流，训练开销约 6.7%。推理侧 SGLang 用 TileLang 写了融合 kernel（RMSNorm + Sinkhorn + 残差混合 + split-K），否则会拆成几十个小算子。</li>
-<li><strong>MoE 与精度</strong>：路由专家权重原生 <strong>FP4</strong>，其余 FP8；indexer 也是 FP4。Blackwell 上走 FlashInfer 的 TRT-LLM-Gen MoE（MXFP8 激活 × MXFP4 权重）或 DeepGEMM 的 <strong>Mega MoE</strong>：把 EP dispatch、FP8 × FP4 GEMM、SwiGLU、第二个 GEMM、combine 融合成一个对称内存的 mega-kernel。</li>
+<li><strong>MoE 与精度</strong>：路由专家权重原生 <strong>FP4</strong>，其余 FP8；indexer 也是 FP4。Blackwell 上走 FlashInfer 的 TRT-LLM-Gen MoE（MXFP8 激活 × MXFP4 权重）或 DeepGEMM 的 <strong>Mega MoE</strong>：把 EP dispatch、FP8 × FP4 GEMM、SwiGLU、第二个 GEMM、combine 融合成一个对称内存的 mega-kernel（megakernel 这个思路本身见 8.6）。</li>
 <li><strong>其他</strong>：单层 MTP head（只含滑窗注意力的独立 decoder 层）；Muon 优化器；训练 32T / 33T token；官方在 TileLang 里写了大量融合 kernel 并做到 bitwise 确定性。</li>
 <li><strong>推理数字</strong>：SGLang 在 H200 上 V4-Flash 的 decode 吞吐从 4K 到 900K 上下文几乎不变（266 到 240 token/s，降幅小于 10%），这是压缩注意力的直接效果；B200 上 FP4 的 Flash batch 1 约 677 token/s（TPOT 2.9 ms），batch 64 约 5222 token/s，batch 4096 约 8156 token/s。SGLang 还有 Flash Compressor（压缩管线单次片上完成，达到 80% 峰值带宽）。</li>
 <li><strong>训推一致性</strong>：FP8 rollout 与 BF16 训练之间 step-0 的 log-prob 差约 0.02 到 0.03，RL 训练用 routing replay 对齐专家选择。</li>
@@ -2801,7 +3025,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>DeepGEMM</td>
 <td>FP8 / FP4 GEMM 与 MoE grouped GEMM</td>
-<td>V3.2 的 indexer kernel、V4 的 Mega MoE</td>
+<td>V3.2 的 indexer kernel、V4 的 Mega MoE；机制见 8.7</td>
 </tr>
 <tr>
 <td>TileLang</td>
@@ -2811,7 +3035,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>EPLB</td>
 <td>专家负载均衡（冗余专家 + 分组）</td>
-<td>与 SGLang / vLLM 集成</td>
+<td>与 SGLang / vLLM 集成；与 MoonEP 的在线冗余对比见 8.7</td>
 </tr>
 </tbody>
 </table>
@@ -2941,6 +3165,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <ul>
 <li><strong>混合 cache 管理</strong>：同一个调度器下并存 paged KV block（MLA 层）和紧凑的 recurrent state block（KDA 层）。SGLang 用 <strong>统一内存池</strong>：KDA 状态从一端分配、MLA KV 从另一端分配，中间是共享的空闲区（<code>--enable-unified-memory</code>）。</li>
 <li><strong>KDA kernel</strong>：vLLM 的融合 decode kernel 把 causal conv、递归更新、门控、RMSNorm 融成一次 launch；prefill 用月之暗面开源的 FlashKDA（CUTLASS）。</li>
+<li><strong>MoonEP</strong>：与 K3 权重同期（2026-07-29）开源的专家并行通信库，用动态冗余专家保证每个 rank 恰好收到 <span class="math inline">S \times K</span> 个 token，把 all-to-all 从随路由倾斜退化变成与倾斜无关，官方称是 K3 拿到 2.5 倍 scaling 效率的关键组件之一，机制与对比见 8.7。</li>
 <li><strong>状态的 prefix caching</strong>：SGLang 对可变的状态用 copy-on-write、snapshot、donate 三种操作挂到 radix tree 上，因为状态不像 KV 那样只追加。</li>
 <li><strong>AttnRes kernel</strong>：Triton / CUDA 融合深度方向的 logits、softmax、聚合。</li>
 <li><strong>MoE</strong>：原生 MXFP4，vLLM 有两个后端：TRT-LLM-Gen（TP 大于 1 时）和 MegaMoE（EP 或分离部署时）。</li>
@@ -3192,7 +3417,8 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li>DeepSeek V4 的层数与专家数：官方摘要与 HF card 未给出，第三方称 Pro 61 层 896 专家、Flash 256 专家，另有说法是 384 专家取 6，互相矛盾，以 config.json 为准；GA 日期与磁盘大小也只见于第三方。</li>
 <li>DeepSeek V4 是否使用 Engram（条件记忆表）：论文摘要未提，仅 DeepEP V2 有实验性支持。</li>
 <li>GLM-5 的 top-k 与”全程昇腾训练”为第三方说法；GLM-5.3 本体（非 Flash）是否含 mHC 未见说明。</li>
-<li>Kimi K3 官方发布日期未写明，吞吐数字均为引擎方自测。</li>
+<li>Kimi K3 官方发布日期未写明，吞吐数字均为引擎方自测；MoonEP 的 2.5 倍 scaling 效率与 H20 EP8 上的对比数据均来自官方 README 与发布公告，未见第三方复现。</li>
+<li>8.6 的 megakernel 数字（ThunderKittens 的 1 ms、78% 带宽、+22.3%，MPK 的 1.0 到 1.7 倍与 12.5 ms）均为各自作者自测，基线版本与配置未逐项核对。</li>
 <li>Qwen3.7 未找到官方架构数据。</li>
 <li>MiniMax M1 的 7:1 混合比、M3 的层数与专家数未在 model card 中核实。</li>
 <li>gpt-oss 的层数与激活参数来自第三方教程。</li>
@@ -4847,12 +5073,13 @@ def generate(model, ids, max_new_tokens, **kw):
 <ul>
 <li>15 章的代码从 15.2 到 15.8 按顺序拼成一个文件即可运行，同样在本地 CPU（PyTorch 2.9，float64）上逐项验证：RoPE 的相对位置性质 <span class="math inline">\langle R_m q, R_n k\rangle = \langle R_0 q, R_{n-m} k\rangle</span> 误差 4e-15；前后半配对与相邻配对两种排布在列置换下完全相等；PI 缩放与「位置除以 k」完全相等；RMSNorm 与 <code>F.rms_norm</code> 误差 0；softmax、cross entropy 与 torch 实现误差 1e-15 量级，且 logits 加 1e4 后不出 NaN；SwiGLU 合并 GEMM 与三矩阵朴素写法误差 0；GQA attention 与 <code>F.scaled_dot_product_attention</code> 误差 2e-16；<strong>整段前向与「prefill 4 个 token 再逐 token decode」的结果误差 4e-17</strong>（KV cache 与 RoPE 位置索引的正确性检查）；greedy <code>generate</code> 与每步全量重算的 argmax 序列逐 token 相同；top-k、top-p、min-p 的候选集合与手算阈值一致，repetition penalty 能改变 argmax。</li>
 <li>14.5 的参数量脚本、4.4 与 14.2 到 14.6 的 PyTorch 代码均在本地 CPU（PyTorch 2.x，float64）上跑通并与朴素实现对齐：GQA attention 与 repeat 后的标准实现误差 0；online softmax 与标准 softmax 误差 1e-15 量级；MLA 的 absorb 实现与展开成显式 K、V 的实现误差 3e-16，prefill 加逐 token decode 的带 cache 结果与整体前向误差 2e-16；linear attention 递归、分块、二次型三种写法互相对齐；MoE 与逐 token 循环对齐；block-sparse 在全 True 掩码下与稠密 causal attention 对齐。</li>
+<li>8.6 到 8.8 的出处：ThunderKittens megakernel 的两篇 Hazy Research 博客（2025-05 低延迟 Llama-1B、2025-09 TP Llama-70B）与 HazyResearch/Megakernels；MPK 的论文（arXiv 2512.22219）与 mirage-project/mirage；DeepGEMM、DeepEP、MoonEP 的 GitHub README（MoonEP 为 2026-07-29 MIT 开源）；FP8 tensor core 只保留 14 位尾数的说法出自 DeepSeek-V3 技术报告；FlashAttention-4 与 CuTe DSL 的定位来自 FA4 论文（2026-03）与 NVIDIA/cutlass。</li>
 <li>GPU 参数来自 NVIDIA 官方规格表，模型参数来自各模型 config.json 与技术报告，论文数字均标注了出处（见各章）。</li>
 <li>本文由 <code>bytedance_llm_inference.md</code> 经 <code>build_html.py</code> 生成，改 markdown 后重跑即可更新。</li>
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 07:19 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 07:40 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
