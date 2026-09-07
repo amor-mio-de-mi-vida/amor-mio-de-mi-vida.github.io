@@ -4,8 +4,8 @@
 <title>llm inference</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_llm_inference.md">
-<meta name="source-sha256" content="ae7534129430abed">
-<meta name="generated-at" content="2026-09-06 17:55 UTC">
+<meta name="source-sha256" content="282c1a12ce0e2eec">
+<meta name="generated-at" content="2026-09-07 07:19 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -569,7 +569,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
+<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 常见系统设计题</a></li><li><a href="#sec-10-4">10.4 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频考点排行与复习优先级</a></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -578,7 +578,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">推理基础、引擎机制、kernel、量化、并行、MoE，附公开面经原题与高频考点清单</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_llm_inference.md</code></span>
-    <span><strong>生成</strong> 2026-09-06 17:55 UTC</span>
+    <span><strong>生成</strong> 2026-09-07 07:19 UTC</span>
   </div>
 </header>
 
@@ -932,7 +932,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 </div>
 <p><strong>追问链</strong></p>
 <ul>
-<li><strong>RoPE 在推理里怎么实现？</strong> 预计算 <code>cos/sin</code> 表 <code>[max_pos, d_h/2]</code>，每步按位置索引取出，与 q、k 做旋转。通常和 KV cache 写入融合成一个 kernel（vLLM 的 <code>rotary_embedding</code> kernel 同时更新 q、k）。</li>
+<li><strong>RoPE 在推理里怎么实现？</strong> 预计算 <code>cos/sin</code> 表 <code>[max_pos, d_h/2]</code>，每步按位置索引取出，与 q、k 做旋转（可运行实现见 15.2）。通常和 KV cache 写入融合成一个 kernel（vLLM 的 <code>rotary_embedding</code> kernel 同时更新 q、k）。</li>
 <li><strong>为什么 RoPE 对 MLA 是个障碍？</strong> 见 1.4，旋转矩阵位置相关，阻断了矩阵吸收。</li>
 <li><strong>ALiBi 是什么？</strong> 在 attention 得分上加线性偏置 <span class="math inline">-m \cdot |i - j|</span>，无参数、外推性好，但 FlashAttention 需要单独支持，现在主流是 RoPE。</li>
 <li><strong>为什么 LLaMA-3 把 base 调到 500000？</strong> 更大的 base 意味着低频维度波长更长，原生支持更长上下文（8K），后续再用 YaRN 类方法扩到 128K。</li>
@@ -941,12 +941,12 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <ul>
 <li><strong>RMSNorm vs LayerNorm</strong>：RMSNorm 去掉了均值中心化，只做 <span class="math inline">x / \sqrt{\text{mean}(x^2) + \epsilon} \cdot \gamma</span>，少一次 reduction，速度快约 10% 到 20%，效果相当。推理 kernel 里 RMSNorm 常与前面的残差加法融合（<code>fused_add_rms_norm</code>），一次读写完成两件事。</li>
 <li><strong>Pre-Norm vs Post-Norm</strong>：主流 LLM 用 Pre-Norm（norm 在子层输入），训练稳定；Post-Norm 效果略好但深层难训。</li>
-<li><strong>SwiGLU</strong>：<span class="math inline">\text{FFN}(x) = (\text{SiLU}(x W_{gate}) \odot x W_{up}) W_{down}</span>，三个矩阵而不是两个，为保持参数量把 <span class="math inline">d_{ff}</span> 设成 <span class="math inline">8d/3</span> 再对齐到 256 的倍数（LLaMA-2-7B 是 11008）。推理时 gate 和 up 合并成一个 GEMM，然后一个 <code>silu_and_mul</code> 融合 kernel。</li>
+<li><strong>SwiGLU</strong>（手撕见 15.5）：<span class="math inline">\text{FFN}(x) = (\text{SiLU}(x W_{gate}) \odot x W_{up}) W_{down}</span>，三个矩阵而不是两个，为保持参数量把 <span class="math inline">d_{ff}</span> 设成 <span class="math inline">8d/3</span> 再对齐到 256 的倍数（LLaMA-2-7B 是 11008）。推理时 gate 和 up 合并成一个 GEMM，然后一个 <code>silu_and_mul</code> 融合 kernel。</li>
 <li><strong>Embedding 共享</strong>：小模型常把输入 embedding 和 lm_head 权重绑定（tie），省显存。</li>
 <li><strong>Tokenizer</strong>：BPE / SentencePiece，推理服务里 tokenize 和 detokenize 在 CPU 上做，vLLM V1 把它放到 API server 进程里和 GPU 调度解耦；流式输出时 detokenize 要处理不完整的 UTF-8 字节。</li>
 </ul>
 <h3 id="sec-1-7">1.7 采样策略</h3>
-<p>logits 到 token 的过程，每一步都可能被问”怎么实现、怎么优化”。</p>
+<p>logits 到 token 的过程，每一步都可能被问”怎么实现、怎么优化”；可运行实现见 15.8。</p>
 <div class="table-wrap">
 <table>
 <thead>
@@ -1938,7 +1938,7 @@ def online_softmax_attention(q, k, v, block=64):
 <p><strong>追问链</strong></p>
 <ul>
 <li><strong>EP 和 TP 对 MoE 谁更好？</strong> TP 切每个专家（每卡所有专家的 1/TP），通信是 all-reduce，专家的 GEMM 更碎；EP 整专家放一卡，GEMM 完整但需要 all-to-all 且负载不均。大规模部署用 EP（可能加 TP），小规模（单机 8 卡跑 Mixtral）用 TP 更简单。</li>
-<li><strong>all-to-all 通信量？</strong> 每 token 发 <span class="math inline">k</span> 份 <span class="math inline">d</span> 维激活到 <span class="math inline">k</span> 张卡，与 batch 线性相关（DeepSeek-V3 <span class="math inline">k = 8</span>、<span class="math inline">d = 7168</span>，BF16 下每 token 每层 dispatch 约 115 KB，combine 同量）；跨机时是主要开销，DeepEP 用 NVLink + RDMA 混合并用 FP8 传输。DeepSeek-V3 训练时还限制每个 token 最多路由到 4 个节点（node-limited routing），先选节点再选专家，控制 IB 流量。</li>
+<li><strong>all-to-all 通信量？</strong> 每 token 发 <span class="math inline">k</span> 份 <span class="math inline">d</span> 维激活到 <span class="math inline">k</span> 张卡，与 batch 线性相关（DeepSeek-V3 <span class="math inline">k = 8</span>、<span class="math inline">d = 7168</span>，BF16 下每 token 每层 dispatch 约 115 KB，combine 同量）；跨机时是主要开销，DeepEP 用 NVLink + RDMA 混合并��� FP8 传输。DeepSeek-V3 训练时还限制每个 token 最多路由到 4 个节点（node-limited routing），先选节点再选专家，控制 IB 流量。</li>
 <li><strong>grouped GEMM 是什么？</strong> 多个形状不同（每个专家分到的 token 数不同）的 GEMM 用一个 kernel 完成，CUTLASS 的 grouped GEMM、Triton 实现，避免逐专家 launch 和 padding。</li>
 <li><strong>专家 offload 怎么做？</strong> 单卡跑不下时把冷专家放 CPU 内存，按需预取；或按路由预测提前加载。延迟高，只用于本地小规模推理（如 llama.cpp、KTransformers）。</li>
 <li><strong>共享专家是什么？</strong> 每个 token 都过的专家，承担通用知识，让路由专家更专门化（DeepSeek 的设计）。</li>
@@ -3725,7 +3725,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tr>
 <tr>
 <td>kvcache 怎么做的，还有什么提高效率的办法；手撕 Transformer 并算 FLOPs 和内存</td>
-<td>1.2、1.3、14.5。</td>
+<td>1.2、1.3、14.5，完整实现见 15 章。</td>
 </tr>
 <tr>
 <td>H100 上跑生成式重排，瓶颈在存储带宽不在计算？</td>
@@ -3888,7 +3888,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <td>prefill / decode 差异、roofline、访存量与 FLOPs 估算</td>
 <td>6</td>
 <td>除了 compute / memory-bound 还有什么瓶颈；SM 未打满延时为何增长；手撕 Transformer 并算 FLOPs</td>
-<td>2 章、14.5</td>
+<td>2 章、14.5、15 章</td>
 </tr>
 <tr>
 <td><span class="pri pri-p1">P1</span></td>
@@ -4111,7 +4111,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>Linear attention、MoE、MHA 及访存计算</td>
 <td>A5</td>
-<td>14.3、14.4、4.4</td>
+<td>14.3、14.4、4.4、15.6</td>
 </tr>
 <tr>
 <td>DeepSeek-V3 伪代码 + 参数量 + 访存量</td>
@@ -4126,22 +4126,22 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>numpy 实现 attention（含 softmax）</td>
 <td>A10</td>
-<td>4.4</td>
+<td>4.4、15.4</td>
 </tr>
 <tr>
 <td>GQA</td>
 <td>A19</td>
-<td>4.4</td>
+<td>4.4、15.6</td>
 </tr>
 <tr>
 <td>PyTorch MHA 支持 cross attention</td>
 <td>多模态三面</td>
-<td>4.4 改 K、V 来源</td>
+<td>4.4、15.6 改 K、V 来源</td>
 </tr>
 <tr>
 <td>Transformer + FLOPs + 内存估算</td>
 <td>A21</td>
-<td>1.2、14.5</td>
+<td>15 章、1.2、14.5</td>
 </tr>
 <tr>
 <td>Sparse attention 的 Python kernel</td>
@@ -4156,7 +4156,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>Triton / CUDA LayerNorm、大矩阵规约、online softmax</td>
 <td>A20</td>
-<td>8.3、4.1</td>
+<td>8.3、4.1、15.3、15.4</td>
 </tr>
 <tr>
 <td>矩阵转置优化</td>
@@ -4485,15 +4485,374 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <li><strong>对 KV cache 有什么帮助？</strong> 计算上省了，但 KV 仍然全部要存；只有配合驱逐或 offload（ShadowKV 把 V 放 CPU、只按需取选中的块）才省显存和带宽。</li>
 </ul>
 <hr>
+<h2 id="sec-15"><span class="num">15.</span>手撕大模型算法基础：从零写一个 decoder-only 模型</h2>
+<p>14 章是面经里出现过的进阶算子（MLA、linear attention、MoE），这一章是它们的地基。算法岗一面经常直接说「写个 Transformer」，推理岗则会在你写完之后接着问 FLOPs、访存量、哪几步能融合（见 1.2、2.2、8.4）。下面按依赖顺序从下往上写：位置编码 → 归一化 → 激活 → attention → 整层 → 整模型 → 采样，每一节的代码可以直接拼成一个文件跑起来，验证结果见文末「附」。</p>
+<h3 id="sec-15-1">15.1 组件清单与出题方式</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>单独出题时的问法</th>
+<th>最容易写错的地方</th>
+<th>节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RoPE</td>
+<td>手写 RoPE；为什么它是相对位置编码</td>
+<td>前后半配对还是相邻配对；v 不参与旋转</td>
+<td>15.2</td>
+</tr>
+<tr>
+<td>RMSNorm</td>
+<td>手写 RMSNorm；和 LayerNorm 差在哪</td>
+<td>忘了升精度算平方和；<code>rsqrt</code> 里漏 eps</td>
+<td>15.3</td>
+</tr>
+<tr>
+<td>softmax / CE</td>
+<td>数值稳定的 softmax；手写 cross entropy</td>
+<td>不减最大值；CE 里显式算 softmax 再取 log</td>
+<td>15.4</td>
+</tr>
+<tr>
+<td>SwiGLU</td>
+<td>手写 FFN；<span class="math inline">d_{ff}</span> 为什么是 <span class="math inline">8d/3</span></td>
+<td>gate 和 up 搞反；少乘一个矩阵</td>
+<td>15.5</td>
+</tr>
+<tr>
+<td>Attention</td>
+<td>手写 MHA / GQA / cross attention；加 KV cache</td>
+<td>causal mask 的对角线偏移；缓存旋转前的 k</td>
+<td>15.6</td>
+</tr>
+<tr>
+<td>Block / Model</td>
+<td>手写一层 Transformer；手写整个模型</td>
+<td>Pre-Norm 写成把残差也 norm 了；lm_head 前漏最后一个 norm</td>
+<td>15.7</td>
+</tr>
+<tr>
+<td>采样</td>
+<td>手写 top-k / top-p；写 generate 循环</td>
+<td>top-p 的累加边界；decode 时位置索引没跟着走</td>
+<td>15.8</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>动笔前先说三句话</strong>，能省掉一半来回：</p>
+<ol type="1">
+<li><strong>约定形状</strong>：全文用 <code>[B, S, d]</code> 表示激活，attention 内部转成 <code>[B, H, S, d_h]</code>，KV cache 是 <code>[B, H_kv, T, d_h]</code>。写之前在纸上标一遍，后面每一行都能自洽。</li>
+<li><strong>先骨架后子层</strong>：先把 <code>x = x + attn(norm(x))</code>、<code>x = x + ffn(norm(x))</code> 两行写出来，再回头填 attention 和 FFN。面试官关心你知不知道 Pre-Norm 的结构，而不是先看你写投影。</li>
+<li><strong>先无 cache 再加 cache</strong>：先写一次性前向的版本，跑通了再加 <code>cache</code> 分支。加 cache 时唯一的新变量是「已缓存长度 <code>past</code>」，它同时决定 RoPE 取哪几个位置和 causal mask 的偏移。</li>
+</ol>
+<h3 id="sec-15-2">15.2 手撕 RoPE</h3>
+<p><strong>是什么</strong>：把 <span class="math inline">d_h</span> 维的 q、k 拆成 <span class="math inline">d_h/2</span> 个二维向量，第 <span class="math inline">i</span> 对按角度 <span class="math inline">m\theta_i</span> 旋转，<span class="math inline">\theta_i = \text{base}^{-2i/d_h}</span>。原理与外推方案见 1.5，这里只写实现。</p>
+<pre><code class="language-python">import math, torch, torch.nn as nn, torch.nn.functional as F
+
+def rope_tables(max_len, d_h, base=10000.0, scale=1.0, device=None, dtype=None):
+    """预计算 cos/sin 表，推理时按位置切片取用。返回两个 [max_len, d_h/2]"""
+    dtype = dtype or torch.get_default_dtype()
+    hi = torch.float64                                                            # 角度一律高精度算完再 cast
+    inv = 1.0 / (base ** (torch.arange(0, d_h, 2, device=device, dtype=hi) / d_h))  # [d_h/2]
+    pos = torch.arange(max_len, device=device, dtype=hi) / scale                  # PI 插值就是位置除以 k
+    ang = pos[:, None] * inv[None, :]                                             # [max_len, d_h/2]
+    return ang.cos().to(dtype), ang.sin().to(dtype)
+
+def apply_rope(x, cos, sin):
+    """x: [B, H, S, d_h]，cos/sin: [S, d_h/2]；HF / GPT-NeoX 的前后两半配对"""
+    d_h = x.shape[-1]
+    x1, x2 = x[..., : d_h // 2], x[..., d_h // 2 :]
+    cos, sin = cos[None, None], sin[None, None]                                   # 广播到 B、H
+    return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
+
+def apply_rope_interleaved(x, cos, sin):
+    """原论文 / GPT-J 的相邻两维配对；与上面只差权重列的排列，数学等价"""
+    x_ = x.reshape(*x.shape[:-1], -1, 2)
+    x1, x2 = x_[..., 0], x_[..., 1]
+    cos, sin = cos[None, None], sin[None, None]
+    return torch.stack([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1).flatten(-2)</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>怎么证明它是相对位置编码？</strong> 二维旋转矩阵满足 <span class="math inline">R_m^T R_n = R_{n-m}</span>，所以 <span class="math inline">\langle R_m q, R_n k\rangle = q^T R_{n-m} k</span>，只依赖 <span class="math inline">n-m</span>。手撕时可以现场用 <code>q @ R.T @ R @ k</code> 验一下，比背结论有说服力。</li>
+<li><strong>两种配对方式有什么区别？</strong> 没有数学区别，只是 <span class="math inline">W^Q</span>、<span class="math inline">W^K</span> 输出列的排列不同：把半分排布的第 <span class="math inline">i</span> 列和第 <span class="math inline">i + d_h/2</span> 列相邻放，就变成交错排布。区别只在权重转换时要小心（HF 的 LLaMA 转换脚本里那个 <code>permute</code> 就是干这个），自己训自己推时随便选一种。</li>
+<li><strong>v 要不要旋转？</strong> 不要。RoPE 的目的是让 <span class="math inline">q\cdot k</span> 带上相对位置信息，v 只是被加权求和的内容。</li>
+<li><strong>cache 里存旋转前还是旋转后的 k？</strong> 存旋转后的。每个 token 的位置在写入时就固定了，之后不会变，所以旋转一次就够；存旋转前的话每步都要把整个 cache 重新旋转一遍，是 <span class="math inline">O(T)</span> 的额外开销。<strong>唯一的例外</strong>是 MLA（14.2）和某些做位置重排的长文本方案，那里 RoPE 分支要单独留出来。</li>
+<li><strong>表要不要按最大长度全预计算？</strong> 会。<code>max_len × d_h/2</code> 个 float，128K 上下文、<span class="math inline">d_h=128</span> 时是 8M 个数，fp32 下 32 MB，可以接受；Dynamic NTK 那类随长度改 base 的方案则要在超出当前表长时重建表。</li>
+<li><strong>为什么角度要用高精度算？</strong> <span class="math inline">m\theta_i</span> 在 <span class="math inline">m</span> 很大时，fp16 甚至 fp32 都会丢有效位，长上下文下相邻位置的 cos 值可能撞到一起。通行做法是 fp32/fp64 算完 <code>cos</code>、<code>sin</code> 再 cast 成计算精度，vLLM 的 rotary kernel 也是这么做的。</li>
+<li><strong>生产实现长什么样？</strong> 一个 kernel 同时处理 q 和 k 并顺手把 k、v 写进 paged KV cache，省两次全局内存往返（3.2、8.4）。</li>
+</ul>
+<h3 id="sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</h3>
+<pre><code class="language-python">class RMSNorm(nn.Module):
+    def __init__(self, d, eps=1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(d))
+        self.eps = eps
+
+    def forward(self, x):
+        dtype = x.dtype
+        x = x.to(torch.promote_types(dtype, torch.float32))  # 平方和在 fp16 下易溢出，先升精度
+        x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return x.to(dtype) * self.weight</code></pre>
+<p>LayerNorm 只多一次求均值：<code>(x - mu) * rsqrt(var + eps) * gamma + beta</code>，其中 <code>var</code> 用 <span class="math inline">E[x^2] - (E[x])^2</span> 算会掉精度，稳妥写法是两遍或 Welford（CUDA 版见 8.3）。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>为什么主流 LLM 都换成了 RMSNorm？</strong> 少一次 reduction、少两个 elementwise，速度快 10% 到 20%，效果基本不掉（1.6）。</li>
+<li><strong>为什么要升精度？</strong> fp16 的最大值 65504，<span class="math inline">d = 8192</span> 时若激活量级到 100，平方和就是 <span class="math inline">8\times10^7</span>，直接 inf。bf16 不会溢出但有效位只有 8 位，均值误差可观。所以哪怕模型跑在 bf16，norm 内部也在 fp32 里算。</li>
+<li><strong>eps 加在哪？</strong> 加在 <code>rsqrt</code> 里面（方差上），不是外面。加外面在全零输入时会得到 <span class="math inline">0/\epsilon</span> 而不是 0，梯度也不对。</li>
+<li><strong>推理时怎么优化？</strong> 和上一层的残差加法融合成 <code>fused_add_rms_norm</code>：一次读 <code>x</code> 和 <code>residual</code>，算完同时输出归一化结果和新的残差，省一次读写。再往前一步是把 norm 和后面的 QKV GEMM 融合，但收益小于前者。</li>
+<li><strong>参数量与访存量？</strong> 每个 norm 只有 <span class="math inline">d</span> 个参数，可以忽略；但它是纯 memory-bound 算子，读写 <span class="math inline">2 \times B S d</span>，在小 batch decode 里占比不小，这也是要融合的原因。</li>
+</ul>
+<h3 id="sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</h3>
+<pre><code class="language-python">def softmax(x, dim=-1):
+    m = x.max(dim=dim, keepdim=True).values                  # 减最大值，防 exp 溢出
+    e = (x - m).exp()
+    return e / e.sum(dim=dim, keepdim=True)
+
+def cross_entropy(logits, target):
+    """logits: [N, V]，target: [N]；走 log-sum-exp，不物化 softmax"""
+    m = logits.max(dim=-1, keepdim=True).values
+    lse = m.squeeze(-1) + (logits - m).exp().sum(-1).log()
+    return (lse - logits.gather(-1, target[:, None]).squeeze(-1)).mean()</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>不减最大值会怎样？</strong> logits 到 90 左右 <code>exp</code> 就在 fp32 里溢出成 inf，再相除得 NaN。减最大值后指数全部 <span class="math inline">\le 0</span>，结果落在 <span class="math inline">(0, 1]</span>，且数学上完全等价。</li>
+<li><strong>减最大值会不会下溢？</strong> 会，很小的项 <code>exp</code> 成 0，但那些项本来对结果贡献就可忽略，属于良性下溢。</li>
+<li><strong>为什么 CE 不写成 <code>-log(softmax(logits)[target])</code>？</strong> 数学一样，数值上差很多：softmax 后概率可能下溢成 0，<code>log(0) = -inf</code>。log-sum-exp 形式全程不出现小数取对数。</li>
+<li><strong>和 online softmax 什么关系？</strong> online softmax（4.1）就是把上面这个「先扫一遍求 max，再扫一遍求和」的两趟算法改成一趟，边扫边用 <span class="math inline">\alpha = e^{m_{old}-m_{new}}</span> 修正已累加的部分，是 FlashAttention 的地基。</li>
+<li><strong>训练时 CE 的显存问题？</strong> <span class="math inline">V = 128K</span> 时 logits 是 <span class="math inline">B S V</span> 的大张量，反向还要存一份。做法是分块算 CE（chunked / fused CE，如 Liger Kernel），把 logits 切成块，算完一块的 loss 和梯度就丢掉，峰值显存从 <span class="math inline">O(BSV)</span> 降到 <span class="math inline">O(\text{chunk} \cdot V)</span>。</li>
+<li><strong>推理时用得到 CE 吗？</strong> 用得到：投机采样（6 章）要比较草稿模型和目标模型的概率，PPL 评测、logprobs 返回也都走这条路径。</li>
+</ul>
+<h3 id="sec-15-5">15.5 手撕 SwiGLU FFN</h3>
+<pre><code class="language-python">class SwiGLU(nn.Module):
+    def __init__(self, d, d_ff):
+        super().__init__()
+        self.w_gate_up = nn.Linear(d, 2 * d_ff, bias=False)  # gate 与 up 合并成一次 GEMM
+        self.w_down = nn.Linear(d_ff, d, bias=False)
+
+    def forward(self, x):
+        gate, up = self.w_gate_up(x).chunk(2, dim=-1)
+        return self.w_down(F.silu(gate) * up)                # 生产实现是一个 silu_and_mul 融合 kernel</code></pre>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><span class="math inline">d_{ff}</span> 为什么取 <span class="math inline">8d/3</span>？</strong> 普通 FFN 两个矩阵、<span class="math inline">d_{ff} = 4d</span>，参数量 <span class="math inline">8d^2</span>；SwiGLU 有三个矩阵，要保持参数量不变就得 <span class="math inline">3 d \cdot d_{ff} = 8d^2</span>，即 <span class="math inline">d_{ff} = 8d/3</span>，再向上对齐到 128 或 256 的倍数便于 tensor core 分块（LLaMA-2-7B：<span class="math inline">d = 4096 \to d_{ff} = 11008</span>）。</li>
+<li><strong>为什么合并 gate 和 up？</strong> 两个 <span class="math inline">d \times d_{ff}</span> 的 GEMM 合成一个 <span class="math inline">d \times 2d_{ff}</span>，权重读一次、kernel 启动一次，decode 这种 memory-bound 场景收益明显。TP 切分时按列切，正好每张卡拿到自己那份 gate 和 up（7.1）。</li>
+<li><strong>SiLU 和 GELU 的区别？</strong> <span class="math inline">\text{SiLU}(x) = x\sigma(x)</span>，GELU 是 <span class="math inline">x\Phi(x)</span>，形状接近；SiLU 没有 erf，算得更快，所以 LLaMA 系用它。</li>
+<li><strong>为什么没有 bias？</strong> 大模型普遍去掉 FFN 和 attention 的 bias，效果不掉还省参数、省一次 kernel；Qwen 等少数模型在 QKV 上保留 bias。</li>
+<li><strong>推理时 FFN 占多少？</strong> dense 模型每层 FFN 参数是 attention 的两倍左右（<span class="math inline">3dd_{ff} = 8d^2</span> vs <span class="math inline">4d^2</span>），decode 时读权重的时间也就是这个比例，所以量化（5 章）优先照顾 FFN 权重。</li>
+</ul>
+<h3 id="sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</h3>
+<p>比 4.4 多了 QKV 投影、RoPE 和输出投影，是「写一个 attention 层」的完整答案。</p>
+<details class="code-card" open=""><summary>35 行 · 点击折叠</summary><pre><code class="language-python">class Attention(nn.Module):
+    def __init__(self, d, n_heads, n_kv_heads):
+        super().__init__()
+        assert n_heads % n_kv_heads == 0
+        self.H, self.H_kv, self.d_h = n_heads, n_kv_heads, d // n_heads
+        self.rep = n_heads // n_kv_heads
+        self.wq = nn.Linear(d, n_heads * self.d_h, bias=False)
+        self.wk = nn.Linear(d, n_kv_heads * self.d_h, bias=False)
+        self.wv = nn.Linear(d, n_kv_heads * self.d_h, bias=False)
+        self.wo = nn.Linear(n_heads * self.d_h, d, bias=False)
+        self.scale = 1.0 / math.sqrt(self.d_h)
+
+    def forward(self, x, cos, sin, cache=None):
+        """x: [B, S, d]；cache: dict，存 k、v 形状 [B, H_kv, T, d_h]"""
+        B, S, _ = x.shape
+        q = self.wq(x).view(B, S, self.H, self.d_h).transpose(1, 2)        # [B, H, S, d_h]
+        k = self.wk(x).view(B, S, self.H_kv, self.d_h).transpose(1, 2)
+        v = self.wv(x).view(B, S, self.H_kv, self.d_h).transpose(1, 2)
+        q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)            # 只转 q、k，不转 v
+
+        if cache is not None:                                              # 缓存的是旋转后的 k
+            if "k" in cache:
+                k = torch.cat([cache["k"], k], dim=2)
+                v = torch.cat([cache["v"], v], dim=2)
+            cache["k"], cache["v"] = k, v
+        T = k.shape[2]
+
+        k = k.repeat_interleave(self.rep, dim=1)                           # GQA：每组 KV 头复制 rep 次
+        v = v.repeat_interleave(self.rep, dim=1)
+        scores = q @ k.transpose(-1, -2) * self.scale                      # [B, H, S, T]
+        if S &gt; 1:                                                          # decode 时 S=1，全可见，免去建 mask
+            mask = torch.ones(S, T, dtype=torch.bool, device=x.device).tril(diagonal=T - S)
+            scores = scores.masked_fill(~mask, float("-inf"))
+        o = scores.softmax(dim=-1) @ v                                     # [B, H, S, d_h]
+        return self.wo(o.transpose(1, 2).reshape(B, S, self.H * self.d_h))</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>tril(diagonal=T - S)</code> 是什么意思？</strong> 这批 query 位于绝对位置 <span class="math inline">[T-S, T)</span>，第 <span class="math inline">i</span> 个 query 能看到 KV 的前 <span class="math inline">T-S+i</span> 个位置，正好是主对角线右移 <span class="math inline">T-S</span> 的下三角。prefill（<span class="math inline">T = S</span>）时退化成普通 <code>tril()</code>，chunked prefill（3.4）和 decode 都靠这个偏移统一处理。</li>
+<li><strong>改成 cross attention 怎么改？</strong> K、V 从另一个来源算：<code>forward(self, x, mem)</code> 里 <code>k = self.wk(mem)</code>、<code>v = self.wv(mem)</code>，去掉 causal mask（改成 encoder 的 padding mask），RoPE 通常也去掉或换成 encoder 自己的位置。多模态模型的 image-text cross attention 就是这样。</li>
+<li><strong><code>transpose(1, 2)</code> 之后为什么要 <code>reshape</code> 不能直接 <code>view</code>？</strong> transpose 之后张量不连续，<code>view</code> 会报错；<code>reshape</code> 会在需要时自动 copy。生产实现让 attention kernel 直接输出 <code>[B, S, H, d_h]</code> 布局，避免这次转置。</li>
+<li><strong><code>repeat_interleave</code> 怎么去掉？</strong> 它有真实的显存拷贝，<span class="math inline">T</span> 大时很贵。PyTorch 2.5+ 的 <code>scaled_dot_product_attention(..., enable_gqa=True)</code> 原生支持；FlashAttention / FlashDecoding 的 kernel 里则是让第 <span class="math inline">h</span> 个 Q 头直接按 <code>h // rep</code> 索引 KV，零拷贝。</li>
+<li><strong>KV cache 这里用 <code>torch.cat</code>，生产里呢？</strong> <code>cat</code> 每步重新分配加拷贝整个 cache，是 <span class="math inline">O(T)</span>；生产用预分配的 paged 块 + <code>block_table</code> 索引写入，是 <span class="math inline">O(1)</span>（3.2）。手撕时写 <code>cat</code> 可以，但要主动说出这一点。</li>
+<li><strong>这段的访存量？</strong> decode（<span class="math inline">S=1</span>）每层读 KV cache <span class="math inline">2 \times T \times H_{kv} \times d_h</span> 个元素，加上四个投影矩阵的权重；GQA 相比 MHA 把前一项降了 <span class="math inline">H/H_{kv}</span> 倍，这就是它存在的全部理由（1.4）。</li>
+</ul>
+<h3 id="sec-15-7">15.7 拼装：Block 与完整模型</h3>
+<details class="code-card" open=""><summary>35 行 · 点击折叠</summary><pre><code class="language-python">class Block(nn.Module):
+    def __init__(self, d, n_heads, n_kv_heads, d_ff):
+        super().__init__()
+        self.attn_norm, self.attn = RMSNorm(d), Attention(d, n_heads, n_kv_heads)
+        self.ffn_norm, self.ffn = RMSNorm(d), SwiGLU(d, d_ff)
+
+    def forward(self, x, cos, sin, cache=None):
+        x = x + self.attn(self.attn_norm(x), cos, sin, cache)   # Pre-Norm：norm 在子层入口，残差走干净的旁路
+        x = x + self.ffn(self.ffn_norm(x))
+        return x
+
+
+class Transformer(nn.Module):
+    def __init__(self, vocab, d=256, n_layers=4, n_heads=8, n_kv_heads=2,
+                 d_ff=None, max_len=512, tie_embedding=True):
+        super().__init__()
+        d_ff = d_ff or (int(8 * d / 3) + 255) // 256 * 256      # SwiGLU 补参数量，再对齐 256
+        self.tok_emb = nn.Embedding(vocab, d)
+        self.layers = nn.ModuleList([Block(d, n_heads, n_kv_heads, d_ff) for _ in range(n_layers)])
+        self.norm = RMSNorm(d)
+        self.lm_head = nn.Linear(d, vocab, bias=False)
+        if tie_embedding:
+            self.lm_head.weight = self.tok_emb.weight           # 权重绑定，省一份 vocab × d
+        cos, sin = rope_tables(max_len, d // n_heads)
+        self.register_buffer("cos", cos, persistent=False)      # 表不是参数，不进 state_dict
+        self.register_buffer("sin", sin, persistent=False)
+
+    def forward(self, ids, caches=None, start=0):
+        """ids: [B, S]；start 是这批 token 的起始绝对位置（decode 时等于已缓存长度）"""
+        S = ids.shape[1]
+        h = self.tok_emb(ids)
+        cos, sin = self.cos[start:start + S], self.sin[start:start + S]
+        for i, layer in enumerate(self.layers):
+            h = layer(h, cos, sin, None if caches is None else caches[i])
+        return self.lm_head(self.norm(h))                        # [B, S, vocab]</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>Pre-Norm 最容易写错的是什么？</strong> 写成 <code>x = norm(x); x = x + attn(x)</code>——那样残差路径也被归一化了，深层训练会不稳。正确写法是残差直连，只有进子层的那一支过 norm。</li>
+<li><strong><code>lm_head</code> 前为什么还要一个 norm？</strong> 最后一层输出没经过任何归一化就进 vocab 投影，量级会随层数漂移。所有主流实现（LLaMA、GPT-2）都有这个 final norm。</li>
+<li><strong>权重绑定有什么代价？</strong> 省 <span class="math inline">V \times d</span> 参数（<span class="math inline">V=128K</span>、<span class="math inline">d=4096</span> 时是 0.5B，fp16 一个 GB），但输入 embedding 和输出投影的最优表示不一定一致，大模型（7B 以上）通常不绑，小模型（Gemma、Qwen 的 0.5B）绑。</li>
+<li><strong><code>start</code> 这个参数能不能不要？</strong> 可以改成传 <code>position_ids</code>，那样能支持每个请求位置不同的批处理（continuous batching 里同一 batch 的请求进度不同，3.1），也能支持 prefix caching 复用后的位置跳变（3.3）。生产实现都是传 <code>position_ids</code> 而不是一个标量。</li>
+<li><strong>参数量怎么现场算？</strong> 每层 attention $ (H + 2H_{kv}) d_h d + d^2$，FFN <span class="math inline">3 d d_{ff}</span>，乘层数再加 embedding。<span class="math inline">d_{ff} = 8d/3</span> 时每层约 <span class="math inline">12d^2</span>（GQA 会更少一点），<span class="math inline">N \approx 12 n_{layers} d^2</span> 是那个常用的估算式；对 DeepSeek-V3 这种 MoE 的完整推算见 14.5。</li>
+<li><strong>FLOPs 和访存量？</strong> prefill 每 token 约 <span class="math inline">2N</span> FLOPs（<span class="math inline">N</span> 为激活参数量），decode 每 token 读约 <span class="math inline">N</span> 个权重元素乘以精度字节数，加 KV cache；配合 2.2、2.3 现场估上限。</li>
+<li><strong>怎么改成 MoE？</strong> 把 <code>Block</code> 里的 <code>self.ffn</code> 换成 14.4 的 MoE 层，其余不动；这也是为什么面试里问「加个 MoE 要改哪」，答案是「只改 FFN 那一行加路由」。</li>
+</ul>
+<h3 id="sec-15-8">15.8 手撕采样与 generate 循环</h3>
+<details class="code-card" open=""><summary>36 行 · 点击折叠</summary><pre><code class="language-python">def sample(logits, temperature=1.0, top_k=0, top_p=1.0, min_p=0.0,
+           prev_ids=None, penalty=1.0, generator=None):
+    """logits: [B, V]，返回 [B]。顺序：惩罚 → 温度 → top-k → min-p → top-p → 采样"""
+    if prev_ids is not None and penalty != 1.0:
+        s = logits.gather(-1, prev_ids)                          # HF 的 repetition penalty：正除负乘
+        logits = logits.scatter(-1, prev_ids, torch.where(s &gt; 0, s / penalty, s * penalty))
+    if temperature == 0.0:
+        return logits.argmax(dim=-1)                             # greedy，别做除法
+    logits = logits / temperature
+    if top_k &gt; 0:
+        kth = logits.topk(min(top_k, logits.shape[-1]), dim=-1).values[..., -1, None]
+        logits = logits.masked_fill(logits &lt; kth, float("-inf"))
+    probs = logits.softmax(dim=-1)
+    if min_p &gt; 0.0:                                              # 阈值随最大概率缩放，不用排序
+        probs = probs.masked_fill(probs &lt; min_p * probs.max(-1, keepdim=True).values, 0.0)
+    if top_p &lt; 1.0:
+        sp, si = probs.sort(dim=-1, descending=True)
+        drop = (sp.cumsum(-1) - sp) &gt;= top_p                     # 减自身：保留让累加首次达到 p 的那个
+        probs = torch.zeros_like(probs).scatter(-1, si, sp.masked_fill(drop, 0.0))
+    probs = probs / probs.sum(-1, keepdim=True)
+    return torch.multinomial(probs, 1, generator=generator).squeeze(-1)
+
+
+@torch.no_grad()
+def generate(model, ids, max_new_tokens, **kw):
+    """ids: [B, S_prompt]；prefill 一次，之后每步只送 1 个 token"""
+    caches = [{} for _ in model.layers]
+    logits = model(ids, caches, start=0)[:, -1]                  # prefill：S 个 token 一次算完
+    out = []
+    for _ in range(max_new_tokens):
+        nxt = sample(logits, prev_ids=ids, **kw)                 # [B]
+        out.append(nxt)
+        ids = torch.cat([ids, nxt[:, None]], dim=1)
+        past = caches[0]["k"].shape[2]                           # 已缓存长度就是下一个 token 的位置
+        logits = model(nxt[:, None], caches, start=past)[:, -1]  # decode：S = 1
+    return torch.stack(out, dim=1)</code></pre></details>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong>top-p 的 <code>- sp</code> 为什么不能省？</strong> 直接写 <code>cumsum &gt;= p</code> 会把「使累计概率首次达到 p 的那个 token」也砍掉，极端情况下（最大概率就大于 p）会一个都不剩、除零得 NaN。减掉自身相当于用「不含自己的前缀和」判断，保证至少留一个。</li>
+<li><strong>各个截断的先后顺序重要吗？</strong> 重要但没有统一标准。HF 和 vLLM 大致是惩罚 → 温度 → top-k → top-p → min-p；面试时说清「先惩罚再温度再截断，截断之间的顺序影响候选集但都合理」即可（1.7）。</li>
+<li><strong><code>multinomial</code> 在生产里为什么不用？</strong> <span class="math inline">V = 128K</span> 时它内部要算 CDF 再二分，且不好和前面的 mask 融合。生产用 Gumbel-max（<span class="math inline">\arg\max(\text{logits} + g)</span>，<span class="math inline">g</span> 是 Gumbel 噪声）一步出结果，或 FlashInfer 的无排序拒绝采样（1.7）。</li>
+<li><strong>generate 里最容易错的一行是哪？</strong> <code>start=past</code>。忘了它，decode 时 RoPE 永远按位置 0 旋转，输出前几个 token 看着正常，长了就崩。自检办法就是「全量前向 == prefill + 逐 token decode」这条断言。</li>
+<li><strong>prompt 和生成的 token 都要算进 penalty 吗？</strong> 看语义：<code>repetition_penalty</code> 通常两者都算，<code>frequency/presence_penalty</code>（OpenAI 语义）只算生成的部分。这段代码里 <code>prev_ids=ids</code> 是前者。</li>
+<li><strong>batch 里每个请求参数不同怎么办？</strong> 把 temperature、top_p 等做成 <code>[B]</code> 的张量参与广播运算，一次 kernel 处理整个 batch；千万别 per-request 起 Python 循环，那是 decode 步里 CPU 开销的主要来源（3.5）。</li>
+<li><strong>这段离能上线差什么？</strong> paged KV cache、continuous batching 的调度、stop token 与长度限制、增量 detokenize、CUDA graph 捕获 decode 步。也就是 3 章和 10 章的全部内容——这句话可以作为手撕结束后的收尾，把话题引到你更熟的地方。</li>
+</ul>
+<h3 id="sec-15-9">15.9 自检清单与常见 bug</h3>
+<p>写完之后按这个顺序自己过一遍，比面试官指出来强：</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>怎么做</th>
+<th>出错时的症状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>形状</td>
+<td>每个 <code>view</code> / <code>transpose</code> 后面注释形状，跑一遍 dummy 输入</td>
+<td><code>reshape</code> 报错，或静默地把头维和序列维混了</td>
+</tr>
+<tr>
+<td>causal</td>
+<td>把 mask 打印出来看对角线</td>
+<td>泄漏未来 token，loss 异常低</td>
+</tr>
+<tr>
+<td>KV cache</td>
+<td>断言「全量前向 == prefill + 逐 token decode」</td>
+<td>短输出正常、长输出胡言乱语</td>
+</tr>
+<tr>
+<td>RoPE 位置</td>
+<td>decode 时打印 <code>start</code>，应逐步加一</td>
+<td>同上，且重复度高</td>
+</tr>
+<tr>
+<td>数值</td>
+<td>输入乘 1000 看有没有 NaN</td>
+<td>fp16 下溢出</td>
+</tr>
+<tr>
+<td>GQA</td>
+<td>令 <code>n_kv_heads == n_heads</code>，结果应与 MHA 一致</td>
+<td>头分组映射写反</td>
+</tr>
+<tr>
+<td>权重绑定</td>
+<td><code>model.lm_head.weight is model.tok_emb.weight</code></td>
+<td>参数量对不上</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>最常见的五个 bug，按面试里出现频率排：</p>
+<ol type="1">
+<li><strong>decode 时 RoPE 位置没跟着走</strong>（忘了传 <code>start</code> / <code>position_ids</code>）。</li>
+<li><strong>causal mask 的对角线偏移写死成 0</strong>，带 cache 时全错。</li>
+<li><strong>缓存了旋转前的 k</strong>，或者把 v 也旋转了。</li>
+<li><strong>Pre-Norm 写成把残差一起归一化</strong>。</li>
+<li><strong>GQA 里 <code>repeat_interleave</code> 写成 <code>repeat</code></strong>——前者是 <code>[a,a,b,b]</code>，后者是 <code>[a,b,a,b]</code>，头和组的对应关系正好错开。</li>
+</ol>
+<hr>
 <h2 id="sec-bef0bd8e">附：验证与工具</h2>
 <ul>
+<li>15 章的代码从 15.2 到 15.8 按顺序拼成一个文件即可运行，同样在本地 CPU（PyTorch 2.9，float64）上逐项验证：RoPE 的相对位置性质 <span class="math inline">\langle R_m q, R_n k\rangle = \langle R_0 q, R_{n-m} k\rangle</span> 误差 4e-15；前后半配对与相邻配对两种排布在列置换下完全相等；PI 缩放与「位置除以 k」完全相等；RMSNorm 与 <code>F.rms_norm</code> 误差 0；softmax、cross entropy 与 torch 实现误差 1e-15 量级，且 logits 加 1e4 后不出 NaN；SwiGLU 合并 GEMM 与三矩阵朴素写法误差 0；GQA attention 与 <code>F.scaled_dot_product_attention</code> 误差 2e-16；<strong>整段前向与「prefill 4 个 token 再逐 token decode」的结果误差 4e-17</strong>（KV cache 与 RoPE 位置索引的正确性检查）；greedy <code>generate</code> 与每步全量重算的 argmax 序列逐 token 相同；top-k、top-p、min-p 的候选集合与手算阈值一致，repetition penalty 能改变 argmax。</li>
 <li>14.5 的参数量脚本、4.4 与 14.2 到 14.6 的 PyTorch 代码均在本地 CPU（PyTorch 2.x，float64）上跑通并与朴素实现对齐：GQA attention 与 repeat 后的标准实现误差 0；online softmax 与标准 softmax 误差 1e-15 量级；MLA 的 absorb 实现与展开成显式 K、V 的实现误差 3e-16，prefill 加逐 token decode 的带 cache 结果与整体前向误差 2e-16；linear attention 递归、分块、二次型三种写法互相对齐；MoE 与逐 token 循环对齐；block-sparse 在全 True 掩码下与稠密 causal attention 对齐。</li>
 <li>GPU 参数来自 NVIDIA 官方规格表，模型参数来自各模型 config.json 与技术报告，论文数字均标注了出处（见各章）。</li>
 <li>本文由 <code>bytedance_llm_inference.md</code> 经 <code>build_html.py</code> 生成，改 markdown 后重跑即可更新。</li>
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-06 17:55 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 07:19 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
