@@ -4,8 +4,8 @@
 <title>llm inference</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="bytedance_llm_inference.md">
-<meta name="source-sha256" content="a6006574559dc78a">
-<meta name="generated-at" content="2026-09-07 10:39 UTC">
+<meta name="source-sha256" content="9bffc3dbf2ec649d">
+<meta name="generated-at" content="2026-09-08 01:18 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -569,7 +569,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 岗位画像、面试流程与回答框架</a><ul><li><a href="#sec-0-1">0.1 字节做推理的团队与侧重</a></li><li><a href="#sec-0-2">0.2 常见轮次</a></li><li><a href="#sec-0-3">0.3 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</a></li><li><a href="#sec-3-8">3.8 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3 / v4</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 线上排障：延迟尖刺与长尾</a></li><li><a href="#sec-10-4">10.4 常见系统设计题</a></li><li><a href="#sec-10-5">10.5 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 高频原题、考点排行与复习优先级</a><ul><li><a href="#sec-13-1">13.1 高频原题清单</a></li><li><a href="#sec-13-2">13.2 优先级的定义与用法</a></li><li><a href="#sec-13-3">13.3 考点排行（按 12 章来源统计）</a></li><li><a href="#sec-13-4">13.4 全文知识点优先级总表</a></li><li><a href="#sec-13-5">13.5 按团队的优先级偏移</a></li><li><a href="#sec-13-6">13.6 复习路线</a></li></ul></li><li><a href="#sec-14">14. 手撕题清单与参考实现</a><ul><li><a href="#sec-14-1">14.1 出现过的题目总表</a></li><li><a href="#sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-14-4">14.4 手撕 MoE 层</a></li><li><a href="#sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-15">15. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-15-1">15.1 组件清单与出题方式</a></li><li><a href="#sec-15-2">15.2 手撕 RoPE</a></li><li><a href="#sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-15-5">15.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-15-7">15.7 拼装：Block 与完整模型</a></li><li><a href="#sec-15-8">15.8 手撕采样与 generate 循环</a></li><li><a href="#sec-15-9">15.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
+<ol><li><a href="#sec-0">0. 先看这里：高频原题、优先级与回答框架</a><ul><li><a href="#sec-0-1">0.1 高频原题清单</a></li><li><a href="#sec-0-2">0.2 优先级的定义与用法</a></li><li><a href="#sec-0-3">0.3 考点排行（按 12 章来源统计）</a></li><li><a href="#sec-0-4">0.4 全文知识点优先级总表</a></li><li><a href="#sec-0-5">0.5 按团队的优先级偏移</a></li><li><a href="#sec-0-6">0.6 复习路线</a></li><li><a href="#sec-0-7">0.7 字节做推理的团队与侧重</a></li><li><a href="#sec-0-8">0.8 常见轮次</a></li><li><a href="#sec-0-9">0.9 怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. Transformer 推理基础</a><ul><li><a href="#sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</a></li><li><a href="#sec-1-2">1.2 Attention 的计算量与显存</a></li><li><a href="#sec-1-3">1.3 KV cache</a></li><li><a href="#sec-1-4">1.4 MHA、MQA、GQA、MLA</a></li><li><a href="#sec-1-5">1.5 位置编码与 RoPE</a></li><li><a href="#sec-1-6">1.6 Norm、激活函数与其他结构细节</a></li><li><a href="#sec-1-7">1.7 采样策略</a></li></ul></li><li><a href="#sec-2">2. 性能分析：memory-bound、roofline 与指标</a><ul><li><a href="#sec-2-1">2.1 常用 GPU 参数（背下来）</a></li><li><a href="#sec-2-2">2.2 Roofline 与算术强度</a></li><li><a href="#sec-2-3">2.3 现场估算：7B 与 70B 的 decode 上限</a></li><li><a href="#sec-2-4">2.4 FLOPs 估算与 MFU</a></li><li><a href="#sec-2-5">2.5 服务指标</a></li></ul></li><li><a href="#sec-3">3. 推理引擎核心机制</a><ul><li><a href="#sec-3-1">3.1 Continuous batching（iteration-level scheduling）</a></li><li><a href="#sec-3-2">3.2 PagedAttention 与 vLLM 的显存管理</a></li><li><a href="#sec-3-3">3.3 Prefix caching 与 RadixAttention</a></li><li><a href="#sec-3-4">3.4 Chunked prefill</a></li><li><a href="#sec-3-5">3.5 调度器与 CPU 开销：vLLM V1 与 SGLang zero-overhead</a></li><li><a href="#sec-3-6">3.6 PD 分离（disaggregated prefill / decode）</a></li><li><a href="#sec-3-7">3.7 Mooncake：以 KVCache 为中心的架构</a></li><li><a href="#sec-3-8">3.8 框架对比</a></li></ul></li><li><a href="#sec-4">4. Attention kernel：online softmax、FlashAttention、FlashDecoding</a><ul><li><a href="#sec-4-1">4.1 Online softmax 推导（必须能手推）</a></li><li><a href="#sec-4-2">4.2 FlashAttention v1 / v2 / v3 / v4</a></li><li><a href="#sec-4-3">4.3 FlashDecoding 与 split-KV</a></li><li><a href="#sec-4-4">4.4 手撕：PyTorch 版 attention 与 KV cache decode</a></li></ul></li><li><a href="#sec-5">5. 量化</a><ul><li><a href="#sec-5-1">5.1 基础</a></li><li><a href="#sec-5-2">5.2 W8A8：LLM.int8 与 SmoothQuant</a></li><li><a href="#sec-5-3">5.3 W4A16：GPTQ 与 AWQ</a></li><li><a href="#sec-5-4">5.4 FP8</a></li><li><a href="#sec-5-5">5.5 KV cache 量化</a></li><li><a href="#sec-5-6">5.6 反量化 kernel 与 Marlin</a></li></ul></li><li><a href="#sec-6">6. 投机采样（speculative decoding）</a><ul><li><a href="#sec-6-1">6.1 原理与分布不变性证明</a></li><li><a href="#sec-6-2">6.2 变体</a></li><li><a href="#sec-6-3">6.3 什么时候有收益</a></li></ul></li><li><a href="#sec-7">7. 分布式推理与 MoE</a><ul><li><a href="#sec-7-1">7.1 张量并行（TP）</a></li><li><a href="#sec-7-2">7.2 流水线并行（PP）</a></li><li><a href="#sec-7-3">7.3 MoE 推理与专家并行（EP）</a></li><li><a href="#sec-7-4">7.4 序列并行（SP，Megatron 风格）</a></li><li><a href="#sec-7-5">7.5 DP attention：请求维并行的 attention 加 EP / TP 的 MoE</a></li><li><a href="#sec-7-6">7.6 上下文并行（CP）：prefill CP 与 decode CP</a></li><li><a href="#sec-7-7">7.7 通信原语与硬件</a></li><li><a href="#sec-7-8">7.8 通信与计算重叠</a></li><li><a href="#sec-7-9">7.9 组合部署实例与速查表</a></li></ul></li><li><a href="#sec-8">8. CUDA 与 kernel 优化</a><ul><li><a href="#sec-8-1">8.1 GPU 执行模型要点</a></li><li><a href="#sec-8-2">8.2 GEMM 优化路线</a></li><li><a href="#sec-8-3">8.3 Reduction：手写 softmax 与 RMSNorm</a></li><li><a href="#sec-8-4">8.4 Kernel fusion 与常见融合点</a></li><li><a href="#sec-8-5">8.5 Profiling 与瓶颈定位</a></li><li><a href="#sec-8-6">8.6 MegaKernel：把整个前向编成一个常驻 kernel</a></li><li><a href="#sec-8-7">8.7 现代算子库速查：DeepGEMM、DeepEP、MoonEP 及其他</a></li><li><a href="#sec-8-8">8.8 kernel 怎么写：四层抓手</a></li><li><a href="#sec-8-9">8.9 手撕题清单（CUDA / 性能方向）</a></li></ul></li><li><a href="#sec-9">9. 长上下文推理与 KV cache 压缩</a><ul><li><a href="#sec-9-1">9.1 问题规模</a></li><li><a href="#sec-9-2">9.2 Prefill：context parallel</a></li><li><a href="#sec-9-3">9.3 Decode：KV cache 压缩与驱逐</a></li></ul></li><li><a href="#sec-10">10. 工程与服务化</a><ul><li><a href="#sec-10-1">10.1 推理服务架构</a></li><li><a href="#sec-10-2">10.2 显存管理</a></li><li><a href="#sec-10-3">10.3 线上排障：延迟尖刺与长尾</a></li><li><a href="#sec-10-4">10.4 常见系统设计题</a></li><li><a href="#sec-10-5">10.5 C++ / Python 工程问题</a></li></ul></li><li><a href="#sec-11">11. 前沿模型架构的推理优化实战（2025 至 2026）</a><ul><li><a href="#sec-11-1">11.1 六个趋势与它们对引擎提出的要求</a></li><li><a href="#sec-11-2">11.2 DeepSeek V3.2 与 V4</a></li><li><a href="#sec-11-3">11.3 GLM-5 / 5.2 / 5.3（智谱）</a></li><li><a href="#sec-11-4">11.4 Kimi Linear 与 Kimi K3（月之暗面）</a></li><li><a href="#sec-11-5">11.5 Qwen3-Next / 3.5 / 3.8（阿里）</a></li><li><a href="#sec-11-6">11.6 其他必须知道的架构</a></li><li><a href="#sec-11-7">11.7 字节 Seed 自己的模型与推理工作</a></li><li><a href="#sec-11-8">11.8 方法论：把一个新架构接进推理引擎，以及怎么答”给你 X 模型怎么部署”</a></li><li><a href="#sec-11-9">11.9 本章未核实或有冲突的信息</a></li></ul></li><li><a href="#sec-12">12. 公开面经原题与逐题解析</a><ul><li><a href="#sec-12-1">12.1 来源总表</a></li><li><a href="#sec-12-2">12.2 A 层：推理 / Infra 岗逐场解析</a></li><li><a href="#sec-12-3">12.3 B 层：算法 / 应用岗被问到的推理题</a></li><li><a href="#sec-12-4">12.4 C 层：未点名公司的推理岗真题（对照）</a></li></ul></li><li><a href="#sec-13">13. 手撕题清单与参考实现</a><ul><li><a href="#sec-13-1">13.1 出现过的题目总表</a></li><li><a href="#sec-13-2">13.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</a></li><li><a href="#sec-13-3">13.3 手撕 linear attention（递归形式与分块形式）</a></li><li><a href="#sec-13-4">13.4 手撕 MoE 层</a></li><li><a href="#sec-13-5">13.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</a></li><li><a href="#sec-13-6">13.6 手撕 block-sparse attention（Python kernel）</a></li></ul></li><li><a href="#sec-14">14. 手撕大模型算法基础：从零写一个 decoder-only 模型</a><ul><li><a href="#sec-14-1">14.1 组件清单与出题方式</a></li><li><a href="#sec-14-2">14.2 手撕 RoPE</a></li><li><a href="#sec-14-3">14.3 手撕 RMSNorm 与 LayerNorm</a></li><li><a href="#sec-14-4">14.4 手撕数值稳定的 softmax 与 cross entropy</a></li><li><a href="#sec-14-5">14.5 手撕 SwiGLU FFN</a></li><li><a href="#sec-14-6">14.6 手撕带 RoPE 与 KV cache 的 GQA attention</a></li><li><a href="#sec-14-7">14.7 拼装：Block 与完整模型</a></li><li><a href="#sec-14-8">14.8 手撕采样与 generate 循环</a></li><li><a href="#sec-14-9">14.9 自检清单与常见 bug</a></li></ul></li><li><a href="#sec-bef0bd8e">附：验证与工具</a></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -578,15 +578,1422 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">推理基础、引擎机制、kernel、量化、并行、MoE，附公开面经原题与高频考点清单</p>
   <div class="meta">
     <span><strong>来源</strong> <code>bytedance_llm_inference.md</code></span>
-    <span><strong>生成</strong> 2026-09-07 10:39 UTC</span>
+    <span><strong>生成</strong> 2026-09-08 01:18 UTC</span>
   </div>
 </header>
 
 <blockquote>
-<p>适用：字节跳动大模型推理 / 推理优化 / AI Infra 方向（Seed、火山引擎、AML、抖音 Infra 等团队）的实习、校招、社招一至三面。 结构：每个知识点按 <strong>是什么 → 为什么 → 怎么实现 → 追问链</strong> 展开，追问链按面试官”顺着一个点往下钻”的习惯组织，每一层都给出可以直接说出口的答案。 数值：所有 GPU 参数、模型结构参数、KV cache 大小均按官方规格或论文原文计算，公式和代入过程写在正文里，面试时可以现场推一遍。 代码：<code>python</code> 代码块已在本地 CPU 上用 PyTorch 跑通并与朴素实现对齐（验证方式见文末）；<code>cuda</code> 代码块按 CUDA 12 语法书写，本机没有 nvcc 未编译，语义已逐行核对；<code>text</code> 块是示意图或伪代码。 第 11 章是 2025 至 2026 年前沿架构（DeepSeek V3.2 / V4、GLM-5.x、Kimi K3、Qwen3.5 / 3.8 等）的推理优化实战；第 12 至 15 章是自测与训练区：12 章是公开面经原题，<strong>13 章把全文 90 个小节逐一定级（P0 到 P3）并给出验收标准、原题清单、按团队的优先级偏移和 3 天 / 2 周 / 1 个月三套复习路线</strong>，14 至 15 章是手撕题与参考实现。<strong>时间紧就直接从 13 章开始</strong>：它会告诉你先看哪几节、每节要答到什么程度。</p>
+<p>适用：字节跳动大模型推理 / 推理优化 / AI Infra 方向（Seed、火山引擎、AML、抖音 Infra 等团队）的实习、校招、社招一至三面。 结构：每个知识点按 <strong>是什么 → 为什么 → 怎么实现 → 追问链</strong> 展开，追问链按面试官”顺着一个点往下钻”的习惯组织，每一层都给出可以直接说出口的答案。 数值：所有 GPU 参数、模型结构参数、KV cache 大小均按官方规格或论文原文计算，公式和代入过程写在正文里，面试时可以现场推一遍。 代码：<code>python</code> 代码块已在本地 CPU 上用 PyTorch 跑通并与朴素实现对齐（验证方式见文末）；<code>cuda</code> 代码块按 CUDA 12 语法书写，本机没有 nvcc 未编译，语义已逐行核对；<code>text</code> 块是示意图或伪代码。 <strong>怎么用</strong>：第 0 章是入口——原题级的高频问题清单（题目可点，直接跳到答案）、全文 90 个小节逐一定级（P0 到 P3）与验收标准、按团队的优先级偏移、以及 3 天 / 2 周 / 1 个月三套复习路线。<strong>建议先用 0.1 的题单自测一遍，答不上的顺着链接补</strong>，比从头顺读省一半时间。 第 1 到 10 章是正文（推理基础、性能估算、引擎机制、attention kernel、量化、投机采样、分布式、CUDA、长上下文、工程与排障），第 11 章是 2025 至 2026 年前沿架构（DeepSeek V3.2 / V4、GLM-5.x、Kimi K3、Qwen3.5 / 3.8 等）的推理优化实战，第 12 章是公开面经原题逐题解析，第 13 至 14 章是手撕题清单与参考实现。</p>
 </blockquote>
-<h2 id="sec-0"><span class="num">0.</span>岗位画像、面试流程与回答框架</h2>
-<h3 id="sec-0-1">0.1 字节做推理的团队与侧重</h3>
+<h2 id="sec-0"><span class="num">0.</span>先看这里：高频原题、优先级与回答框架</h2>
+<p>本章是全文的<strong>索引和自测区</strong>：0.1 是原题级的高频问题清单（<strong>题目可点，直接跳到答案</strong>），0.2 定义优先级，0.3 给考点排行，0.4 把全文 90 个小节逐一定级并写出验收标准，0.5 是按团队的偏移，0.6 是复习路线。</p>
+<p><strong>从 0.1 开始</strong>：先用题单自测一遍，答不上的顺着链接补，比从头顺读省一半时间。</p>
+<h3 id="sec-0-1">0.1 高频原题清单</h3>
+<p>下面的题全部来自 12 章的公开面经，按”被问到的场次”排。<strong>题目本身是链接，点进去就是这道题的完整回答和原因</strong>；括号里是来源编号，最后一列链到所在小节。这一节可以直接当题库用：<strong>先盖住右边自己答一遍，再点题目对答案</strong>。</p>
+<h4 id="p0-口述题出现最多的-20-题">0.1.1 P0 口述题：出现最多的 20 题</h4>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>原题</th>
+<th>来源</th>
+<th>答题眼（一句话说不到这个点就是没答对）</th>
+<th>节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><a href="#sec-1-3">KV cache 是什么、解决什么问题</a></td>
+<td>A1、A2、A21、B×2、C</td>
+<td>用<strong>存储换计算</strong>，省掉历史 token 的 K、V 投影重算；而不是”加速 attention”</td>
+<td><a href="#sec-1-3">1.3</a></td>
+</tr>
+<tr>
+<td>2</td>
+<td><a href="#q-no-q-cache">为什么不缓存 Q</a></td>
+<td>C、常见追问</td>
+<td><span class="math inline">q_t</span> 只出现在第 <span class="math inline">t</span> 步的式子里，<span class="math inline">k_i</span>、<span class="math inline">v_i</span> 会被第 <span class="math inline">i</span> 步之后每一步用到</td>
+<td><a href="#sec-1-3">1.3</a></td>
+</tr>
+<tr>
+<td>3</td>
+<td><a href="#sec-1-3">现场算 7B / 70B 每 token 的 KV</a></td>
+<td>A5、B、C</td>
+<td>公式 <span class="math inline">2 L h_{kv} d_h \times \text{bytes}</span>，70B GQA 是 320 KB / token</td>
+<td><a href="#sec-1-3">1.3</a></td>
+</tr>
+<tr>
+<td>4</td>
+<td><a href="#q-paged-cost">PagedAttention 原理与效果、代价</a></td>
+<td>A1、A2、B×2、C</td>
+<td>借操作系统分页；把 KV 利用率从 20% 到 38% 提到 96%+；<strong>代价是 kernel 慢 20% 到 26%</strong></td>
+<td><a href="#sec-3-2">3.2</a></td>
+</tr>
+<tr>
+<td>5</td>
+<td><a href="#q-vllm-advantage">vLLM 相比传统框架的优势</a></td>
+<td>A1、A2、B</td>
+<td>PagedAttention + continuous batching <strong>两者叠加</strong>才有一个数量级</td>
+<td><a href="#sec-3-2">3.2</a></td>
+</tr>
+<tr>
+<td>6</td>
+<td><a href="#q-speedup-methods">大模型推理加速办法有哪些</a></td>
+<td>A2、A16、B</td>
+<td>按<strong>算法层 / 系统层 / kernel 层</strong>三层组织，每层给一个数字</td>
+<td><a href="#sec-0-9">0.9</a></td>
+</tr>
+<tr>
+<td>7</td>
+<td><a href="#sec-1-1">prefill 与 decode 的区别</a></td>
+<td>A3、A21、C</td>
+<td>一个 compute-bound 一个 memory-bound，这决定了后面所有优化的方向</td>
+<td><a href="#sec-1-1">1.1</a>、<a href="#sec-2-2">2.2</a></td>
+</tr>
+<tr>
+<td>8</td>
+<td><a href="#sec-2-3">decode 为什么 memory-bound、上限怎么算</a></td>
+<td>A3、A21、B</td>
+<td>权重字节数 ÷ 带宽 = 每步时间下界；7B FP16 在 A100 上约 140 token/s</td>
+<td><a href="#sec-2-2">2.2</a>、<a href="#sec-2-3">2.3</a></td>
+</tr>
+<tr>
+<td>9</td>
+<td><a href="#sec-5-1">常见量化方法有哪些</a></td>
+<td>A1、A2、A8/A9</td>
+<td>按<strong>对象</strong>（权重 / 激活 / KV）× <strong>位宽</strong> × <strong>方法</strong>三个维度铺开</td>
+<td><a href="#sec-5-1">5.1</a></td>
+</tr>
+<tr>
+<td>10</td>
+<td><a href="#q-three-quant-gains">权重 / 激活 / KV 量化各自的收益</a></td>
+<td>A2</td>
+<td>三者<strong>见效阶段不同</strong>：权重减 decode 带宽、激活开 tensor core 提 prefill、KV 增并发</td>
+<td><a href="#sec-5-1">5.1</a></td>
+</tr>
+<tr>
+<td>11</td>
+<td><a href="#q-sym-asym">对称 vs 非对称量化</a></td>
+<td>A1</td>
+<td>非对称在整数 GEMM 里会多出与 zero point 相关的交叉项，所以权重通常对称</td>
+<td><a href="#sec-5-1">5.1</a></td>
+</tr>
+<tr>
+<td>12</td>
+<td><a href="#sec-1-4">MHA / MQA / GQA / MLA 对比</a></td>
+<td>A4、A5、B×2</td>
+<td>一张 KV 大小对比表 + 各自为什么效果不掉</td>
+<td><a href="#sec-1-4">1.4</a></td>
+</tr>
+<tr>
+<td>13</td>
+<td><a href="#sec-8-2">写 CUDA GEMM 并讲优化方法与评估指标</a></td>
+<td>A4、A10、A17、C</td>
+<td>tiling 五步 + 指标（占峰值比例、对 cuBLAS 比值、DRAM 带宽、occupancy、bank conflict）</td>
+<td><a href="#sec-8-2">8.2</a></td>
+</tr>
+<tr>
+<td>14</td>
+<td><a href="#sec-8-3">手写 reduce / softmax 并优化</a></td>
+<td>A5、A8/A9、A20、C</td>
+<td>交错寻址 → warp shuffle → 线程内预累加 → 向量化 → 两级归约</td>
+<td><a href="#sec-8-3">8.3</a></td>
+</tr>
+<tr>
+<td>15</td>
+<td><a href="#q-sm-util">SM 利用率与 GPU 利用率怎么算</a></td>
+<td>A8/A9</td>
+<td><code>nvidia-smi</code> 的利用率是”有 kernel 在跑”的时间占比，<strong>占一个 SM 也算 100%</strong></td>
+<td><a href="#sec-8-5">8.5</a></td>
+</tr>
+<tr>
+<td>16</td>
+<td><a href="#q-tp-col-row">TP 先列切还是先行切、为什么</a></td>
+<td>A6</td>
+<td>先列后行只要一次 all-reduce，<strong>因为非线性不能作用在部分和上</strong></td>
+<td><a href="#sec-7-1">7.1</a></td>
+</tr>
+<tr>
+<td>17</td>
+<td><a href="#q-allreduce-cost">all-reduce 开销怎么计算</a></td>
+<td>A6、B</td>
+<td>ring 公式 <span class="math inline">2(n-1)/n \cdot S / BW</span> + 延迟项，小消息延迟主导</td>
+<td><a href="#sec-7-1">7.1</a></td>
+</tr>
+<tr>
+<td>18</td>
+<td><a href="#sec-4-2">FlashAttention 的思想与实现</a></td>
+<td>A19、B、C</td>
+<td>tiling + online softmax，<strong>不物化 <span class="math inline">S</span>、<span class="math inline">P</span></strong>；是<a href="#q-fa-exact">精确算法不是近似</a></td>
+<td><a href="#sec-4-1">4.1</a>、<a href="#sec-4-2">4.2</a></td>
+</tr>
+<tr>
+<td>19</td>
+<td><a href="#sec-4-4">手撕 attention（含 KV cache / GQA / cross）</a></td>
+<td>A5、A10、A19、B×2、C</td>
+<td>10 分钟 bug-free，讲清每个形状；causal mask 的对角线偏移</td>
+<td><a href="#sec-4-4">4.4</a>、<a href="#sec-14-6">14.6</a></td>
+</tr>
+<tr>
+<td>20</td>
+<td><a href="#q-model-too-slow">模型太慢，从哪些方面着手</a></td>
+<td>A16、A21</td>
+<td><strong>先测再算再改</strong>：延迟分解 → 理论上限 → 系统层 → 模型层 → kernel 层 → 硬件层</td>
+<td><a href="#sec-10-3">10.3</a>、<a href="#sec-10-4">10.4</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="p1-口述题出现-2-到-3-次">0.1.2 P1 口述题：出现 2 到 3 次</h4>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>原题</th>
+<th>来源</th>
+<th>答题眼</th>
+<th>节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>21</td>
+<td><a href="#q-bottleneck-types">除了 compute / memory-bound 还有什么瓶颈</a></td>
+<td>A3</td>
+<td>latency-bound、launch-bound、同步 bound、通信 bound、SMEM bound、PCIe bound，各自的定位手段</td>
+<td><a href="#sec-8-5">8.5</a></td>
+</tr>
+<tr>
+<td>22</td>
+<td><a href="#q-sm-underfilled">SM 未打满时增大矩阵乘为什么延时还涨</a></td>
+<td>A3</td>
+<td>三条：带宽共享、K 维线性增长、<strong>wave quantization 的台阶</strong></td>
+<td><a href="#sec-8-1">8.1</a></td>
+</tr>
+<tr>
+<td>23</td>
+<td><a href="#q-prefix-hit">Prefix cache 原理与命中率</a></td>
+<td>A2、B</td>
+<td>块 hash 必须带前缀；命中省的是 QKV 投影而非全部 attention</td>
+<td><a href="#sec-3-3">3.3</a></td>
+</tr>
+<tr>
+<td>24</td>
+<td><a href="#q-chunked-cost">chunked prefill 的缺点</a></td>
+<td>C、知乎清单</td>
+<td>它把 TTFT 的问题转移成了 ITL 的抖动，<a href="#sec-10-3">10.3 有 4 ms → 45 ms 的算例</a></td>
+<td><a href="#sec-3-4">3.4</a>、<a href="#sec-10-3">10.3</a></td>
+</tr>
+<tr>
+<td>25</td>
+<td><a href="#q-pd-when-not">PD 分离为什么做、什么时候不适合</a></td>
+<td>C、知乎清单</td>
+<td>干扰 + 各自最优并行策略不同；小模型短 prompt 单机反而亏</td>
+<td><a href="#sec-3-6">3.6</a>、<a href="#sec-3-7">3.7</a></td>
+</tr>
+<tr>
+<td>26</td>
+<td><a href="#q-fp8-kv-config">FP8 KV cache 怎么配置</a>、<a href="#q-fp8-kv-prefill">prefill 收益多少</a></td>
+<td>A3</td>
+<td>E5M2 免校准 E4M3 要 scale；<strong>FP8 KV 对 prefill 几乎无收益</strong>，收益在 decode</td>
+<td><a href="#sec-5-5">5.5</a></td>
+</tr>
+<tr>
+<td>27</td>
+<td><a href="#sec-7-3">DeepSeek 671B 怎么做算力分配和负载均衡</a></td>
+<td>A1</td>
+<td>DP attention + 大 EP + 冗余专家 + EPLB + PD 分离，<strong>把每卡专家数和通信量算出来</strong></td>
+<td><a href="#sec-7-3">7.3</a>、<a href="#sec-13-5">13.5</a></td>
+</tr>
+<tr>
+<td>28</td>
+<td><a href="#sec-13-2">手撕 MLA</a></td>
+<td>A4、A5</td>
+<td>三条路径 + absorb + 解耦 RoPE</td>
+<td><a href="#sec-13-2">13.2</a></td>
+</tr>
+<tr>
+<td>29</td>
+<td><a href="#sec-14-7">手撕 Transformer 并算 FLOPs 和内存</a></td>
+<td>A21、B</td>
+<td>14 章的完整实现 + 1.2 的估算</td>
+<td><a href="#sec-14">14 章</a>、<a href="#sec-1-2">1.2</a></td>
+</tr>
+<tr>
+<td>30</td>
+<td><a href="#q-fusion-slower">有没有 fusion 反而变慢的情况</a></td>
+<td>A21</td>
+<td>寄存器压力 / occupancy 下降、替掉了 cuBLAS、并行模式不匹配、挡住了通信重叠</td>
+<td><a href="#sec-8-4">8.4</a></td>
+</tr>
+<tr>
+<td>31</td>
+<td><a href="#q-drop-warp-spec">去掉 warp specialization 损失什么</a></td>
+<td>A21</td>
+<td>损失的是<strong>搬运与计算的重叠</strong>，H100 GEMM 从 80%+ 掉到 60% 左右</td>
+<td><a href="#sec-8-2">8.2</a></td>
+</tr>
+<tr>
+<td>32</td>
+<td><a href="#q-mqa-still-slow">MQA 后 decoder 延迟仍高，分析瓶颈</a></td>
+<td>B</td>
+<td>小 batch 下<strong>权重读取仍是大头</strong>；再查 CPU 调度、采样、TP 通信</td>
+<td><a href="#sec-1-4">1.4</a>、<a href="#sec-2-2">2.2</a></td>
+</tr>
+<tr>
+<td>33</td>
+<td><a href="#q-est-235b">估算 235B MoE 需要多少算力</a></td>
+<td>B</td>
+<td><strong>用激活参数量 22B 算带宽，不是 235B</strong>；FP8 权重 235 GB，8 卡起步</td>
+<td><a href="#sec-2-3">2.3</a></td>
+</tr>
+<tr>
+<td>34</td>
+<td><a href="#q-gil">GIL 是什么、vLLM 为什么拆进程</a></td>
+<td>A6、B</td>
+<td>CPU 密集的调度逻辑和 HTTP / tokenize 抢 GIL，<strong>结果是 GPU 空转</strong></td>
+<td><a href="#sec-10-1">10.1</a></td>
+</tr>
+<tr>
+<td>35</td>
+<td><a href="#q-view-contiguous">view 与 contiguous 的区别</a></td>
+<td>A6</td>
+<td>transpose 后 stride 不连续，view 报错；reshape 会自动拷贝</td>
+<td><a href="#sec-10-5">10.5</a></td>
+</tr>
+<tr>
+<td>36</td>
+<td><a href="#q-fsdp-ddp">FSDP 与 DDP 的区别</a></td>
+<td>A21</td>
+<td>显存换通信；<strong>推理的 TP 更像 FSDP 的思路</strong>而不是 DDP</td>
+<td><a href="#sec-7-1">7.1</a></td>
+</tr>
+<tr>
+<td>37</td>
+<td><a href="#q-spec-distribution">投机采样会改变输出分布吗</a></td>
+<td>常见追问</td>
+<td>不会，<strong>拒绝后从残差分布重采</strong>正好补上缺口</td>
+<td><a href="#sec-6-1">6.1</a>、<a href="#sec-6-3">6.3</a></td>
+</tr>
+<tr>
+<td>38</td>
+<td><a href="#q-small-model-draft">1B 模型毫秒级场景怎么设计 draft</a></td>
+<td>A21/A22</td>
+<td>独立 draft 开销占比太大，走<strong>零成本 draft</strong>（n-gram、EAGLE head、候选集前缀）</td>
+<td><a href="#sec-6-2">6.2</a></td>
+</tr>
+<tr>
+<td>39</td>
+<td><a href="#q-llamacpp">llama.cpp 的特点、和 vLLM 差在哪</a></td>
+<td>A1</td>
+<td>设计目标不同：端侧单请求 vs 多租户高并发，<strong>所以它没有 PagedAttention 的等价物</strong></td>
+<td><a href="#sec-3-8">3.8</a></td>
+</tr>
+<tr>
+<td>40</td>
+<td><a href="#q-qwen35-slower">Qwen3.5 推理为什么反而变慢</a></td>
+<td>B</td>
+<td>分清<strong>哪些是模型的问题、哪些是引擎还没兑现</strong>：新 kernel、状态缓存、专家变碎、prefix caching 失效</td>
+<td><a href="#sec-11-5">11.5</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="手撕题按出现频率">0.1.3 手撕题：按出现频率</h4>
+<p><strong>算子与模型类（推理岗主场，P0）</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>题</th>
+<th>来源</th>
+<th>时限参考</th>
+<th>节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-4-4">attention 前向（numpy / PyTorch，含 softmax）</a></td>
+<td>A10、B×2、C</td>
+<td>10 分钟</td>
+<td><a href="#sec-4-4">4.4</a>、<a href="#sec-14-4">14.4</a></td>
+</tr>
+<tr>
+<td><a href="#sec-14-6">带 KV cache 的 MHA / GQA</a></td>
+<td>A19、C</td>
+<td>15 分钟</td>
+<td><a href="#sec-4-4">4.4</a>、<a href="#sec-14-6">14.6</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-3">CUDA reduce 及优化（sum / max / softmax）</a></td>
+<td>A5、A8/A9、A20、C</td>
+<td>20 分钟</td>
+<td><a href="#sec-8-3">8.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-2">CUDA GEMM（naive → block tile → thread tile）</a></td>
+<td>A4、A17、C</td>
+<td>25 分钟</td>
+<td><a href="#sec-8-2">8.2</a></td>
+</tr>
+<tr>
+<td><a href="#sec-14-3">LayerNorm / RMSNorm（CUDA 或 Triton，可能禁用 sqrt）</a></td>
+<td>A20、C</td>
+<td>15 分钟</td>
+<td><a href="#sec-8-3">8.3</a>、<a href="#sec-14-3">14.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-4-1">online softmax</a></td>
+<td>A20、C</td>
+<td>10 分钟</td>
+<td><a href="#sec-4-1">4.1</a></td>
+</tr>
+<tr>
+<td><a href="#sec-13-2">MLA</a></td>
+<td>A4、A5</td>
+<td>20 分钟</td>
+<td><a href="#sec-13-2">13.2</a></td>
+</tr>
+<tr>
+<td><a href="#sec-13-4">MoE 层</a></td>
+<td>A5</td>
+<td>15 分钟</td>
+<td><a href="#sec-13-4">13.4</a></td>
+</tr>
+<tr>
+<td><a href="#sec-13-3">Linear attention</a></td>
+<td>A5</td>
+<td>20 分钟</td>
+<td><a href="#sec-13-3">13.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-14-7">完整 Transformer（含 RoPE、FFN、generate）</a></td>
+<td>A21</td>
+<td>30 分钟</td>
+<td><a href="#sec-14">14 章</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-9">矩阵转置优化</a></td>
+<td>A17、C</td>
+<td>15 分钟</td>
+<td><a href="#sec-8-9">8.9</a></td>
+</tr>
+<tr>
+<td><a href="#sec-13-6">block-sparse attention</a></td>
+<td>A13</td>
+<td>20 分钟</td>
+<td><a href="#sec-13-6">13.6</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-4">graph fusion（DAG 上做模式匹配）</a></td>
+<td>A6</td>
+<td>20 分钟</td>
+<td><a href="#sec-8-4">8.4</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-3">二维规约 / 长行规约的 grid 设计</a></td>
+<td>A8/A9</td>
+<td>15 分钟</td>
+<td><a href="#sec-8-3">8.3</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>LeetCode 类（P1，每场必有一道）</strong>：见 <a href="#sec-13-1">13.1</a> 的完整表。出现两次以上的只有 <strong>LC1277 全 1 正方形子矩阵</strong>（A8、A9）和<strong>牛顿法求平方根</strong>（A9、B），其余都是一次，覆盖 BFS / DFS、DP、二分、堆、链表、图。<strong>结论是不要押题</strong>，按 13.1 的分布把常见类型各刷几道即可。</p>
+<h4 id="估算题必须能白板算">0.1.4 估算题：必须能白板算</h4>
+<p>这类题没有”背”的余地，<strong>是区分度最高的一类</strong>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>题</th>
+<th>来源</th>
+<th>节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-1-3">7B / 70B 每 token 的 KV 字节数</a></td>
+<td>多处</td>
+<td><a href="#sec-1-3">1.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-2-3">7B / 70B 在 A100 / H100 上的 decode token/s 上限</a></td>
+<td>多处</td>
+<td><a href="#sec-2-3">2.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-2-2">batch 多大时 KV 读取超过权重读取</a></td>
+<td>常见追问</td>
+<td><a href="#sec-2-2">2.2</a></td>
+</tr>
+<tr>
+<td><a href="#sec-13-5">DeepSeek-V3 参数量与每 token 访存量</a></td>
+<td>A5</td>
+<td><a href="#sec-13-5">13.5</a></td>
+</tr>
+<tr>
+<td><a href="#q-est-235b">235B MoE 要多少卡</a></td>
+<td>B</td>
+<td><a href="#sec-2-3">2.3</a></td>
+</tr>
+<tr>
+<td><a href="#q-allreduce-cost">all-reduce 的时间</a></td>
+<td>A6</td>
+<td><a href="#sec-7-1">7.1</a></td>
+</tr>
+<tr>
+<td><a href="#sec-7-3">MoE 每 token 每层的 all-to-all 通信量</a></td>
+<td>A1</td>
+<td><a href="#sec-7-3">7.3</a></td>
+</tr>
+<tr>
+<td><a href="#sec-10-4">8 卡 H100 服务 1000 QPS 需要多少台机器</a></td>
+<td>系统设计</td>
+<td><a href="#sec-10-4">10.4</a></td>
+</tr>
+<tr>
+<td><a href="#sec-10-3">一个 128K 请求给每步加多少毫秒</a></td>
+<td>排障</td>
+<td><a href="#sec-10-3">10.3</a></td>
+</tr>
+<tr>
+<td><a href="#q-est-pitfalls">现场估算最容易漏掉什么</a></td>
+<td>常见追问</td>
+<td><a href="#sec-2-3">2.3</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="开放题与系统设计">0.1.5 开放题与系统设计</h4>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>题</th>
+<th>来源</th>
+<th>回答骨架</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#q-model-too-slow">客户说模型太慢，从哪下手</a></td>
+<td>A16</td>
+<td>测 → 算上限 → 系统层 → 模型层 → kernel 层 → 硬件层，每层给预期收益</td>
+</tr>
+<tr>
+<td><a href="#sec-10-4">8 卡 H100 服务 1000 QPS 对话产品</a></td>
+<td>系统设计</td>
+<td><a href="#sec-10-4">10.4</a> 的八步骨架，从估算开始</td>
+</tr>
+<tr>
+<td><a href="#sec-10-4">单卡 A10 跑 7B 要 TPOT &lt; 30 ms</a></td>
+<td>系统设计</td>
+<td>INT4 + CUDA graph + 并发折中</td>
+</tr>
+<tr>
+<td><a href="#sec-11-8">给你 X 新模型怎么部署</a></td>
+<td>常见收尾题</td>
+<td><a href="#sec-11-8">11.8</a> 的方法论</td>
+</tr>
+<tr>
+<td><a href="#sec-10-4">把一个新模型接进 vLLM 要做什么</a></td>
+<td>10.4</td>
+<td>模型类 + 权重映射 + attention backend + 对齐 logits</td>
+</tr>
+<tr>
+<td><a href="#sec-10-3">线上 P99 出现尖刺怎么查</a></td>
+<td>排障</td>
+<td><a href="#sec-10-3">10.3</a>：先分清尖刺 / 长尾 / 双峰，再看队列长度与 KV 使用率</td>
+</tr>
+<tr>
+<td><a href="#sec-9-3">训练 / 推理内存过高怎么办</a></td>
+<td>A13</td>
+<td>稀疏化、checkpoint、量化、混合精度、压缩</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h4 id="项目追问一定会被问且最容易翻车">0.1.6 项目追问：一定会被问，且最容易翻车</h4>
+<p><strong>这一类没有标准答案，但有标准的准备方式</strong>——面试官问的永远是这五个：</p>
+<ol type="1">
+<li><strong>你做了什么优化，收益多少？</strong> 必须有数字，且要说清”在什么 batch、什么序列长度、什么卡上测的”。只说”快了 30%“会被追着问基线。</li>
+<li><strong>怎么测的、怎么确认是这个优化带来的？</strong> 答不上等于前一问白答。要说出压测方法（<a href="#sec-2-5">2.5</a>）、控制变量、profile 证据（<a href="#sec-8-5">8.5</a>）。</li>
+<li><strong>有没有优化反而变慢的时候？</strong>（A21 原题）这题是在看你有没有真做过，<a href="#q-fusion-slower">8.4 的 fusion 变慢清单</a>可以直接用。</li>
+<li><strong>线上的 QPS、TTFT、TPOT、P99 是多少？</strong>（B 层 Agent 社招原题）记住自己系统的这四个数。</li>
+<li><strong>瓶颈在哪、下一步会做什么？</strong> 用 <a href="#sec-2-2">2.2</a> 的 roofline 定位 + <a href="#sec-10-3">10.3</a> 的排障框架回答，能顺势把话题引到你熟的地方（<a href="#sec-0-9">0.9</a> 的第 6 条）。</li>
+</ol>
+<h3 id="sec-0-2">0.2 优先级的定义与用法</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>含义</th>
+<th>判据</th>
+<th>答不上的后果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>P0</strong></td>
+<td>每场必问</td>
+<td>12 章来源里出现 ≥ 6 次，或任何一场只要问推理就一定会碰</td>
+<td>直接挂，不看后面</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>推理岗一定会碰到</td>
+<td>出现 3 到 5 次，或是 P0 的必然下一层追问</td>
+<td>决定评级（能过但拿不到高 offer）</td>
+</tr>
+<tr>
+<td><strong>P2</strong></td>
+<td>按团队方向选做</td>
+<td>出现 1 到 2 次，或集中在某一类团队</td>
+<td>目标团队问到才致命</td>
+</tr>
+<tr>
+<td><strong>P3</strong></td>
+<td>加分项</td>
+<td>前沿或冷门，答上来是惊喜</td>
+<td>不影响结论</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>三条使用规则</strong>：</p>
+<ol type="1">
+<li><strong>先横向铺满 P0，再纵向钻 P1</strong>。面试是”广度筛人、深度定级”：任何一个 P0 缺口都会让面试提前结束，而 P1 的深度决定给几档。所以不要在还有 P0 空白时去啃 11 章的前沿架构。</li>
+<li><strong>每个 P0 都必须能给出数字</strong>（0.9 的第 4 条）。“KV cache 省了重复计算”是 P0 的及格线，“7B 模型 4K 上下文每请求 2 GB、batch 7 时 KV 读取就超过权重读取”才是 P0 的通过线。判断自己会不会：<strong>能不能不看纸算出来</strong>。</li>
+<li><strong>P2 按目标团队裁剪</strong>（0.5）。Seed 的 P2 是火山引擎的 P0，反之亦然，别平均用力。</li>
+</ol>
+<h3 id="sec-0-3">0.3 考点排行（按 12 章来源统计）</h3>
+<p>同一来源多次问同一考点计一次，C 层作为加权参考。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>考点</th>
+<th>出现来源数</th>
+<th>典型追问</th>
+<th>对应章节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>KV cache：原理、大小计算、量化、配置、碎片、训练与推理差异</td>
+<td>12</td>
+<td>现场算 7B / 70B 每 token 大小；FP8 KV 怎么配；为什么不缓存 Q；显存不够怎么办</td>
+<td>1.3、3.2、5.5</td>
+</tr>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>CUDA kernel 与 GPU 微架构：GEMM、reduce、bank conflict、grid / block、SM 利用率、stream、fusion</td>
+<td>11</td>
+<td>写 tiled GEMM 并讲指标；二维归约 grid 设置；fusion 反而变慢的案例；去掉 warp specialization 损失什么</td>
+<td>8 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>vLLM / PagedAttention / SGLang 对比</td>
+<td>10</td>
+<td>PagedAttention 解决什么、代价是什么；SGLang 延迟优势在哪；vLLM 调度能改什么</td>
+<td>3.1 到 3.8</td>
+</tr>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>Attention 变体与手撕：MHA / MQA / GQA / MLA / linear / sparse</td>
+<td>9</td>
+<td>手撕 MLA；MQA 后延迟仍高的原因；MLA 的 absorb 与 RoPE 解耦</td>
+<td>1.4、4.4、13 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>量化：权重 / 激活 / KV、对称与非对称、FP8、INT4、GPTQ / AWQ / SmoothQuant</td>
+<td>8</td>
+<td>三类量化各自收益；对称非对称的 GEMM 代价；FP8 在 prefill 收益多少；项目里怎么实现</td>
+<td>5 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>prefill / decode 差异、roofline、访存量与 FLOPs 估算</td>
+<td>6</td>
+<td>除了 compute / memory-bound 还有什么瓶颈；SM 未打满延时为何增长；手撕 Transformer 并算 FLOPs</td>
+<td>2 章、13.5、14 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>并行与通信：TP 列切行切、SP、PP / EP、DP attention、prefill CP / decode CP、all-reduce 开销计算、FSDP vs DDP</td>
+<td>7</td>
+<td>先列后行为什么只要一次 all-reduce；ring all-reduce 时间公式；TP 为什么不跨机；DP attention 的 gather / scatter 用什么原语；DCP 怎么合并各卡的部分 attention</td>
+<td>7 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>C++ 八股：智能指针、虚函数、协程、cast、内存管理</td>
+<td>6</td>
+<td>协程有栈无栈；虚表何时确定</td>
+<td>C++ 面经文档</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>FlashAttention 原理与版本</td>
+<td>5</td>
+<td>online softmax 推导；v2 为什么外层循环 Q；v3 的 pingpong；v4 为什么 softmax 成了瓶颈；随机 mask 怎么办</td>
+<td>4.1 到 4.3</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>MoE 推理：DeepSeek-V3 结构、EP、负载均衡、参数量与算力估算</td>
+<td>4</td>
+<td>671B 怎么分配算力；235B MoE 要多少卡；手算参数量和访存量</td>
+<td>7.3、13.5</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>模型架构演进：Qwen2 / 3 / 3.5、LLaMA、DeepSeek MTP、前沿混合架构</td>
+<td>4</td>
+<td>Qwen3.5 推理变慢的原因；新架构对引擎的要求</td>
+<td>11 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td><strong>项目追问</strong>：你做过什么优化、收益多少、怎么测的</td>
+<td>4</td>
+<td>模型太慢从哪下手；有没有优化反而变慢的时候；线上 QPS 和 P99 是多少</td>
+<td>10.3、10.4、0.1.6</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>线上排障：TTFT / ITL 的尖刺与长尾、抢占、限流与容量</td>
+<td>—</td>
+<td>P99 高第一步看什么；ITL 出现第二峰说明什么；过载该排队还是拒绝；同样输入为什么结果不同</td>
+<td>2.5、10.3</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>投机采样</td>
+<td>3</td>
+<td>1B 模型毫秒级场景 draft 怎么设计；分布不变性证明</td>
+<td>6 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>prefix caching / chunked prefill / continuous batching / PD 分离</td>
+<td>3</td>
+<td>chunked prefill 的缺点（10.3 有定量算例）；PD 比例怎么定；KV 传输开销</td>
+<td>3.3、3.4、3.6、3.7</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>性能分析与 profiling</td>
+<td>3</td>
+<td>nsys 与 ncu 分工；ncu 看哪些指标</td>
+<td>8.5</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>OS 与体系结构：cache line、页表、虚拟内存</td>
+<td>3</td>
+<td>cache miss 流程；页表开销与 TLB</td>
+<td>C++ 面经文档</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>长上下文：RoPE 外推、KV 压缩、窗口注意力</td>
+<td>3</td>
+<td>YaRN 做了什么；StreamingLLM 的 sink 是什么</td>
+<td>1.5、9 章</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>Python 运行时：GIL、IPC、view / contiguous、asyncio</td>
+<td>2</td>
+<td>vLLM V1 为什么拆进程</td>
+<td>10.1、12.2</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>CUDA runtime 与编译栈：stream、fatbin、PTX / SASS</td>
+<td>2</td>
+<td>异构计算岗专属</td>
+<td>12.2 A11</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>sparse attention / sparse KV cache</td>
+<td>2</td>
+<td>block-sparse 怎么实现；DSA 的 indexer</td>
+<td>11 章、13.6</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>llama.cpp 与端侧</td>
+<td>1 + C 层多处</td>
+<td>K-quant 原理；与 vLLM 的差别</td>
+<td>12.2 A1</td>
+</tr>
+<tr>
+<td><span class="pri pri-p3">P3</span></td>
+<td>现代算子库与 megakernel：DeepGEMM / DeepEP / MoonEP / Mooncake / MPK</td>
+<td>—</td>
+<td>这些库各解决什么；megakernel 和 CUDA graph 的区别</td>
+<td>3.7、8.6、8.7</td>
+</tr>
+<tr>
+<td><span class="pri pri-p3">P3</span></td>
+<td>Blackwell 与新硬件：TMEM、tcgen05、FP4、FA4</td>
+<td>—</td>
+<td>累加器为什么搬去 TMEM；FA4 为什么 softmax 成瓶颈</td>
+<td>4.2、8.2、5.4</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-0-4">0.4 全文知识点优先级总表</h3>
+<p>逐节定级，<strong>“验收标准”一栏是自测用的</strong>：能不脱稿说出来才算过。</p>
+<p><strong>第 0 到 2 章：基础与估算——这里的每一节都是 P0，因为后面所有追问都会落回这里</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-0-7">0.7</a></td>
+<td>字节各团队的推理侧重</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>说出 Seed / 火山引擎 / AML / 豆包 四个方向各自考什么</td>
+</tr>
+<tr>
+<td><a href="#sec-0-8">0.8</a></td>
+<td>面试轮次结构</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>知道几轮、每轮考什么</td>
+</tr>
+<tr>
+<td><a href="#sec-0-9">0.9</a></td>
+<td>回答的六层结构</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>任取一个知识点，按”定义 → 动机 → 机制 → 数字 → 代价 → 引下一层”讲一遍</td>
+</tr>
+<tr>
+<td><a href="#sec-1-1">1.1</a></td>
+<td>prefill / decode 两阶段</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>说清两者的 <a href="#sec-2-2">compute / memory-bound 属性差异</a>，以及为什么 prefill 只要最后一个位置的 logits</td>
+</tr>
+<tr>
+<td><a href="#sec-1-2">1.2</a></td>
+<td>attention 的 FLOPs 与显存</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>现场推 <span class="math inline">2N</span> 和 <span class="math inline">4Lds</span>，并说出哪一项随序列平方增长</td>
+</tr>
+<tr>
+<td><a href="#sec-1-3">1.3</a></td>
+<td>KV cache</td>
+<td><strong>P0 最高</strong></td>
+<td>现场算 7B 与 70B 每 token 的 KV 字节数；说清为什么不缓存 Q</td>
+</tr>
+<tr>
+<td><a href="#sec-1-4">1.4</a></td>
+<td>MHA / MQA / GQA / MLA</td>
+<td><strong>P0 最高</strong></td>
+<td>四者的 <a href="#q-gqa-bandwidth">KV 大小对比表</a>；MLA 的 absorb 和 RoPE 解耦为什么必须</td>
+</tr>
+<tr>
+<td><a href="#sec-1-5">1.5</a></td>
+<td>RoPE 与外推</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>证明相对位置性质；说出 PI / NTK / YaRN 各改了什么</td>
+</tr>
+<tr>
+<td><a href="#sec-1-6">1.6</a></td>
+<td>RMSNorm / SwiGLU / tie embedding</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>为什么 RMSNorm 取代 LayerNorm；<span class="math inline">d_{ff} = 8d/3</span> 怎么来的</td>
+</tr>
+<tr>
+<td><a href="#sec-1-7">1.7</a></td>
+<td>采样策略</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>top-p 为什么贵、怎么优化；参数的处理顺序及原因</td>
+</tr>
+<tr>
+<td><a href="#sec-2-1">2.1</a></td>
+<td>GPU 参数表</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>H100 / A100 的带宽与算力背下来，估算时直接用</td>
+</tr>
+<tr>
+<td><a href="#sec-2-2">2.2</a></td>
+<td>Roofline 与算术强度</td>
+<td><strong>P0 最高</strong></td>
+<td>说清 decode 为什么 memory-bound；算出 KV 读取何时超过权重读取</td>
+</tr>
+<tr>
+<td><a href="#sec-2-3">2.3</a></td>
+<td>现场估算 decode 上限</td>
+<td><strong>P0 最高</strong></td>
+<td>3 分钟内白板推完 7B 和 70B 的 token/s 上限</td>
+</tr>
+<tr>
+<td><a href="#sec-2-4">2.4</a></td>
+<td>FLOPs 与 MFU</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>MFU 的定义和典型值</td>
+</tr>
+<tr>
+<td><a href="#sec-2-5">2.5</a></td>
+<td>服务指标</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>TTFT / TPOT / ITL / goodput 的定义与决定因素</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 3 章：引擎机制——P0 密集区，vLLM 相关几乎每场都问</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-3-1">3.1</a></td>
+<td>Continuous batching</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>与静态 batching 的差别；<code>max_num_seqs</code> 与 <code>max_num_batched_tokens</code> 各限制什么</td>
+</tr>
+<tr>
+<td><a href="#sec-3-2">3.2</a></td>
+<td>PagedAttention</td>
+<td><strong>P0 最高</strong></td>
+<td><a href="#q-paged-cost">解决什么、代价是什么</a>（kernel 慢 20% 到 26%）、<a href="#q-block-size">block size 怎么选</a></td>
+</tr>
+<tr>
+<td><a href="#sec-3-3">3.3</a></td>
+<td>Prefix caching / RadixAttention</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>块 hash 为什么要带前缀；命中后省的是哪部分计算</td>
+</tr>
+<tr>
+<td><a href="#sec-3-4">3.4</a></td>
+<td>Chunked prefill</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>它换来什么、代价是什么（10.3 有定量算例）</td>
+</tr>
+<tr>
+<td><a href="#sec-3-5">3.5</a></td>
+<td>调度器与 CPU 开销</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td><a href="#q-cudagraph-decode">CUDA graph 为什么只对 decode 有效</a>；它的限制</td>
+</tr>
+<tr>
+<td><a href="#sec-3-6">3.6</a></td>
+<td>PD 分离</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>为什么要分、KV 传输的代价、什么场景不适合</td>
+</tr>
+<tr>
+<td><a href="#sec-3-7">3.7</a></td>
+<td>Mooncake</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>四个组件；layer-wise 重叠；提前拒绝为什么会引起振荡</td>
+</tr>
+<tr>
+<td><a href="#sec-3-8">3.8</a></td>
+<td>框架对比</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>vLLM / SGLang / TRT-LLM 各自的取舍，回答时带上”版本、模型、场景”</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 4 章：Attention kernel——P0 到 P1，手撕高频</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-4-1">4.1</a></td>
+<td>Online softmax</td>
+<td><strong>P0 最高</strong></td>
+<td>白板手推合并公式，这是 FlashAttention 全部的地基</td>
+</tr>
+<tr>
+<td><a href="#sec-4-2">4.2</a></td>
+<td>FlashAttention v1 到 v4</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>每一代消除的瓶颈；v2 为什么把 Q 放外层</td>
+</tr>
+<tr>
+<td><a href="#sec-4-3">4.3</a></td>
+<td>FlashDecoding / split-KV</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>decode 为什么需要 split；split 数怎么定</td>
+</tr>
+<tr>
+<td><a href="#sec-4-4">4.4</a></td>
+<td>手撕 attention 与 KV cache decode</td>
+<td><strong>P0 最高</strong></td>
+<td>10 分钟 bug-free 写完，讲清每个张量形状</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 5 章：量化——P0，问法最杂</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-5-1">5.1</a></td>
+<td>量化基础与三类对象的收益</td>
+<td><strong>P0 最高</strong></td>
+<td>权重 / 激活 / KV 各减什么、在哪个阶段见效</td>
+</tr>
+<tr>
+<td><a href="#sec-5-2">5.2</a></td>
+<td>W8A8：LLM.int8 / SmoothQuant</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>为什么权重好量激活难；α 的物理含义</td>
+</tr>
+<tr>
+<td><a href="#sec-5-3">5.3</a></td>
+<td>W4A16：GPTQ / AWQ</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>两者的核心思想差别；group size 为什么 128</td>
+</tr>
+<tr>
+<td><a href="#sec-5-4">5.4</a></td>
+<td>FP8</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>E4M3 与 E5M2 的分工及原因；prefill 与 decode 的收益差异</td>
+</tr>
+<tr>
+<td><a href="#sec-5-5">5.5</a></td>
+<td>KV cache 量化</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>K per-channel、V per-token 的原因</td>
+</tr>
+<tr>
+<td><a href="#sec-5-6">5.6</a></td>
+<td>反量化 kernel 与 Marlin</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>老 INT4 kernel 为什么 batch 大了就慢</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 6 到 7 章：投机采样与分布式——P1 为主，MoE 方向是 P0</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-6-1">6.1</a></td>
+<td>分布不变性证明</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>写出残差分布并说明它为什么正好补上缺口</td>
+</tr>
+<tr>
+<td><a href="#sec-6-2">6.2</a></td>
+<td>变体（Medusa / EAGLE / MTP / n-gram）</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>各自的 draft 从哪来</td>
+</tr>
+<tr>
+<td><a href="#sec-6-3">6.3</a></td>
+<td>什么时候有收益</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>为什么存在最优 <span class="math inline">\gamma</span>；大 batch 下为什么要关</td>
+</tr>
+<tr>
+<td><a href="#sec-7-1">7.1</a></td>
+<td>张量并行</td>
+<td><strong>P0 最高</strong></td>
+<td>先列后行为什么只要一次 all-reduce；all-reduce 时间公式</td>
+</tr>
+<tr>
+<td><a href="#sec-7-2">7.2</a></td>
+<td>流水线并行</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>气泡率公式；推理里为什么用得少</td>
+</tr>
+<tr>
+<td><a href="#sec-7-3">7.3</a></td>
+<td>MoE 与 EP</td>
+<td>P1（MoE 方向 P0）</td>
+<td>all-to-all 通信量怎么算；负载均衡怎么做</td>
+</tr>
+<tr>
+<td><a href="#sec-7-4">7.4</a></td>
+<td>序列并行 SP</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>与 CP 的区别；为什么必须配 TP</td>
+</tr>
+<tr>
+<td><a href="#sec-7-5">7.5</a></td>
+<td>DP attention</td>
+<td>P2（MoE 方向 P1）</td>
+<td>为什么 MLA 模型需要它而 GQA 不需要</td>
+</tr>
+<tr>
+<td><a href="#sec-7-6">7.6</a></td>
+<td>上下文并行 CP / DCP</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>prefill CP 与 decode CP 分别解决什么</td>
+</tr>
+<tr>
+<td><a href="#sec-7-7">7.7</a></td>
+<td>通信原语与硬件</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>NVLink / IB 的带宽量级；各原语用在哪</td>
+</tr>
+<tr>
+<td><a href="#sec-7-8">7.8</a></td>
+<td>通信与计算重叠</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>两 micro-batch 重叠的原理</td>
+</tr>
+<tr>
+<td><a href="#sec-7-9">7.9</a></td>
+<td>组合部署速查</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>给一个模型能说出一套并行组合</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 8 章：CUDA——P0，且是手撕主场</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-8-1">8.1</a></td>
+<td>GPU 执行模型</td>
+<td><strong>P0 最高</strong></td>
+<td>SM / warp / block / occupancy / bank conflict 的定义与关系</td>
+</tr>
+<tr>
+<td><a href="#sec-8-2">8.2</a> 经典</td>
+<td>GEMM 经典优化路线</td>
+<td><strong>P0 最高</strong></td>
+<td>写出 shared memory tiling 版并说清 1 到 5 步</td>
+</tr>
+<tr>
+<td><a href="#sec-8-2">8.2</a> 现代</td>
+<td>TMA / warp specialization / cluster</td>
+<td>P3（芯片与 kernel 岗 P1）</td>
+<td>说出 TMA 省了什么、warp specialization 与双缓冲的区别</td>
+</tr>
+<tr>
+<td><a href="#sec-8-3">8.3</a></td>
+<td>Reduction / softmax / RMSNorm</td>
+<td><strong>P0 最高</strong></td>
+<td>手写 warp shuffle 归约与两级归约；说出与 CPU 对齐的检查方法</td>
+</tr>
+<tr>
+<td><a href="#sec-8-4">8.4</a></td>
+<td>Kernel fusion</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>列出 5 个常见融合点；说出<a href="#q-fusion-slower">融合反而变慢的原因</a>与<a href="#q-what-not-to-fuse">哪些不该融合</a></td>
+</tr>
+<tr>
+<td><a href="#sec-8-5">8.5</a></td>
+<td>Profiling</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>nsys 与 ncu 的分工；各看哪些指标</td>
+</tr>
+<tr>
+<td><a href="#sec-8-6">8.6</a></td>
+<td>MegaKernel</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>与 CUDA graph 的区别；什么时候没收益</td>
+</tr>
+<tr>
+<td><a href="#sec-8-7">8.7</a></td>
+<td>现代算子库</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>DeepGEMM / DeepEP / MoonEP 各解决什么</td>
+</tr>
+<tr>
+<td><a href="#sec-8-8">8.8</a></td>
+<td>kernel 编写栈</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>四层各自的取舍</td>
+</tr>
+<tr>
+<td><a href="#sec-8-9">8.9</a></td>
+<td>CUDA 手撕清单</td>
+<td><strong>P0 最高</strong></td>
+<td>前 6 题当场能写</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 9 到 11 章：长上下文、工程与前沿</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-9-1">9.1</a> 到 <a href="#sec-9-3">9.3</a></td>
+<td>长上下文与 KV 压缩</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>attention sink 是什么；驱逐类方法为什么与 FA 冲突</td>
+</tr>
+<tr>
+<td><a href="#sec-10-1">10.1</a></td>
+<td>服务架构</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>为什么要拆进程；流式输出怎么做</td>
+</tr>
+<tr>
+<td><a href="#sec-10-2">10.2</a></td>
+<td>显存管理</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>显存构成的六项；OOM 怎么排查</td>
+</tr>
+<tr>
+<td><a href="#sec-10-3">10.3</a></td>
+<td>线上排障</td>
+<td>P1（有线上经验则 P0）</td>
+<td>尖刺 / 长尾 / 双峰的区分；三个定量算例</td>
+</tr>
+<tr>
+<td><a href="#sec-10-4">10.4</a></td>
+<td>系统设计题</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>8 卡 H100 服务 1000 QPS 的完整骨架</td>
+</tr>
+<tr>
+<td><a href="#sec-10-5">10.5</a></td>
+<td>C++ / Python 工程</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>见 C++ 面经文档</td>
+</tr>
+<tr>
+<td><a href="#sec-11-1">11.1</a></td>
+<td>六个趋势</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>说出趋势对引擎提的要求</td>
+</tr>
+<tr>
+<td><a href="#sec-11-2">11.2</a></td>
+<td>DeepSeek V3.2 / V4</td>
+<td>P2（Seed、MoE 方向 P1）</td>
+<td>DSA 的 indexer 怎么工作</td>
+</tr>
+<tr>
+<td><a href="#sec-11-3">11.3</a> 到 <a href="#sec-11-6">11.6</a></td>
+<td>GLM / Kimi / Qwen / 其他</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>任选一个能说清它对引擎的新要求</td>
+</tr>
+<tr>
+<td><a href="#sec-11-7">11.7</a></td>
+<td>字节 Seed 自己的工作</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td><strong>面字节必答</strong>：MegaScale-Infer、Comet、Triton-distributed 至少能说一个</td>
+</tr>
+<tr>
+<td><a href="#sec-11-8">11.8</a></td>
+<td>新架构接入方法论</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>“给你 X 模型怎么部署”的回答骨架</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>第 14 到 14 章：手撕</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>节</th>
+<th>知识点</th>
+<th>级别</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sec-13-2">13.2</a></td>
+<td>手撕 MLA</td>
+<td>P1（Infra 岗 P0）</td>
+<td>20 分钟内写完，讲清三条路径</td>
+</tr>
+<tr>
+<td><a href="#sec-13-3">13.3</a></td>
+<td>手撕 linear attention</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>递归与分块两种写法</td>
+</tr>
+<tr>
+<td><a href="#sec-13-4">13.4</a></td>
+<td>手撕 MoE</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>说出生产实现要 grouped GEMM</td>
+</tr>
+<tr>
+<td><a href="#sec-13-5">13.5</a></td>
+<td>DeepSeek-V3 参数量与访存量手算</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>抓住三个数：attention 每层 187M、每专家 44M、MoE 层 11.3B</td>
+</tr>
+<tr>
+<td><a href="#sec-13-6">13.6</a></td>
+<td>手撕 block-sparse</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>为什么按块而不按 token</td>
+</tr>
+<tr>
+<td><a href="#sec-14-2">14.2</a> 到 <a href="#sec-14-5">14.5</a></td>
+<td>RoPE / RMSNorm / softmax / SwiGLU</td>
+<td><strong>P0 最高</strong></td>
+<td>每个 5 分钟内写完</td>
+</tr>
+<tr>
+<td><a href="#sec-14-6">14.6</a> 到 <a href="#sec-14-7">14.7</a></td>
+<td>GQA attention 与完整模型</td>
+<td><strong>P0 最高</strong></td>
+<td>30 分钟内拼出能跑的 decoder-only</td>
+</tr>
+<tr>
+<td><a href="#sec-14-8">14.8</a></td>
+<td>采样与 generate</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>top-p 的边界处理；<code>start</code> 参数的作用</td>
+</tr>
+<tr>
+<td><a href="#sec-14-9">14.9</a></td>
+<td>自检清单</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>写完主动过一遍，比面试官指出来强</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-0-5">0.5 按团队的优先级偏移</h3>
+<p>同样的知识点，在不同团队权重差别很大。<strong>先确定目标团队，再照着这张表把 P2 提成 P0</strong>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>团队</th>
+<th>提到 P0 的</th>
+<th>可以降到 P2 的</th>
+<th>特有考点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Seed（豆包大模型）</strong></td>
+<td>7 章全部、11.2、11.7、13.5</td>
+<td>10.5 的 C++ 细节</td>
+<td>MegaScale-Infer 的 attention-FFN 分离、Comet、大规模 MoE 部署</td>
+</tr>
+<tr>
+<td><strong>火山引擎（推理服务）</strong></td>
+<td>3.6、3.7、10.1 到 10.4</td>
+<td>11 章前沿架构</td>
+<td>多租户、SLO、成本、异构硬件、CUDA runtime 与编译栈（A11 / A12）</td>
+</tr>
+<tr>
+<td><strong>AML（统一 AI Infra）</strong></td>
+<td>8 章全部、8.9 手撕</td>
+<td>11 章</td>
+<td>kernel 优化、算子融合、框架设计、性能分析</td>
+</tr>
+<tr>
+<td><strong>豆包 / Flow（应用）</strong></td>
+<td>1 章、3 章、4.2</td>
+<td>7 章、8.6 到 8.8</td>
+<td>端到端延迟、多模态、Agent 场景的长 prompt</td>
+</tr>
+<tr>
+<td><strong>AI Lab / 异构计算</strong></td>
+<td>8.1 到 8.3、体系结构八股</td>
+<td>3 章引擎细节</td>
+<td>bank conflict、PTX / SASS、ROCm、芯片架构</td>
+</tr>
+<tr>
+<td><strong>TikTok / 推荐（生成式推荐）</strong></td>
+<td>2.2、6 章、8 章</td>
+<td>9 章、11 章</td>
+<td>毫秒级延迟、小模型投机采样、item ID 序列的特殊性（A21 / A22）</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-0-6">0.6 复习路线</h3>
+<p><strong>只剩 3 天</strong>：只做 P0 最高的那几节——1.3、1.4、2.2、2.3、3.2、4.1、4.4、8.2、8.3、14.6，外加 0.1.1 的 20 题和 0.1.4 的估算题。<strong>估算题优先于一切</strong>，因为它是所有追问的落脚点，而且没法临时编。</p>
+<p><strong>有 2 周</strong>：</p>
+<ol type="1">
+<li>第 1 到 3 天：2 章练到白板 3 分钟推完，这是地基。</li>
+<li>第 4 到 7 天：1.3、1.4、3.2、5.1 四个 P0 节，每节按 0.9 的六层结构过一遍。</li>
+<li>第 8 到 10 天：8.2、8.3 的手撕写到能默写；14 章从头拼一遍完整模型。</li>
+<li>第 11 到 12 天：按 0.5 补目标团队的专项。</li>
+<li>第 13 到 14 天：0.1 全表自测，盖住答案；整理自己项目的五个问题（0.1.6）。</li>
+</ol>
+<p><strong>有 1 个月</strong>：上面之后加 7 章（并行）、10.3（排障）、11 章（前沿），并把 13 章的手撕题全部写一遍。<strong>11 章所有团队 2026 年都在问</strong>，但它是 P2 到 P3——在 P0 有缺口时看它是典型的用力错方向。</p>
+<p><strong>最后一句</strong>：这份文档的所有数字都在文中给了推导过程，<strong>背结论不如背推导</strong>——面试官问的下一层永远是”为什么”，而推导能现场生成你没背过的答案（0.9）。</p>
+<hr>
+<h3 id="sec-0-7">0.7 字节做推理的团队与侧重</h3>
 <div class="table-wrap">
 <table>
 <thead>
@@ -621,7 +2028,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </table>
 </div>
 <p>不管哪个团队，考察面基本是五块：<strong>Transformer 与推理基础、推理引擎机制、性能分析与 kernel 优化、量化与压缩、分布式与 MoE</strong>，外加手撕代码和项目深挖。</p>
-<h3 id="sec-0-2">0.2 常见轮次</h3>
+<h3 id="sec-0-8">0.8 常见轮次</h3>
 <div class="table-wrap">
 <table>
 <thead>
@@ -661,7 +2068,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </table>
 </div>
 <p>实习面通常两轮技术 + HR；校招和社招三轮技术。一面偶尔会出两道手撕，其中一道偏推理场景（例如实现 top-p 采样、实现 paged KV cache 的 block 分配）。</p>
-<h3 id="sec-0-3">0.3 怎么答才”经得起追问”</h3>
+<h3 id="sec-0-9">0.9 怎么答才”经得起追问”</h3>
 <p>字节面试官的习惯是从一个点往下钻三到五层。以”KV cache”为例，典型追问链是：KV cache 是什么 → 为什么能省计算 → 每 token 占多少显存（要能现场算） → 显存不够怎么办 → PagedAttention 怎么管理 → 碎片率降到多少 → prefix caching 怎么做 → 多轮对话命中率如何 → 分布式场景 KV 怎么迁移。</p>
 <p>回答分层，不要一次倒完：</p>
 <ol type="1">
@@ -679,6 +2086,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <ul>
 <li><a id="q-speedup-methods"></a><strong>大模型推理加速办法有哪些？</strong>（A2 原题，几乎每场的开场题）<strong>不要按想到的顺序罗列，要分三层报</strong>：<strong>算法层</strong>改模型本身（GQA / MLA 减 KV、量化减带宽、投机采样一次出多个 token、KV 压缩），<strong>系统层</strong>改怎么调度（continuous batching 把 batch 填满、PagedAttention 消碎片、prefix caching 跳过重复前缀、chunked prefill、PD 分离），<strong>kernel 层</strong>改怎么算（FlashAttention、算子融合、CUDA graph、Marlin 这类量化 kernel）。<strong>分层报的原因</strong>是这三层的收益来源不同且可以叠加——算法层减的是要搬的字节数，系统层减的是浪费的时间，kernel 层减的是同样工作花的时间；面试官由此能判断你是背清单还是有框架。每层挑一个给数字（PagedAttention 把 KV 利用率从 20% 到 38% 提到 96%+；FP8 权重让 decode 快 1.5 到 1.8 倍），然后主动说”这几层里我做过的是 X”，把话题引过去。</li>
 </ul>
+<hr>
 <h2 id="sec-1"><span class="num">1.</span>Transformer 推理基础</h2>
 <h3 id="sec-1-1">1.1 Decoder-only 推理流程：prefill 与 decode</h3>
 <p><strong>是什么</strong>：自回归生成分两个阶段。</p>
@@ -892,7 +2300,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <li><p><strong>MLA 在 prefill 时也用 absorb 吗？</strong> 不一定。prefill 是 compute-bound，absorb 后 attention 得分计算维度变大（576 对 128），反而慢；实践中（如 SGLang、vLLM 的 MLA 实现）prefill 走”解压成普通 MHA”路径，decode 走 absorb 路径。</p></li>
 <li><p><strong>MLA 能不能用 FlashAttention？</strong> Q 头维 576、V 头维 512 且 K 与 V 维度不一致，标准 FA kernel 不支持，需要专门 kernel（FlashMLA、FlashInfer 的 MLA decode kernel）。</p></li>
 <li><p><strong>把已有 MHA/GQA 模型转成 MLA 可行吗？</strong> 可行的<strong>原因</strong>正是上一条：既然 <span class="math inline">W^K</span>、<span class="math inline">W^V</span> 的输出本身近似低秩，对它们做 SVD 截断就能得到一组下投影加上投影矩阵，形式上就是 MLA。TransMLA、MHA2MLA 就是这么做的。但截断一定有损，而且 RoPE 需要解耦出来单独处理（原模型的 K 是旋转过的），所以必须再微调一段把损失补回来，不是纯粹的权重改写。</p></li>
-<li><p><a id="q-mqa-still-slow"></a><strong>用了 MQA / GQA 之后 decode 延迟还是高，怎么分析？</strong>（B 层原题）先算一遍就知道方向：<strong>小 batch 下权重读取才是大头</strong>——7B 模型 FP16 权重 13.5 GB，而 4K 上下文的 MHA KV 才 2 GB，把 KV 压到 1/8 只省掉了 1.75 GB，占总量不到 12%，延迟当然降不明显。KV 优化真正见效的场景是<strong>大 batch 或长上下文</strong>（此时 KV 读取超过权重读取，见 2.2）。排除这一条之后再按顺序查：CPU 调度与 launch 开销（开 CUDA graph，3.5）、采样与 logits 处理（1.7）、TP 通信（7.1）、以及 attention kernel 有没有真的利用 KV 共享（很多实现用 <code>repeat_interleave</code> 做了物理复制，白省了带宽，见 15.6）。</p></li>
+<li><p><a id="q-mqa-still-slow"></a><strong>用了 MQA / GQA 之后 decode 延迟还是高，怎么分析？</strong>（B 层原题）先算一遍就知道方向：<strong>小 batch 下权重读取才是大头</strong>——7B 模型 FP16 权重 13.5 GB，而 4K 上下文的 MHA KV 才 2 GB，把 KV 压到 1/8 只省掉了 1.75 GB，占总量不到 12%，延迟当然降不明显。KV 优化真正见效的场景是<strong>大 batch 或长上下文</strong>（此时 KV 读取超过权重读取，见 2.2）。排除这一条之后再按顺序查：CPU 调度与 launch 开销（开 CUDA graph，3.5）、采样与 logits 处理（1.7）、TP 通信（7.1）、以及 attention kernel 有没有真的利用 KV 共享（很多实现用 <code>repeat_interleave</code> 做了物理复制，白省了带宽，见 14.6）。</p></li>
 </ul>
 <h3 id="sec-1-5">1.5 位置编码与 RoPE</h3>
 <p><strong>是什么</strong>：RoPE（旋转位置编码）把 <span class="math inline">d_h</span> 维的 q、k 看成 <span class="math inline">d_h/2</span> 个二维向量，第 <span class="math inline">i</span> 对以角度 <span class="math inline">m \theta_i</span> 旋转，其中 <span class="math inline">m</span> 是位置，<span class="math inline">\theta_i = \text{base}^{-2i/d_h}</span>，base 通常 10000（LLaMA-3 用 500000）。</p>
@@ -938,8 +2346,8 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 </div>
 <p><strong>追问链</strong></p>
 <ul>
-<li><strong>RoPE 在推理里怎么实现？</strong> 预计算 <code>cos/sin</code> 表 <code>[max_pos, d_h/2]</code>，每步按位置索引取出，与 q、k 做旋转（可运行实现见 15.2）。通常和 KV cache 写入融合成一个 kernel（vLLM 的 <code>rotary_embedding</code> kernel 同时更新 q、k）。</li>
-<li><strong>为什么 RoPE 对 MLA 是个障碍？</strong> absorb 的本质是把 <span class="math inline">q^T W^{UK} c</span> 里的 <span class="math inline">W^{UK}</span> 提前合并进 Q 侧，得到一个<strong>与位置无关的固定矩阵</strong>，这样 attention 就能直接在 latent 上做。加了 RoPE 之后中间夹进一个 <span class="math inline">R_{t}</span>，而 <span class="math inline">t</span> 每个 token 都不同，<span class="math inline">W^{UK} R_t</span> 没法预先算成一个固定矩阵，吸收就失效了。DeepSeek 的解法是把 RoPE 拆到一条独立的小分支上（见 1.4、14.2）。</li>
+<li><strong>RoPE 在推理里怎么实现？</strong> 预计算 <code>cos/sin</code> 表 <code>[max_pos, d_h/2]</code>，每步按位置索引取出，与 q、k 做旋转（可运行实现见 14.2）。通常和 KV cache 写入融合成一个 kernel（vLLM 的 <code>rotary_embedding</code> kernel 同时更新 q、k）。</li>
+<li><strong>为什么 RoPE 对 MLA 是个障碍？</strong> absorb 的本质是把 <span class="math inline">q^T W^{UK} c</span> 里的 <span class="math inline">W^{UK}</span> 提前合并进 Q 侧，得到一个<strong>与位置无关的固定矩阵</strong>，这样 attention 就能直接在 latent 上做。加了 RoPE 之后中间夹进一个 <span class="math inline">R_{t}</span>，而 <span class="math inline">t</span> 每个 token 都不同，<span class="math inline">W^{UK} R_t</span> 没法预先算成一个固定矩阵，吸收就失效了。DeepSeek 的解法是把 RoPE 拆到一条独立的小分支上（见 1.4、13.2）。</li>
 <li><strong>ALiBi 是什么？</strong> 在 attention 得分上加线性偏置 <span class="math inline">-m \cdot |i - j|</span>，无参数。<strong>外推性好的原因</strong>是这个偏置随距离单调线性衰减，没有任何周期性成分，外推到训练时没见过的距离上只是”更负一点”，行为可预测；RoPE 则是把位置编成旋转角，超出训练范围时角度会绕回到训练中出现过的区间，语义就乱了（这也是 1.5 那张外推表存在的理由）。代价是 ALiBi 要在 attention kernel 内加偏置，FlashAttention 需要单独支持，且效果整体不如 RoPE + YaRN，所以现在主流是 RoPE。</li>
 <li><strong>为什么 LLaMA-3 把 base 调到 500000？</strong> 更大的 base 意味着低频维度波长更长，原生支持更长上下文（8K），后续再用 YaRN 类方法扩到 128K。</li>
 </ul>
@@ -947,12 +2355,12 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 <ul>
 <li><strong>RMSNorm vs LayerNorm</strong>：RMSNorm 去掉了均值中心化，只做 <span class="math inline">x / \sqrt{\text{mean}(x^2) + \epsilon} \cdot \gamma</span>，少一次 reduction，速度快约 10% 到 20%，效果相当。推理 kernel 里 RMSNorm 常与前面的残差加法融合（<code>fused_add_rms_norm</code>），一次读写完成两件事。</li>
 <li><strong>Pre-Norm vs Post-Norm</strong>：主流 LLM 用 Pre-Norm（norm 在子层输入），训练稳定；Post-Norm 效果略好但深层难训。</li>
-<li><strong>SwiGLU</strong>（手撕见 15.5）：<span class="math inline">\text{FFN}(x) = (\text{SiLU}(x W_{gate}) \odot x W_{up}) W_{down}</span>，三个矩阵而不是两个，为保持参数量把 <span class="math inline">d_{ff}</span> 设成 <span class="math inline">8d/3</span> 再对齐到 256 的倍数（LLaMA-2-7B 是 11008）。推理时 gate 和 up 合并成一个 GEMM，然后一个 <code>silu_and_mul</code> 融合 kernel。</li>
+<li><strong>SwiGLU</strong>（手撕见 14.5）：<span class="math inline">\text{FFN}(x) = (\text{SiLU}(x W_{gate}) \odot x W_{up}) W_{down}</span>，三个矩阵而不是两个，为保持参数量把 <span class="math inline">d_{ff}</span> 设成 <span class="math inline">8d/3</span> 再对齐到 256 的倍数（LLaMA-2-7B 是 11008）。推理时 gate 和 up 合并成一个 GEMM，然后一个 <code>silu_and_mul</code> 融合 kernel。</li>
 <li><strong>Embedding 共享</strong>：小模型常把输入 embedding 和 lm_head 权重绑定（tie），省显存。</li>
 <li><strong>Tokenizer</strong>：BPE / SentencePiece，推理服务里 tokenize 和 detokenize 在 CPU 上做，vLLM V1 把它放到 API server 进程里和 GPU 调度解耦；流式输出时 detokenize 要处理不完整的 UTF-8 字节。</li>
 </ul>
 <h3 id="sec-1-7">1.7 采样策略</h3>
-<p>logits 到 token 的过程，每一步都可能被问”怎么实现、怎么优化”；可运行实现见 15.8。</p>
+<p>logits 到 token 的过程，每一步都可能被问”怎么实现、怎么优化”；可运行实现见 14.8。</p>
 <div class="table-wrap">
 <table>
 <thead>
@@ -1180,7 +2588,7 @@ decode:   [t(s+1)]       ──► 读全部 KV cache + 权重，追加 1 列 KV
 </ul>
 <p><strong>追问链</strong></p>
 <ul>
-<li><a id="q-est-235b"></a><strong>估算 235B MoE（如 Qwen3-235B-A22B）需要多少卡、能跑多快？</strong>（B 层原题）分两步，<strong>先看装得下装不下，再看跑得快不快</strong>。装：总参数 235B，FP8 是 235 GB，80 GB 的卡至少 4 张才放得下权重，但还要留 KV 和激活，实际 8 卡起步。跑：<strong>MoE 的关键是 decode 只读激活的那部分参数</strong>——激活 22B，FP8 就是 22 GB，8 卡 H100 总带宽约 26.8 TB/s，理论下界不到 1 ms，但实际每卡只读自己那份专家、还要加 all-to-all 和 KV，单步落在几毫秒量级。<strong>这题的题眼是别拿 235B 去算带宽</strong>，用激活参数量算才对（7.3、14.5）。</li>
+<li><a id="q-est-235b"></a><strong>估算 235B MoE（如 Qwen3-235B-A22B）需要多少卡、能跑多快？</strong>（B 层原题）分两步，<strong>先看装得下装不下，再看跑得快不快</strong>。装：总参数 235B，FP8 是 235 GB，80 GB 的卡至少 4 张才放得下权重，但还要留 KV 和激活，实际 8 卡起步。跑：<strong>MoE 的关键是 decode 只读激活的那部分参数</strong>——激活 22B，FP8 就是 22 GB，8 卡 H100 总带宽约 26.8 TB/s，理论下界不到 1 ms，但实际每卡只读自己那份专家、还要加 all-to-all 和 KV，单步落在几毫秒量级。<strong>这题的题眼是别拿 235B 去算带宽</strong>，用激活参数量算才对（7.3、13.5）。</li>
 <li><a id="q-est-pitfalls"></a><strong>现场估算最容易漏掉什么？</strong> 三样：<strong>KV cache 的读取</strong>（大 batch 长上下文时它超过权重读取，2.2）、<strong>MoE 要用激活参数量而不是总参数量</strong>、以及<strong>估的是下界不是实测值</strong>——真实系统还有 CPU 调度、采样、通信和 kernel 效率，把理论值的 60% 到 80% 当作可达区间比报一个精确数字更可信。</li>
 </ul>
 <h3 id="sec-2-4">2.4 FLOPs 估算与 MFU</h3>
@@ -2818,7 +4226,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li><strong>为什么用 <code>__shfl_xor_sync</code> 不用 shared memory？</strong> 寄存器间交换不经过 shared memory，无需同步，5 步完成 32 个数的归约。</li>
 <li><strong>一行很短（如 <span class="math inline">n = 128</span>）时怎么办？</strong> 一个 warp 处理一行，一个 block 处理多行，避免 block 级同步开销；vLLM 的 RMSNorm kernel 在 <span class="math inline">d \le 1024</span> 时就是这样。</li>
 <li><strong>RMSNorm 怎么和残差融合？</strong> <code>fused_add_rmsnorm(x, residual)</code>：读 x 和 residual，写回 residual = x + residual，再对它做 norm 输出，一个 kernel 完成两次读写省一次往返。</li>
-<li><strong>half 精度怎么处理？</strong> 输入输出用 <code>half2</code> / <code>bf16x2</code> 向量化读写，<strong>累加一律用 float</strong>。原因是 half 的尾数只有 10 位（bf16 更只有 7 位），当累加值远大于新加进来的项时，小项会被直接舍入掉——<span class="math inline">d</span> 上千个数顺序累加，后半程的贡献几乎全丢，算出来的均值和平方和会系统性偏小。float 有 23 位尾数，同样规模下误差可以忽略。这和 15.3 里 RMSNorm 要升精度是同一个道理。</li>
+<li><strong>half 精度怎么处理？</strong> 输入输出用 <code>half2</code> / <code>bf16x2</code> 向量化读写，<strong>累加一律用 float</strong>。原因是 half 的尾数只有 10 位（bf16 更只有 7 位），当累加值远大于新加进来的项时，小项会被直接舍入掉——<span class="math inline">d</span> 上千个数顺序累加，后半程的贡献几乎全丢，算出来的均值和平方和会系统性偏小。float 有 23 位尾数，同样规模下误差可以忽略。这和 14.3 里 RMSNorm 要升精度是同一个道理。</li>
 </ul>
 <h3 id="sec-8-4">8.4 Kernel fusion 与常见融合点</h3>
 <p>decode 一步里 GEMM 之外有几十个小 kernel（norm、rope、激活、残差、量化、采样），每个都要读写一遍激活并有 launch 开销。融合是最有效的通用优化：</p>
@@ -2978,13 +4386,13 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li>Llama-1B，7 类指令（RMSNorm+QKV+RoPE、attention、attention 归约、O 投影+残差、RMSNorm+up/gate+SiLU、down 投影+残差、RMSNorm+LM head）：H100 上单次前向 <strong>&lt; 1 ms</strong>，比 vLLM 快约 <strong>2.5 倍</strong>、比 SGLang 快 <strong>1.5 倍以上</strong>，显存带宽利用率 <strong>78%</strong>（对比 ≤ 50%）。</li>
 <li>B200 上约 600 微秒的分解：激活存取与一致性等待 250 μs、RMSNorm 与矩阵向量 200 μs（其中 95% 是 matvec，即真正干活的部分）、权重加载 30 μs、同步 40 μs、指令屏障与页管理等 80 μs。</li>
 <li>两个关键机制：<strong>shared memory 分页</strong>——213 KB 切成 13 个 16 KiB 页，指令按需申请释放，下一条指令的权重能在上一条还没结束时就开始搬；<strong>分块交付</strong>——MLP 的中间结果分 4 块、每块一个计数器，down 投影不用等整个 up/gate 算完。</li>
-<li>TP 版（Llama-70B，8 × H100）：9 条融合指令，其中把 attention 之后的 <strong>distributed transpose</strong> 换掉 TP 的 O 投影（改成复制的 DP 版本），8 卡下网络流量降到 <strong>1/8</strong>，代价是每卡多 9 GB、最大 batch 降约 15%；跨卡用 CUDA unified memory 的 PGL 抽象由 SM 直接异步写，<strong>不走 NCCL</strong>。ShareGPT 65536 条 prompt 上总吞吐 23468 vs SGLang 19170 tok/s，<strong>+22.3%</strong>。消融：关掉指令流水 −6.1%，关掉全局工作队列 −14.2%，关掉交错 −6.4%。</li>
+<li>TP 版（Llama-70B，8 × H100）：9 条融合指令，其中把 attention 之后的 <strong>distributed transpose</strong> 换掉 TP 的 O 投影（改成复制的 DP 版本），8 卡下网络流量降到 <strong>1/8</strong>，代价是每卡多 9 GB、最大 batch 降约 15%；跨卡用 CUDA unified memory 的 PGL 抽象由 SM 直接异步写，<strong>不走 NCCL</strong>。ShareGPT 65536 条 prompt 上总吞吐 23468 vs SGLang 19170 tok/s，<strong>+22.3%</strong>。消融：关掉指令流水 −6.1%，关掉全局工作队列 −13.2%，关掉交错 −6.4%。</li>
 </ul>
 <p><strong>MPK 的数字</strong>（编译器路线）</p>
 <ul>
 <li>SM 分工：H100 上 <strong>128 个 worker + 16 个 scheduler</strong>（共 132 个 SM），A100 是 104 + 16，B200 是 144 + 16；scheduler 每 SM 4 个 warp，调度开销占总运行时 <strong>0.28%</strong>。</li>
 <li>编译流程：算子分解（每个算子平均 32 到 47 个 task）→ 依赖分析 → <strong>event fusion</strong>（把 6.9 万到 16.2 万对 task 依赖压成 1142 到 2366 个 event，37 到 118 倍）→ 归一化（每个 task 至多一进一出）→ 线性化（footprint 降 4.4 到 15 倍）。</li>
-<li>效果：Qwen3-1.7B / 8B / 30B-A3B 在 A100 / H100 / B200 上比 vLLM、SGLang 快 <strong>1.0 到 1.7 倍</strong>（模型越小、硬件越新收益越大）；Qwen3-8B 在 A100 上每 token <strong>12.5 ms vs 14.5 ms</strong>，硬件下界约 10 ms；8 卡 TP 下比 SGLang / vLLM 快 1.1 到 1.4 倍。通信被统一表示成 task（NVSHMEM 的 signal-wait），调度器自动和计算重叠。</li>
+<li>效果：Qwen3-1.7B / 8B / 30B-A3B 在 A100 / H100 / B200 上比 vLLM、SGLang 快 <strong>1.0 到 1.7 倍</strong>（模型越小、硬件越新收益越大）；Qwen3-8B 在 A100 上每 token <strong>12.5 ms vs 13.5 ms</strong>，硬件下界约 10 ms；8 卡 TP 下比 SGLang / vLLM 快 1.1 到 1.4 倍。通信被统一表示成 task（NVSHMEM 的 signal-wait），调度器自动和计算重叠。</li>
 <li>任务启动分两种：<strong>AOT</strong>（依赖满足前就预先入队，延迟低但分配是静态的）和 <strong>JIT</strong>（依赖满足后再入队，能适应负载不均但延迟高），按算子执行时间是否数据相关来选。</li>
 </ul>
 <p><strong>追问链</strong></p>
@@ -3267,7 +4675,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </ul>
 <p><strong>追问链</strong></p>
 <ul>
-<li><a id="q-gil"></a><strong>GIL 是什么，为什么推理引擎要拆进程？</strong>（A6 原题）GIL 是 CPython 解释器级的全局锁，同一进程同一时刻只有一个线程执行字节码；IO 和 C 扩展（包括 CUDA kernel launch 之后的等待）会释放它。<strong>推理服务必须拆进程的原因</strong>是这里有两类都很吃 CPU 的活：HTTP 处理和 tokenize / detokenize 是一类，调度循环（每步准���输入张量、算 block table）是另一类。它们在同一进程里会抢 GIL，结果是<strong>调度线程被卡住 → GPU 空转</strong>，nsys 上看就是 kernel 之间的空隙（3.5）。拆成 API server 进程 + EngineCore 进程之后，前者还能多进程横向扩展，用 ZMQ 或共享内存通信；GPU 张量跨进程走 CUDA IPC handle，不拷贝数据。</li>
+<li><a id="q-gil"></a><strong>GIL 是什么，为什么推理引擎要拆进程？</strong>（A6 原题）GIL 是 CPython 解释器级的全局锁，同一进程同一时刻只有一个线程执行字节码；IO 和 C 扩展（包括 CUDA kernel launch 之后的等待）会释放它。<strong>推理服务必须拆进程的原因</strong>是这里有两类都很吃 CPU 的活：HTTP 处理和 tokenize / detokenize 是一类，调度循环（每步准备输入张量、算 block table）是另一类。它们在同一进程里会抢 GIL，结果是<strong>调度线程被卡住 → GPU 空转</strong>，nsys 上看就是 kernel 之间的空隙（3.5）。拆成 API server 进程 + EngineCore 进程之后，前者还能多进程横向扩展，用 ZMQ 或共享内存通信；GPU 张量跨进程走 CUDA IPC handle，不拷贝数据。</li>
 </ul>
 <h3 id="sec-10-2">10.2 显存管理</h3>
 <ul>
@@ -3567,7 +4975,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <hr>
 <p><strong>追问链</strong></p>
 <ul>
-<li><a id="q-view-contiguous"></a><strong><code>view</code> 和 <code>contiguous</code> 的区别？</strong>（A6 原题）<code>view</code> 不拷贝数据，只换一套 stride 去解释同一块存储，<strong>因此要求新形状能用现有的 stride 表达</strong>——<code>transpose</code> / <code>permute</code> 之后 stride 不再单调连续，<code>view</code> 会直接报错，必须先 <code>.contiguous()</code> 拷贝出一份按新顺序排列的存储。<code>reshape</code> 是二者的自动版：能 view 就 view，不能就拷贝。<strong>推理里为什么在意</strong>：attention 里 <code>transpose(1,2)</code> 之后接 <code>reshape</code> 会产生一次真实的显存拷贝（15.6），生产 kernel 因此让 attention 直接输出目标布局，把这次拷贝省掉。相关的还有 <code>repeat</code> 与 <code>expand</code>：前者真拷贝，后者是 stride 为 0 的 view。</li>
+<li><a id="q-view-contiguous"></a><strong><code>view</code> 和 <code>contiguous</code> 的区别？</strong>（A6 原题）<code>view</code> 不拷贝数据，只换一套 stride 去解释同一块存储，<strong>因此要求新形状能用现有的 stride 表达</strong>——<code>transpose</code> / <code>permute</code> 之后 stride 不再单调连续，<code>view</code> 会直接报错，必须先 <code>.contiguous()</code> 拷贝出一份按新顺序排列的存储。<code>reshape</code> 是二者的自动版：能 view 就 view，不能就拷贝。<strong>推理里为什么在意</strong>：attention 里 <code>transpose(1,2)</code> 之后接 <code>reshape</code> 会产生一次真实的显存拷贝（14.6），生产 kernel 因此让 attention 直接输出目标布局，把这次拷贝省掉。相关的还有 <code>repeat</code> 与 <code>expand</code>：前者真拷贝，后者是 stride 为 0 的 view。</li>
 </ul>
 <h2 id="sec-11"><span class="num">11.</span>前沿模型架构的推理优化实战（2025 至 2026）</h2>
 <p>2026 年的推理岗面试已经不满足于”讲清 DeepSeek-V3”，会直接问”V4 的注意力和 V3.2 有什么不同、KV 怎么存”、“Kimi K3 这种线性混合架构在 vLLM 里怎么管 cache”、“Qwen3.5 上线后为什么变慢了”。这一章按模型家族整理架构与推理侧要点，最后给出”接入一个新架构”的通用方法论。信息来自各模型的技术报告、HF model card 与 vLLM / SGLang 的 Day-0 博客（检索日期 2026-09-07），第三方来源和未核实的数字在 11.9 单独列出。</p>
@@ -3912,7 +5320,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </ol>
 <p><strong>追问链</strong></p>
 <ul>
-<li><a id="q-qwen35-slower"></a><strong>Qwen3.5 实际用起来推理耗时反而变长了，可能是什么原因？</strong>（B 层 AML 多模态原题）<strong>这类”新模型反而更慢”的题，答案几乎总是”模型的理论优势还没被引擎兑现”</strong>，具体到 Qwen3.5 有四条：（1）<strong>混合线性注意力层需要全新的 kernel 和一套与 paged KV 完全不同的状态缓存</strong>，引擎支持初期这些 kernel 未经优化，甚至走的是没融合的多 kernel 路径；（2）<strong>MoE 专家数变多</strong>，小 batch 下每个专家分到的 token 少、GEMM 更碎，访存反而增加（7.3）；（3）<strong>MTP 没开</strong>，模型自带的投机采样能力没用上；（4）<strong>prefix caching 对线性注意力层失效</strong>——它缓存的是 KV，而线性层的状态不是 KV，命中后这些层仍要重算（14.3）。<strong>回答的框架是”分清哪些是模型的问题、哪些是引擎的问题”</strong>，这比背四条本身更值钱。</li>
+<li><a id="q-qwen35-slower"></a><strong>Qwen3.5 实际用起来推理耗时反而变长了，可能是什么原因？</strong>（B 层 AML 多模态原题）<strong>这类”新模型反而更慢”的题，答案几乎总是”模型的理论优势还没被引擎兑现”</strong>，具体到 Qwen3.5 有四条：（1）<strong>混合线性注意力层需要全新的 kernel 和一套与 paged KV 完全不同的状态缓存</strong>，引擎支持初期这些 kernel 未经优化，甚至走的是没融合的多 kernel 路径；（2）<strong>MoE 专家数变多</strong>，小 batch 下每个专家分到的 token 少、GEMM 更碎，访存反而增加（7.3）；（3）<strong>MTP 没开</strong>，模型自带的投机采样能力没用上；（4）<strong>prefix caching 对线性注意力层失效</strong>——它缓存的是 KV，而线性层的状态不是 KV，命中后这些层仍要重算（13.3）。<strong>回答的框架是”分清哪些是模型的问题、哪些是引擎的问题”</strong>，这比背四条本身更值钱。</li>
 </ul>
 <h3 id="sec-11-6">11.6 其他必须知道的架构</h3>
 <div class="table-wrap">
@@ -4420,7 +5828,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tr>
 <tr>
 <td>手撕 MLA</td>
-<td>14.2 的实现，要能讲清压缩、解耦 RoPE、absorb 三件事和每个张量形状。</td>
+<td>13.2 的实现，要能讲清压缩、解耦 RoPE、absorb 三件事和每个张量形状。</td>
 </tr>
 </tbody>
 </table>
@@ -4437,15 +5845,15 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tbody>
 <tr>
 <td>Linear attention 手撕</td>
-<td>14.3；要说出状态大小 <span class="math inline">d \times d_v</span> 与序列长度无关，是它替代 KV cache 的意义。</td>
+<td>13.3；要说出状态大小 <span class="math inline">d \times d_v</span> 与序列长度无关，是它替代 KV cache 的意义。</td>
 </tr>
 <tr>
 <td>MoE 手撕</td>
-<td>14.4；说明生产实现要按专家分组排序后做 grouped GEMM。</td>
+<td>13.4；说明生产实现要按专家分组排序后做 grouped GEMM。</td>
 </tr>
 <tr>
 <td>MHA 手撕、MLA 手撕</td>
-<td>4.4、14.2。</td>
+<td>4.4、13.2。</td>
 </tr>
 <tr>
 <td>以上各手撕的访存计算</td>
@@ -4453,7 +5861,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tr>
 <tr>
 <td>DeepSeek-V3 结构伪代码 + 参数量手算 + 每次推理访存量手算</td>
-<td>14.5 有完整推算：总参数约 671B（含 MTP 685B），激活约 37B，batch 1 FP8 decode 每 token 读约 37 GB 权重加 70 KB × 上下文长度的 KV。</td>
+<td>13.5 有完整推算：总参数约 671B（含 MTP 685B），激活约 37B，batch 1 FP8 decode 每 token 读约 37 GB 权重加 70 KB × 上下文长度的 KV。</td>
 </tr>
 <tr>
 <td>堆排序</td>
@@ -4570,12 +5978,12 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tbody>
 </table>
 </div>
-<p><strong>A13 AI Lab 高性能异构计算三轮（2023-02）</strong>：一面体系结构八股（cache line 的 tag / index / offset，多级 cache，cache miss 流程，页表与 TLB），二面 <strong>Sparse Attention 的 Python kernel 实现</strong>（block-sparse：只对 mask 选中的块做 <span class="math inline">QK^T</span> 和 <span class="math inline">PV</span>，见 14.6）和”训练 / 推理内存过高怎么办”（稀疏化、gradient checkpoint、量化、混合精度、模型压缩），三面 C++ 多态细节（虚表地址编译期确定、虚指针在构造函数里设置）和 LC31 下一个排列。</p>
+<p><strong>A13 AI Lab 高性能异构计算三轮（2023-02）</strong>：一面体系结构八股（cache line 的 tag / index / offset，多级 cache，cache miss 流程，页表与 TLB），二面 <strong>Sparse Attention 的 Python kernel 实现</strong>（block-sparse：只对 mask 选中的块做 <span class="math inline">QK^T</span> 和 <span class="math inline">PV</span>，见 13.6）和”训练 / 推理内存过高怎么办”（稀疏化、gradient checkpoint、量化、混合精度、模型压缩），三面 C++ 多态细节（虚表地址编译期确定、虚指针在构造函数里设置）和 LC31 下一个排列。</p>
 <p><strong>A16 豆包机器学习系统研发实习一面（2025-04）</strong>：“客户给你一个模型说速度太慢，从哪些方面着手解决？”标准回答骨架：先测（延迟分解，TTFT / TPOT，profile 定位是 CPU、kernel 还是通信）→ 算理论上限看差距 → 系统层（batching、KV 管理、CUDA graph）→ 模型层（量化、GQA、投机采样）→ kernel 层（融合、FlashAttention）→ 硬件层（换卡、加卡、并行策略），每层给预期收益。</p>
 <p><strong>A17 AI 芯片研发（2025 秋）</strong>：Roofline 分析（2.2）；GEMM 优化与 tensor core 编程（8.2）；低于 FP8 的低比特（FP4 / MXFP4 / NVFP4：E2M1 加每 16 或 32 个元素一个共享 scale，Blackwell 原生支持）；Sparse Attention 与 Sparse KV cache（9.3、11 章）；固定读写口与 bank 数不匹配时的冲突优化（swizzle 地址映射，padding，改变访问顺序）。</p>
 <p><strong>A19 Flow-豆包三面（2024-12）</strong>：二面偏系统优化：KV cache 与 GQA 思想、FlashAttention 思想和实现、DeepSpeed 与三种并行、<strong>手撕 GQA</strong>（4.4 的 attention 已支持 GQA）；一面问 Qwen2 相比 Qwen1 的改进（GQA、更大词表、SwiGLU、更长上下文、YaRN）、RoPE 外推。</p>
 <p><strong>A20 推理方向日常实习总结（2026）</strong>：考点清单与本文各章一一对应；手撕清单：反转链表、LC143、二叉树中序非递归、LC128，以及 <strong>Triton / CUDA 版 LayerNorm、大矩阵规约求和、online softmax</strong>（8.3、4.1）。</p>
-<p><strong>A21 / A22 生成式推荐方向的推理题（2026-03）</strong></p>
+<p><strong>A21 / A22 生成式推荐方向的��理题（2026-03）</strong></p>
 <div class="table-wrap">
 <table>
 <thead>
@@ -4603,7 +6011,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </tr>
 <tr>
 <td>kvcache 怎么做的，还有什么提高效率的办法；手撕 Transformer 并算 FLOPs 和内存</td>
-<td>1.2、1.3、14.5，完整实现见 15 章。</td>
+<td>1.2、1.3、13.5，完整实现见 14 章。</td>
 </tr>
 <tr>
 <td>H100 上跑生成式重排，瓶颈在存储带宽不在计算？</td>
@@ -4705,1416 +6113,8 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <li><a href="https://zhuanlan.zhihu.com/p/2017740483217081305">AI Infra 26 秋招面经（知乎）</a> 中其他公司的题，与字节同源：GEMM 在 M、N 大 K 小时的瓶颈（输出写回带宽，block 太多）、swizzle、split-K / stream-K、FA3 的 FP8、ncu 的 scoreboard、double buffer、FP8 与 INT8 KV cache 并存、FlashMLA 与 FA 的差别、warp specialization、WGMMA 与 MMA 区别、KV cache 的树形管理、chunked prefill 的 mask、prefix caching 的 block hash。</li>
 </ul>
 <hr>
-<h2 id="sec-13"><span class="num">13.</span>高频原题、考点排行与复习优先级</h2>
-<p>本章是全文的<strong>索引和自测区</strong>：13.1 是原题级的高频问题清单（<strong>题目可点，直接跳到答案</strong>），13.2 定义优先级，13.3 给考点排行，13.4 把全文 90 个小节逐一定级并写出验收标准，13.5 是按团队的偏移，13.6 是复习路线。</p>
-<p><strong>从 13.1 开始</strong>：先用题单自测一遍，答不上的顺着链接补，比从头顺读省一半时间。</p>
-<h3 id="sec-13-1">13.1 高频原题清单</h3>
-<p>下面的题全部来自 12 章的公开面经，按”被问到的场次”排。<strong>题目本身是链接，点进去就是这道题的完整回答和原因</strong>；括号里是来源编号，最后一列链到所在小节。这一节可以直接当题库用：<strong>先盖住右边自己答一遍，再点题目对答案</strong>。</p>
-<h4 id="p0-口述题出现最多的-20-题">13.1.1 P0 口述题：出现最多的 20 题</h4>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>原题</th>
-<th>来源</th>
-<th>答题眼（一句话说不到这个点就是没答对）</th>
-<th>节</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td><a href="#sec-1-3">KV cache 是什么、解决什么问题</a></td>
-<td>A1、A2、A21、B×2、C</td>
-<td>用<strong>存储换计算</strong>，省掉历史 token 的 K、V 投影重算；而不是”加速 attention”</td>
-<td><a href="#sec-1-3">1.3</a></td>
-</tr>
-<tr>
-<td>2</td>
-<td><a href="#q-no-q-cache">为什么不缓存 Q</a></td>
-<td>C、常见追问</td>
-<td><span class="math inline">q_t</span> 只出现在第 <span class="math inline">t</span> 步的式子里，<span class="math inline">k_i</span>、<span class="math inline">v_i</span> 会被第 <span class="math inline">i</span> 步之后每一步用到</td>
-<td><a href="#sec-1-3">1.3</a></td>
-</tr>
-<tr>
-<td>3</td>
-<td><a href="#sec-1-3">现场算 7B / 70B 每 token 的 KV</a></td>
-<td>A5、B、C</td>
-<td>公式 <span class="math inline">2 L h_{kv} d_h \times \text{bytes}</span>，70B GQA 是 320 KB / token</td>
-<td><a href="#sec-1-3">1.3</a></td>
-</tr>
-<tr>
-<td>4</td>
-<td><a href="#q-paged-cost">PagedAttention 原理与效果、代价</a></td>
-<td>A1、A2、B×2、C</td>
-<td>借操作系统分页；把 KV 利用率从 20% 到 38% 提到 96%+；<strong>代价是 kernel 慢 20% 到 26%</strong></td>
-<td><a href="#sec-3-2">3.2</a></td>
-</tr>
-<tr>
-<td>5</td>
-<td><a href="#q-vllm-advantage">vLLM 相比传统框架的优势</a></td>
-<td>A1、A2、B</td>
-<td>PagedAttention + continuous batching <strong>两者叠加</strong>才有一个数量级</td>
-<td><a href="#sec-3-2">3.2</a></td>
-</tr>
-<tr>
-<td>6</td>
-<td><a href="#q-speedup-methods">大模型推理加速办法有哪些</a></td>
-<td>A2、A16、B</td>
-<td>按<strong>算法层 / 系统层 / kernel 层</strong>三层组织，每层给一个数字</td>
-<td><a href="#sec-0-3">0.3</a></td>
-</tr>
-<tr>
-<td>7</td>
-<td><a href="#sec-1-1">prefill 与 decode 的区别</a></td>
-<td>A3、A21、C</td>
-<td>一个 compute-bound 一个 memory-bound，这决定了后面所有优化的方向</td>
-<td><a href="#sec-1-1">1.1</a>、<a href="#sec-2-2">2.2</a></td>
-</tr>
-<tr>
-<td>8</td>
-<td><a href="#sec-2-3">decode 为什么 memory-bound、上限怎么算</a></td>
-<td>A3、A21、B</td>
-<td>权重字节数 ÷ 带宽 = 每步时间下界；7B FP16 在 A100 上约 140 token/s</td>
-<td><a href="#sec-2-2">2.2</a>、<a href="#sec-2-3">2.3</a></td>
-</tr>
-<tr>
-<td>9</td>
-<td><a href="#sec-5-1">常见量化方法有哪些</a></td>
-<td>A1、A2、A8/A9</td>
-<td>按<strong>对象</strong>（权重 / 激活 / KV）× <strong>位宽</strong> × <strong>方法</strong>三个维度铺开</td>
-<td><a href="#sec-5-1">5.1</a></td>
-</tr>
-<tr>
-<td>10</td>
-<td><a href="#q-three-quant-gains">权重 / 激活 / KV 量化各自的收益</a></td>
-<td>A2</td>
-<td>三者<strong>见效阶段不同</strong>：权重减 decode 带宽、激活开 tensor core 提 prefill、KV 增并发</td>
-<td><a href="#sec-5-1">5.1</a></td>
-</tr>
-<tr>
-<td>11</td>
-<td><a href="#q-sym-asym">对称 vs 非对称量化</a></td>
-<td>A1</td>
-<td>非对称在整数 GEMM 里会多出与 zero point 相关的交叉项，所以权重通常对称</td>
-<td><a href="#sec-5-1">5.1</a></td>
-</tr>
-<tr>
-<td>12</td>
-<td><a href="#sec-1-4">MHA / MQA / GQA / MLA 对比</a></td>
-<td>A4、A5、B×2</td>
-<td>一张 KV 大小对比表 + 各自为什么效果不掉</td>
-<td><a href="#sec-1-4">1.4</a></td>
-</tr>
-<tr>
-<td>13</td>
-<td><a href="#sec-8-2">写 CUDA GEMM 并讲优化方法与评估指标</a></td>
-<td>A4、A10、A17、C</td>
-<td>tiling 五步 + 指标（占峰值比例、对 cuBLAS 比值、DRAM 带宽、occupancy、bank conflict）</td>
-<td><a href="#sec-8-2">8.2</a></td>
-</tr>
-<tr>
-<td>14</td>
-<td><a href="#sec-8-3">手写 reduce / softmax 并优化</a></td>
-<td>A5、A8/A9、A20、C</td>
-<td>交错寻址 → warp shuffle → 线程内预累加 → 向量化 → 两级归约</td>
-<td><a href="#sec-8-3">8.3</a></td>
-</tr>
-<tr>
-<td>15</td>
-<td><a href="#q-sm-util">SM 利用率与 GPU 利用率怎么算</a></td>
-<td>A8/A9</td>
-<td><code>nvidia-smi</code> 的利用率是”有 kernel 在跑”的时间占比，<strong>占一个 SM 也算 100%</strong></td>
-<td><a href="#sec-8-5">8.5</a></td>
-</tr>
-<tr>
-<td>16</td>
-<td><a href="#q-tp-col-row">TP 先列切还是先行切、为什么</a></td>
-<td>A6</td>
-<td>先列后行只要一次 all-reduce，<strong>因为非线性不能作用在部分和上</strong></td>
-<td><a href="#sec-7-1">7.1</a></td>
-</tr>
-<tr>
-<td>17</td>
-<td><a href="#q-allreduce-cost">all-reduce 开销怎么计算</a></td>
-<td>A6、B</td>
-<td>ring 公式 <span class="math inline">2(n-1)/n \cdot S / BW</span> + 延迟项，小消息延迟主导</td>
-<td><a href="#sec-7-1">7.1</a></td>
-</tr>
-<tr>
-<td>18</td>
-<td><a href="#sec-4-2">FlashAttention 的思想与实现</a></td>
-<td>A19、B、C</td>
-<td>tiling + online softmax，<strong>不物化 <span class="math inline">S</span>、<span class="math inline">P</span></strong>；是<a href="#q-fa-exact">精确算法不是近似</a></td>
-<td><a href="#sec-4-1">4.1</a>、<a href="#sec-4-2">4.2</a></td>
-</tr>
-<tr>
-<td>19</td>
-<td><a href="#sec-4-4">手撕 attention（含 KV cache / GQA / cross）</a></td>
-<td>A5、A10、A19、B×2、C</td>
-<td>10 分钟 bug-free，讲清每个形状；causal mask 的对角线偏移</td>
-<td><a href="#sec-4-4">4.4</a>、<a href="#sec-15-6">15.6</a></td>
-</tr>
-<tr>
-<td>20</td>
-<td><a href="#q-model-too-slow">模型太慢，从哪些方面着手</a></td>
-<td>A16、A21</td>
-<td><strong>先测再算再改</strong>：延迟分解 → 理论上限 → 系统层 → 模型层 → kernel 层 → 硬件层</td>
-<td><a href="#sec-10-3">10.3</a>、<a href="#sec-10-4">10.4</a></td>
-</tr>
-</tbody>
-</table>
-</div>
-<h4 id="p1-口述题出现-2-到-3-次">13.1.2 P1 口述题：出现 2 到 3 次</h4>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>原题</th>
-<th>来源</th>
-<th>答题眼</th>
-<th>节</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>21</td>
-<td><a href="#q-bottleneck-types">除了 compute / memory-bound 还有什么瓶颈</a></td>
-<td>A3</td>
-<td>latency-bound、launch-bound、同步 bound、通信 bound、SMEM bound、PCIe bound，各自的定位手段</td>
-<td><a href="#sec-8-5">8.5</a></td>
-</tr>
-<tr>
-<td>22</td>
-<td><a href="#q-sm-underfilled">SM 未打满时增大矩阵乘为什么延时还涨</a></td>
-<td>A3</td>
-<td>三条：带宽共享、K 维线性增长、<strong>wave quantization 的台阶</strong></td>
-<td><a href="#sec-8-1">8.1</a></td>
-</tr>
-<tr>
-<td>23</td>
-<td><a href="#q-prefix-hit">Prefix cache 原理与命中率</a></td>
-<td>A2、B</td>
-<td>块 hash 必须带前缀；命中省的是 QKV 投影而非全部 attention</td>
-<td><a href="#sec-3-3">3.3</a></td>
-</tr>
-<tr>
-<td>24</td>
-<td><a href="#q-chunked-cost">chunked prefill 的缺点</a></td>
-<td>C、知乎清单</td>
-<td>它把 TTFT 的问题转移成了 ITL 的抖动，<a href="#sec-10-3">10.3 有 4 ms → 45 ms 的算例</a></td>
-<td><a href="#sec-3-4">3.4</a>、<a href="#sec-10-3">10.3</a></td>
-</tr>
-<tr>
-<td>25</td>
-<td><a href="#q-pd-when-not">PD 分离为什么做、什么时候不适合</a></td>
-<td>C、知乎清单</td>
-<td>干扰 + 各自最优并行策略不同；小模型短 prompt 单机反而亏</td>
-<td><a href="#sec-3-6">3.6</a>、<a href="#sec-3-7">3.7</a></td>
-</tr>
-<tr>
-<td>26</td>
-<td><a href="#q-fp8-kv-config">FP8 KV cache 怎么配置</a>、<a href="#q-fp8-kv-prefill">prefill 收益多少</a></td>
-<td>A3</td>
-<td>E5M2 免校准 E4M3 要 scale；<strong>FP8 KV 对 prefill 几乎无收益</strong>，收益在 decode</td>
-<td><a href="#sec-5-5">5.5</a></td>
-</tr>
-<tr>
-<td>27</td>
-<td><a href="#sec-7-3">DeepSeek 671B 怎么做算力分配和负载均衡</a></td>
-<td>A1</td>
-<td>DP attention + 大 EP + 冗余专家 + EPLB + PD 分离，<strong>把每卡专家数和通信量算出来</strong></td>
-<td><a href="#sec-7-3">7.3</a>、<a href="#sec-14-5">14.5</a></td>
-</tr>
-<tr>
-<td>28</td>
-<td><a href="#sec-14-2">手撕 MLA</a></td>
-<td>A4、A5</td>
-<td>三条路径 + absorb + 解耦 RoPE</td>
-<td><a href="#sec-14-2">14.2</a></td>
-</tr>
-<tr>
-<td>29</td>
-<td><a href="#sec-15-7">手撕 Transformer 并算 FLOPs 和内存</a></td>
-<td>A21、B</td>
-<td>15 章的完整实现 + 1.2 的估算</td>
-<td><a href="#sec-15">15 章</a>、<a href="#sec-1-2">1.2</a></td>
-</tr>
-<tr>
-<td>30</td>
-<td><a href="#q-fusion-slower">有没有 fusion 反而变慢的情况</a></td>
-<td>A21</td>
-<td>寄存器压力 / occupancy 下降、替掉了 cuBLAS、并行模式不匹配、挡住了通信重叠</td>
-<td><a href="#sec-8-4">8.4</a></td>
-</tr>
-<tr>
-<td>31</td>
-<td><a href="#q-drop-warp-spec">去掉 warp specialization 损失什么</a></td>
-<td>A21</td>
-<td>损失的是<strong>搬运与计算的重叠</strong>，H100 GEMM 从 80%+ 掉到 60% 左右</td>
-<td><a href="#sec-8-2">8.2</a></td>
-</tr>
-<tr>
-<td>32</td>
-<td><a href="#q-mqa-still-slow">MQA 后 decoder 延迟仍高，分析瓶颈</a></td>
-<td>B</td>
-<td>小 batch 下<strong>权重读取仍是大头</strong>；再查 CPU 调度、采样、TP 通信</td>
-<td><a href="#sec-1-4">1.4</a>、<a href="#sec-2-2">2.2</a></td>
-</tr>
-<tr>
-<td>33</td>
-<td><a href="#q-est-235b">估算 235B MoE 需要多少算力</a></td>
-<td>B</td>
-<td><strong>用激活参数量 22B 算带宽，不是 235B</strong>；FP8 权重 235 GB，8 卡起步</td>
-<td><a href="#sec-2-3">2.3</a></td>
-</tr>
-<tr>
-<td>34</td>
-<td><a href="#q-gil">GIL 是什么、vLLM 为什么拆进程</a></td>
-<td>A6、B</td>
-<td>CPU 密集的调度逻辑和 HTTP / tokenize 抢 GIL，<strong>结果是 GPU 空转</strong></td>
-<td><a href="#sec-10-1">10.1</a></td>
-</tr>
-<tr>
-<td>35</td>
-<td><a href="#q-view-contiguous">view 与 contiguous 的区别</a></td>
-<td>A6</td>
-<td>transpose 后 stride 不连续，view 报错；reshape 会自动拷贝</td>
-<td><a href="#sec-10-5">10.5</a></td>
-</tr>
-<tr>
-<td>36</td>
-<td><a href="#q-fsdp-ddp">FSDP 与 DDP 的区别</a></td>
-<td>A21</td>
-<td>显存换通信；<strong>推理的 TP 更像 FSDP 的思路</strong>而不是 DDP</td>
-<td><a href="#sec-7-1">7.1</a></td>
-</tr>
-<tr>
-<td>37</td>
-<td><a href="#q-spec-distribution">投机采样会改变输出分布吗</a></td>
-<td>常见追问</td>
-<td>不会，<strong>拒绝后从残差分布重采</strong>正好补上缺口</td>
-<td><a href="#sec-6-1">6.1</a>、<a href="#sec-6-3">6.3</a></td>
-</tr>
-<tr>
-<td>38</td>
-<td><a href="#q-small-model-draft">1B 模型毫秒级场景怎么设计 draft</a></td>
-<td>A21/A22</td>
-<td>独立 draft 开销占比太大，走<strong>零成本 draft</strong>（n-gram、EAGLE head、候选集前缀）</td>
-<td><a href="#sec-6-2">6.2</a></td>
-</tr>
-<tr>
-<td>39</td>
-<td><a href="#q-llamacpp">llama.cpp 的特点、和 vLLM 差在哪</a></td>
-<td>A1</td>
-<td>设计目标不同：端侧单请求 vs 多租户高并发，<strong>所以它没有 PagedAttention 的等价物</strong></td>
-<td><a href="#sec-3-8">3.8</a></td>
-</tr>
-<tr>
-<td>40</td>
-<td><a href="#q-qwen35-slower">Qwen3.5 推理为什么反而变慢</a></td>
-<td>B</td>
-<td>分清<strong>哪些是模型的问题、哪些是引擎还没兑现</strong>：新 kernel、状态缓存、专家变碎、prefix caching 失效</td>
-<td><a href="#sec-11-5">11.5</a></td>
-</tr>
-</tbody>
-</table>
-</div>
-<h4 id="手撕题按出现频率">13.1.3 手撕题：按出现频率</h4>
-<p><strong>算子与模型类（推理岗主场，P0）</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>题</th>
-<th>来源</th>
-<th>时限参考</th>
-<th>节</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-4-4">attention 前向（numpy / PyTorch，含 softmax）</a></td>
-<td>A10、B×2、C</td>
-<td>10 分钟</td>
-<td><a href="#sec-4-4">4.4</a>、<a href="#sec-15-4">15.4</a></td>
-</tr>
-<tr>
-<td><a href="#sec-15-6">带 KV cache 的 MHA / GQA</a></td>
-<td>A19、C</td>
-<td>15 分钟</td>
-<td><a href="#sec-4-4">4.4</a>、<a href="#sec-15-6">15.6</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-3">CUDA reduce 及优化（sum / max / softmax）</a></td>
-<td>A5、A8/A9、A20、C</td>
-<td>20 分钟</td>
-<td><a href="#sec-8-3">8.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-2">CUDA GEMM（naive → block tile → thread tile）</a></td>
-<td>A4、A17、C</td>
-<td>25 分钟</td>
-<td><a href="#sec-8-2">8.2</a></td>
-</tr>
-<tr>
-<td><a href="#sec-15-3">LayerNorm / RMSNorm（CUDA 或 Triton，可能禁用 sqrt）</a></td>
-<td>A20、C</td>
-<td>15 分钟</td>
-<td><a href="#sec-8-3">8.3</a>、<a href="#sec-15-3">15.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-4-1">online softmax</a></td>
-<td>A20、C</td>
-<td>10 分钟</td>
-<td><a href="#sec-4-1">4.1</a></td>
-</tr>
-<tr>
-<td><a href="#sec-14-2">MLA</a></td>
-<td>A4、A5</td>
-<td>20 分钟</td>
-<td><a href="#sec-14-2">14.2</a></td>
-</tr>
-<tr>
-<td><a href="#sec-14-4">MoE 层</a></td>
-<td>A5</td>
-<td>15 分钟</td>
-<td><a href="#sec-14-4">14.4</a></td>
-</tr>
-<tr>
-<td><a href="#sec-14-3">Linear attention</a></td>
-<td>A5</td>
-<td>20 分钟</td>
-<td><a href="#sec-14-3">14.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-15-7">完整 Transformer（含 RoPE、FFN、generate）</a></td>
-<td>A21</td>
-<td>30 分钟</td>
-<td><a href="#sec-15">15 章</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-9">矩阵转置优化</a></td>
-<td>A17、C</td>
-<td>15 分钟</td>
-<td><a href="#sec-8-9">8.9</a></td>
-</tr>
-<tr>
-<td><a href="#sec-14-6">block-sparse attention</a></td>
-<td>A13</td>
-<td>20 分钟</td>
-<td><a href="#sec-14-6">14.6</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-4">graph fusion（DAG 上做模式匹配）</a></td>
-<td>A6</td>
-<td>20 分钟</td>
-<td><a href="#sec-8-4">8.4</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-3">二维规约 / 长行规约的 grid 设计</a></td>
-<td>A8/A9</td>
-<td>15 分钟</td>
-<td><a href="#sec-8-3">8.3</a></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>LeetCode 类（P1，每场必有一道）</strong>：见 <a href="#sec-14-1">14.1</a> 的完整表。出现两次以上的只有 <strong>LC1277 全 1 正方形子矩阵</strong>（A8、A9）和<strong>牛顿法求平方根</strong>（A9、B），其余都是一次，覆盖 BFS / DFS、DP、二分、堆、链表、图。<strong>结论是不要押题</strong>，按 14.1 的分布把常见类型各刷几道即可。</p>
-<h4 id="估算题必须能白板算">13.1.4 估算题：必须能白板算</h4>
-<p>这类题没有”背”的余地，<strong>是区分度最高的一类</strong>。</p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>题</th>
-<th>来源</th>
-<th>节</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-1-3">7B / 70B 每 token 的 KV 字节数</a></td>
-<td>多处</td>
-<td><a href="#sec-1-3">1.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-2-3">7B / 70B 在 A100 / H100 上的 decode token/s 上限</a></td>
-<td>多处</td>
-<td><a href="#sec-2-3">2.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-2-2">batch 多大时 KV 读取超过权重读取</a></td>
-<td>常见追问</td>
-<td><a href="#sec-2-2">2.2</a></td>
-</tr>
-<tr>
-<td><a href="#sec-14-5">DeepSeek-V3 参数量与每 token 访存量</a></td>
-<td>A5</td>
-<td><a href="#sec-14-5">14.5</a></td>
-</tr>
-<tr>
-<td><a href="#q-est-235b">235B MoE 要多少卡</a></td>
-<td>B</td>
-<td><a href="#sec-2-3">2.3</a></td>
-</tr>
-<tr>
-<td><a href="#q-allreduce-cost">all-reduce 的时间</a></td>
-<td>A6</td>
-<td><a href="#sec-7-1">7.1</a></td>
-</tr>
-<tr>
-<td><a href="#sec-7-3">MoE 每 token 每层的 all-to-all 通信量</a></td>
-<td>A1</td>
-<td><a href="#sec-7-3">7.3</a></td>
-</tr>
-<tr>
-<td><a href="#sec-10-4">8 卡 H100 服务 1000 QPS 需要多少台机器</a></td>
-<td>系统设计</td>
-<td><a href="#sec-10-4">10.4</a></td>
-</tr>
-<tr>
-<td><a href="#sec-10-3">一个 128K 请求给每步加多少毫秒</a></td>
-<td>排障</td>
-<td><a href="#sec-10-3">10.3</a></td>
-</tr>
-<tr>
-<td><a href="#q-est-pitfalls">现场估算最容易漏掉什么</a></td>
-<td>常见追问</td>
-<td><a href="#sec-2-3">2.3</a></td>
-</tr>
-</tbody>
-</table>
-</div>
-<h4 id="开放题与系统设计">13.1.5 开放题与系统设计</h4>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>题</th>
-<th>来源</th>
-<th>回答骨架</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#q-model-too-slow">客户说模型太慢，从哪下手</a></td>
-<td>A16</td>
-<td>测 → 算上限 → 系统层 → 模型层 → kernel 层 → 硬件层，每层给预期收益</td>
-</tr>
-<tr>
-<td><a href="#sec-10-4">8 卡 H100 服务 1000 QPS 对话产品</a></td>
-<td>系统设计</td>
-<td><a href="#sec-10-4">10.4</a> 的八步骨架，从估算开始</td>
-</tr>
-<tr>
-<td><a href="#sec-10-4">单卡 A10 跑 7B 要 TPOT &lt; 30 ms</a></td>
-<td>系统设计</td>
-<td>INT4 + CUDA graph + 并发折中</td>
-</tr>
-<tr>
-<td><a href="#sec-11-8">给你 X 新模型怎么部署</a></td>
-<td>常见收尾题</td>
-<td><a href="#sec-11-8">11.8</a> 的方法论</td>
-</tr>
-<tr>
-<td><a href="#sec-10-4">把一个新模型接进 vLLM 要做什么</a></td>
-<td>10.4</td>
-<td>模型类 + 权重映射 + attention backend + 对齐 logits</td>
-</tr>
-<tr>
-<td><a href="#sec-10-3">线上 P99 出现尖刺怎么查</a></td>
-<td>排障</td>
-<td><a href="#sec-10-3">10.3</a>：先分清尖刺 / 长尾 / 双峰，再看队列长度与 KV 使用率</td>
-</tr>
-<tr>
-<td><a href="#sec-9-3">训练 / 推理内存过高怎么办</a></td>
-<td>A13</td>
-<td>稀疏化、checkpoint、量化、混合精度、压缩</td>
-</tr>
-</tbody>
-</table>
-</div>
-<h4 id="项目追问一定会被问且最容易翻车">13.1.6 项目追问：一定会被问，且最容易翻车</h4>
-<p><strong>这一类没有标准答案，但有标准的准备方式</strong>——面试官问的永远是这五个：</p>
-<ol type="1">
-<li><strong>你做了什么优化，收益多少？</strong> 必须有数字，且要说清”在什么 batch、什么序列长度、什么卡上测的”。只说”快了 30%“会被追着问基线。</li>
-<li><strong>怎么测的、怎么确认是这个优化带来的？</strong> 答不上等于前一问白答。要说出压测方法（<a href="#sec-2-5">2.5</a>）、控制变量、profile 证据（<a href="#sec-8-5">8.5</a>）。</li>
-<li><strong>有没有优化反而变慢的时候？</strong>（A21 原题）这题是在看你有没有真做过，<a href="#q-fusion-slower">8.4 的 fusion 变慢清单</a>可以直接用。</li>
-<li><strong>线上的 QPS、TTFT、TPOT、P99 是多少？</strong>（B 层 Agent 社招原题）记住自己系统的这四个数。</li>
-<li><strong>瓶颈在哪、下一步会做什么？</strong> 用 <a href="#sec-2-2">2.2</a> 的 roofline 定位 + <a href="#sec-10-3">10.3</a> 的排障框架回答，能顺势把话题引到你熟的地方（<a href="#sec-0-3">0.3</a> 的第 6 条）。</li>
-</ol>
-<h3 id="sec-13-2">13.2 优先级的定义与用法</h3>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>级别</th>
-<th>含义</th>
-<th>判据</th>
-<th>答不上的后果</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>P0</strong></td>
-<td>每场必问</td>
-<td>12 章来源里出现 ≥ 6 次，或任何一场只要问推理就一定会碰</td>
-<td>直接挂，不看后面</td>
-</tr>
-<tr>
-<td><strong>P1</strong></td>
-<td>推理岗一定会碰到</td>
-<td>出现 3 到 5 次，或是 P0 的必然下一层追问</td>
-<td>决定评级（能过但拿不到高 offer）</td>
-</tr>
-<tr>
-<td><strong>P2</strong></td>
-<td>按团队方向选做</td>
-<td>出现 1 到 2 次，或集中在某一类团队</td>
-<td>目标团队问到才致命</td>
-</tr>
-<tr>
-<td><strong>P3</strong></td>
-<td>加分项</td>
-<td>前沿或冷门，答上来是惊喜</td>
-<td>不影响结论</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>三条使用规则</strong>：</p>
-<ol type="1">
-<li><strong>先横向铺满 P0，再纵向钻 P1</strong>。面试是”广度筛人、深度定级”：任何一个 P0 缺口都会让面试提前结束，而 P1 的深度决定给几档。所以不要在还有 P0 空白时去啃 11 章的前沿架构。</li>
-<li><strong>每个 P0 都必须能给出数字</strong>（0.3 的第 4 条）。“KV cache 省了重复计算”是 P0 的及格线，“7B 模型 4K 上下文每请求 2 GB、batch 7 时 KV 读取就超过权重读取”才是 P0 的通过线。判断自己会不会：<strong>能不能不看纸算出来</strong>。</li>
-<li><strong>P2 按目标团队裁剪</strong>（13.5）。Seed 的 P2 是火山引擎的 P0，反之亦然，别平均用力。</li>
-</ol>
-<h3 id="sec-13-3">13.3 考点排行（按 12 章来源统计）</h3>
-<p>同一来源多次问同一考点计一次，C 层作为加权参考。</p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>优先级</th>
-<th>考点</th>
-<th>出现来源数</th>
-<th>典型追问</th>
-<th>对应章节</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>KV cache：原理、大小计算、量化、配置、碎片、训练与推理差异</td>
-<td>12</td>
-<td>现场算 7B / 70B 每 token 大小；FP8 KV 怎么配；为什么不缓存 Q；显存不够怎么办</td>
-<td>1.3、3.2、5.5</td>
-</tr>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>CUDA kernel 与 GPU 微架构：GEMM、reduce、bank conflict、grid / block、SM 利用率、stream、fusion</td>
-<td>11</td>
-<td>写 tiled GEMM 并讲指标；二维归约 grid 设置；fusion 反而变慢的案例；去掉 warp specialization 损失什么</td>
-<td>8 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>vLLM / PagedAttention / SGLang 对比</td>
-<td>10</td>
-<td>PagedAttention 解决什么、代价是什么；SGLang 延迟优势在哪；vLLM 调度能改什么</td>
-<td>3.1 到 3.8</td>
-</tr>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>Attention 变体与手撕：MHA / MQA / GQA / MLA / linear / sparse</td>
-<td>9</td>
-<td>手撕 MLA；MQA 后延迟仍高的原因；MLA 的 absorb 与 RoPE 解耦</td>
-<td>1.4、4.4、14 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>量化：权重 / 激活 / KV、对称与非对称、FP8、INT4、GPTQ / AWQ / SmoothQuant</td>
-<td>8</td>
-<td>三类量化各自收益；对称非对称的 GEMM 代价；FP8 在 prefill 收益多少；项目里怎么实现</td>
-<td>5 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p0">P0</span></td>
-<td>prefill / decode 差异、roofline、访存量与 FLOPs 估算</td>
-<td>6</td>
-<td>除了 compute / memory-bound 还有什么瓶颈；SM 未打满延时为何增长；手撕 Transformer 并算 FLOPs</td>
-<td>2 章、14.5、15 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>并行与通信：TP 列切行切、SP、PP / EP、DP attention、prefill CP / decode CP、all-reduce 开销计算、FSDP vs DDP</td>
-<td>7</td>
-<td>先列后行为什么只要一次 all-reduce；ring all-reduce 时间公式；TP 为什么不跨机；DP attention 的 gather / scatter 用什么原语；DCP 怎么合并各卡的部分 attention</td>
-<td>7 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>C++ 八股：智能指针、虚函数、协程、cast、内存管理</td>
-<td>6</td>
-<td>协程有栈无栈；虚表何时确定</td>
-<td>C++ 面经文档</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>FlashAttention 原理与版本</td>
-<td>5</td>
-<td>online softmax 推导；v2 为什么外层循环 Q；v3 的 pingpong；v4 为什么 softmax 成了瓶颈；随机 mask 怎么办</td>
-<td>4.1 到 4.3</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>MoE 推理：DeepSeek-V3 结构、EP、负载均衡、参数量与算力估算</td>
-<td>4</td>
-<td>671B 怎么分配算力；235B MoE 要多少卡；手算参数量和访存量</td>
-<td>7.3、14.5</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>模型架构演进：Qwen2 / 3 / 3.5、LLaMA、DeepSeek MTP、前沿混合架构</td>
-<td>4</td>
-<td>Qwen3.5 推理变慢的原因；新架构对引擎的要求</td>
-<td>11 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td><strong>项目追问</strong>：你做过什么优化、收益多少、怎么测的</td>
-<td>4</td>
-<td>模型太慢从哪下手；有没有优化反而变慢的时候；线上 QPS 和 P99 是多少</td>
-<td>10.3、10.4、13.1.6</td>
-</tr>
-<tr>
-<td><span class="pri pri-p1">P1</span></td>
-<td>线上排障：TTFT / ITL 的尖刺与长尾、抢占、限流与容量</td>
-<td>—</td>
-<td>P99 高第一步看什么；ITL 出现第二峰说明什么；过载该排队还是拒绝；同样输入为什么结果不同</td>
-<td>2.5、10.3</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>投机采样</td>
-<td>3</td>
-<td>1B 模型毫秒级场景 draft 怎么设计；分布不变性证明</td>
-<td>6 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>prefix caching / chunked prefill / continuous batching / PD 分离</td>
-<td>3</td>
-<td>chunked prefill 的缺点（10.3 有定量算例）；PD 比例怎么定；KV 传输开销</td>
-<td>3.3、3.4、3.6、3.7</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>性能分析与 profiling</td>
-<td>3</td>
-<td>nsys 与 ncu 分工；ncu 看哪些指标</td>
-<td>8.5</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>OS 与体系结构：cache line、页表、虚拟内存</td>
-<td>3</td>
-<td>cache miss 流程；页表开销与 TLB</td>
-<td>C++ 面经文档</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>长上下文：RoPE 外推、KV 压缩、窗口注意力</td>
-<td>3</td>
-<td>YaRN 做了什么；StreamingLLM 的 sink 是什么</td>
-<td>1.5、9 章</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>Python 运行时：GIL、IPC、view / contiguous、asyncio</td>
-<td>2</td>
-<td>vLLM V1 为什么拆进程</td>
-<td>10.1、12.2</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>CUDA runtime 与编译栈：stream、fatbin、PTX / SASS</td>
-<td>2</td>
-<td>异构计算岗专属</td>
-<td>12.2 A11</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>sparse attention / sparse KV cache</td>
-<td>2</td>
-<td>block-sparse 怎么实现；DSA 的 indexer</td>
-<td>11 章、14.6</td>
-</tr>
-<tr>
-<td><span class="pri pri-p2">P2</span></td>
-<td>llama.cpp 与端侧</td>
-<td>1 + C 层多处</td>
-<td>K-quant 原理；与 vLLM 的差别</td>
-<td>12.2 A1</td>
-</tr>
-<tr>
-<td><span class="pri pri-p3">P3</span></td>
-<td>现代算子库与 megakernel：DeepGEMM / DeepEP / MoonEP / Mooncake / MPK</td>
-<td>—</td>
-<td>这些库各解决什么；megakernel 和 CUDA graph 的区别</td>
-<td>3.7、8.6、8.7</td>
-</tr>
-<tr>
-<td><span class="pri pri-p3">P3</span></td>
-<td>Blackwell 与新硬件：TMEM、tcgen05、FP4、FA4</td>
-<td>—</td>
-<td>累加器为什么搬去 TMEM；FA4 为什么 softmax 成瓶颈</td>
-<td>4.2、8.2、5.4</td>
-</tr>
-</tbody>
-</table>
-</div>
-<h3 id="sec-13-4">13.4 全文知识点优先级总表</h3>
-<p>逐节定级，<strong>“验收标准”一栏是自测用的</strong>：能不脱稿说出来才算过。</p>
-<p><strong>第 0 到 2 章：基础与估算——这里的每一节都是 P0，因为后面所有追问都会落回这里</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-0-1">0.1</a></td>
-<td>字节各团队的推理侧重</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>说出 Seed / 火山引擎 / AML / 豆包 四个方向各自考什么</td>
-</tr>
-<tr>
-<td><a href="#sec-0-2">0.2</a></td>
-<td>面试轮次结构</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>知道几轮、每轮考什么</td>
-</tr>
-<tr>
-<td><a href="#sec-0-3">0.3</a></td>
-<td>回答的六层结构</td>
-<td><span class="pri pri-p0">P0</span></td>
-<td>任取一个知识点，按”定义 → 动机 → 机制 → 数字 → 代价 → 引下一层”讲一遍</td>
-</tr>
-<tr>
-<td><a href="#sec-1-1">1.1</a></td>
-<td>prefill / decode 两阶段</td>
-<td><span class="pri pri-p0">P0</span></td>
-<td>说清两者的 <a href="#sec-2-2">compute / memory-bound 属性差异</a>，以及为什么 prefill 只要最后一个位置的 logits</td>
-</tr>
-<tr>
-<td><a href="#sec-1-2">1.2</a></td>
-<td>attention 的 FLOPs 与显存</td>
-<td><span class="pri pri-p0">P0</span></td>
-<td>现场推 <span class="math inline">2N</span> 和 <span class="math inline">4Lds</span>，并说出哪一项随序列平方增长</td>
-</tr>
-<tr>
-<td><a href="#sec-1-3">1.3</a></td>
-<td>KV cache</td>
-<td><strong>P0 最高</strong></td>
-<td>现场算 7B 与 70B 每 token 的 KV 字节数；说清为什么不缓存 Q</td>
-</tr>
-<tr>
-<td><a href="#sec-1-4">1.4</a></td>
-<td>MHA / MQA / GQA / MLA</td>
-<td><strong>P0 最高</strong></td>
-<td>四者的 <a href="#q-gqa-bandwidth">KV 大小对比表</a>；MLA 的 absorb 和 RoPE 解耦为什么必须</td>
-</tr>
-<tr>
-<td><a href="#sec-1-5">1.5</a></td>
-<td>RoPE 与外推</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>证明相对位置性质；说出 PI / NTK / YaRN 各改了什么</td>
-</tr>
-<tr>
-<td><a href="#sec-1-6">1.6</a></td>
-<td>RMSNorm / SwiGLU / tie embedding</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>为什么 RMSNorm 取代 LayerNorm；<span class="math inline">d_{ff} = 8d/3</span> 怎么来的</td>
-</tr>
-<tr>
-<td><a href="#sec-1-7">1.7</a></td>
-<td>采样策略</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>top-p 为什么贵、怎么优化；参数的处理顺序及原因</td>
-</tr>
-<tr>
-<td><a href="#sec-2-1">2.1</a></td>
-<td>GPU 参数表</td>
-<td><span class="pri pri-p0">P0</span></td>
-<td>H100 / A100 的带宽与算力背下来，估算时直接用</td>
-</tr>
-<tr>
-<td><a href="#sec-2-2">2.2</a></td>
-<td>Roofline 与算术强度</td>
-<td><strong>P0 最高</strong></td>
-<td>说清 decode 为什么 memory-bound；算出 KV 读取何时超过权重读取</td>
-</tr>
-<tr>
-<td><a href="#sec-2-3">2.3</a></td>
-<td>现场估算 decode 上限</td>
-<td><strong>P0 最高</strong></td>
-<td>3 分钟内白板推完 7B 和 70B 的 token/s 上限</td>
-</tr>
-<tr>
-<td><a href="#sec-2-4">2.4</a></td>
-<td>FLOPs 与 MFU</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>MFU 的定义和典型值</td>
-</tr>
-<tr>
-<td><a href="#sec-2-5">2.5</a></td>
-<td>服务指标</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>TTFT / TPOT / ITL / goodput 的定义与决定因素</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 3 章：引擎机制——P0 密集区，vLLM 相关几乎每场都问</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-3-1">3.1</a></td>
-<td>Continuous batching</td>
-<td><span class="pri pri-p0">P0</span></td>
-<td>与静态 batching 的差别；<code>max_num_seqs</code> 与 <code>max_num_batched_tokens</code> 各限制什么</td>
-</tr>
-<tr>
-<td><a href="#sec-3-2">3.2</a></td>
-<td>PagedAttention</td>
-<td><strong>P0 最高</strong></td>
-<td><a href="#q-paged-cost">解决什么、代价是什么</a>（kernel 慢 20% 到 26%）、<a href="#q-block-size">block size 怎么选</a></td>
-</tr>
-<tr>
-<td><a href="#sec-3-3">3.3</a></td>
-<td>Prefix caching / RadixAttention</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>块 hash 为什么要带前缀；命中后省的是哪部分计算</td>
-</tr>
-<tr>
-<td><a href="#sec-3-4">3.4</a></td>
-<td>Chunked prefill</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>它换来什么、代价是什么（10.3 有定量算例）</td>
-</tr>
-<tr>
-<td><a href="#sec-3-5">3.5</a></td>
-<td>调度器与 CPU 开销</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td><a href="#q-cudagraph-decode">CUDA graph 为什么只对 decode 有效</a>；它的限制</td>
-</tr>
-<tr>
-<td><a href="#sec-3-6">3.6</a></td>
-<td>PD 分离</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>为什么要分、KV 传输的代价、什么场景不适合</td>
-</tr>
-<tr>
-<td><a href="#sec-3-7">3.7</a></td>
-<td>Mooncake</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>四个组件；layer-wise 重叠；提前拒绝为什么会引起振荡</td>
-</tr>
-<tr>
-<td><a href="#sec-3-8">3.8</a></td>
-<td>框架对比</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>vLLM / SGLang / TRT-LLM 各自的取舍，回答时带上”版本、模型、场景”</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 4 章：Attention kernel——P0 到 P1，手撕高频</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-4-1">4.1</a></td>
-<td>Online softmax</td>
-<td><strong>P0 最高</strong></td>
-<td>白板手推合并公式，这是 FlashAttention 全部的地基</td>
-</tr>
-<tr>
-<td><a href="#sec-4-2">4.2</a></td>
-<td>FlashAttention v1 到 v4</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>每一代消除的瓶颈；v2 为什么把 Q 放外层</td>
-</tr>
-<tr>
-<td><a href="#sec-4-3">4.3</a></td>
-<td>FlashDecoding / split-KV</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>decode 为什么需要 split；split 数怎么定</td>
-</tr>
-<tr>
-<td><a href="#sec-4-4">4.4</a></td>
-<td>手撕 attention 与 KV cache decode</td>
-<td><strong>P0 最高</strong></td>
-<td>10 分钟 bug-free 写完，讲清每个张量形状</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 5 章：量化——P0，问法最杂</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-5-1">5.1</a></td>
-<td>量化基础与三类对象的收益</td>
-<td><strong>P0 最高</strong></td>
-<td>权重 / 激活 / KV 各减什么、在哪个阶段见效</td>
-</tr>
-<tr>
-<td><a href="#sec-5-2">5.2</a></td>
-<td>W8A8：LLM.int8 / SmoothQuant</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>为什么权重好量激活难；α 的物理含义</td>
-</tr>
-<tr>
-<td><a href="#sec-5-3">5.3</a></td>
-<td>W4A16：GPTQ / AWQ</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>两者的核心思想差别；group size 为什么 128</td>
-</tr>
-<tr>
-<td><a href="#sec-5-4">5.4</a></td>
-<td>FP8</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>E4M3 与 E5M2 的分工及原因；prefill 与 decode 的收益差异</td>
-</tr>
-<tr>
-<td><a href="#sec-5-5">5.5</a></td>
-<td>KV cache 量化</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>K per-channel、V per-token 的原因</td>
-</tr>
-<tr>
-<td><a href="#sec-5-6">5.6</a></td>
-<td>反量化 kernel 与 Marlin</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>老 INT4 kernel 为什么 batch 大了就慢</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 6 到 7 章：投机采样与分布式——P1 为主，MoE 方向是 P0</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-6-1">6.1</a></td>
-<td>分布不变性证明</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>写出残差分布并说明它为什么正好补上缺口</td>
-</tr>
-<tr>
-<td><a href="#sec-6-2">6.2</a></td>
-<td>变体（Medusa / EAGLE / MTP / n-gram）</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>各自的 draft 从哪来</td>
-</tr>
-<tr>
-<td><a href="#sec-6-3">6.3</a></td>
-<td>什么时候有收益</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>为什么存在最优 <span class="math inline">\gamma</span>；大 batch 下为什么要关</td>
-</tr>
-<tr>
-<td><a href="#sec-7-1">7.1</a></td>
-<td>张量并行</td>
-<td><strong>P0 最高</strong></td>
-<td>先列后行为什么只要一次 all-reduce；all-reduce 时间公式</td>
-</tr>
-<tr>
-<td><a href="#sec-7-2">7.2</a></td>
-<td>流水线并行</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>气泡率公式；推理里为什么用得少</td>
-</tr>
-<tr>
-<td><a href="#sec-7-3">7.3</a></td>
-<td>MoE 与 EP</td>
-<td>P1（MoE 方向 P0）</td>
-<td>all-to-all 通信量怎么算；负载均衡怎么做</td>
-</tr>
-<tr>
-<td><a href="#sec-7-4">7.4</a></td>
-<td>序列并行 SP</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>与 CP 的区别；为什么必须配 TP</td>
-</tr>
-<tr>
-<td><a href="#sec-7-5">7.5</a></td>
-<td>DP attention</td>
-<td>P2（MoE 方向 P1）</td>
-<td>为什么 MLA 模型需要它而 GQA 不需要</td>
-</tr>
-<tr>
-<td><a href="#sec-7-6">7.6</a></td>
-<td>上下文并行 CP / DCP</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>prefill CP 与 decode CP 分别解决什么</td>
-</tr>
-<tr>
-<td><a href="#sec-7-7">7.7</a></td>
-<td>通信原语与硬件</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>NVLink / IB 的带宽量级；各原语用在哪</td>
-</tr>
-<tr>
-<td><a href="#sec-7-8">7.8</a></td>
-<td>通信与计算重叠</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>两 micro-batch 重叠的原理</td>
-</tr>
-<tr>
-<td><a href="#sec-7-9">7.9</a></td>
-<td>组合部署速查</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>给一个模型能说出一套并行组合</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 8 章：CUDA——P0，且是手撕主场</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-8-1">8.1</a></td>
-<td>GPU 执行模型</td>
-<td><strong>P0 最高</strong></td>
-<td>SM / warp / block / occupancy / bank conflict 的定义与关系</td>
-</tr>
-<tr>
-<td><a href="#sec-8-2">8.2</a> 经典</td>
-<td>GEMM 经典优化路线</td>
-<td><strong>P0 最高</strong></td>
-<td>写出 shared memory tiling 版并说清 1 到 5 步</td>
-</tr>
-<tr>
-<td><a href="#sec-8-2">8.2</a> 现代</td>
-<td>TMA / warp specialization / cluster</td>
-<td>P3（芯片与 kernel 岗 P1）</td>
-<td>说出 TMA 省了什么、warp specialization 与双缓冲的区别</td>
-</tr>
-<tr>
-<td><a href="#sec-8-3">8.3</a></td>
-<td>Reduction / softmax / RMSNorm</td>
-<td><strong>P0 最高</strong></td>
-<td>手写 warp shuffle 归约与两级归约；说出与 CPU 对齐的检查方法</td>
-</tr>
-<tr>
-<td><a href="#sec-8-4">8.4</a></td>
-<td>Kernel fusion</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>列出 5 个常见融合点；说出<a href="#q-fusion-slower">融合反而变慢的原因</a>与<a href="#q-what-not-to-fuse">哪些不该融合</a></td>
-</tr>
-<tr>
-<td><a href="#sec-8-5">8.5</a></td>
-<td>Profiling</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>nsys 与 ncu 的分工；各看哪些指标</td>
-</tr>
-<tr>
-<td><a href="#sec-8-6">8.6</a></td>
-<td>MegaKernel</td>
-<td><span class="pri pri-p3">P3</span></td>
-<td>与 CUDA graph 的区别；什么时候没收益</td>
-</tr>
-<tr>
-<td><a href="#sec-8-7">8.7</a></td>
-<td>现代算子库</td>
-<td><span class="pri pri-p3">P3</span></td>
-<td>DeepGEMM / DeepEP / MoonEP 各解决什么</td>
-</tr>
-<tr>
-<td><a href="#sec-8-8">8.8</a></td>
-<td>kernel 编写栈</td>
-<td><span class="pri pri-p3">P3</span></td>
-<td>四层各自的取舍</td>
-</tr>
-<tr>
-<td><a href="#sec-8-9">8.9</a></td>
-<td>CUDA 手撕清单</td>
-<td><strong>P0 最高</strong></td>
-<td>前 6 题当场能写</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 9 到 11 章：长上下文、工程与前沿</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-9-1">9.1</a> 到 <a href="#sec-9-3">9.3</a></td>
-<td>长上下文与 KV 压缩</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>attention sink 是什么；驱逐类方法为什么与 FA 冲突</td>
-</tr>
-<tr>
-<td><a href="#sec-10-1">10.1</a></td>
-<td>服务架构</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>为什么要拆进程；流式输出怎么做</td>
-</tr>
-<tr>
-<td><a href="#sec-10-2">10.2</a></td>
-<td>显存管理</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>显存构成的六项；OOM 怎么排查</td>
-</tr>
-<tr>
-<td><a href="#sec-10-3">10.3</a></td>
-<td>线上排障</td>
-<td>P1（有线上经验则 P0）</td>
-<td>尖刺 / 长尾 / 双峰的区分；三个定量算例</td>
-</tr>
-<tr>
-<td><a href="#sec-10-4">10.4</a></td>
-<td>系统设计题</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>8 卡 H100 服务 1000 QPS 的完整骨架</td>
-</tr>
-<tr>
-<td><a href="#sec-10-5">10.5</a></td>
-<td>C++ / Python 工程</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>见 C++ 面经文档</td>
-</tr>
-<tr>
-<td><a href="#sec-11-1">11.1</a></td>
-<td>六个趋势</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>说出趋势对引擎提的要求</td>
-</tr>
-<tr>
-<td><a href="#sec-11-2">11.2</a></td>
-<td>DeepSeek V3.2 / V4</td>
-<td>P2（Seed、MoE 方向 P1）</td>
-<td>DSA 的 indexer 怎么工作</td>
-</tr>
-<tr>
-<td><a href="#sec-11-3">11.3</a> 到 <a href="#sec-11-6">11.6</a></td>
-<td>GLM / Kimi / Qwen / 其他</td>
-<td><span class="pri pri-p3">P3</span></td>
-<td>任选一个能说清它对引擎的新要求</td>
-</tr>
-<tr>
-<td><a href="#sec-11-7">11.7</a></td>
-<td>字节 Seed 自己的工作</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td><strong>面字节必答</strong>：MegaScale-Infer、Comet、Triton-distributed 至少能说一个</td>
-</tr>
-<tr>
-<td><a href="#sec-11-8">11.8</a></td>
-<td>新架构接入方法论</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>“给你 X 模型怎么部署”的回答骨架</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>第 14 到 15 章：手撕</strong></p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>节</th>
-<th>知识点</th>
-<th>级别</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="#sec-14-2">14.2</a></td>
-<td>手撕 MLA</td>
-<td>P1（Infra 岗 P0）</td>
-<td>20 分钟内写完，讲清三条路径</td>
-</tr>
-<tr>
-<td><a href="#sec-14-3">14.3</a></td>
-<td>手撕 linear attention</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>递归与分块两种写法</td>
-</tr>
-<tr>
-<td><a href="#sec-14-4">14.4</a></td>
-<td>手撕 MoE</td>
-<td><span class="pri pri-p2">P2</span></td>
-<td>说出生产实现要 grouped GEMM</td>
-</tr>
-<tr>
-<td><a href="#sec-14-5">14.5</a></td>
-<td>DeepSeek-V3 参数量与访存量手算</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>抓住三个数：attention 每层 187M、每专家 44M、MoE 层 11.3B</td>
-</tr>
-<tr>
-<td><a href="#sec-14-6">14.6</a></td>
-<td>手撕 block-sparse</td>
-<td><span class="pri pri-p3">P3</span></td>
-<td>为什么按块而不按 token</td>
-</tr>
-<tr>
-<td><a href="#sec-15-2">15.2</a> 到 <a href="#sec-15-5">15.5</a></td>
-<td>RoPE / RMSNorm / softmax / SwiGLU</td>
-<td><strong>P0 最高</strong></td>
-<td>每个 5 分钟内写完</td>
-</tr>
-<tr>
-<td><a href="#sec-15-6">15.6</a> 到 <a href="#sec-15-7">15.7</a></td>
-<td>GQA attention 与完整模型</td>
-<td><strong>P0 最高</strong></td>
-<td>30 分钟内拼出能跑的 decoder-only</td>
-</tr>
-<tr>
-<td><a href="#sec-15-8">15.8</a></td>
-<td>采样与 generate</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>top-p 的边界处理；<code>start</code> 参数的作用</td>
-</tr>
-<tr>
-<td><a href="#sec-15-9">15.9</a></td>
-<td>自检清单</td>
-<td><span class="pri pri-p1">P1</span></td>
-<td>写完主动过一遍，比面试官指出来强</td>
-</tr>
-</tbody>
-</table>
-</div>
-<h3 id="sec-13-5">13.5 按团队的优先级偏移</h3>
-<p>同样的知识点，在不同团队权重差别很大。<strong>先确定目标团队，再照着这张表把 P2 提成 P0</strong>。</p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>团队</th>
-<th>提到 P0 的</th>
-<th>可以降到 P2 的</th>
-<th>特有考点</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Seed（豆包大模型）</strong></td>
-<td>7 章全部、11.2、11.7、14.5</td>
-<td>10.5 的 C++ 细节</td>
-<td>MegaScale-Infer 的 attention-FFN 分离、Comet、大规模 MoE 部署</td>
-</tr>
-<tr>
-<td><strong>火山引擎（推理服务）</strong></td>
-<td>3.6、3.7、10.1 到 10.4</td>
-<td>11 章前沿架构</td>
-<td>多租户、SLO、成本、异构硬件、CUDA runtime 与编译栈（A11 / A12）</td>
-</tr>
-<tr>
-<td><strong>AML（统一 AI Infra）</strong></td>
-<td>8 章全部、8.9 手撕</td>
-<td>11 章</td>
-<td>kernel 优化、算子融合、框架设计、性能分析</td>
-</tr>
-<tr>
-<td><strong>豆包 / Flow（应用）</strong></td>
-<td>1 章、3 章、4.2</td>
-<td>7 章、8.6 到 8.8</td>
-<td>端到端延迟、多模态、Agent 场景的长 prompt</td>
-</tr>
-<tr>
-<td><strong>AI Lab / 异构计算</strong></td>
-<td>8.1 到 8.3、体系结构八股</td>
-<td>3 章引擎细节</td>
-<td>bank conflict、PTX / SASS、ROCm、芯片架构</td>
-</tr>
-<tr>
-<td><strong>TikTok / 推荐（生成式推荐）</strong></td>
-<td>2.2、6 章、8 章</td>
-<td>9 章、11 章</td>
-<td>毫秒级延迟、小模型投机采样、item ID 序列的特殊性（A21 / A22）</td>
-</tr>
-</tbody>
-</table>
-</div>
-<h3 id="sec-13-6">13.6 复习路线</h3>
-<p><strong>只剩 3 天</strong>：只做 P0 最高的那几节——1.3、1.4、2.2、2.3、3.2、4.1、4.4、8.2、8.3、15.6，外加 13.1.1 的 20 题和 13.1.4 的估算题。<strong>估算题优先于一切</strong>，因为它是所有追问的落脚点，而且没法临时编。</p>
-<p><strong>有 2 周</strong>：</p>
-<ol type="1">
-<li>第 1 到 3 天：2 章练到白板 3 分钟推完，这是地基。</li>
-<li>第 4 到 7 天：1.3、1.4、3.2、5.1 四个 P0 节，每节按 0.3 的六层结构过一遍。</li>
-<li>第 8 到 10 天：8.2、8.3 的手撕写到能默写；15 章从头拼一遍完整模型。</li>
-<li>第 11 到 12 天：按 13.5 补目标团队的专项。</li>
-<li>第 13 到 14 天：13.1 全表自测，盖住答案；整理自己项目的五个问题（13.1.6）。</li>
-</ol>
-<p><strong>有 1 个月</strong>：上面之后加 7 章（并行）、10.3（排障）、11 章（前沿），并把 14 章的手撕题全部写一遍。<strong>11 章所有团队 2026 年都在问</strong>，但它是 P2 到 P3——在 P0 有缺口时看它是典型的用力错方向。</p>
-<p><strong>最后一句</strong>：这份文档的所有数字都在文中给了推导过程，<strong>背结论不如背推导</strong>——面试官问的下一层永远是”为什么”，而推导能现场生成你没背过的答案（0.3）。</p>
-<hr>
-<h2 id="sec-14"><span class="num">14.</span>手撕题清单与参考实现</h2>
-<h3 id="sec-14-1">14.1 出现过的题目总表</h3>
+<h2 id="sec-13"><span class="num">13.</span>手撕题清单与参考实现</h2>
+<h3 id="sec-13-1">13.1 出现过的题目总表</h3>
 <p><strong>LeetCode 类（推理 / Infra 岗出现过）</strong></p>
 <div class="table-wrap">
 <table>
@@ -6233,17 +6233,17 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>MLA</td>
 <td>A4、A5</td>
-<td>14.2</td>
+<td>13.2</td>
 </tr>
 <tr>
 <td>Linear attention、MoE、MHA 及访存计算</td>
 <td>A5</td>
-<td>14.3、14.4、4.4、15.6</td>
+<td>13.3、13.4、4.4、14.6</td>
 </tr>
 <tr>
 <td>DeepSeek-V3 伪代码 + 参数量 + 访存量</td>
 <td>A5</td>
-<td>14.5</td>
+<td>13.5</td>
 </tr>
 <tr>
 <td>reduce 及优化、二维规约</td>
@@ -6253,27 +6253,27 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>numpy 实现 attention（含 softmax）</td>
 <td>A10</td>
-<td>4.4、15.4</td>
+<td>4.4、14.4</td>
 </tr>
 <tr>
 <td>GQA</td>
 <td>A19</td>
-<td>4.4、15.6</td>
+<td>4.4、14.6</td>
 </tr>
 <tr>
 <td>PyTorch MHA 支持 cross attention</td>
 <td>多模态三面</td>
-<td>4.4、15.6 改 K、V 来源</td>
+<td>4.4、14.6 改 K、V 来源</td>
 </tr>
 <tr>
 <td>Transformer + FLOPs + 内存估算</td>
 <td>A21</td>
-<td>15 章、1.2、14.5</td>
+<td>14 章、1.2、13.5</td>
 </tr>
 <tr>
 <td>Sparse attention 的 Python kernel</td>
 <td>A13</td>
-<td>14.6</td>
+<td>13.6</td>
 </tr>
 <tr>
 <td>graph fusion</td>
@@ -6283,7 +6283,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 <tr>
 <td>Triton / CUDA LayerNorm、大矩阵规约、online softmax</td>
 <td>A20</td>
-<td>8.3、4.1、15.3、15.4</td>
+<td>8.3、4.1、14.3、14.4</td>
 </tr>
 <tr>
 <td>矩阵转置优化</td>
@@ -6294,7 +6294,7 @@ __global__ void rmsnorm_rows(const float* __restrict__ x, const float* __restric
 </table>
 </div>
 <p><strong>C 层通用高频算子</strong>：reduce sum / max / softmax（要与 CPU 对齐）、LayerNorm / RMSNorm（含无 sqrt 版本）、transpose、sgemm（naive → block tile → thread tile，追问 split-K）、elementwise + float4（追问 warp divergence）、scan、top-k、GEMV、Triton 简化版 FlashAttention、内存池、LoRA adapter、4D broadcast 乘、embedding sparse pooling、NMS、conv2d、双线性插值、IoU。</p>
-<h3 id="sec-14-2">14.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</h3>
+<h3 id="sec-13-2">13.2 手撕 MLA（PyTorch，带 absorb 与解耦 RoPE）</h3>
 <p>面试时先画出三条路径（Q 低秩、KV 低秩、RoPE 分支），再写代码。下面的实现按 DeepSeek-V2/V3 的维度命名，<code>cache</code> 里只存 <span class="math inline">c^{KV}</span> 与 <span class="math inline">k^R</span>。</p>
 <details class="code-card" open=""><summary>61 行 · 点击折叠</summary><pre><code class="language-python">import math, torch, torch.nn as nn, torch.nn.functional as F
 
@@ -6365,7 +6365,7 @@ class MLA(nn.Module):
 <li><strong>手撕时形状最容易错的地方？</strong> <code>W_uk.weight</code> 是 <code>[H * d_nope, d_c]</code> 而不是 <code>[d_c, H * d_nope]</code>；<code>k_rope</code> 没有头维；causal mask 的对角线偏移 <code>T - S</code>。</li>
 <li><strong>decode 阶段这个实现的访存量？</strong> 每 token 读 <span class="math inline">T \times 576 \times 2</span> 字节 latent（比 MHA 的 <span class="math inline">T \times 2 \times 128 \times 128 \times 2</span> 少 57 倍），加上 <span class="math inline">W_{dq}</span>、<span class="math inline">W_{uq}</span>、<span class="math inline">W_{dkv}</span>、<span class="math inline">W_o</span> 的权重；<span class="math inline">W_{uk}</span>、<span class="math inline">W_{uv}</span> 也要读但很小（512 × 16384 × 2 个）。</li>
 </ul>
-<h3 id="sec-14-3">14.3 手撕 linear attention（递归形式与分块形式）</h3>
+<h3 id="sec-13-3">13.3 手撕 linear attention（递归形式与分块形式）</h3>
 <p><strong>是什么</strong>：把 softmax attention 的 <span class="math inline">\text{softmax}(QK^T)V</span> 换成 <span class="math inline">\phi(Q)(\phi(K)^T V)</span>，利用结合律先算 <span class="math inline">\phi(K)^T V</span>（<span class="math inline">d \times d_v</span>），复杂度从 <span class="math inline">O(T^2 d)</span> 降到 <span class="math inline">O(T d d_v)</span>。causal 版本可以写成 RNN：状态 <span class="math inline">S_t = S_{t-1} + \phi(k_t) v_t^T</span>，输出 <span class="math inline">o_t = \phi(q_t) S_t / (\phi(q_t) z_t)</span>。</p>
 <p><strong>为什么推理关心它</strong>：decode 每步只需要读一个固定大小的状态（<span class="math inline">H \times d \times d_v</span>，与序列长度无关），替代了随长度线性增长的 KV cache；这是 2025 到 2026 年混合架构（Qwen3-Next、Kimi Linear、MiniMax）的基础，见 11 章。</p>
 <details class="code-card" open=""><summary>39 行 · 点击折叠</summary><pre><code class="language-python">def linear_attention_recurrent(q, k, v, eps=1e-6):
@@ -6414,7 +6414,7 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <li><strong>chunk 大小怎么选？</strong> 块内 <span class="math inline">O(c^2 d)</span>，块间 <span class="math inline">O(c d^2)</span>，<span class="math inline">c</span> 取 64 到 256 让两者平衡并对齐 tensor core；FLA（flash-linear-attention）库的 Triton kernel 就是这个思路。</li>
 <li><strong>访存量？</strong> decode 一步读写状态 <span class="math inline">2 \times H d d_v \times 2</span> 字节，与 <span class="math inline">T</span> 无关；对比 MHA 读 <span class="math inline">2 T H d_h \times 2</span> 字节，当 <span class="math inline">T &gt; d</span> 时线性注意力更省。</li>
 </ul>
-<h3 id="sec-14-4">14.4 手撕 MoE 层</h3>
+<h3 id="sec-13-4">13.4 手撕 MoE 层</h3>
 <details class="code-card" open=""><summary>35 行 · 点击折叠</summary><pre><code class="language-python">class MoE(nn.Module):
     def __init__(self, d, d_ff, n_experts, top_k, n_shared=1):
         super().__init__()
@@ -6453,19 +6453,19 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <p><strong>追问链</strong></p>
 <ul>
 <li><strong>这个循环在生产里怎么消掉？</strong> 按专家 id 对 token 排序（permute），得到每个专家的连续段和段长，用 grouped GEMM 一次 launch 完成所有专家的 GEMM（CUTLASS grouped GEMM、DeepGEMM、Triton），最后 unpermute 加权求和。EP 时 permute 后紧接 all-to-all dispatch。</li>
-<li><strong>访存量怎么算？</strong> batch 里 <span class="math inline">N</span> 个 token，每层被激活的专家数期望是 <span class="math inline">E(1 - (1 - k/E)^N)</span>，每个专家权重 <span class="math inline">3 d d_{ff}</span> 字节（FP8）；<span class="math inline">N = 1</span> 时读 <span class="math inline">k</span> 个专家，<span class="math inline">N</span> 大时趋向全部专家（14.5 有表）。</li>
+<li><strong>访存量怎么算？</strong> batch 里 <span class="math inline">N</span> 个 token，每层被激活的专家数期望是 <span class="math inline">E(1 - (1 - k/E)^N)</span>，每个专家权重 <span class="math inline">3 d d_{ff}</span> 字节（FP8）；<span class="math inline">N = 1</span> 时读 <span class="math inline">k</span> 个专家，<span class="math inline">N</span> 大时趋向全部专家（13.5 有表）。</li>
 <li><strong>负载不均怎么处理？</strong> 训练侧辅助 loss 或 DeepSeek 的 bias 调整；推理侧冗余专家、EPLB 重排（8.7 还有 MoonEP 的在线冗余）、capacity 上限丢 token。<strong>为什么现代方案不丢 token</strong>：丢掉意味着这个 token 在这一层只走残差、跳过整个 FFN，相当于随机让部分 token 少过一层——训练时有后续步骤能把影响摊掉，推理是一次性的，用户直接拿到质量下降的输出，而且丢哪个 token 取决于它在 batch 里的位置，同一个请求在不同并发下结果还不一样。所以现在宁可用冗余专家和重排去均衡，也不丢。</li>
 <li><strong>top-k 为什么用 softmax 后再 topk 而不是先 topk 再 softmax？</strong> 两种都有，先 topk 后 softmax（Mixtral）让权重之和为 1；DeepSeek-V3 用 sigmoid 打分后对 top-k 归一化，避免 softmax 让专家间竞争过强。</li>
 <li><strong>router 的精度？</strong> 通常 FP32，因为 top-k 的选择对数值敏感，BF16 会导致训练与推理选出不同专家。</li>
 </ul>
-<h3 id="sec-14-5">14.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</h3>
+<h3 id="sec-13-5">13.5 DeepSeek-V3 结构伪代码、参数量与访存量手算</h3>
 <p><strong>结构</strong>（config.json）：<span class="math inline">d = 7168</span>，61 层，前 3 层 dense FFN（中间维 18432），后 58 层 MoE（256 路由专家 + 1 共享专家，top-8，专家中间维 2048）；MLA 128 头、<span class="math inline">d_{nope} = 128</span>、<span class="math inline">d_{rope} = 64</span>、<span class="math inline">d_v = 128</span>、<span class="math inline">d_c = 512</span>、<span class="math inline">d'_c = 1536</span>；词表 129280；1 个 MTP 模块。</p>
 <pre class="diagram"><code class="language-text">def deepseek_v3_forward(tokens):
     h = embed(tokens)                                 # [B, S, 7168]
     for l in range(61):
-        h = h + MLA_l(RMSNorm(h), cache_l)            # 14.2，cache 存 c_kv[512] + k_rope[64]
+        h = h + MLA_l(RMSNorm(h), cache_l)            # 13.2，cache 存 c_kv[512] + k_rope[64]
         if l &lt; 3:  h = h + DenseFFN_l(RMSNorm(h))     # SwiGLU, 7168 -&gt; 18432 -&gt; 7168
-        else:      h = h + MoE_l(RMSNorm(h))          # 14.4：256 选 8 + 1 共享，专家 7168 -&gt; 2048 -&gt; 7168
+        else:      h = h + MoE_l(RMSNorm(h))          # 13.4：256 选 8 + 1 共享，专家 7168 -&gt; 2048 -&gt; 7168
     logits = lm_head(RMSNorm(h))[:, -1]               # 只取最后一个位置
     # MTP：把最后一层 hidden 与下一 token 的 embedding 拼接 -&gt; [2d, d] 投影 -&gt; 一层 transformer -&gt; 共享的 lm_head，
     #      推理时当作 draft 预测第二个 token（接受率 85% 到 90%）</code></pre>
@@ -6534,7 +6534,7 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 </tbody>
 </table>
 </div>
-<p>上面这张表用 14.1 后附的脚本可以逐项复算，面试时抓住三个数就够：attention 每层 187M、每个专家 44M、MoE 层 11.3B。</p>
+<p>上面这张表用 13.1 后附的脚本可以逐项复算，面试时抓住三个数就够：attention 每层 187M、每个专家 44M、MoE 层 11.3B。</p>
 <p><strong>KV cache</strong>：每 token 每层 <span class="math inline">(512 + 64) \times 2</span> 字节，61 层 = 70272 B ≈ 68.6 KB；4K 上下文 275 MB，128K 上下文 8.6 GB。同规模 MHA（128 头 × 128 维）会是 4 MB 每 token，MLA 压缩了 57 倍。</p>
 <p><strong>decode 访存量</strong>（FP8 权重每参数 1 字节）：</p>
 <div class="table-wrap">
@@ -6576,7 +6576,7 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 </table>
 </div>
 <p>再加上每请求 68.6 KB × 上下文长度的 KV。结论：batch 32 时几乎所有专家都被触碰，每步要读 433 GB，单机 8 卡 H800 的总带宽 26.8 TB/s 也要 16 ms；所以 DeepSeek 用 EP144 / EP320 把每卡权重压到几 GB，同时把 batch 攒到每卡几十上百个 token 让每个专家的 GEMM 有足够的 M 维。这道题的追问一般到此为止：<strong>为什么 MoE 的 decode 比 dense 更需要大 batch、大 EP</strong>，答案就是这张表。</p>
-<h3 id="sec-14-6">14.6 手撕 block-sparse attention（Python kernel）</h3>
+<h3 id="sec-13-6">13.6 手撕 block-sparse attention（Python kernel）</h3>
 <pre><code class="language-python">def block_sparse_attention(q, k, v, block_mask, bs=64):
     """q, k, v: [H, T, D]；block_mask: [T//bs, T//bs] 的 bool，True 表示该 (query 块, key 块) 要算。
     只对被选中的块做 QK^T 与 PV，用 online softmax 跨块累加。"""
@@ -6612,9 +6612,9 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <li><strong>对 KV cache 有什么帮助？</strong> 计算上省了，但 KV 仍然全部要存；只有配合驱逐或 offload（ShadowKV 把 V 放 CPU、只按需取选中的块）才省显存和带宽。</li>
 </ul>
 <hr>
-<h2 id="sec-15"><span class="num">15.</span>手撕大模型算法基础：从零写一个 decoder-only 模型</h2>
-<p>14 章是面经里出现过的进阶算子（MLA、linear attention、MoE），这一章是它们的地基。算法岗一面经常直接说「写个 Transformer」，推理岗则会在你写完之后接着问 FLOPs、访存量、哪几步能融合（见 1.2、2.2、8.4）。下面按依赖顺序从下往上写：位置编码 → 归一化 → 激活 → attention → 整层 → 整模型 → 采样，每一节的代码可以直接拼成一个文件跑起来，验证结果见文末「附」。</p>
-<h3 id="sec-15-1">15.1 组件清单与出题方式</h3>
+<h2 id="sec-14"><span class="num">14.</span>手撕大模型算法基础：从零写一个 decoder-only 模型</h2>
+<p>13 章是面经里出现过的进阶算子（MLA、linear attention、MoE），这一章是它们的地基。算法岗一面经常直接说「写个 Transformer」，推理岗则会在你写完之后接着问 FLOPs、访存量、哪几步能融合（见 1.2、2.2、8.4）。下面按依赖顺序从下往上写：位置编码 → 归一化 → 激活 → attention → 整层 → 整模型 → 采样，每一节的代码可以直接拼成一个文件跑起来，验证结果见文末「附」。</p>
+<h3 id="sec-14-1">14.1 组件清单与出题方式</h3>
 <div class="table-wrap">
 <table>
 <thead>
@@ -6630,43 +6630,43 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <td>RoPE</td>
 <td>手写 RoPE；为什么它是相对位置编码</td>
 <td>前后半配对还是相邻配对；v 不参与旋转</td>
-<td>15.2</td>
+<td>14.2</td>
 </tr>
 <tr>
 <td>RMSNorm</td>
 <td>手写 RMSNorm；和 LayerNorm 差在哪</td>
 <td>忘了升精度算平方和；<code>rsqrt</code> 里漏 eps</td>
-<td>15.3</td>
+<td>14.3</td>
 </tr>
 <tr>
 <td>softmax / CE</td>
 <td>数值稳定的 softmax；手写 cross entropy</td>
 <td>不减最大值；CE 里显式算 softmax 再取 log</td>
-<td>15.4</td>
+<td>14.4</td>
 </tr>
 <tr>
 <td>SwiGLU</td>
 <td>手写 FFN；<span class="math inline">d_{ff}</span> 为什么是 <span class="math inline">8d/3</span></td>
 <td>gate 和 up 搞反；少乘一个矩阵</td>
-<td>15.5</td>
+<td>14.5</td>
 </tr>
 <tr>
 <td>Attention</td>
 <td>手写 MHA / GQA / cross attention；加 KV cache</td>
 <td>causal mask 的对角线偏移；缓存旋转前的 k</td>
-<td>15.6</td>
+<td>14.6</td>
 </tr>
 <tr>
 <td>Block / Model</td>
 <td>手写一层 Transformer；手写整个模型</td>
 <td>Pre-Norm 写成把残差也 norm 了；lm_head 前漏最后一个 norm</td>
-<td>15.7</td>
+<td>14.7</td>
 </tr>
 <tr>
 <td>采样</td>
 <td>手写 top-k / top-p；写 generate 循环</td>
 <td>top-p 的累加边界；decode 时位置索引没跟着走</td>
-<td>15.8</td>
+<td>14.8</td>
 </tr>
 </tbody>
 </table>
@@ -6677,7 +6677,7 @@ def linear_attention_chunked(q, k, v, chunk=64, eps=1e-6):
 <li><strong>先骨架后子层</strong>：先把 <code>x = x + attn(norm(x))</code>、<code>x = x + ffn(norm(x))</code> 两行写出来，再回头填 attention 和 FFN。面试官关心你知不知道 Pre-Norm 的结构，而不是先看你写投影。</li>
 <li><strong>先无 cache 再加 cache</strong>：先写一次性前向的版本，跑通了再加 <code>cache</code> 分支。加 cache 时唯一的新变量是「已缓存长度 <code>past</code>」，它同时决定 RoPE 取哪几个位置和 causal mask 的偏移。</li>
 </ol>
-<h3 id="sec-15-2">15.2 手撕 RoPE</h3>
+<h3 id="sec-14-2">14.2 手撕 RoPE</h3>
 <p><strong>是什么</strong>：把 <span class="math inline">d_h</span> 维的 q、k 拆成 <span class="math inline">d_h/2</span> 个二维向量，第 <span class="math inline">i</span> 对按角度 <span class="math inline">m\theta_i</span> 旋转，<span class="math inline">\theta_i = \text{base}^{-2i/d_h}</span>。原理与外推方案见 1.5，这里只写实现。</p>
 <pre><code class="language-python">import math, torch, torch.nn as nn, torch.nn.functional as F
 
@@ -6708,12 +6708,12 @@ def apply_rope_interleaved(x, cos, sin):
 <li><strong>怎么证明它是相对位置编码？</strong> 二维旋转矩阵满足 <span class="math inline">R_m^T R_n = R_{n-m}</span>，所以 <span class="math inline">\langle R_m q, R_n k\rangle = q^T R_{n-m} k</span>，只依赖 <span class="math inline">n-m</span>。手撕时可以现场用 <code>q @ R.T @ R @ k</code> 验一下，比背结论有说服力。</li>
 <li><strong>两种配对方式有什么区别？</strong> 没有数学区别，只是 <span class="math inline">W^Q</span>、<span class="math inline">W^K</span> 输出列的排列不同：把半分排布的第 <span class="math inline">i</span> 列和第 <span class="math inline">i + d_h/2</span> 列相邻放，就变成交错排布。区别只在权重转换时要小心（HF 的 LLaMA 转换脚本里那个 <code>permute</code> 就是干这个），自己训自己推时随便选一种。</li>
 <li><strong>v 要不要旋转？</strong> 不要。RoPE 的目的是让 <span class="math inline">q\cdot k</span> 带上相对位置信息，v 只是被加权求和的内容。</li>
-<li><strong>cache 里存旋转前还是旋转后的 k？</strong> 存旋转后的。每个 token 的位置在写入时就固定了，之后不会变，所以旋转一次就够；存旋转前的话每步都要把整个 cache 重新旋转一遍，是 <span class="math inline">O(T)</span> 的额外开销。<strong>唯一的例外</strong>是 MLA（14.2）和某些做位置重排的长文本方案，那里 RoPE 分支要单独留出来。</li>
+<li><strong>cache 里存旋转前还是旋转后的 k？</strong> 存旋转后的。每个 token 的位置在写入时就固定了，之后不会变，所以旋转一次就够；存旋转前的话每步都要把整个 cache 重新旋转一遍，是 <span class="math inline">O(T)</span> 的额外开销。<strong>唯一的例外</strong>是 MLA（13.2）和某些做位置重排的长文本方案，那里 RoPE 分支要单独留出来。</li>
 <li><strong>表要不要按最大长度全预计算？</strong> 会。<code>max_len × d_h/2</code> 个 float，128K 上下文、<span class="math inline">d_h=128</span> 时是 8M 个数，fp32 下 32 MB，可以接受；Dynamic NTK 那类随长度改 base 的方案则要在超出当前表长时重建表。</li>
 <li><strong>为什么角度要用高精度算？</strong> <span class="math inline">m\theta_i</span> 在 <span class="math inline">m</span> 很大时，fp16 甚至 fp32 都会丢有效位，长上下文下相邻位置的 cos 值可能撞到一起。通行做法是 fp32/fp64 算完 <code>cos</code>、<code>sin</code> 再 cast 成计算精度，vLLM 的 rotary kernel 也是这么做的。</li>
 <li><strong>生产实现长什么样？</strong> 一个 kernel 同时处理 q 和 k 并顺手把 k、v 写进 paged KV cache，省两次全局内存往返（3.2、8.4）。</li>
 </ul>
-<h3 id="sec-15-3">15.3 手撕 RMSNorm 与 LayerNorm</h3>
+<h3 id="sec-14-3">14.3 手撕 RMSNorm 与 LayerNorm</h3>
 <pre><code class="language-python">class RMSNorm(nn.Module):
     def __init__(self, d, eps=1e-6):
         super().__init__()
@@ -6734,7 +6734,7 @@ def apply_rope_interleaved(x, cos, sin):
 <li><strong>推理时怎么优化？</strong> 和上一层的残差加法融合成 <code>fused_add_rms_norm</code>：一次读 <code>x</code> 和 <code>residual</code>，算完同时输出归一化结果和新的残差，省一次读写。再往前一步是把 norm 和后面的 QKV GEMM 融合，但收益小于前者。</li>
 <li><strong>参数量与访存量？</strong> 每个 norm 只有 <span class="math inline">d</span> 个参数，可以忽略；但它是纯 memory-bound 算子，读写 <span class="math inline">2 \times B S d</span>，在小 batch decode 里占比不小，这也是要融合的原因。</li>
 </ul>
-<h3 id="sec-15-4">15.4 手撕数值稳定的 softmax 与 cross entropy</h3>
+<h3 id="sec-14-4">14.4 手撕数值稳定的 softmax 与 cross entropy</h3>
 <pre><code class="language-python">def softmax(x, dim=-1):
     m = x.max(dim=dim, keepdim=True).values                  # 减最大值，防 exp 溢出
     e = (x - m).exp()
@@ -6754,7 +6754,7 @@ def cross_entropy(logits, target):
 <li><strong>训练时 CE 的显存问题？</strong> <span class="math inline">V = 128K</span> 时 logits 是 <span class="math inline">B S V</span> 的大张量，反向还要存一份。做法是分块算 CE（chunked / fused CE，如 Liger Kernel），把 logits 切成块，算完一块的 loss 和梯度就丢掉，峰值显存从 <span class="math inline">O(BSV)</span> 降到 <span class="math inline">O(\text{chunk} \cdot V)</span>。</li>
 <li><strong>推理时用得到 CE 吗？</strong> 用得到：投机采样（6 章）要比较草稿模型和目标模型的概率，PPL 评测、logprobs 返回也都走这条路径。</li>
 </ul>
-<h3 id="sec-15-5">15.5 手撕 SwiGLU FFN</h3>
+<h3 id="sec-14-5">14.5 手撕 SwiGLU FFN</h3>
 <pre><code class="language-python">class SwiGLU(nn.Module):
     def __init__(self, d, d_ff):
         super().__init__()
@@ -6772,7 +6772,7 @@ def cross_entropy(logits, target):
 <li><strong>为什么没有 bias？</strong> <strong>因为在 Pre-Norm 架构里它基本是冗余的</strong>：线性层的输入刚过完 RMSNorm，输出的整体平移可以被 norm 的可学习缩放 <span class="math inline">\gamma</span> 和下一层的权重吸收掉，bias 提供不了新的表达能力。去掉之后效果不掉，还省参数、省一次 elementwise kernel，对 memory-bound 的 decode 是白赚的。Qwen 等少数模型在 QKV 上保留 bias 属于历史选择而非必要。</li>
 <li><strong>推理时 FFN 占多少？</strong> dense 模型每层 FFN 参数是 attention 的两倍左右（<span class="math inline">3dd_{ff} = 8d^2</span> vs <span class="math inline">4d^2</span>），decode 时读权重的时间也就是这个比例，所以量化（5 章）优先照顾 FFN 权重。</li>
 </ul>
-<h3 id="sec-15-6">15.6 手撕带 RoPE 与 KV cache 的 GQA attention</h3>
+<h3 id="sec-14-6">14.6 手撕带 RoPE 与 KV cache 的 GQA attention</h3>
 <p>比 4.4 多了 QKV 投影、RoPE 和输出投影，是「写一个 attention 层」的完整答案。</p>
 <details class="code-card" open=""><summary>35 行 · 点击折叠</summary><pre><code class="language-python">class Attention(nn.Module):
     def __init__(self, d, n_heads, n_kv_heads):
@@ -6818,7 +6818,7 @@ def cross_entropy(logits, target):
 <li><strong>KV cache 这里用 <code>torch.cat</code>，生产里呢？</strong> <code>cat</code> 每步重新分配加拷贝整个 cache，是 <span class="math inline">O(T)</span>；生产用预分配的 paged 块 + <code>block_table</code> 索引写入，是 <span class="math inline">O(1)</span>（3.2）。手撕时写 <code>cat</code> 可以，但要主动说出这一点。</li>
 <li><strong>这段的访存量？</strong> decode（<span class="math inline">S=1</span>）每层读 KV cache <span class="math inline">2 \times T \times H_{kv} \times d_h</span> 个元素，加上四个投影矩阵的权重；GQA 相比 MHA 把前一项降了 <span class="math inline">H/H_{kv}</span> 倍，这就是它存在的全部理由（1.4）。</li>
 </ul>
-<h3 id="sec-15-7">15.7 拼装：Block 与完整模型</h3>
+<h3 id="sec-14-7">14.7 拼装：Block 与完整模型</h3>
 <details class="code-card" open=""><summary>35 行 · 点击折叠</summary><pre><code class="language-python">class Block(nn.Module):
     def __init__(self, d, n_heads, n_kv_heads, d_ff):
         super().__init__()
@@ -6860,11 +6860,11 @@ class Transformer(nn.Module):
 <li><strong><code>lm_head</code> 前为什么还要一个 norm？</strong> 最后一层输出没经过任何归一化就进 vocab 投影，量级会随层数漂移。所有主流实现（LLaMA、GPT-2）都有这个 final norm。</li>
 <li><strong>权重绑定有什么代价？</strong> 省 <span class="math inline">V \times d</span> 参数（<span class="math inline">V=128K</span>、<span class="math inline">d=4096</span> 时是 0.5B，fp16 一个 GB），但输入 embedding 和输出投影的最优表示不一定一致，大模型（7B 以上）通常不绑，小模型（Gemma、Qwen 的 0.5B）绑。</li>
 <li><strong><code>start</code> 这个参数能不能不要？</strong> 可以改成传 <code>position_ids</code>，那样能支持每个请求位置不同的批处理（continuous batching 里同一 batch 的请求进度不同，3.1），也能支持 prefix caching 复用后的位置跳变（3.3）。生产实现都是传 <code>position_ids</code> 而不是一个标量。</li>
-<li><strong>参数量怎么现场算？</strong> 每层 attention $ (H + 2H_{kv}) d_h d + d^2$，FFN <span class="math inline">3 d d_{ff}</span>，乘层数再加 embedding。<span class="math inline">d_{ff} = 8d/3</span> 时每层约 <span class="math inline">12d^2</span>（GQA 会更少一点），<span class="math inline">N \approx 12 n_{layers} d^2</span> 是那个常用的估算式；对 DeepSeek-V3 这种 MoE 的完整推算见 14.5。</li>
+<li><strong>参数量怎么现场算？</strong> 每层 attention $ (H + 2H_{kv}) d_h d + d^2$，FFN <span class="math inline">3 d d_{ff}</span>，乘层数再加 embedding。<span class="math inline">d_{ff} = 8d/3</span> 时每层约 <span class="math inline">12d^2</span>（GQA 会更少一点），<span class="math inline">N \approx 12 n_{layers} d^2</span> 是那个常用的估算式；对 DeepSeek-V3 这种 MoE 的完整推算见 13.5。</li>
 <li><strong>FLOPs 和访存量？</strong> prefill 每 token 约 <span class="math inline">2N</span> FLOPs（<span class="math inline">N</span> 为激活参数量），decode 每 token 读约 <span class="math inline">N</span> 个权重元素乘以精度字节数，加 KV cache；配合 2.2、2.3 现场估上限。</li>
-<li><strong>怎么改成 MoE？</strong> 把 <code>Block</code> 里的 <code>self.ffn</code> 换成 14.4 的 MoE 层，其余不动；这也是为什么面试里问「加个 MoE 要改哪」，答案是「只改 FFN 那一行加路由」。</li>
+<li><strong>怎么改成 MoE？</strong> 把 <code>Block</code> 里的 <code>self.ffn</code> 换成 13.4 的 MoE 层，其余不动；这也是为什么面试里问「加个 MoE 要改哪」，答案是「只改 FFN 那一行加路由」。</li>
 </ul>
-<h3 id="sec-15-8">15.8 手撕采样与 generate 循环</h3>
+<h3 id="sec-14-8">14.8 手撕采样与 generate 循环</h3>
 <details class="code-card" open=""><summary>36 行 · 点击折叠</summary><pre><code class="language-python">def sample(logits, temperature=1.0, top_k=0, top_p=1.0, min_p=0.0,
            prev_ids=None, penalty=1.0, generator=None):
     """logits: [B, V]，返回 [B]。顺序：惩罚 → 温度 → top-k → min-p → top-p → 采样"""
@@ -6911,7 +6911,7 @@ def generate(model, ids, max_new_tokens, **kw):
 <li><strong>batch 里每个请求参数不同怎么办？</strong> 把 temperature、top_p 等做成 <code>[B]</code> 的张量参与广播运算，一次 kernel 处理整个 batch；千万别 per-request 起 Python 循环，那是 decode 步里 CPU 开销的主要来源（3.5）。</li>
 <li><strong>这段离能上线差什么？</strong> paged KV cache、continuous batching 的调度、stop token 与长度限制、增量 detokenize、CUDA graph 捕获 decode 步。也就是 3 章和 10 章的全部内容——这句话可以作为手撕结束后的收尾，把话题引到你更熟的地方。</li>
 </ul>
-<h3 id="sec-15-9">15.9 自检清单与常见 bug</h3>
+<h3 id="sec-14-9">14.9 自检清单与常见 bug</h3>
 <p>写完之后按这个顺序自己过一遍，比面试官指出来强：</p>
 <div class="table-wrap">
 <table>
@@ -6972,8 +6972,8 @@ def generate(model, ids, max_new_tokens, **kw):
 <hr>
 <h2 id="sec-bef0bd8e">附：验证与工具</h2>
 <ul>
-<li>15 章的代码从 15.2 到 15.8 按顺序拼成一个文件即可运行，同样在本地 CPU（PyTorch 2.9，float64）上逐项验证：RoPE 的相对位置性质 <span class="math inline">\langle R_m q, R_n k\rangle = \langle R_0 q, R_{n-m} k\rangle</span> 误差 4e-15；前后半配对与相邻配对两种排布在列置换下完全相等；PI 缩放与「位置除以 k」完全相等；RMSNorm 与 <code>F.rms_norm</code> 误差 0；softmax、cross entropy 与 torch 实现误差 1e-15 量级，且 logits 加 1e4 后不出 NaN；SwiGLU 合并 GEMM 与三矩阵朴素写法误差 0；GQA attention 与 <code>F.scaled_dot_product_attention</code> 误差 2e-16；<strong>整段前向与「prefill 4 个 token 再逐 token decode」的结果误差 4e-17</strong>（KV cache 与 RoPE 位置索引的正确性检查）；greedy <code>generate</code> 与每步全量重算的 argmax 序列逐 token 相同；top-k、top-p、min-p 的候选集合与手算阈值一致，repetition penalty 能改变 argmax。</li>
-<li>14.5 的参数量脚本、4.4 与 14.2 到 14.6 的 PyTorch 代码均在本地 CPU（PyTorch 2.x，float64）上跑通并与朴素实现对齐：GQA attention 与 repeat 后的标准实现误差 0；online softmax 与标准 softmax 误差 1e-15 量级；MLA 的 absorb 实现与展开成显式 K、V 的实现误差 3e-16，prefill 加逐 token decode 的带 cache 结果与整体前向误差 2e-16；linear attention 递归、分块、二次型三种写法互相对齐；MoE 与逐 token 循环对齐；block-sparse 在全 True 掩码下与稠密 causal attention 对齐。</li>
+<li>14 章的代码从 14.2 到 14.8 按顺序拼成一个文件即可运行，同样在本地 CPU（PyTorch 2.9，float64）上逐项验证：RoPE 的相对位置性质 <span class="math inline">\langle R_m q, R_n k\rangle = \langle R_0 q, R_{n-m} k\rangle</span> 误差 4e-15；前后半配对与相邻配对两种排布在列置换下完全相等；PI 缩放与「位置除以 k」完全相等；RMSNorm 与 <code>F.rms_norm</code> 误差 0；softmax、cross entropy 与 torch 实现误差 1e-15 量级，且 logits 加 1e4 后不出 NaN；SwiGLU 合并 GEMM 与三矩阵朴素写法误差 0；GQA attention 与 <code>F.scaled_dot_product_attention</code> 误差 2e-16；<strong>整段前向与「prefill 4 个 token 再逐 token decode」的结果误差 4e-17</strong>（KV cache 与 RoPE 位置索引的正确性检查）；greedy <code>generate</code> 与每步全量重算的 argmax 序列逐 token 相同；top-k、top-p、min-p 的候选集合与手算阈值一致，repetition penalty 能改变 argmax。</li>
+<li>13.5 的参数量脚本、4.4 与 13.2 到 13.6 的 PyTorch 代码均在本地 CPU（PyTorch 2.x，float64）上跑通并与朴素实现对齐：GQA attention 与 repeat 后的标准实现误差 0；online softmax 与标准 softmax 误差 1e-15 量级；MLA 的 absorb 实现与展开成显式 K、V 的实现误差 3e-16，prefill 加逐 token decode 的带 cache 结果与整体前向误差 2e-16；linear attention 递归、分块、二次型三种写法互相对齐；MoE 与逐 token 循环对齐；block-sparse 在全 True 掩码下与稠密 causal attention 对齐。</li>
 <li>4.2 的 v4 部分与 8.2 的现代 GEMM 路径出处：FlashAttention-4 论文（arXiv 2603.05451）与 MLC《Modern GPU Programming for MLSys》（mlc.ai/modern-gpu-programming-for-mlsys，GEMM 九步与 FA4 kernel 结构、B200 上 70 ms 到 0.094 ms 的实测均出自该书；1613 TFLOPS、71% 峰值、对 cuDNN 9.13 的 1.1 到 1.3 倍出自 FA4 论文）。两处数字均为作者自测，未见第三方复现。</li>
 <li>3.7 的出处：Mooncake 论文（arXiv 2407.00079，FAST’25）与 kvcache-ai/Mooncake 官方文档；525%、75%、拒绝数 4183 / 3771 / 3589、A800 测试床与 SLO 阈值均出自论文，128 × H200 的 224K / 288K token/s 与权重更新 53 s → 7.2 s 出自 Mooncake 与 SGLang 的公开说明，未见第三方复现。</li>
 <li>8.6 到 8.8 的出处：ThunderKittens megakernel 的两篇 Hazy Research 博客（2025-05 低延迟 Llama-1B、2025-09 TP Llama-70B）与 HazyResearch/Megakernels；MPK 的论文（arXiv 2512.22219）与 mirage-project/mirage；DeepGEMM、DeepEP、MoonEP 的 GitHub README（MoonEP 为 2026-07-29 MIT 开源）；FP8 tensor core 只保留 14 位尾数的说法出自 DeepSeek-V3 技术报告；FlashAttention-4 与 CuTe DSL 的定位来自 FA4 论文（2026-03）与 NVIDIA/cutlass。</li>
@@ -6982,7 +6982,7 @@ def generate(model, ids, max_new_tokens, **kw):
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-07 10:39 UTC<br>
+  由 <code>build_html.py</code> 从 <code>bytedance_llm_inference.md</code> 生成 · 2026-09-08 01:18 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
