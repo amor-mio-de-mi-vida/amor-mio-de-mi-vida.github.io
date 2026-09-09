@@ -3,9 +3,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>cpp fundamentals</title>
 <meta name="generator" content="build_html.py">
-<meta name="source-path" content="bytedance_cpp_fundamentals.md">
-<meta name="source-sha256" content="e7801b42b455e875">
-<meta name="generated-at" content="2026-09-07 10:38 UTC">
+<meta name="source-path" content="cpp_fundamentals.md">
+<meta name="source-sha256" content="6a182329064b916c">
+<meta name="generated-at" content="2026-09-09 05:21 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 
@@ -568,21 +568,21 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 高频题清单与优先级</a><ul><li><a href="#sec-0-1">0.1 P0 高频题：必须能主动讲</a></li><li><a href="#sec-0-2">0.2 P1 高频题：拉开区分度的地方</a></li><li><a href="#sec-0-3">0.3 P2 / P3：知道即可</a></li><li><a href="#sec-0-4">0.4 手撕代码优先级</a></li><li><a href="#sec-0-5">0.5 知识点优先级总表</a></li><li><a href="#sec-0-6">0.6 这份优先级怎么来的</a></li><li><a href="#sec-0-7">0.7 按剩余时间的复习路线</a></li><li><a href="#sec-0-8">0.8 回答框架：怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li><li><a href="#sec-3-8">3.8 运算符重载与友元</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（字节原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 字节风格代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li><li><a href="#sec-9-13">9.13 大小端与位域</a></li></ul></li></ol>
+<ol><li><a href="#sec-0">0. 高频题清单与优先级</a><ul><li><a href="#sec-0-1">0.1 P0 高频题：必须能主动讲</a></li><li><a href="#sec-0-2">0.2 P1 高频题：拉开区分度的地方</a></li><li><a href="#sec-0-3">0.3 P2 / P3：知道即可</a></li><li><a href="#sec-0-4">0.4 手撕代码优先级</a></li><li><a href="#sec-0-5">0.5 知识点优先级总表</a></li><li><a href="#sec-0-6">0.6 这份优先级怎么来的</a></li><li><a href="#sec-0-7">0.7 按剩余时间的复习路线</a></li><li><a href="#sec-0-8">0.8 回答框架：怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li><li><a href="#sec-3-8">3.8 运算符重载与友元</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（高频原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li><li><a href="#sec-9-13">9.13 大小端与位域</a></li></ul></li></ol>
 </nav>
 <main>
 <header class="hero">
-  <div class="eyebrow">面试准备 · C++ 基础</div>
-  <h1>字节跳动 C++ 一面基础深度面经</h1>
+  <div class="eyebrow">C++ 基础</div>
+  <h1>C++ 基础深度笔记</h1>
   <p class="subtitle">每个知识点按「是什么 → 为什么 → 怎么实现 → 追问链」展开</p>
   <div class="meta">
-    <span><strong>来源</strong> <code>bytedance_cpp_fundamentals.md</code></span>
-    <span><strong>生成</strong> 2026-09-07 10:38 UTC</span>
+    <span><strong>来源</strong> <code>cpp_fundamentals.md</code></span>
+    <span><strong>生成</strong> 2026-09-09 05:21 UTC</span>
   </div>
 </header>
 
 <blockquote>
-<p>适用：字节校招 / 实习 C++ 方向一面、二面基础部分。 结构：每个知识点按 <strong>是什么 → 为什么这样设计 → 底层怎么实现 → 面试官追问链</strong> 展开。 代码块标注 <code>cpp</code> 的均已用 <code>clang++ -std=c++17 -Wall -Wextra</code> 编译通过，可运行的还核对过实际输出（验证环境 Apple clang 21 / arm64 / libc++，并发相关的额外过了 TSan、手写容器额外过了 ASan + UBSan）；标注 <code>cpp-x</code> 的是故意展示未定义行为或伪代码，不保证可编译。 涉及具体数值的结论（<code>sizeof</code>、对齐、SSO 容量）在 libstdc++ 上可能不同，正文已分别标注。</p>
+<p>适用：C++ 方向面试的基础部分。 结构：每个知识点按 <strong>是什么 → 为什么这样设计 → 底层怎么实现 → 面试官追问链</strong> 展开。 代码块标注 <code>cpp</code> 的均已用 <code>clang++ -std=c++17 -Wall -Wextra</code> 编译通过，可运行的还核对过实际输出（验证环境 Apple clang 21 / arm64 / libc++，并发相关的额外过了 TSan、手写容器额外过了 ASan + UBSan）；标注 <code>cpp-x</code> 的是故意展示未定义行为或伪代码，不保证可编译。 涉及具体数值的结论（<code>sizeof</code>、对齐、SSO 容量）在 libstdc++ 上可能不同，正文已分别标注。</p>
 </blockquote>
 <h2 id="sec-0"><span class="num">0.</span>高频题清单与优先级</h2>
 <p>题目都是链接，点进去是正文里展开讲的那一节；追问点开就是答案，每条都给了「结论 + 为什么」。 <strong>优先级怎么定的、可靠性边界在哪，见 <a href="#sec-0-6">0.6</a></strong> —— 先看清楚依据再按它分配时间。</p>
@@ -707,7 +707,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </summary>
 <ul>
 <li><strong>会调到哪个版本？</strong> 当前正在构造的<strong>这一层</strong>的版本，不是最派生的。因为 vptr 是逐层设置的，执行基类构造函数时 vptr 还指向基类虚表。</li>
-<li><strong>析构里呢？</strong> 同理但方向相反：执行到基类析构函数时，派生部分已经析构完，vptr 已经<strong>退回</strong>指向基类虚表，所以调到基类版本。正文 <a href="#sec-3-3">3.3</a> 那道字节原题（输出 <code>3 3 3 1 1</code>）考的就是这个退回过程。</li>
+<li><strong>析构里呢？</strong> 同理但方向相反：执行到基类析构函数时，派生部分已经析构完，vptr 已经<strong>退回</strong>指向基类虚表，所以调到基类版本。正文 <a href="#sec-3-3">3.3</a> 那道高频原题（输出 <code>3 3 3 1 1</code>）考的就是这个退回过程。</li>
 <li><strong>为什么说这是个设计陷阱？</strong> 因为它违反直觉 —— 你写虚函数就是想要多态，结果在构造/析构期间恰好拿不到。而且如果基类构造函数调的是<strong>纯虚</strong>函数，直接链接错误或运行时崩溃。规避办法是把初始化逻辑移出构造函数，用两段式初始化或工厂。</li>
 </ul>
 </details>
@@ -791,7 +791,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </ul>
 </details>
 <h4 id="语言特性">语言特性</h4>
-<p><strong>Q19 · <a href="#sec-6-2"><code>static</code> 有哪几种用法</a></strong> —— 字节原题，反复出现</p>
+<p><strong>Q19 · <a href="#sec-6-2"><code>static</code> 有哪几种用法</a></strong> —— 高频原题，反复出现</p>
 <details class="qa">
 <summary>
 3 条追问与解答
@@ -884,7 +884,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </ul>
 </details>
 <h4 id="输出题p0-三道">输出题（P0 三道）</h4>
-<p><strong>Q27 · <a href="#sec-9-2">构造析构顺序与非虚析构</a></strong> —— 输出题里出现率最高的一道 <strong>Q28 · <a href="#sec-9-3">构造函数中调用虚函数</a></strong> —— 配合 <a href="#sec-3-3">3.3</a> 那道 <code>3 3 3 1 1</code> 的字节原题一起看 <strong>Q29 · <a href="#sec-9-7"><code>sizeof</code> 系列</a></strong> —— 空类、虚函数、继承、对齐四个点的综合</p>
+<p><strong>Q27 · <a href="#sec-9-2">构造析构顺序与非虚析构</a></strong> —— 输出题里出现率最高的一道 <strong>Q28 · <a href="#sec-9-3">构造函数中调用虚函数</a></strong> —— 配合 <a href="#sec-3-3">3.3</a> 那道 <code>3 3 3 1 1</code> 的高频原题一起看 <strong>Q29 · <a href="#sec-9-7"><code>sizeof</code> 系列</a></strong> —— 空类、虚函数、继承、对齐四个点的综合</p>
 <h3 id="sec-0-2">0.2 P1 高频题：拉开区分度的地方</h3>
 <p>P1 = 大概率出现，答得好能明显加分。目标是<strong>讲清机制，扛住 1–2 层追问</strong>。</p>
 <p><strong><a href="#sec-1-2"><code>malloc</code> 是怎么实现的</a></strong></p>
@@ -1411,7 +1411,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <td><a href="#sec-6-2">6.2</a></td>
 <td>static 的五种用法</td>
 <td><strong>P0</strong></td>
-<td>字节原题，反复出现</td>
+<td>高频原题，反复出现</td>
 </tr>
 <tr>
 <td><a href="#sec-6-3">6.3</a></td>
@@ -1590,7 +1590,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <p>先把依据说清楚，免得你按一个假精度的数字去分配复习时间：</p>
 <ul>
 <li>依据是<strong>公开面经里反复出现的题型</strong>加上<strong>C++ 岗位的考察逻辑</strong>（越是「不懂就会写出线上事故」的知识点，越会被问），<strong>不是某份实测统计数据集</strong>。</li>
-<li>字节不同部门差异很大：<strong>后端 / 基础架构 / 存储</strong>偏内存、并发、STL 源码；<strong>引擎 / 客户端</strong>偏对象模型、性能、内存布局；<strong>算法工程</strong>可能只问一点 C++ 就转去问模型。拿到面试官所在部门后，按总表里的「部门校准」列自己调。</li>
+<li>不同部门差异很大：<strong>后端 / 基础架构 / 存储</strong>偏内存、并发、STL 源码；<strong>引擎 / 客户端</strong>偏对象模型、性能、内存布局；<strong>算法工程</strong>可能只问一点 C++ 就转去问模型。拿到面试官所在部门后，按总表里的「部门校准」列自己调。</li>
 <li>级别是<strong>投入建议</strong>，不是「P3 就不会考」。P3 照样可能被抽到，只是期望收益低。</li>
 <li><strong>如果你手上有目标部门的一手面经或学长反馈，那个比这份清单可靠，直接覆盖。</strong></li>
 </ul>
@@ -1632,7 +1632,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <p><strong>只剩 3 天</strong>：<a href="#sec-0-1">0.1</a> 全部 P0 题 + 第 9 章输出题 P0 三道 + 手撕 LRU / 反转链表 / 链表环。其余不看。 <strong>剩 1 周</strong>：上面基础上加 <a href="#sec-0-2">0.2</a> 全部 P1 + 手撕 <code>shared_ptr</code> 和 <code>vector</code> + <a href="#sec-7">第 7 章编译链接</a> + <a href="#sec-8-2">8.2 同步原语</a>。 <strong>剩 3 周</strong>：按正文顺序通读一遍，重点章节（<a href="#sec-1">1</a>、<a href="#sec-2">2</a>、<a href="#sec-3">3</a>、<a href="#sec-4">4</a>、<a href="#sec-8">8</a>）每节的追问链要能自问自答；P2 过一遍混个眼熟；手撕表里 P0/P1 全部手写至少一遍（<strong>在纸上或纯文本编辑器里写，不要开补全</strong>）。</p>
 <p><strong>每天固定动作</strong>：随机抽 3 条追问链，逼自己讲出声。讲不顺的说明只是「看懂了」而没有「能输出」，这两者在面试里是天壤之别。</p>
 <h3 id="sec-0-8">0.8 回答框架：怎么答才”经得起追问”</h3>
-<p>字节面试官的习惯是顺着一个点往下钻三到五层，直到你答不出来为止。所以回答不要一次把知道的全倒出来，而是分层：</p>
+<p>面试官的习惯是顺着一个点往下钻三到五层，直到你答不出来为止。所以回答不要一次把知道的全倒出来，而是分层：</p>
 <ol type="1">
 <li><strong>一句话定义</strong>（是什么）。</li>
 <li><strong>设计动机</strong>（为什么需要它，解决了什么问题）。</li>
@@ -1711,7 +1711,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <li><strong>线程栈在哪？</strong> 主线程栈由内核创建；其他线程栈由 <code>pthread_create</code> 用 <code>mmap</code> 分配，默认 8MB，位于 mmap 区。所以线程多了要注意虚拟地址空间消耗（32 位尤其明显）。</li>
 </ul>
 <h3 id="sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</h3>
-<p><strong>为什么要懂</strong>：字节会直接问”malloc 底层怎么实现”、“free 怎么知道要释放多大”、“频繁 malloc 小对象有什么问题”。</p>
+<p><strong>为什么要懂</strong>：面试里会直接问”malloc 底层怎么实现”、“free 怎么知道要释放多大”、“频繁 malloc 小对象有什么问题”。</p>
 <p><strong>两条系统调用路径</strong></p>
 <ul>
 <li>小于 <code>M_MMAP_THRESHOLD</code>（默认 128KB，且会随释放的大块动态上调，最高 32MB）：从堆上分配，堆不够时调 <code>brk</code>/<code>sbrk</code> 把堆顶上移。</li>
@@ -1899,7 +1899,7 @@ new (p) T(args);                        // 2. placement new：在 raw 上构造
 </div>
 <p><strong>追问链</strong></p>
 <ul>
-<li><strong>段错误怎么定位？</strong>（字节三面原题）开 core dump（<code>ulimit -c unlimited</code>），<code>gdb ./bin core</code>，<code>bt</code> 看栈，<code>frame N</code> 切帧，<code>info locals</code>。若栈被打坏 bt 不可信，用 ASan 重跑；若是 release 无符号，用 <code>addr2line -e bin 地址</code>。线上环境看 <code>dmesg</code> 拿崩溃地址。</li>
+<li><strong>段错误怎么定位？</strong>（高频原题）开 core dump（<code>ulimit -c unlimited</code>），<code>gdb ./bin core</code>，<code>bt</code> 看栈，<code>frame N</code> 切帧，<code>info locals</code>。若栈被打坏 bt 不可信，用 ASan 重跑；若是 release 无符号，用 <code>addr2line -e bin 地址</code>。线上环境看 <code>dmesg</code> 拿崩溃地址。</li>
 <li><strong>ASan 原理？</strong> 编译器在每次内存访问前插桩，检查 shadow memory（每 8 字节应用内存对应 1 字节 shadow）；malloc 被替换，释放的内存进隔离区暂不复用，两侧加 redzone。开销约 2 倍时间、2 到 3 倍内存。</li>
 <li><strong>valgrind 原理？</strong> 动态二进制翻译，在虚拟 CPU 上执行并跟踪每个字节的可寻址性和已初始化性。慢 20 到 50 倍，但不需要重新编译。</li>
 </ul>
@@ -2013,7 +2013,7 @@ struct Session : std::enable_shared_from_this&lt;Session&gt; {
         callbacks.push_back([self] { /* use self-&gt;... */ });
     }
 };</code></pre>
-<p><strong>手写 shared_ptr</strong>（字节高频手撕）。要点：拷贝加计数、析构减计数并在归零时销毁、赋值用 copy-and-swap 一次处理自赋值与异常安全、计数用原子、删除器用类型擦除藏进控制块。</p>
+<p><strong>手写 shared_ptr</strong>（高频手撕）。要点：拷贝加计数、析构减计数并在归零时销毁、赋值用 copy-and-swap 一次处理自赋值与异常安全、计数用原子、删除器用类型擦除藏进控制块。</p>
 <details class="code-card" open=""><summary>64 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;atomic&gt;
 #include &lt;utility&gt;
 #include &lt;iostream&gt;
@@ -2100,7 +2100,7 @@ int main() {
 #include &lt;cstddef&gt;
 struct A { char a; int b; char c; };          // 1 + 3(pad) + 4 + 1 + 3(pad) = 12
 struct B { char a; char c; int b; };          // 1 + 1 + 2(pad) + 4 = 8，调整顺序省 4 字节
-struct C { char a; uint32_t b; uint8_t c; uint64_t d[0]; };  // 字节三面原题
+struct C { char a; uint32_t b; uint8_t c; uint64_t d[0]; };  // 高频原题
 // a(1) pad(3) b(4) c(1) pad(7) = 16。d 是柔性数组不占空间，但把整体对齐提升到 8
 static_assert(sizeof(A) == 12 &amp;&amp; sizeof(B) == 8 &amp;&amp; sizeof(C) == 16);
 static_assert(alignof(C) == 8);
@@ -2257,7 +2257,7 @@ private:
     std::string n_;
 };</code></pre>
 <p><strong>记忆法</strong>：从右往左读。<code>const int* p</code>：“p 是指针，指向 int，int 是 const”。<code>int* const p</code>：“p 是 const，是指针，指向 int”。</p>
-<p><strong>字节原题</strong>：<code>const int&amp; func(const char* p) const</code> 中三个 const 的含义：返回一个不能通过它修改的引用；参数指向的字符不能改；成员函数不修改对象状态。</p>
+<p><strong>高频原题</strong>：<code>const int&amp; func(const char* p) const</code> 中三个 const 的含义：返回一个不能通过它修改的引用；参数指向的字符不能改；成员函数不修改对象状态。</p>
 <p><strong>追问链</strong></p>
 <ul>
 <li><strong><code>const</code> 和 <code>#define</code> 的区别？</strong> <code>const</code> 有类型、有作用域、编译器检查、可调试、可取地址；<code>#define</code> 是预处理文本替换，无类型无作用域，不出现在符号表，宏展开可能有副作用（<code>#define SQR(x) x*x</code>）。C++ 中优先 <code>constexpr</code> / <code>const</code> / <code>inline</code> 函数。</li>
@@ -2347,7 +2347,7 @@ int main() {
 <li><strong>上行转换需要 cast 吗？</strong> 不需要，派生类指针可以隐式转成基类指针。多继承时编译器会自动调整偏移。</li>
 <li><strong><code>reinterpret_cast&lt;float&amp;&gt;(int_var)</code> 合法吗？</strong> 违反严格别名规则，是 UB。正确做法是 <code>memcpy</code> 或 C++20 <code>std::bit_cast</code>。</li>
 </ul>
-<h3 id="sec-2-6">2.6 空指针调用成员函数（字节高频输出题）</h3>
+<h3 id="sec-2-6">2.6 空指针调用成员��数（高频输出题）</h3>
 <div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">class C {
 public:
     // int a;
@@ -2569,7 +2569,7 @@ int main() { { B b; } std::cout &lt;&lt; "\n"; }   // 输出：A M B ~B ~M ~A</c
     int a; int b;
     T(int v) : b(v), a(b) {}   // a 先构造（声明顺序），此时 b 未初始化，a 是垃圾值。-Wreorder 会警告
 };</code></pre>
-<p><strong>析构中调用虚函数的输出题</strong>（字节一面原题，完整分析）</p>
+<p><strong>析构中调用虚函数的输出题</strong>（高频原题，完整分析）</p>
 <pre><code class="language-cpp">#include &lt;iostream&gt;
 using namespace std;
 class A {
@@ -2796,7 +2796,7 @@ int main() {
 <h2 id="sec-4"><span class="num">4.</span>STL</h2>
 <h3 id="sec-4-1">4.1 总览</h3>
 <p><strong>六大组件</strong>：容器、算法、迭代器、仿函数（函数对象）、适配器（<code>stack</code>/<code>queue</code>/<code>priority_queue</code>、迭代器适配器、函数适配器）、分配器。设计核心是<strong>泛型 + 迭代器解耦</strong>：算法只依赖迭代器接口，不依赖容器。</p>
-<p><strong>五类迭代器</strong>（字节原题）</p>
+<p><strong>五类迭代器</strong>（高频原题）</p>
 <div class="table-wrap">
 <table>
 <thead>
@@ -2845,7 +2845,7 @@ int main() {
 <li><strong>为什么是常数倍而不是加常数</strong>：摊还分析。倍增下 n 次 <code>push_back</code> 总拷贝次数是 n + n/2 + n/4 + … &lt; 2n，摊还 O(1)。每次加 k 个则是 O(n²/k)。</li>
 <li><strong>为什么 1.5 比 2 可能更好</strong>：2 倍时前面所有释放块的总和 1 + 2 + 4 + … + 2^(k-1) = 2^k - 1 &lt; 2^k，永远装不下新块，旧内存无法复用；因子小于黄金分割 1.618 时，之前释放的块之和才可能容纳下一次分配。</li>
 </ul>
-<p><strong><code>push_back</code> 复杂度分析</strong>（字节三面原题）：不扩容 O(1)；扩容那一次 O(n)；摊还 O(1)。</p>
+<p><strong><code>push_back</code> 复杂度分析</strong>（高频原题）：不扩容 O(1)；扩容那一次 O(n)；摊还 O(1)。</p>
 <p><strong><code>reserve</code> vs <code>resize</code></strong></p>
 <div class="table-wrap">
 <table>
@@ -3058,7 +3058,7 @@ void erase_demo(std::vector&lt;int&gt;&amp; v) {
 <ul>
 <li><strong>怎么给自定义类型做 key？</strong> 特化 <code>std::hash&lt;T&gt;</code> 或传哈希函数对象，同时提供 <code>operator==</code>。组合多个字段时用 <code>h1 ^ (h2 &lt;&lt; 1)</code> 或 <code>boost::hash_combine</code>（乘一个大奇数再异或），单纯异或会让 <code>(a,b)</code> 和 <code>(b,a)</code> 冲突。</li>
 <li><strong>unordered_map 的最坏复杂度？</strong> O(n)：所有 key 哈希到同一桶。对外部输入做 key 时存在哈希洪水攻击，防御是随机种子哈希（如 SipHash）。</li>
-<li><strong>怎么实现线程安全的哈希表？</strong>（字节原题）分段锁：桶分成若干段，每段一把 <code>shared_mutex</code>，读用 <code>shared_lock</code>，写用 <code>unique_lock</code>；rehash 时要拿全局锁或做渐进式 rehash（Redis 做法：两张表同时存在，每次操作搬一个桶）。无锁方案：CAS 链表头插入 + 标记删除，实现难度高。</li>
+<li><strong>怎么实现线程安全的哈希表？</strong>（高频原题）分段锁：桶分成若干段，每段一把 <code>shared_mutex</code>，读用 <code>shared_lock</code>，写用 <code>unique_lock</code>；rehash 时要拿全局锁或做渐进式 rehash（Redis 做法：两张表同时存在，每次操作搬一个桶）。无锁方案：CAS 链表头插入 + 标记删除，实现难度高。</li>
 <li><strong>遍历 unordered_map 顺序稳定吗？</strong> 不保证，依赖实现和插入历史，不同进程可能不同，不要依赖。</li>
 <li><strong><code>std::hash&lt;std::string&gt;</code> 用什么算法？</strong> libstdc++ 用 MurmurHash2 变体（<code>_Hash_bytes</code>），对 <code>int</code> 等整型则是恒等映射。</li>
 <li><strong><code>unordered_map&lt;int,int&gt;</code> 每个元素占多少内存？</strong> 节点：next 指针 8 + pair 8 + 可选缓存 hash 8 + malloc 头 16 ≈ 32 到 40 字节，再加桶数组，比 <code>vector&lt;pair&gt;</code> 大好几倍。</li>
@@ -3338,7 +3338,7 @@ int main() {
 </tbody>
 </table>
 </div>
-<p><strong>五个必须能默写的链表操作</strong>（覆盖字节链表题的绝大多数变体）</p>
+<p><strong>五个必须能默写的链表操作</strong>（覆盖链表题的绝大多数变体）</p>
 <details class="code-card" open=""><summary>74 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;iostream&gt;
 struct ListNode {
     int val; ListNode* next;
@@ -3552,7 +3552,7 @@ int main() {
 </tbody>
 </table>
 </div>
-<p><strong>为什么数据库索引用 B+ 树不用红黑树</strong>（字节原题）：磁盘按页（16KB）读取，红黑树每个节点只有一个 key，高度 log₂n，上亿数据要 30 层即 30 次 IO；B+ 树一个节点存上千个 key，3 到 4 层就够。叶子有序链表支持范围扫描；非叶子不存数据使扇出更大。</p>
+<p><strong>为什么数据库索引用 B+ 树不用红黑树</strong>（高频原题）：磁盘按页（16KB）读取，红黑树每个节点只有一个 key，高度 log₂n，上亿数据要 30 层即 30 次 IO；B+ 树一个节点存上千个 key，3 到 4 层就够。叶子有序链表支持范围扫描；非叶子不存数据使扇出更大。</p>
 <p><strong>为什么 epoll 用红黑树</strong>：需要 O(log n) 的 fd 增删查，且内核不想用哈希（大小难定、最坏 O(n)）。</p>
 <h3 id="sec-5-4">5.4 图</h3>
 <p><strong>表示</strong></p>
@@ -3866,7 +3866,7 @@ int main() {
 <li><strong>移动构造为什么必须加 <code>noexcept</code>？</strong> <code>vector</code> 扩容时要把旧元素搬到新内存。若移动构造可能抛异常，搬到一半失败就既回不去（旧内存已被移空）也走不下去，无法提供强异常保证；所以标准库用 <code>move_if_noexcept</code>，检测到移动<strong>可能抛</strong>就<strong>退化为拷贝</strong>。少写一个 <code>noexcept</code>，扩容性能可能从 O(n) 次移动变成 O(n) 次深拷贝。</li>
 <li><strong><code>enum class</code> 比 <code>enum</code> 好在哪？</strong> 传统 <code>enum</code> 的枚举值会泄漏到外层作用域（两个 enum 各有一个 <code>Red</code> 就冲突），且能隐式转 int（<code>if (color == 3)</code> 这种无意义比较编译得过）。<code>enum class</code> 有独立作用域、不隐式转换，把这两类错误变成编译错误。</li>
 </ul>
-<h3 id="sec-6-2">6.2 static 的五种用法（字节原题）</h3>
+<h3 id="sec-6-2">6.2 static 的五种用法（高频原题）</h3>
 <ol type="1">
 <li><strong>函数内局部静态变量</strong>：只初始化一次，生命周期到进程结束，存 <code>.data</code>/<code>.bss</code>；C++11 起初始化线程安全（编译器生成 guard 变量 + <code>__cxa_guard_acquire</code>）。</li>
 <li><strong>全局 / 命名空间作用域静态变量与函数</strong>：内部链接，仅本翻译单元可见，避免符号冲突。C++ 推荐用匿名命名空间。</li>
@@ -3903,7 +3903,7 @@ int main() {
 <li><strong>特化与偏特化</strong>：类模板可偏特化，函数模板只能全特化（要”偏特化”用重载）。</li>
 <li><strong>SFINAE / <code>enable_if</code> / C++20 concepts</strong>：根据类型特征启用重载。</li>
 <li><strong>可变参数模板</strong>：<code>template&lt;class... Args&gt; void f(Args&amp;&amp;... args)</code>，递归展开或 C++17 折叠表达式 <code>(args + ...)</code>。</li>
-<li><strong>模板为什么要放头文件？</strong>（字节原题）编译器实例化模板时需要看到完整定义；放 cpp 里，其他 TU 只有声明，链接时找不到实例化符号。例外：显式实例化 <code>template class Vec&lt;int&gt;;</code> 放在 cpp，头文件 <code>extern template class Vec&lt;int&gt;;</code>，仅适用于类型集合已知的情况。</li>
+<li><strong>模板为什么要放头文件？</strong>（高频原题）编译器实例化模板时需要看到完整定义；放 cpp 里，其他 TU 只有声明，链接时找不到实例化符号。例外：显式实例化 <code>template class Vec&lt;int&gt;;</code> 放在 cpp，头文件 <code>extern template class Vec&lt;int&gt;;</code>，仅适用于类型集合已知的情况。</li>
 <li><strong>两阶段查找</strong>：模板定义时检查非依赖名，实例化时检查依赖名。所以 <code>typename T::type</code> 需要 <code>typename</code> 消歧义。</li>
 </ul>
 <details class="code-card" open=""><summary>45 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;type_traits&gt;
@@ -4327,7 +4327,7 @@ public:
 <h3 id="sec-8-3">8.3 原子操作与内存序</h3>
 <ul>
 <li><strong>CAS</strong>：<code>compare_exchange(expected, desired)</code>：若当前值等于 expected 则写入 desired 返回 true，否则把当前值写回 expected 返回 false。硬件上是 <code>lock cmpxchg</code>（x86）或 LL/SC（ARM）。所有无锁结构的基石。</li>
-<li><strong>原子性怎么保证</strong>（字节原题）：x86 上对齐的 8 字节以内读写天然原子；RMW 操作用 <code>lock</code> 前缀锁定缓存行（缓存一致性协议 MESI 保证只有一个核能独占修改），不再锁总线。</li>
+<li><strong>原子性怎么保证</strong>（高频原题）：x86 上对齐的 8 字节以内读写天然原子；RMW 操作用 <code>lock</code> 前缀锁定缓存行（缓存一致性协议 MESI 保证只有一个核能独占修改），不再锁总线。</li>
 <li><strong>内存序</strong>：<code>relaxed</code> 只保证原子性；<code>acquire</code>（读）/ <code>release</code>（写）配对建立 happens-before，release 之前的写对 acquire 之后的读可见；<code>seq_cst</code> 全局一致顺序，默认，最慢。x86 是强序平台，acquire/release 几乎免费，<code>seq_cst</code> 存储需要 <code>mfence</code>。</li>
 <li><strong>ABA 问题</strong>：CAS 期间值 A → B → A，CAS 误判未变。解决：带版本号的双字 CAS、hazard pointer、epoch 回收。</li>
 </ul>
@@ -4540,7 +4540,7 @@ int main() {
 <li><strong><code>submit</code> 用 <code>shared_ptr&lt;promise&gt;</code> 包一层是为什么？</strong> <code>std::function</code> 要求可拷贝，而 <code>std::promise</code> 只能移动，直接捕获会编译失败。C++23 的 <code>std::move_only_function</code> 可以省掉这层。</li>
 </ul>
 <hr>
-<h2 id="sec-9"><span class="num">9.</span>字节风格代码输出题合集</h2>
+<h2 id="sec-9"><span class="num">9.</span>代码输出题合集</h2>
 <p>每题先自己心算，再看分析。这类题考察的是对对象模型、求值顺序和生命周期的理解。</p>
 <h3 id="sec-9-1">9.1 局部静态变量</h3>
 <pre><code class="language-cpp">#include &lt;cstdio&gt;
@@ -4700,7 +4700,7 @@ int main() {
     unsigned char* p = reinterpret_cast&lt;unsigned char*&gt;(&amp;v);
     printf("%02X %02X ", p[0], p[3]);   // x86 / ARM 默认小端：78 12；大端机则是 12 78
 
-    // union 法（字节高频原题）：所有成员共享同一块内存起始地址
+    // union 法（高频原题）：所有成员共享同一块内存起始地址
     union U { uint32_t i; char c[4]; } u{0x01020304};
     printf("%d ", u.c[0]);              // 小端 4（低地址存最低位字节 0x04），大端 1
 
@@ -4718,7 +4718,7 @@ int main() {
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>bytedance_cpp_fundamentals.md</code> 生成 · 2026-09-07 10:38 UTC<br>
+  由 <code>build_html.py</code> 从 <code>cpp_fundamentals.md</code> 生成 · 2026-09-09 05:21 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
@@ -4817,7 +4817,7 @@ int main() {
   var boxes = document.querySelectorAll("td.ck input[type=checkbox]");
   if (!boxes.length) return;
 
-  var KEY = "bytedance-prep:" + (document.querySelector("meta[name=source-path]") || {}).content;
+  var KEY = "interview-prep:" + (document.querySelector("meta[name=source-path]") || {}).content;
   var done = {};
   try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
 
