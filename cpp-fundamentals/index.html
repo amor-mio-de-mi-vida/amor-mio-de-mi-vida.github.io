@@ -4,8 +4,8 @@
 <title>cpp fundamentals</title>
 <meta name="generator" content="build_html.py">
 <meta name="source-path" content="cpp_fundamentals.md">
-<meta name="source-sha256" content="6a182329064b916c">
-<meta name="generated-at" content="2026-09-09 05:21 UTC">
+<meta name="source-sha256" content="bd36d04e81d350e0">
+<meta name="generated-at" content="2026-09-10 04:36 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 
@@ -568,7 +568,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <div class="layout">
 <nav class="toc">
 <h3>目录</h3>
-<ol><li><a href="#sec-0">0. 高频题清单与优先级</a><ul><li><a href="#sec-0-1">0.1 P0 高频题：必须能主动讲</a></li><li><a href="#sec-0-2">0.2 P1 高频题：拉开区分度的地方</a></li><li><a href="#sec-0-3">0.3 P2 / P3：知道即可</a></li><li><a href="#sec-0-4">0.4 手撕代码优先级</a></li><li><a href="#sec-0-5">0.5 知识点优先级总表</a></li><li><a href="#sec-0-6">0.6 这份优先级怎么来的</a></li><li><a href="#sec-0-7">0.7 按剩余时间的复习路线</a></li><li><a href="#sec-0-8">0.8 回答框架：怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li><li><a href="#sec-3-8">3.8 运算符重载与友元</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（高频原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li></ul></li><li><a href="#sec-9">9. 代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li><li><a href="#sec-9-13">9.13 大小端与位域</a></li></ul></li></ol>
+<ol><li><a href="#sec-0">0. 高频题清单与优先级</a><ul><li><a href="#sec-0-1">0.1 P0 高频题：必须能主动讲</a></li><li><a href="#sec-0-2">0.2 P1 高频题：拉开区分度的地方</a></li><li><a href="#sec-0-3">0.3 P2 / P3：知道即可</a></li><li><a href="#sec-0-4">0.4 手撕代码优先级</a></li><li><a href="#sec-0-5">0.5 知识点优先级总表</a></li><li><a href="#sec-0-6">0.6 这份优先级怎么来的</a></li><li><a href="#sec-0-7">0.7 按剩余时间的复习路线</a></li><li><a href="#sec-0-8">0.8 回答框架：怎么答才”经得起追问”</a></li></ul></li><li><a href="#sec-1">1. 内存管理</a><ul><li><a href="#sec-1-1">1.1 进程内存布局</a></li><li><a href="#sec-1-2">1.2 malloc / free 的底层（glibc ptmalloc2）</a></li><li><a href="#sec-1-3">1.3 new / delete 与 malloc / free</a></li><li><a href="#sec-1-4">1.4 常见内存错误与排查</a></li><li><a href="#sec-1-5">1.5 RAII 与智能指针</a></li><li><a href="#sec-1-6">1.6 内存对齐</a></li></ul></li><li><a href="#sec-2">2. 指针与引用</a><ul><li><a href="#sec-2-1">2.1 指针 vs 引用</a></li><li><a href="#sec-2-2">2.2 值类别与移动语义</a></li><li><a href="#sec-2-3">2.3 万能引用与完美转发</a></li><li><a href="#sec-2-4">2.4 const 的全部用法</a></li><li><a href="#sec-2-5">2.5 四种类型转换</a></li><li><a href="#sec-2-6">2.6 空指针调用成员函数（高频输出题）</a></li><li><a href="#sec-2-7">2.7 数组、指针与函数指针</a></li><li><a href="#sec-2-8">2.8 lambda 与 std::function</a></li></ul></li><li><a href="#sec-3">3. 面向对象</a><ul><li><a href="#sec-3-1">3.1 封装、继承、多态</a></li><li><a href="#sec-3-2">3.2 虚函数机制（必考，要能画图）</a></li><li><a href="#sec-3-3">3.3 构造与析构</a></li><li><a href="#sec-3-4">3.4 对象大小与布局</a></li><li><a href="#sec-3-5">3.5 多继承与虚继承</a></li><li><a href="#sec-3-6">3.6 重载、重写、隐藏</a></li><li><a href="#sec-3-7">3.7 静态多态与 CRTP</a></li><li><a href="#sec-3-8">3.8 运算符重载与友元</a></li></ul></li><li><a href="#sec-4">4. STL</a><ul><li><a href="#sec-4-1">4.1 总览</a></li><li><a href="#sec-4-2">4.2 vector</a></li><li><a href="#sec-4-3">4.3 deque、list、forward_list</a></li><li><a href="#sec-4-4">4.4 map / set：红黑树</a></li><li><a href="#sec-4-5">4.5 unordered_map：开链哈希</a></li><li><a href="#sec-4-6">4.6 适配器与堆</a></li><li><a href="#sec-4-7">4.7 string</a></li><li><a href="#sec-4-8">4.8 算法库要点</a></li><li><a href="#sec-4-9">4.9 容器选型速查</a></li><li><a href="#sec-4-10">4.10 手写 vector（高频手撕）</a></li><li><a href="#sec-4-11">4.11 分配器与自定义迭代器</a></li></ul></li><li><a href="#sec-5">5. 常用数据结构（对应 tips：linked lists, hash maps, graphs, DFS, BFS）</a><ul><li><a href="#sec-5-1">5.1 链表 vs 数组</a></li><li><a href="#sec-5-2">5.2 哈希表设计（手写要点）</a></li><li><a href="#sec-5-3">5.3 树的对比</a></li><li><a href="#sec-5-4">5.4 图</a></li><li><a href="#sec-5-5">5.5 LRU 与 LFU 设计</a></li></ul></li><li><a href="#sec-6">6. C++11 / 14 / 17 常问特性</a><ul><li><a href="#sec-6-1">6.1 关键字速查</a></li><li><a href="#sec-6-2">6.2 static 的五种用法（高频原题）</a></li><li><a href="#sec-6-3">6.3 inline、extern、volatile、explicit、mutable</a></li><li><a href="#sec-6-4">6.4 模板基础</a></li><li><a href="#sec-6-5">6.5 异常</a></li><li><a href="#sec-6-6">6.6 C++17 常用特性速览</a></li></ul></li><li><a href="#sec-7">7. 编译与链接</a></li><li><a href="#sec-8">8. 并发基础</a><ul><li><a href="#sec-8-1">8.1 进程与线程</a></li><li><a href="#sec-8-2">8.2 同步原语</a></li><li><a href="#sec-8-3">8.3 原子操作与内存序</a></li><li><a href="#sec-8-4">8.4 死锁</a></li><li><a href="#sec-8-5">8.5 线程安全的单例、线程池</a></li><li><a href="#sec-8-6">8.6 手写互斥锁（高频手撕）</a></li></ul></li><li><a href="#sec-9">9. 代码输出题合集</a><ul><li><a href="#sec-9-1">9.1 局部静态变量</a></li><li><a href="#sec-9-2">9.2 构造析构顺序与非虚析构</a></li><li><a href="#sec-9-3">9.3 构造函数中调用虚函数</a></li><li><a href="#sec-9-4">9.4 值类别与 move 的退化</a></li><li><a href="#sec-9-5">9.5 引用与临时对象生命周期</a></li><li><a href="#sec-9-6">9.6 迭代器失效</a></li><li><a href="#sec-9-7">9.7 sizeof 系列</a></li><li><a href="#sec-9-8">9.8 空指针调用成员函数</a></li><li><a href="#sec-9-9">9.9 shared_ptr 计数</a></li><li><a href="#sec-9-10">9.10 重载决议与隐式转换</a></li><li><a href="#sec-9-11">9.11 求值顺序</a></li><li><a href="#sec-9-12">9.12 字面量与数组</a></li><li><a href="#sec-9-13">9.13 大小端与位域</a></li></ul></li></ol>
 </nav>
 <main>
 <header class="hero">
@@ -577,12 +577,12 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <p class="subtitle">每个知识点按「是什么 → 为什么 → 怎么实现 → 追问链」展开</p>
   <div class="meta">
     <span><strong>来源</strong> <code>cpp_fundamentals.md</code></span>
-    <span><strong>生成</strong> 2026-09-09 05:21 UTC</span>
+    <span><strong>生成</strong> 2026-09-10 04:36 UTC</span>
   </div>
 </header>
 
 <blockquote>
-<p>适用：C++ 方向面试的基础部分。 结构：每个知识点按 <strong>是什么 → 为什么这样设计 → 底层怎么实现 → 面试官追问链</strong> 展开。 代码块标注 <code>cpp</code> 的均已用 <code>clang++ -std=c++17 -Wall -Wextra</code> 编译通过，可运行的还核对过实际输出（验证环境 Apple clang 21 / arm64 / libc++，并发相关的额外过了 TSan、手写容器额外过了 ASan + UBSan）；标注 <code>cpp-x</code> 的是故意展示未定义行为或伪代码，不保证可编译。 涉及具体数值的结论（<code>sizeof</code>、对齐、SSO 容量）在 libstdc++ 上可能不同，正文已分别标注。</p>
+<p>适用：C++ 方向面试的基础部分。 结构：每个知识点按 <strong>是什么 → 为什么这样设计 → 底层怎么实现 → 面试官追问链</strong> 展开。 代码块标注 <code>cpp</code> 的均已用 <code>clang++ -std=c++17 -Wall -Wextra</code> 编译通过，可运行的还核对过实际输出（验证环境 Apple clang 21 / arm64 / libc++，并发相关的额外过了 TSan、手写容器额外过了 ASan + UBSan；唯一例外是 <a href="#sec-8-6">8.6</a> 的 futex 互斥锁，macOS 上要 <code>-std=c++20</code>）；标注 <code>cpp-x</code> 的是故意展示未定义行为或伪代码，不保证可编译。 涉及具体数值的结论（<code>sizeof</code>、对齐、SSO 容量）在 libstdc++ 上可能不同，正文已分别标注。</p>
 </blockquote>
 <h2 id="sec-0"><span class="num">0.</span>高频题清单与优先级</h2>
 <p>题目都是链接，点进去是正文里展开讲的那一节；追问点开就是答案，每条都给了「结论 + 为什么」。 <strong>优先级怎么定的、可靠性边界在哪，见 <a href="#sec-0-6">0.6</a></strong> —— 先看清楚依据再按它分配时间。</p>
@@ -1004,6 +1004,18 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <li><strong><code>notify_one</code> 和 <code>notify_all</code> 怎么选？</strong> 只有当所有等待者等的是<strong>同一个条件</strong>、且每次只有一个能继续时（如队列出队一个元素）才能用 <code>notify_one</code>。如果等待者谓词不同，<code>notify_one</code> 可能唤醒一个谓词仍为假的线程，它检查后继续睡，这次通知就<strong>永久丢失</strong>了，真正该醒的线程还在等 —— 这种情况必须 <code>notify_all</code>。</li>
 </ul>
 </details>
+<p><strong><a href="#sec-8-6">手写一个互斥锁：从自旋锁到 futex</a></strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>最少要写什么？</strong> 一个原子变量加一对 acquire / release：<code>while (flag.test_and_set(acquire)); … flag.clear(release);</code>。互斥靠的是 <code>test_and_set</code> 是一条硬件 RMW 指令（x86 <code>xchg</code>、ARM LL/SC），「读到空闲」和「置为占用」不可分割，两个线程不可能都成功；内存序保证临界区的读写不会被重排到锁外面。</li>
+<li><strong>为什么 <code>if (!locked) locked = true;</code> 不行？</strong> 读和写是两条指令，两个线程可以都读到 false 再各自写 true，双双进入。<code>volatile</code> 也救不了，它只保证访存不被优化掉，不保证读写之间没有别的核插进来。</li>
+<li><strong>自旋锁的问题是什么，<code>std::mutex</code> 怎么解决？</strong> 拿不到锁的线程在烧 CPU；更糟的是持锁线程被内核调度走时，自旋者把整个时间片烧完也等不到，线程数超过核数时性能断崖式下降。<code>std::mutex</code> 用 futex：无竞争时一条 CAS 不进内核；有竞争才系统调用把线程挂起，unlock 时只在确知有人在睡时才唤醒 —— 为此状态需要 0 / 1 / 2 三个值而不是两个，否则每次 unlock 都得无条件进内核。</li>
+<li><strong><code>futex_wait</code> 为什么要传期望值？</strong> 封住丢失唤醒的窗口：用户态判断「被占」到真正睡下之间，持锁者可能已经 unlock 并 wake 过了，这个 wake 没人接收。内核在入队前原子地检查 <code>*addr == val</code>，不等就立即返回让用户态重试，和条件变量必须带谓词是同一个问题。</li>
+</ul>
+</details>
 <h3 id="sec-0-3">0.3 P2 / P3：知道即可</h3>
 <p><strong>P2</strong>（能说清概念和取舍，细节可现推）：<a href="#sec-2-3">完美转发与引用折叠</a>、<a href="#sec-2-8">lambda 捕获与生命周期陷阱</a>、<a href="#sec-2-7">数组与函数指针</a>、<a href="#sec-3-5">多继承与虚继承的布局</a>、<a href="#sec-3-8">运算符重载与友元</a>、<a href="#sec-4-3"><code>deque</code> 的分段数组</a>、<a href="#sec-4-6">堆与优先队列</a>、<a href="#sec-5-2">哈希表设计与线程安全</a>、<a href="#sec-5-3">B+ 树为什么适合数据库索引</a>、<a href="#sec-5-4">图与最短路</a>、<a href="#sec-6-4">模板特化与 SFINAE</a>、<a href="#sec-6-6">C++17 特性</a>、<a href="#sec-8-3">原子操作与内存序</a>（<strong>基础架构/存储岗升 P0</strong>）、<a href="#sec-9-13">大小端与位域</a>、<a href="#sec-9-5">引用与临时对象生命周期</a>、<a href="#sec-9-10">重载决议与隐式转换</a></p>
 <p><strong>P3</strong>（知道名词、场景和一句话原理）：<a href="#sec-3-7">CRTP 与静态多态</a>、<a href="#sec-4-11">自定义分配器与迭代器</a>、<a href="#sec-8-1">协程</a>、<a href="#sec-9-11">求值顺序</a></p>
@@ -1055,6 +1067,12 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <td>线程池</td>
 <td><a href="#sec-8-5">8.5</a></td>
 <td>任务队列 + 条件变量 + 优雅退出；用 <code>notify_all</code> 唤醒所有线程退出</td>
+</tr>
+<tr>
+<td><strong>P1</strong></td>
+<td>手写互斥锁</td>
+<td><a href="#sec-8-6">8.6</a></td>
+<td>原子 RMW + acquire/release 是底线；能讲 TTAS 为什么省总线、futex 为什么要三个状态</td>
 </tr>
 <tr>
 <td><strong>P1</strong></td>
@@ -1503,6 +1521,12 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 <td><strong>P1</strong></td>
 <td>手撕高频，见 10.5</td>
 </tr>
+<tr>
+<td><a href="#sec-8-6">8.6</a></td>
+<td>手写互斥锁（自旋锁 → futex）</td>
+<td><strong>P1</strong></td>
+<td>基础架构 / 高性能 → P0</td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -1629,7 +1653,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </div>
 <p>一个反直觉但重要的经验：<strong>P0 答得深，比 P2/P3 答得广更有用</strong>。面试官顺着一个点钻三层，你在第二层卡住，比你没听过某个冷门名词伤害大得多。</p>
 <h3 id="sec-0-7">0.7 按剩余时间的复习路线</h3>
-<p><strong>只剩 3 天</strong>：<a href="#sec-0-1">0.1</a> 全部 P0 题 + 第 9 章输出题 P0 三道 + 手撕 LRU / 反转链表 / 链表环。其余不看。 <strong>剩 1 周</strong>：上面基础上加 <a href="#sec-0-2">0.2</a> 全部 P1 + 手撕 <code>shared_ptr</code> 和 <code>vector</code> + <a href="#sec-7">第 7 章编译链接</a> + <a href="#sec-8-2">8.2 同步原语</a>。 <strong>剩 3 周</strong>：按正文顺序通读一遍，重点章节（<a href="#sec-1">1</a>、<a href="#sec-2">2</a>、<a href="#sec-3">3</a>、<a href="#sec-4">4</a>、<a href="#sec-8">8</a>）每节的追问链要能自问自答；P2 过一遍混个眼熟；手撕表里 P0/P1 全部手写至少一遍（<strong>在纸上或纯文本编辑器里写，不要开补全</strong>）。</p>
+<p><strong>只剩 3 天</strong>：<a href="#sec-0-1">0.1</a> 全部 P0 题 + 第 9 章输出题 P0 三道 + 手撕 LRU / 反转链表 / 链表环。其余不看。 <strong>剩 1 周</strong>：上面基础上加 <a href="#sec-0-2">0.2</a> 全部 P1 + 手撕 <code>shared_ptr</code>、<code>vector</code> 和<a href="#sec-8-6">互斥锁</a> + <a href="#sec-7">第 7 章编译链接</a> + <a href="#sec-8-2">8.2 同步原语</a>。 <strong>剩 3 周</strong>：按正文顺序通读一遍，重点章节（<a href="#sec-1">1</a>、<a href="#sec-2">2</a>、<a href="#sec-3">3</a>、<a href="#sec-4">4</a>、<a href="#sec-8">8</a>）每节的追问链要能自问自答；P2 过一遍混个眼熟；手撕表里 P0/P1 全部手写至少一遍（<strong>在纸上或纯文本编辑器里写，不要开补全</strong>）。</p>
 <p><strong>每天固定动作</strong>：随机抽 3 条追问链，逼自己讲出声。讲不顺的说明只是「看懂了」而没有「能输出」，这两者在面试里是天壤之别。</p>
 <h3 id="sec-0-8">0.8 回答框架：怎么答才”经得起追问”</h3>
 <p>面试官的习惯是顺着一个点往下钻三到五层，直到你答不出来为止。所以回答不要一次把知道的全倒出来，而是分层：</p>
@@ -2347,7 +2371,7 @@ int main() {
 <li><strong>上行转换需要 cast 吗？</strong> 不需要，派生类指针可以隐式转成基类指针。多继承时编译器会自动调整偏移。</li>
 <li><strong><code>reinterpret_cast&lt;float&amp;&gt;(int_var)</code> 合法吗？</strong> 违反严格别名规则，是 UB。正确做法是 <code>memcpy</code> 或 C++20 <code>std::bit_cast</code>。</li>
 </ul>
-<h3 id="sec-2-6">2.6 空指针调用成员��数（高频输出题）</h3>
+<h3 id="sec-2-6">2.6 空指针调用成员函数（高频输出题）</h3>
 <div class="code-note">未定义行为 / 伪代码，不保证可编译</div><pre><code class="language-cpp">class C {
 public:
     // int a;
@@ -4286,7 +4310,7 @@ int main() {
 <tr>
 <td>自旋锁</td>
 <td>极短临界区</td>
-<td>用 <code>atomic_flag</code> 实现，自旋要 <code>yield</code> 或 <code>pause</code></td>
+<td>用 <code>atomic_flag</code> 实现，自旋要 <code>yield</code> 或 <code>pause</code>；手写与 futex 版见 <a href="#sec-8-6">8.6</a></td>
 </tr>
 <tr>
 <td>信号量（C++20）</td>
@@ -4539,6 +4563,172 @@ int main() {
 <li><strong>为什么用 <code>join</code> 而不是 <code>detach</code>？</strong> <code>detach</code> 后主线程退出时子线程可能还在访问已销毁的池成员。析构函数里 <code>join</code> 才能保证任务跑完、资源安全释放。</li>
 <li><strong><code>submit</code> 用 <code>shared_ptr&lt;promise&gt;</code> 包一层是为什么？</strong> <code>std::function</code> 要求可拷贝，而 <code>std::promise</code> 只能移动，直接捕获会编译失败。C++23 的 <code>std::move_only_function</code> 可以省掉这层。</li>
 </ul>
+<h3 id="sec-8-6">8.6 手写互斥锁（高频手撕）</h3>
+<p>「写一个互斥锁」这题面试官要的不是一段代码，而是看你能走到第几层。三层对应三个问题：<strong>靠什么保证互斥</strong>（一条原子 RMW 指令）、<strong>靠什么保证临界区里的读写不跑出去</strong>（acquire / release）、<strong>拿不到锁的线程该干什么</strong>（自旋还是睡觉）。建议按这个顺序讲：先写 5 行的自旋锁，然后<strong>主动说它的问题</strong>，把面试官引到 futex。</p>
+<p><strong>第一层：互斥靠一条原子 RMW 指令</strong></p>
+<p>朴素写法 <code>if (!locked) locked = true;</code> 是错的，因为「读到 false」和「写 true」是两条指令，两个线程可以都读到 false 再各自写 true，双双进入临界区。加 <code>volatile</code> 也没用，它只保证访存不被优化掉，不保证读和写不可分割。正确做法是把「测试并置位」交给硬件做成一步：x86 是 <code>xchg</code> / <code>lock cmpxchg</code>（<code>lock</code> 前缀让这个核在指令期间独占缓存行），ARM 是 <code>ldaxr</code> / <code>stlxr</code> 的 LL/SC 对或 ARMv8.1 的 <code>swpa</code> / <code>casa</code>。C++ 里对应 <code>atomic_flag::test_and_set</code>、<code>atomic::exchange</code>、<code>compare_exchange</code>。</p>
+<p><strong>第二层：内存序</strong></p>
+<p><code>lock</code> 用 acquire、<code>unlock</code> 用 release，这不是套路而是定义：acquire 禁止它后面的访存被重排到它前面，所以临界区的读写不会「提前」到拿锁之前；release 禁止它前面的访存被重排到它后面，所以临界区的写不会「拖延」到放锁之后。两者配对，前一个持有者在 release 之前的写，对后一个持有者 acquire 之后的读可见 —— 锁保护的数据正是靠这条 happens-before 边传递的，不是靠「互斥」本身。不需要 <code>seq_cst</code>，因为只需要同一把锁上前后两个持有者之间的顺序，不需要跨多把锁的全局顺序。</p>
+<p><strong>第三层：拿不到锁怎么办 —— 自旋、退避、睡觉</strong></p>
+<p>自旋锁的问题有两个。一是浪费：等待的核在烧 CPU，什么也没干。二是更致命的<strong>持锁者被抢占</strong>：用户态线程随时会被内核调度走，如果持锁线程被换出，自旋者把整个时间片烧完仍拿不到锁，线程数超过核数时性能断崖式下降（内核里的自旋锁能用，是因为它可以关抢占；用户态做不到）。所以真正的互斥锁在竞争时要<strong>让内核把线程挂起</strong>，锁释放时再唤醒 —— Linux 上就是 <code>futex</code>。</p>
+<p>futex 的精髓是<strong>无竞争不进内核</strong>：锁状态就是用户态一个 int，快路径一条 CAS 搞定；只有 CAS 失败才 <code>futex_wait</code>，只有确知有人在睡才 <code>futex_wake</code>。要做到「确知」，状态必须有三个值而不是两个：0 空闲、1 上锁无人等、2 上锁有人等。<code>unlock</code> 把 1 减成 0 就直接走人；减之前是 2 才做系统调用去唤醒。两态设计做不到这一点 —— 每次 unlock 都得无条件唤醒，快路径就没了。</p>
+<p>下面三把锁按这三层递进。这段在 macOS 上要 <code>-std=c++20</code>（没有 futex，兜底用了 <code>atomic::wait</code>），Linux 上 <code>-std=c++17</code> 即可；Linux 分支本机只做了类型检查，未实跑。</p>
+<details class="code-card" open=""><summary>106 行 · 点击折叠</summary><pre><code class="language-cpp">#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+#include &lt;mutex&gt;
+#include &lt;iostream&gt;
+#if defined(__linux__)
+#include &lt;linux/futex.h&gt;
+#include &lt;sys/syscall.h&gt;
+#include &lt;unistd.h&gt;
+#endif
+
+// 忙等时提示 CPU「我在自旋」：x86 用 pause，ARM 用 yield。注意这不是让出 CPU 给别的线程
+inline void cpu_relax() {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    asm volatile("yield" ::: "memory");
+#else
+    std::this_thread::yield();
+#endif
+}
+
+// ---- 第一层：TAS 自旋锁。面试的最低要求，核心就是「一条原子 RMW 指令 + 一对 acquire/release」
+class TASLock {
+    std::atomic_flag f_ = ATOMIC_FLAG_INIT;
+public:
+    void lock()   { while (f_.test_and_set(std::memory_order_acquire)) cpu_relax(); }   // 老值为 true 说明别人持有，继续转
+    void unlock() { f_.clear(std::memory_order_release); }
+};
+
+// ---- 第二层：TTAS + 退避。失败后改用普通读自旋，只在看到锁空闲时才再次发起 RMW
+class TTASLock {
+    std::atomic&lt;bool&gt; locked_{false};
+public:
+    void lock() {
+        for (;;) {
+            if (!locked_.exchange(true, std::memory_order_acquire)) return;   // 拿到
+            int spins = 0;
+            while (locked_.load(std::memory_order_relaxed)) {                 // 在本核缓存里的副本上转，不打扰总线
+                if (++spins &lt; 1024) cpu_relax();
+                else std::this_thread::yield();   // 转太久了，持锁线程可能已被换出，让出时间片
+            }
+        }
+    }
+    bool try_lock() { return !locked_.exchange(true, std::memory_order_acquire); }
+    void unlock()   { locked_.store(false, std::memory_order_release); }
+};
+
+// ---- 第三层：会睡觉的互斥锁（Drepper《Futexes Are Tricky》的 mutex，glibc 的 lowlevellock 同款协议）
+// 状态：0 = 空闲，1 = 上锁且没人等，2 = 上锁且（可能）有人等
+// 平台层：Linux 用 futex 系统调用；其他平台退化为 C++20 的 atomic::wait（Linux 上它底层也是 futex）
+class FutexMutex {
+    std::atomic&lt;int&gt; s_{0};
+
+    void wait_if(int expect) {   // 只有 s_ 仍等于 expect 才睡；比较和睡是内核里的一个原子步骤
+#if defined(__linux__)
+        syscall(SYS_futex, &amp;s_, FUTEX_WAIT_PRIVATE, expect, nullptr, nullptr, 0);
+#else
+        s_.wait(expect, std::memory_order_relaxed);
+#endif
+    }
+    void wake_one() {
+#if defined(__linux__)
+        syscall(SYS_futex, &amp;s_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
+#else
+        s_.notify_one();
+#endif
+    }
+public:
+    void lock() {
+        int c = 0;
+        if (s_.compare_exchange_strong(c, 1, std::memory_order_acquire)) return;   // 快路径：一条 CAS，不进内核
+        // 慢路径，c 是 1 或 2
+        if (c != 2) c = s_.exchange(2, std::memory_order_acquire);   // 把状态推到 2 宣告「有人在等」；老值是 0 就顺手拿到了
+        while (c != 0) {
+            wait_if(2);                                              // s_ 已经不是 2 就立刻返回，避免丢失唤醒
+            c = s_.exchange(2, std::memory_order_acquire);           // 醒来后争锁；拿到也写 2，因为不知道还有没有别人在睡
+        }
+    }
+    bool try_lock() {
+        int c = 0;
+        return s_.compare_exchange_strong(c, 1, std::memory_order_acquire);
+    }
+    void unlock() {
+        if (s_.fetch_sub(1, std::memory_order_release) == 1) return;   // 老值 1：没人等，直接归零，省一次系统调用
+        s_.store(0, std::memory_order_release);                        // 老值 2：先归零再唤醒一个，被唤醒者会重新 exchange
+        wake_one();
+    }
+};
+
+template &lt;class Lock&gt;
+void hammer(const char* name, int threads = 8, int iters = 100000) {
+    Lock lk; long counter = 0;          // counter 故意不用 atomic，正确性全靠锁
+    std::vector&lt;std::thread&gt; ts;
+    for (int i = 0; i &lt; threads; ++i) ts.emplace_back([&amp;] {
+        for (int j = 0; j &lt; iters; ++j) { std::lock_guard&lt;Lock&gt; g(lk); ++counter; }   // 有 lock/unlock 就能喂给 lock_guard
+    });
+    for (auto&amp; t : ts) t.join();
+    std::cout &lt;&lt; name &lt;&lt; counter &lt;&lt; "\n";
+}
+
+int main() {
+    hammer&lt;TASLock&gt;("TAS   ");      // 800000
+    hammer&lt;TTASLock&gt;("TTAS  ");     // 800000
+    hammer&lt;FutexMutex&gt;("futex ");   // 800000
+}</code></pre></details>
+<p>三把锁在本机（Apple M2，8 核）的耗时，每线程 10 万次 <code>++counter</code>，<code>-O2</code>，只看数量级：</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>线程数</th>
+<th>TAS</th>
+<th>TTAS</th>
+<th>futex</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td>22 ms</td>
+<td>11 ms</td>
+<td>12 ms</td>
+</tr>
+<tr>
+<td>8（= 核数）</td>
+<td>174 ms</td>
+<td>145 ms</td>
+<td>41 ms</td>
+</tr>
+<tr>
+<td>32（4 倍超订）</td>
+<td>3285 ms</td>
+<td>576 ms</td>
+<td>85 ms</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>超订那一行就是「持锁者被抢占」的代价：TAS 慢了近 20 倍，因为自旋者在替被换出的持锁者烧时间片；TTAS 靠转 1024 次后 <code>yield</code> 缓解；futex 的等待者根本不占核，所以几乎不受影响。<code>std::mutex</code> 的实现是第三层，面试写第一层就够，但要能<strong>讲出</strong>第二、三层。</p>
+<p><strong>追问链</strong></p>
+<ul>
+<li><strong><code>if (!locked) locked = true;</code> 为什么错？加 <code>volatile</code> 呢？</strong> 读和写是两条指令，两个线程可以都读到 false 再各自写 true，双双进入临界区。<code>volatile</code> 救不了：它只保证这两次访存不被编译器优化掉或合并，不保证它们之间没有别的核插进来。互斥必须由硬件的原子 RMW 指令提供，这是 <code>atomic</code> 和 <code>volatile</code> 的本质区别。</li>
+<li><strong>为什么 <code>lock</code> 是 acquire、<code>unlock</code> 是 release，反过来行不行？</strong> 反过来是错的。unlock 若用 acquire，临界区内的写允许被重排到解锁之后，下一个持有者可能拿到锁却看不到上一个持有者的修改，锁形同虚设；用 <code>relaxed</code> 同理。记法：acquire 是「只进不出」的单向门（后面的访存不能往前跑），release 是「只出不进」（前面的不能往后跑），临界区被两扇门夹在中间，出不去。</li>
+<li><strong>TTAS 比 TAS 好在哪？</strong> 缓存一致性。<code>test_and_set</code> 是写操作，执行前必须把缓存行拿到独占状态，N 个自旋者就让这一行在 N 个核之间反复失效、搬运；持锁者要释放锁时也得先抢回这一行，连 unlock 都被拖慢。TTAS 失败后只做普通读，每个核在自己的共享副本上转，总线安静；锁释放时只发生一次失效广播，大家才各自去做一次 RMW。</li>
+<li><strong><code>pause</code> / <code>yield</code> 指令是干什么的？</strong> 不是让出 CPU。x86 的 <code>pause</code> 让核在自旋循环里降功耗，并停止对循环后续读的乱序猜测执行，否则退出循环时会因内存序误猜触发流水线清空；超线程下还把执行资源让给同核的另一个硬件线程。ARM 的 <code>yield</code> 是同类提示。真正让出时间片的是 <code>std::this_thread::yield()</code>，那是系统调用。两者搭配：先 <code>pause</code> 转一小段，转不到再 <code>yield</code>。</li>
+<li><strong>自旋锁什么时候不该用？</strong> 持锁者可能被调度走的场景都不该用，因为自旋只在「持锁者正在另一个核上跑、马上就会放」时才划算。临界区长、线程数多于核数、临界区里有系统调用或可能缺页，都会让这个前提失效。内核能用自旋锁是因为它可以关抢占；用户态没有这个能力，所以 <code>std::mutex</code> 的实现都是「自旋几下不行就睡」。</li>
+<li><strong><code>futex_wait</code> 为什么要传一个期望值？</strong> 为了封住丢失唤醒的窗口。用户态判断「锁被占」到线程真正睡下之间有几十条指令，持锁者可能恰好在这里 unlock 并 wake —— wake 时没人在睡，唤醒丢掉，随后线程睡下，永远没人叫。内核在把线程加入等待队列前原子地检查 <code>*addr == val</code>，不等就立即返回 <code>EAGAIN</code>，用户态重试。这和条件变量「wait 必须带谓词并在锁内检查」（<a href="#sec-8-2">8.2</a>）是同一个问题的两种解法。</li>
+<li><strong>为什么醒来后要写 2 而不是 1？</strong> 醒来的线程不知道等待队列里还有没有别人（wake 只叫了一个）。如果它写 1，等它 unlock 时看到老值 1 就不会再 wake，剩下的睡眠者永远醒不来。写 2 是保守选择：多做一次可能白跑的 <code>futex_wake</code> 换来不会漏人。glibc 的 <code>pthread_mutex</code> 用的就是这个协议。</li>
+<li><strong>这个锁公平吗？</strong> 不公平。新来的线程走快路径 CAS，会插在刚被唤醒的睡眠者前面（barging）。这在吞吐上反而是好事：被唤醒的线程从内核回到用户态要几微秒，这期间让锁空着是浪费；严格 FIFO 会形成 lock convoy，每次交接都要一次上下文切换。代价是理论上可能饿死某个线程。需要公平就用 ticket lock（取号 + 等号）或 MCS / CLH 锁（每个等待者在自己的节点上自旋，顺带解决缓存行乒乓）。<code>std::mutex</code> 不保证公平。</li>
+<li><strong>怎么改成可重入的？</strong> 加一个 owner 线程 id 和一个计数：lock 时先看 owner 是不是自己，是就计数加一；unlock 减到 0 才真正释放。owner 必须是原子变量，因为其他线程会在没拿锁的情况下读它。但要说清楚这通常是坏味道：可重入意味着某个函数持锁时调了另一个也要拿锁的函数，而后者「进入时不变量成立」的假设在重入路径上未必成立 —— 锁只挡住了别的线程，挡不住自己看到半成品状态。</li>
+<li><strong>怎么改成读写锁？</strong> 状态里同时编码读者数和写者位：读者 CAS 把计数加一，条件是没有写者；写者 CAS 置写者位，条件是读者为 0 且无写者；等待都走 futex。要主动提的坑是写者饥饿 —— 读者源源不断时写者永远等不到读者归零，解法是写者到来后拒绝新读者进入（写者优先）。</li>
+<li><strong><code>std::lock_guard&lt;FutexMutex&gt;</code> 为什么能直接用？</strong> 标准库的锁包装器是模板，只要求类型满足 BasicLockable（有 <code>lock()</code> / <code>unlock()</code>）；<code>unique_lock::try_lock</code> 和 <code>std::lock</code> 再要求 <code>try_lock()</code>（Lockable）。不需要继承任何接口，这是模板的鸭子类型，也是为什么手写锁要按这套命名。</li>
+<li><strong><code>std::mutex</code> 在 Linux 上就是这个吗？</strong> 基本是。libstdc++ 的 <code>std::mutex</code> 包一个 <code>pthread_mutex_t</code>，glibc 的实现就是这套 0 / 1 / 2 的 futex 协议，再加类型、owner、递归计数等字段，所以 <code>sizeof(std::mutex)</code> 在 x86_64 Linux 上是 40 而不是 4（macOS 上 64）。默认类型不自旋；<code>PTHREAD_MUTEX_ADAPTIVE_NP</code> 才会先自旋一小段再睡。macOS 没有 futex，底层是 XNU 自己的 <code>psynch</code> / <code>ulock</code> 系统调用，思路一样。</li>
+<li><strong>怎么验证锁是对的？</strong> 计数正确不是证明，只是这次没抓到错。有效手段：TSan，它按 happens-before 建模 <code>atomic</code> 的内存序，把 acquire 错写成 relaxed 会直接报数据竞争；超订压测，线程数远大于核数，让「持锁者被抢占」必然发生；在临界区里放一个「已被占用」的原子标志做断言，两个线程同时进入立刻炸。</li>
+</ul>
 <hr>
 <h2 id="sec-9"><span class="num">9.</span>代码输出题合集</h2>
 <p>每题先自己心算，再看分析。这类题考察的是对对象模型、求值顺序和生命周期的理解。</p>
@@ -4718,7 +4908,7 @@ int main() {
 </ul>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>cpp_fundamentals.md</code> 生成 · 2026-09-09 05:21 UTC<br>
+  由 <code>build_html.py</code> 从 <code>cpp_fundamentals.md</code> 生成 · 2026-09-10 04:36 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
