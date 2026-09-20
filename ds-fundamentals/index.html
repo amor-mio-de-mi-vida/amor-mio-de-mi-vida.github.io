@@ -1,0 +1,2593 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ds fundamentals</title>
+<meta name="generator" content="build_html.py">
+<meta name="source-path" content="ds_fundamentals.md">
+<meta name="source-sha256" content="bd56a5f8e87b6421">
+<meta name="generated-at" content="2026-09-20 17:09 UTC">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+<style>
+:root {
+  --bg: #fdfcf7;
+  --bg-soft: #f4f1ea;
+  --bg-code: #f8f5ec;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --ink-muted: #6b6b6b;
+  --primary: #1a4a8c;
+  --primary-soft: #2d6cb8;
+  --accent: #b8390e;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --info-bg: #dbeafe;
+  --good-bg: #d1fae5;
+  --good: #065f46;
+  --bad-bg: #fee2e2;
+  --bad: #991b1b;
+  --border: #d6d0c0;
+  --border-soft: #e8e3d5;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: "Source Serif Pro", "Source Serif 4", "Crimson Pro", "Georgia", "Songti SC", "STSong", serif;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--bg);
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+
+.layout {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 48px;
+  padding: 40px 32px;
+}
+
+nav.toc {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  font-size: 13px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  padding-right: 16px;
+}
+nav.toc h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+nav.toc ol li { margin: 5px 0; counter-increment: toc; }
+nav.toc ol li::before { content: counter(toc) ". "; color: var(--ink-muted); margin-right: 4px; }
+nav.toc a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px dotted transparent;
+}
+nav.toc a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+nav.toc ul { list-style: none; padding-left: 14px; margin: 3px 0; font-size: 12px; }
+nav.toc ul li::before { content: "→ "; color: var(--border); }
+
+main { min-width: 0; }
+
+header.hero {
+  border-bottom: 3px double var(--primary);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+}
+header.hero .eyebrow {
+  font-family: inherit;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+header.hero h1 {
+  font-size: 32px;
+  line-height: 1.2;
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+header.hero .subtitle {
+  font-size: 16px;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  font-style: italic;
+}
+header.hero .byline {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+header.hero .byline strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+header.hero .meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--border-soft);
+  padding-top: 14px;
+}
+header.hero .meta span strong { color: var(--ink-soft); }
+header.hero .meta code {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11px;
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+}
+
+h2 {
+  font-size: 24px;
+  margin: 44px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  font-weight: 700;
+}
+h2 .num { color: var(--primary); font-weight: 600; margin-right: 8px; }
+h3 { font-size: 19px; margin: 28px 0 10px; color: var(--primary); font-weight: 600; }
+h4 { font-size: 16px; margin: 20px 0 8px; color: var(--ink); font-weight: 600; }
+
+p { margin: 10px 0; }
+ul, ol { padding-left: 22px; margin: 10px 0; }
+ul li, ol li { margin: 4px 0; }
+ul li::marker { color: var(--primary); }
+
+strong { color: var(--accent); font-weight: 600; }
+em { color: var(--ink-soft); }
+
+a { color: var(--primary); }
+a:hover { color: var(--accent); }
+
+code:not(.hljs) {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.86em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  color: var(--accent);
+}
+
+pre {
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  padding: 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+pre code, pre code.hljs {
+  background: transparent !important;
+  display: block;
+  padding: 14px 18px !important;
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: var(--ink);
+}
+pre.diagram {
+  background: #f9f6ed;
+  border-left: 4px solid var(--accent);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.callout {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 4px;
+  border-left: 4px solid;
+  font-size: 15px;
+}
+.callout-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.callout-info { background: var(--info-bg); border-left-color: var(--primary); }
+.callout-info .callout-title { color: var(--primary); }
+.callout-warn { background: var(--warn-bg); border-left-color: var(--warn); }
+.callout-warn .callout-title { color: var(--warn); }
+.callout-good { background: var(--good-bg); border-left-color: var(--good); }
+.callout-good .callout-title { color: var(--good); }
+.callout-bad { background: var(--bad-bg); border-left-color: var(--bad); }
+.callout-bad .callout-title { color: var(--bad); }
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table-wrap table {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+thead { background: var(--primary); color: white; }
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th { font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: var(--bg-soft); }
+
+details.qa, details {
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 0;
+}
+details summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--primary);
+  list-style: none;
+  user-select: none;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::before {
+  content: "▸ ";
+  margin-right: 4px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+details[open] summary::before { transform: rotate(90deg); }
+details[open] summary { border-bottom: 1px solid var(--border-soft); }
+details > :not(summary) { padding: 10px 14px; }
+details p:first-of-type { margin-top: 8px; }
+
+mjx-container[display="true"] { margin: 12px 0 !important; }
+
+footer.aris-footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+footer.aris-footer a { color: var(--ink-muted); border-bottom: 1px dotted var(--border); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 20px; padding: 20px 16px; }
+  nav.toc {
+    position: static;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+  header.hero h1 { font-size: 24px; }
+  h2 { font-size: 20px; }
+}
+@media print {
+  nav.toc { display: none; }
+  .layout { grid-template-columns: 1fr; padding: 0; }
+  body { background: white; }
+  header.hero { border-bottom-color: var(--ink); }
+  #cite-pop, dialog.lightbox { display: none !important; }
+}
+
+/* --- P0 polish: TOC scrollspy active state ---------------------------- */
+nav.toc a.active {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* --- P0 polish: Long-code auto-collapse ------------------------------- */
+details.code-card {
+  margin: 14px 0;
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 4px;
+}
+details.code-card > summary {
+  cursor: pointer;
+  padding: 8px 14px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  list-style: none;
+  user-select: none;
+}
+details.code-card > summary::-webkit-details-marker { display: none; }
+details.code-card > summary::before { content: none; }
+details.code-card > pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: none;
+  border-radius: 0;
+}
+@media print {
+  details.code-card { border: 1px solid #ccc; background: white; }
+  details.code-card > summary { display: none !important; }
+  details.code-card > pre { border: 1px solid #ddd; border-radius: 4px; background: white; }
+}
+
+
+/* ===== 清单专用增强：徽章 / 工具条 / 进度勾选 ===== */
+
+/* --- 优先级徽章 --- */
+.pri {
+  display: inline-block;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pri-p0 { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.pri-p1 { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+.pri-p2 { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.pri-p3 { background: var(--bg-soft); color: var(--ink-muted); border-color: var(--border); }
+
+/* --- 难度徽章 --- */
+.diff {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.diff-easy { background: var(--good-bg); color: var(--good); }
+.diff-mid  { background: var(--warn-bg); color: var(--warn); }
+.diff-hard { background: var(--bad-bg);  color: var(--bad); }
+
+/* --- Hot100 标记 --- */
+.hot {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* --- 表格微调：题号列等宽字体，行内不换行的窄列 --- */
+td .pri, td .diff { vertical-align: middle; }
+tbody tr.prow:hover { background: #f0ece0; }
+tbody tr.done { opacity: 0.42; }
+tbody tr.done td:nth-child(5) { text-decoration: line-through; }
+
+th.ck, td.ck {
+  width: 34px;
+  text-align: center;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+td.ck input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 2px 0 0;
+}
+
+/* --- 顶部工具条 --- */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 160px;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.toolbar input[type="search"]:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.toolbar .pris { display: flex; gap: 4px; }
+.toolbar .pris button,
+.toolbar .reset {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.toolbar .pris button:hover,
+.toolbar .reset:hover { border-color: var(--primary); color: var(--primary); }
+.toolbar .pris button.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.toolbar .only-todo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toolbar .only-todo input { accent-color: var(--primary); cursor: pointer; }
+.toolbar .progress {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.toolbar .progress b { color: var(--accent); }
+
+/* 被筛掉的行 / 整表无结果 */
+tr.hidden, .table-wrap.hidden, h2.hidden, h3.hidden { display: none; }
+
+/* --- 代码块说明条 --- */
+.code-note {
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid #fcd34d;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 3px 10px;
+  margin: 14px 0 3px;
+  display: inline-block;
+}
+
+/* --- 复制按钮 --- */
+.pre-wrap { position: relative; }
+.pre-wrap .copy {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(253, 252, 247, 0.9);
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pre-wrap:hover .copy { opacity: 1; }
+.pre-wrap .copy:hover { color: var(--primary); border-color: var(--primary); }
+.pre-wrap .copy.ok { color: var(--good); border-color: var(--good); }
+
+/* --- 回到顶部 --- */
+.to-top {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-muted);
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.to-top.show { opacity: 1; pointer-events: auto; }
+.to-top:hover { color: var(--primary); border-color: var(--primary); }
+
+@media (max-width: 900px) {
+  .toolbar { position: static; }
+}
+@media print {
+  .toolbar, .to-top, .pre-wrap .copy { display: none !important; }
+  tr.hidden, .table-wrap.hidden { display: revert !important; }
+  tbody tr.done { opacity: 1; }
+}
+
+/* 表头不折行；正文列正常换行 */
+thead th { white-space: nowrap; }
+
+/* 标题自带编号（0. / 一、/ 表 A），关掉目录的自动序号避免双重编号 */
+nav.toc > ol > li { counter-increment: none; margin: 9px 0; }
+nav.toc > ol > li::before { content: none; }
+nav.toc > ol > li > a { font-weight: 600; color: var(--ink); }
+
+/* 表头里的行内代码要在深蓝底上可读 */
+thead th code:not(.hljs) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+/* 长代码卡默认展开，summary 作为折叠把手，不要抢戏 */
+details.code-card > summary { opacity: 0.55; }
+details.code-card > summary:hover { opacity: 1; color: var(--primary); }
+details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft); }
+
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目录</h3>
+<ol><li><a href="#sec-0">0. 怎么用这份文档</a></li><li><a href="#sec-1">1. 复杂度速查与四种「O(1)」</a></li><li><a href="#sec-2">2. 数组与动态数组</a></li><li><a href="#sec-3">3. 链表</a></li><li><a href="#sec-4">4. 栈、队列与双端队列</a></li><li><a href="#sec-5">5. 哈希表</a></li><li><a href="#sec-6">6. 堆与优先队列</a><ul><li><a href="#sec-6-1">6.1 std::priority_queue 的用法</a></li><li><a href="#sec-6-2">6.2 手搓优先队列之一：快排 + 二分（有序数组）</a></li><li><a href="#sec-6-3">6.3 手搓优先队列之二：二叉堆</a></li><li><a href="#sec-6-4">6.4 两种实现怎么选</a></li><li><a href="#sec-6-5">6.5 堆排序与第 K 大</a></li></ul></li><li><a href="#sec-7">7. 二叉搜索树与平衡树</a></li><li><a href="#sec-8">8. B 树、B+ 树与 LSM 树</a></li><li><a href="#sec-9">9. Trie 与字符串结构</a></li><li><a href="#sec-10">10. 并查集</a></li><li><a href="#sec-11">11. 图的存储</a></li><li><a href="#sec-12">12. 区间结构：前缀和、树状数组、线段树</a></li><li><a href="#sec-13">13. 位图、布隆过滤器与概率结构</a></li><li><a href="#sec-14">14. 并发场景下的数据结构</a></li><li><a href="#sec-15">15. 选型速查：从需求反推结构</a></li></ol>
+</nav>
+<main>
+<header class="hero">
+  <div class="eyebrow">面试准备 · 数据结构基础</div>
+  <h1>数据结构基础面试要点</h1>
+  <p class="subtitle">数组到 B+ 树、并查集到布隆过滤器：每种结构为什么这样设计、代价在哪、什么时候不该用，附追问链</p>
+  <div class="meta">
+    <span><strong>来源</strong> <code>ds_fundamentals.md</code></span>
+    <span><strong>生成</strong> 2026-09-20 17:09 UTC</span>
+  </div>
+</header>
+
+<blockquote>
+<p>范围：数组、链表、栈与队列、哈希表、堆、平衡树、B+ 树与 LSM、Trie、并查集、图的存储、区间结构、概率结构、并发场景，共 15 节、18 道主问题、78 条追问。 定位：和语言无关，讲每种结构<strong>为什么这样设计、代价在哪、什么时候不该用</strong>。C++ 容器层面的细节（<code>vector</code> 扩容、<code>map</code> 与 <code>unordered_map</code> 的实现、手写 vector / 哈希表 / LRU）已经在 <a href="/cpp-fundamentals/#sec-4-1">C++ 基础深度笔记第 4 章</a> 和 <a href="/cpp-fundamentals/#sec-5-1">第 5 章</a> 里，这里只给链接，不重复。 配套：<a href="/leetcode-design/">LeetCode 数据结构设计题全集</a> 里有 134 道设计题的分类清单，以及跳表、树状数组、Trie、环形队列、对顶堆、懒删除堆等 10 个验证过的 C++ 模板。 代码：每一节都配了面试常考的 C++ 代码，全部是<strong>面试里能直接手写的版本</strong>：只处理 <code>int</code>、随机数用 <code>rand()</code>、节点用裸指针，不用模板和工程化封装。所有代码用 Apple clang <code>-std=c++17 -Wall -Wextra -fsanitize=address,undefined</code> 编译，并和暴力解法或标准库做过随机对拍（快排类代码单独测了全部相等、大量重复、已经有序、空输入；阻塞队列另外过了 ThreadSanitizer）。 写法约定：每条追问的回答都是「结论 + 为什么」。判断标准是这条回答能不能推出一个你没背过的结论。</p>
+</blockquote>
+<h2 id="sec-0"><span class="num">0.</span>怎么用这份文档</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>章节</th>
+<th>为什么排在这一档</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td><a href="#sec-1">1 复杂度</a>、<a href="#sec-2">2 数组</a>、<a href="#sec-3">3 链表</a>、<a href="#sec-5">5 哈希表</a>、<a href="#sec-6">6 堆</a></td>
+<td>几乎所有手撕题写完之后的追问都落在这里：扩容、摊还、冲突解决、建堆复杂度、Top K</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td><a href="#sec-4">4 栈与队列</a>、<a href="#sec-7">7 平衡树</a>、<a href="#sec-8">8 B+ 树与 LSM</a>、<a href="#sec-10">10 并查集</a>、<a href="#sec-14">14 并发</a></td>
+<td>「为什么 <code>map</code> 用红黑树」「为什么索引用 B+ 树」是固定问法；后端和基础架构岗会继续追问到并发</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td><a href="#sec-9">9 Trie</a>、<a href="#sec-11">11 图的存储</a>、<a href="#sec-12">12 区间结构</a>、<a href="#sec-13">13 概率结构</a></td>
+<td>出现时一般以具体题目的形式出现（区间题、海量数据题），知道选型依据即可</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>这张优先级表是经验判断，没有频度数据支撑：依据是各结构在后端与基础架构方向面经里被追问的普遍程度。需要数据支撑的优先级见设计题清单（基于 CodeTop 频度）。</p>
+<p>每节的结构是：几条要点 → 面试常考代码（附易错点）→ 主问题，点开是追问和解答。<a href="#sec-15">第 15 节</a> 是从需求反推结构的速查表，适合面试前最后扫一遍。</p>
+<h2 id="sec-1"><span class="num">1.</span>复杂度速查与四种「O(1)」</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>结构</th>
+<th>查找</th>
+<th>插入</th>
+<th>删除</th>
+<th>取最值</th>
+<th>有序遍历</th>
+<th>最坏情况 / 备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>动态数组</td>
+<td>O(n)，有序时 O(log n)</td>
+<td>尾部摊还 O(1)，中间 O(n)</td>
+<td>尾部 O(1)，中间 O(n)</td>
+<td>O(n)</td>
+<td>需先排序</td>
+<td>扩容那一次 O(n)</td>
+</tr>
+<tr>
+<td>链表</td>
+<td>O(n)</td>
+<td>已定位 O(1)</td>
+<td>已定位 O(1)</td>
+<td>O(n)</td>
+<td>否</td>
+<td>定位本身 O(n)</td>
+</tr>
+<tr>
+<td>哈希表</td>
+<td>平均 O(1)</td>
+<td>平均 O(1)</td>
+<td>平均 O(1)</td>
+<td>O(n)</td>
+<td>否</td>
+<td>全部冲突时 O(n)</td>
+</tr>
+<tr>
+<td>平衡二叉树</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)，缓存端点后 O(1)</td>
+<td>是</td>
+<td>最坏也是 O(log n)</td>
+</tr>
+<tr>
+<td>跳表</td>
+<td>期望 O(log n)</td>
+<td>期望 O(log n)</td>
+<td>期望 O(log n)</td>
+<td>O(1) 取最小</td>
+<td>是</td>
+<td>概率极小地退化到 O(n)</td>
+</tr>
+<tr>
+<td>二叉堆</td>
+<td>O(n)</td>
+<td>O(log n)</td>
+<td>堆顶 O(log n)</td>
+<td>O(1)</td>
+<td>否</td>
+<td>建堆 O(n)</td>
+</tr>
+<tr>
+<td>Trie</td>
+<td>O(L)</td>
+<td>O(L)</td>
+<td>O(L)</td>
+<td>–</td>
+<td>是（字典序）</td>
+<td>L 为串长，与字典大小无关</td>
+</tr>
+<tr>
+<td>并查集</td>
+<td>find 摊还 O(α(n))</td>
+<td>union 摊还 O(α(n))</td>
+<td>不支持</td>
+<td>–</td>
+<td>否</td>
+<td>α(n) 实际不超过 5</td>
+</tr>
+<tr>
+<td>树状数组</td>
+<td>前缀查询 O(log n)</td>
+<td>单点更新 O(log n)</td>
+<td>–</td>
+<td>不支持</td>
+<td>–</td>
+<td>只适用于可差分的运算</td>
+</tr>
+<tr>
+<td>线段树</td>
+<td>区间查询 O(log n)</td>
+<td>区间更新 O(log n)</td>
+<td>–</td>
+<td>区间最值 O(log n)</td>
+<td>–</td>
+<td>空间 4n</td>
+</tr>
+<tr>
+<td>B+ 树</td>
+<td>O(log n)，底数为扇出</td>
+<td>同左</td>
+<td>同左</td>
+<td>沿叶子链表</td>
+<td>是</td>
+<td>以磁盘页为单位</td>
+</tr>
+<tr>
+<td>布隆过滤器</td>
+<td>O(k)</td>
+<td>O(k)</td>
+<td>不支持</td>
+<td>–</td>
+<td>否</td>
+<td>有假阳性，无假阴性</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>表里出现了「平均」「期望」「摊还」三个词，加上「最坏」一共四种说法。它们不是一回事，面试里用错一个就会被追问。</p>
+<p><strong>Q1 · 平均 O(1)、期望 O(1)、摊还 O(1)、最坏 O(1) 有什么区别</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>四个词分别是对什么取平均？</strong> 平均是对<strong>输入分布</strong>取平均（哈希表的 O(1) 假设 key 被哈希函数均匀打散，输入不配合就不成立）。期望是对<strong>算法自己掷的骰子</strong>取平均（跳表的层数、快排的随机 pivot），和输入无关，对手无法构造坏输入。摊还是<strong>一串操作的总代价除以次数</strong>，是确定性的保证，不含任何概率。最坏是单次操作的上界。所以强度排序是：最坏 &gt; 摊还 &gt; 期望 &gt; 平均。</li>
+<li><strong><code>vector</code> 为什么按倍数扩容，而不是每次多加固定大小？</strong> 每次加 k 个：第 i 次扩容要拷贝 i · k 个元素，n 次插入总拷贝量是 k(1 + 2 + … + n/k)，即 O(n² / k)，摊还到每次是 O(n)。按倍数扩容时总拷贝量是等比数列 1 + 2 + 4 + … + n，和小于 2n，摊还 O(1)。关键在等比数列的和由最后一项主导。</li>
+<li><strong>扩容因子取 2 还是 1.5？</strong> 取 2 时，之前释放过的所有旧块大小之和是 1 + 2 + … + 2^(k-1) = 2^k - 1，永远比下一次要申请的 2^k 小，分配器无法拿这些旧块拼出新块，内存只能一直向后要。因子小于黄金比例 1.618 时，若干次扩容后旧块之和能装下新块，可以复用。libstdc++ 和 libc++ 取 2（拷贝次数少），MSVC 取 1.5（内存友好），没有绝对优劣。</li>
+<li><strong>摊还 O(1) 在什么场景下不可接受？</strong> 延迟敏感的场景。摊还保证的是总量，不限制单次：扩容或 rehash 的那一次是 O(n)，会在在线服务的 P99 上形成一个尖刺。对策是提前 <code>reserve</code>，或者把一次性的大搬迁拆散到后续每次操作里（Redis 的渐进式 rehash，见 <a href="#sec-5">第 5 节</a>）。</li>
+<li><strong>同样是 O(n)，遍历数组为什么比遍历链表快一个数量级？</strong> 大 O 隐藏了常数，而这里的常数主要是访存。缓存行 64 字节，顺序读 <code>int</code> 数组时一次未命中能带回 16 个元素，硬件预取器还会提前把后面的行取好；链表节点在堆上分散，每跳一次指针都可能是一次未命中，主存访问延迟是一级缓存的上百倍。所以 n 在几千以内时，数组的 O(n) 操作经常比链表的 O(1) 操作还快。</li>
+</ul>
+</details>
+<h2 id="sec-2"><span class="num">2.</span>数组与动态数组</h2>
+<ul>
+<li><strong>本质</strong>：一段连续内存。第 i 个元素的地址 = 基址 + i × 元素大小，一次乘加就能定位，所以随机访问是 O(1)。</li>
+<li><strong>代价</strong>：中间插删要搬移后面所有元素，O(n)；容量不够时要整体搬家，搬家后原来的指针、引用、迭代器全部失效。</li>
+<li><strong>优势常被低估</strong>：连续内存带来的缓存局部性，让它在中小规模下几乎总是最快的选择。不确定用什么容器时先用数组。</li>
+<li>C++ 的 <code>vector</code> 细节（<code>size</code> 与 <code>capacity</code>、<code>reserve</code> 与 <code>resize</code>、<code>emplace_back</code>、迭代器失效规则、手写 vector）见 <a href="/cpp-fundamentals/#sec-4-2">C++ 笔记 4.2</a> 和 <a href="/cpp-fundamentals/#sec-4-10">4.10</a>。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>手写动态数组、二分查找、双指针原地删除，三样都是「写完还会被追问」的基本功。带模板和移动语义的完整版 <code>vector</code> 见 <a href="/cpp-fundamentals/#sec-4-10">C++ 笔记 4.10</a>。</p>
+<pre><code class="language-cpp">// 手写动态数组（int 版）：容量不够就翻倍
+class MyVector {
+    int* data_ = nullptr;
+    int size_ = 0, cap_ = 0;
+
+    void grow() {
+        int newCap = cap_ == 0 ? 1 : cap_ * 2;
+        int* p = new int[newCap];                  // 申请新块，
+        for (int i = 0; i &lt; size_; ++i) p[i] = data_[i];   // 搬运，
+        delete[] data_;                            // 释放旧块：旧指针、旧迭代器从这一刻起全部失效
+        data_ = p;
+        cap_ = newCap;
+    }
+public:
+    ~MyVector() { delete[] data_; }
+    void push_back(int x) {
+        if (size_ == cap_) grow();
+        data_[size_++] = x;
+    }
+    void pop_back() { --size_; }                   // 只改 size，不缩容
+    int&amp; operator[](int i) { return data_[i]; }
+    int size() { return size_; }
+    int capacity() { return cap_; }
+};</code></pre>
+<pre><code class="language-cpp">// 二分模板：第一个 &gt;= target 的位置，左闭右开 [lo, hi)。都比 target 小时返回 nums.size()
+int lowerBound(vector&lt;int&gt;&amp; nums, int target) {
+    int lo = 0, hi = nums.size();
+    while (lo &lt; hi) {
+        int mid = lo + (hi - lo) / 2;              // 不写 (lo + hi) / 2，避免相加溢出
+        if (nums[mid] &lt; target) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}</code></pre>
+<pre><code class="language-cpp">// 34. 在排序数组中查找元素的第一个和最后一个位置：调两次模板
+vector&lt;int&gt; searchRange(vector&lt;int&gt;&amp; nums, int target) {
+    int first = lowerBound(nums, target);
+    if (first == (int)nums.size() || nums[first] != target) return {-1, -1};
+    int last = lowerBound(nums, target + 1) - 1;   // 第一个 &gt;= target + 1 的位置，再退一格
+    return {first, last};
+}</code></pre>
+<pre><code class="language-cpp">// 27. 移除元素：slow 指向下一个要写入的位置，fast 负责扫描。O(n)，不用 erase
+int removeElement(vector&lt;int&gt;&amp; nums, int val) {
+    int slow = 0;
+    for (int fast = 0; fast &lt; (int)nums.size(); ++fast) {
+        if (nums[fast] != val) nums[slow++] = nums[fast];
+    }
+    return slow;                                   // 新长度
+}</code></pre>
+<ul>
+<li><strong>手写动态数组的追问点</strong>：扩容为什么是翻倍（见上面的 Q1）；<code>pop_back</code> 为什么不缩容（缩了之后紧接着再 <code>push_back</code> 又要扩，来回抖动）；这个类缺了拷贝构造和赋值，直接拷贝会让两个对象指向同一块内存、析构时重复释放。</li>
+<li><strong>二分只背这一个模板就够了。</strong> 「最后一个不超过 x 的位置」是 <code>lowerBound(x + 1) - 1</code>，「x 是否存在」是看 <code>lowerBound(x)</code> 位置上的值，都能转成它。</li>
+</ul>
+<p><strong>Q2 · 数组的随机访问为什么是 O(1)，代价是什么</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么下标从 0 开始？</strong> 下标的含义是相对基址的偏移量，地址 = 基址 + i × 大小。如果从 1 开始，每次访问都要多做一次减法，或者浪费第 0 个槽位。</li>
+<li><strong>扩容之后迭代器为什么失效？没扩容的 <code>insert</code> 呢？</strong> 扩容 = 申请新块、搬运元素、释放旧块，旧迭代器本质上是指向旧块的指针，变成了悬垂指针。没扩容的 <code>insert</code> 也会让插入点之后的迭代器失效：内存没动，但元素整体后移了一格，迭代器指向的已经不是原来那个元素。</li>
+<li><strong>二维数组按行遍历和按列遍历差多少，为什么？</strong> C 和 C++ 是行主序，按行遍历是连续访存，一次缓存未命中之后的 15 个 <code>int</code> 都命中。按列遍历每一步跨过整整一行，步长远超缓存行，几乎每次访问都未命中。矩阵放不进缓存时，两者可以差几倍到十几倍。矩阵乘法调换循环顺序（ikj 代替 ijk）能提速，原因相同。</li>
+<li><strong>怎么删除数组里所有满足条件的元素？</strong> 用双指针把要保留的元素依次前移，最后一次性截掉尾部，O(n)；这就是 C++ 的 erase-remove 惯用法和 C++20 的 <code>std::erase_if</code>。在循环里逐个 <code>erase</code> 是 O(n²)，因为每删一个都要搬移后面全部元素，而且还要小心迭代器失效。</li>
+</ul>
+</details>
+<h2 id="sec-3"><span class="num">3.</span>链表</h2>
+<ul>
+<li><strong>本质</strong>：节点分散在堆上，靠指针串联。已经拿到节点指针时，插入和删除只改几个指针，O(1)。</li>
+<li><strong>代价</strong>：定位第 k 个要从头走，O(n)；每个节点多一到两个指针外加一次堆分配；访存跳跃，缓存不友好。</li>
+<li><strong>真正适用的场景很窄</strong>：位置由别的结构直接给出（LRU 里哈希表给出节点）、需要 O(1) 拼接两条链、需要元素地址长期稳定、或者一个对象要同时挂在多条链上（侵入式链表）。</li>
+<li>五个必须默写的操作（反转、找中点、合并、判环与找入口、删除倒数第 k 个）和快慢指针找环入口的证明见 <a href="/cpp-fundamentals/#sec-5-1">C++ 笔记 5.1</a>。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>四个必须能默写的链表操作，加上链表最重要的应用 LRU。共同技巧只有两个：<strong>哨兵节点</strong>消掉头节点的特判，<strong>快慢指针</strong>一次遍历定位。</p>
+<pre><code class="language-cpp">struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int v) : val(v), next(nullptr) {}
+};</code></pre>
+<pre><code class="language-cpp">// 206. 反转链表
+ListNode* reverseList(ListNode* head) {
+    ListNode* prev = nullptr;
+    while (head) {
+        ListNode* next = head-&gt;next;               // 先记住下一个，
+        head-&gt;next = prev;                         // 再掉头
+        prev = head;
+        head = next;
+    }
+    return prev;
+}</code></pre>
+<pre><code class="language-cpp">// 21. 合并两个有序链表
+ListNode* mergeTwoLists(ListNode* a, ListNode* b) {
+    ListNode dummy(0);                             // 哨兵：不用特判「结果链表的第一个节点」
+    ListNode* tail = &amp;dummy;
+    while (a &amp;&amp; b) {
+        if (a-&gt;val &lt;= b-&gt;val) { tail-&gt;next = a; a = a-&gt;next; }
+        else { tail-&gt;next = b; b = b-&gt;next; }
+        tail = tail-&gt;next;
+    }
+    tail-&gt;next = a ? a : b;                        // 剩下的一段直接接上
+    return dummy.next;
+}</code></pre>
+<pre><code class="language-cpp">// 19. 删除链表的倒数第 n 个节点：快指针先走 n 步，然后两个指针一起走
+ListNode* removeNthFromEnd(ListNode* head, int n) {
+    ListNode dummy(0);
+    dummy.next = head;                             // 哨兵：要删的是头节点时也不用特判
+    ListNode* fast = &amp;dummy;
+    ListNode* slow = &amp;dummy;
+    for (int i = 0; i &lt; n; ++i) fast = fast-&gt;next;
+    while (fast-&gt;next) { fast = fast-&gt;next; slow = slow-&gt;next; }
+    slow-&gt;next = slow-&gt;next-&gt;next;                 // slow 停在被删节点的前一个
+    return dummy.next;
+}</code></pre>
+<pre><code class="language-cpp">// 142. 环形链表 II：快慢指针相遇后，一个指针回到头，两个同速再走，再次相遇的地方就是入口
+ListNode* detectCycle(ListNode* head) {
+    ListNode* slow = head;
+    ListNode* fast = head;
+    while (fast &amp;&amp; fast-&gt;next) {
+        slow = slow-&gt;next;
+        fast = fast-&gt;next-&gt;next;
+        if (slow == fast) {
+            ListNode* p = head;
+            while (p != slow) { p = p-&gt;next; slow = slow-&gt;next; }
+            return p;
+        }
+    }
+    return nullptr;                                // fast 走到了尽头，没有环
+}</code></pre>
+<details class="code-card" open=""><summary>56 行 · 点击折叠</summary><pre><code class="language-cpp">// 146. LRU 缓存：哈希表负责 O(1) 找到节点，双向链表负责 O(1) 调整顺序
+class LRUCache {
+    struct Node {
+        int key, val;
+        Node* prev;
+        Node* next;
+        Node(int k, int v) : key(k), val(v), prev(nullptr), next(nullptr) {}
+    };
+    int cap_;
+    unordered_map&lt;int, Node*&gt; mp_;
+    Node* head_;                                   // 两个哨兵：head_ 后面是最近用过的，tail_ 前面是最久没用的
+    Node* tail_;
+
+    void remove(Node* n) {
+        n-&gt;prev-&gt;next = n-&gt;next;
+        n-&gt;next-&gt;prev = n-&gt;prev;
+    }
+    void addFront(Node* n) {
+        n-&gt;next = head_-&gt;next;
+        n-&gt;prev = head_;
+        head_-&gt;next-&gt;prev = n;
+        head_-&gt;next = n;
+    }
+public:
+    LRUCache(int capacity) : cap_(capacity) {
+        head_ = new Node(0, 0);
+        tail_ = new Node(0, 0);
+        head_-&gt;next = tail_;
+        tail_-&gt;prev = head_;
+    }
+    int get(int key) {
+        if (!mp_.count(key)) return -1;
+        Node* n = mp_[key];
+        remove(n);                                 // get 也算「用过」，要挪到最前面
+        addFront(n);
+        return n-&gt;val;
+    }
+    void put(int key, int value) {
+        if (mp_.count(key)) {
+            Node* n = mp_[key];
+            n-&gt;val = value;
+            remove(n);
+            addFront(n);
+            return;
+        }
+        if ((int)mp_.size() == cap_) {
+            Node* last = tail_-&gt;prev;              // 淘汰最久没用的
+            remove(last);
+            mp_.erase(last-&gt;key);                  // 节点里存 key，就是为了这一步能反查哈希表
+            delete last;
+        }
+        Node* n = new Node(key, value);
+        mp_[key] = n;
+        addFront(n);
+    }
+};</code></pre></details>
+<ul>
+<li><strong>LRU 的三个易错点</strong>：<code>get</code> 也要把节点挪到最前面；节点里必须存 key，否则淘汰尾节点时没法从哈希表里删掉它；<code>put</code> 一个已经存在的 key 是更新并挪到最前面，不是新增，不能触发淘汰。</li>
+<li>用 <code>std::list</code> 加迭代器的写法、加过期时间、加并发的追问见 <a href="/cpp-fundamentals/#sec-5-5">C++ 笔记 5.5</a>；LFU 和其他缓存类设计题见 <a href="/leetcode-design/#sec-1-1">设计题清单 1.1</a>。</li>
+</ul>
+<p><strong>Q3 · 「链表插入是 O(1)」这句话的前提是什么</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>前提是什么？</strong> 前提是已经拿到了插入位置的节点指针。如果要「在第 k 个位置插入」，定位本身就是 O(n)，整体和数组同阶；而且数组的 O(n) 是一次连续的 <code>memmove</code>，链表的 O(n) 是逐节点的缓存未命中，实测数组更快。所以链表只在「位置由别人直接给出」时才赢，例如 LRU 里由哈希表 O(1) 给出节点。</li>
+<li><strong>哨兵节点解决什么问题？</strong> 没有哨兵时，「在头部插入」「删除头节点」「链表为空」都需要单独判断，因为这些情况下要改的是 head 指针本身而不是某个节点的 next。加一个不存数据的哑节点之后，每个真实节点都有前驱，所有位置的插删代码变成同一种写法。边界分支是链表题出错最多的地方，哨兵直接把它们消掉。</li>
+<li><strong>只给一个节点的指针，单链表能 O(1) 删掉它吗？</strong> 能，但有限制：把后继节点的值拷贝过来，然后删除后继。原因是单链表拿不到前驱，就改成「让自己变成后继」。限制有三条：尾节点没有后继，做不到；外部如果还持有后继节点的指针，会悬垂；值很大时拷贝并不便宜。</li>
+<li><strong>什么是侵入式链表，内核为什么用它？</strong> 普通链表是「节点包着数据」，侵入式是把链表指针直接嵌进数据结构体里，再通过 <code>offsetof</code> 从指针成员反推出对象地址。好处有三个：一个对象可以同时挂在多条链上（就绪队列、等待队列、全局进程表）而不需要为每条链各分配一个节点；拿到对象就能 O(1) 把自己从链上摘下来，不用查找；挂链、摘链不涉及内存分配，所以不会失败，这在中断上下文里是硬要求。</li>
+</ul>
+</details>
+<h2 id="sec-4"><span class="num">4.</span>栈、队列与双端队列</h2>
+<ul>
+<li><strong>栈</strong>：数组尾部进出即可，压栈和弹栈都是 O(1)。</li>
+<li><strong>队列</strong>：数组实现必须做成环形缓冲区（见 <a href="/leetcode-design/#sec-2-7">设计题模板 2.7</a>），否则出队要搬移元素；链表实现需要同时记头尾指针。</li>
+<li><strong><code>std::deque</code></strong>：分段连续。一个中控数组存着若干个定长缓冲块的指针，头尾各自向外生长，不需要搬移已有元素。</li>
+<li><strong>适配器的默认底层</strong>：<code>stack</code> 和 <code>queue</code> 默认用 <code>deque</code>，<code>priority_queue</code> 默认用 <code>vector</code>。</li>
+<li><strong>单调栈 / 单调队列</strong>：在栈或队列里只保留「将来还有可能成为答案」的元素，其余提前淘汰。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>栈的代表题是括号匹配，单调栈和单调队列各一道。最小栈、双栈实现队列、环形队列这三道设计题的代码在 <a href="/leetcode-design/#sec-2-1">设计题模板 2.1</a>、<a href="/leetcode-design/#sec-2-2">2.2</a>、<a href="/leetcode-design/#sec-2-7">2.7</a>。</p>
+<pre><code class="language-cpp">// 20. 有效的括号
+bool isValid(string s) {
+    stack&lt;char&gt; st;
+    for (char c : s) {
+        if (c == '(') st.push(')');                // 压入「期待的右括号」，匹配时直接比较
+        else if (c == '[') st.push(']');
+        else if (c == '{') st.push('}');
+        else {
+            if (st.empty() || st.top() != c) return false;
+            st.pop();
+        }
+    }
+    return st.empty();                             // 还有没配对的左括号也算无效
+}</code></pre>
+<pre><code class="language-cpp">// 739. 每日温度（单调栈）：栈里放下标，对应的温度从栈底到栈顶递减
+vector&lt;int&gt; dailyTemperatures(vector&lt;int&gt;&amp; t) {
+    int n = t.size();
+    vector&lt;int&gt; res(n, 0);
+    stack&lt;int&gt; st;
+    for (int i = 0; i &lt; n; ++i) {
+        while (!st.empty() &amp;&amp; t[i] &gt; t[st.top()]) {   // t[i] 就是栈顶那天之后第一个更高的温度
+            res[st.top()] = i - st.top();
+            st.pop();
+        }
+        st.push(i);
+    }
+    return res;
+}</code></pre>
+<pre><code class="language-cpp">// 239. 滑动窗口最大值（单调队列）：队列里放下标，对应的值从队头到队尾递减
+vector&lt;int&gt; maxSlidingWindow(vector&lt;int&gt;&amp; nums, int k) {
+    deque&lt;int&gt; dq;
+    vector&lt;int&gt; res;
+    for (int i = 0; i &lt; (int)nums.size(); ++i) {
+        while (!dq.empty() &amp;&amp; nums[dq.back()] &lt;= nums[i]) dq.pop_back();   // 比新元素小又比它老，不可能再当最大值
+        dq.push_back(i);
+        if (dq.front() &lt;= i - k) dq.pop_front();                           // 队头已经滑出窗口
+        if (i &gt;= k - 1) res.push_back(nums[dq.front()]);                   // 队头就是当前窗口的最大值
+    }
+    return res;
+}</code></pre>
+<ul>
+<li><strong>单调栈和单调队列里存的都是下标，不是值。</strong> 原因是答案需要距离（739）或者需要判断元素是否已经滑出窗口（239），这两件事只有下标能提供；值随时可以通过下标取到。</li>
+<li><strong>239 里弹队尾用 <code>&lt;=</code>。</strong> 相等的旧元素也弹掉，因为新元素和它一样大却更晚过期，旧的那个已经没有留着的价值。</li>
+</ul>
+<p><strong>Q4 · <code>std::deque</code> 怎么做到两端 O(1) 插入，同时还支持随机访问</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>内部结构是什么？</strong> 中控数组加若干个定长缓冲块。下标 i 先换算成（第几块，块内偏移），再取两次地址，所以随机访问是 O(1)，但比 <code>vector</code> 多一次间接寻址。头部空间不够时在中控数组前面再挂一个新块，已有元素不动，这是它头插 O(1) 的原因。</li>
+<li><strong>两端插入之后，迭代器和引用哪个会失效？</strong> 迭代器全部失效，但元素的引用和指针不失效。原因是迭代器里存着指向中控数组的指针，而中控数组满了会重新分配；元素本身所在的缓冲块从不搬家，所以指向元素的指针一直有效。这是 <code>deque</code> 和 <code>vector</code> 最容易被问到的区别。</li>
+<li><strong><code>stack</code> 只需要在尾部操作，为什么默认底层不是 <code>vector</code>？</strong> <code>deque</code> 增长时只是多挂一个块，不搬移已有元素；<code>vector</code> 扩容要整体拷贝，而且拷贝的瞬间新旧两块同时存在，峰值内存接近三倍。作为通用默认值，<code>deque</code> 的最坏情况更温和。明确知道规模时，<code>stack&lt;int, vector&lt;int&gt;&gt;</code> 加 <code>reserve</code> 更快。</li>
+<li><strong>单调栈为什么是 O(n)，栈里为什么要保持单调？</strong> 每个元素只进栈一次、出栈一次，总操作数不超过 2n。以「右边第一个更大的元素」为例：新元素到来时，栈里所有比它小的元素都找到了答案（就是它），可以弹出；剩下的都比它大，还没遇到自己的答案，继续留着。弹完之后栈自然是单调递减的，单调性是这个淘汰规则的结果而不是额外的要求。</li>
+<li><strong>滑动窗口最大值为什么要用双端队列？</strong> 需要在两端删除：新元素进来时，从队尾弹出所有不大于它的元素，因为它们比新元素更早过期而且更小，永远不可能再成为最大值；窗口滑动时，从队头弹出已经滑出窗口的元素。队头始终是当前窗口的最大值。每个元素进出各一次，总体 O(n)。</li>
+</ul>
+</details>
+<h2 id="sec-5"><span class="num">5.</span>哈希表</h2>
+<p>三个设计决策：<strong>哈希函数</strong>（怎么把 key 打散）、<strong>冲突解决</strong>（两个 key 落到同一个位置怎么办）、<strong>扩容策略</strong>（什么时候、怎么搬）。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>拉链法</th>
+<th>开放寻址（线性探测为主）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>冲突处理</td>
+<td>每个桶挂一条链表</td>
+<td>顺着数组往后找下一个空位</td>
+</tr>
+<tr>
+<td>负载因子</td>
+<td>可以大于 1，通常阈值 0.75 到 1</td>
+<td>必须小于 1，通常阈值 0.5 到 0.875</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>直接摘节点</td>
+<td>要留墓碑，否则会截断探测链</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>差，桶到节点至少一次指针跳转</td>
+<td>好，探测的是相邻内存</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>每个元素一次堆分配加一个指针</td>
+<td>无额外指针，但要预留空槽</td>
+</tr>
+<tr>
+<td>代表</td>
+<td><code>std::unordered_map</code>、Java <code>HashMap</code>、Redis dict</td>
+<td>absl <code>flat_hash_map</code>、Rust <code>HashMap</code>、Python <code>dict</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>桶数取质数还是 2 的幂</strong>：质数对质量差的哈希函数更宽容，取模本身就能打散有规律的 key（比如全是 8 的倍数的指针地址）。2 的幂可以把取模换成按位与，更快，但只用到了哈希值的低位，要求哈希函数自己把高位信息混下来（Java 的 <code>h ^ (h &gt;&gt;&gt; 16)</code> 就是干这个的）。libstdc++ 用质数，Java 和 absl 用 2 的幂。</li>
+<li><strong>什么时候不用哈希表</strong>：需要有序遍历、范围查询、找前驱后继；需要最坏情况也有保证；数据量很小（几十个元素以内线性扫描数组更快）。</li>
+<li>手写拉链哈希表和分段加锁见 <a href="/cpp-fundamentals/#sec-5-2">C++ 笔记 5.2</a>，<code>unordered_map</code> 的接口细节见 <a href="/cpp-fundamentals/#sec-4-5">4.5</a>。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>手写哈希表（拉链法），以及哈希表最典型的两种用法：用空间换一次查找（两数之和），用集合把「判断是否存在」降到 O(1)（最长连续序列）。</p>
+<pre><code class="language-cpp">// 706. 设计哈希映射：拉链法。key 保证非负
+class MyHashMap {
+    static const int B = 1009;                     // 桶数取质数
+    vector&lt;list&lt;pair&lt;int, int&gt;&gt;&gt; buckets_;
+public:
+    MyHashMap() : buckets_(B) {}
+    void put(int key, int value) {
+        auto&amp; chain = buckets_[key % B];
+        for (auto&amp; kv : chain) {
+            if (kv.first == key) { kv.second = value; return; }   // 已存在就更新
+        }
+        chain.push_back({key, value});
+    }
+    int get(int key) {
+        for (auto&amp; kv : buckets_[key % B]) {
+            if (kv.first == key) return kv.second;
+        }
+        return -1;
+    }
+    void remove(int key) {
+        auto&amp; chain = buckets_[key % B];
+        for (auto it = chain.begin(); it != chain.end(); ++it) {
+            if (it-&gt;first == key) { chain.erase(it); return; }
+        }
+    }
+};</code></pre>
+<pre><code class="language-cpp">// 1. 两数之和
+vector&lt;int&gt; twoSum(vector&lt;int&gt;&amp; nums, int target) {
+    unordered_map&lt;int, int&gt; pos;                   // 值 -&gt; 下标
+    for (int i = 0; i &lt; (int)nums.size(); ++i) {
+        if (pos.count(target - nums[i])) return {pos[target - nums[i]], i};
+        pos[nums[i]] = i;                          // 先查后存，避免自己和自己配对
+    }
+    return {};
+}</code></pre>
+<pre><code class="language-cpp">// 128. 最长连续序列
+int longestConsecutive(vector&lt;int&gt;&amp; nums) {
+    unordered_set&lt;int&gt; s(nums.begin(), nums.end());
+    int best = 0;
+    for (int x : s) {
+        if (s.count(x - 1)) continue;              // 只从每一段的起点开始数，每个数最多被数一次，总体 O(n)
+        int len = 1;
+        while (s.count(x + len)) ++len;
+        best = max(best, len);
+    }
+    return best;
+}</code></pre>
+<ul>
+<li><strong>手写哈希表的追问点</strong>：桶数为什么取质数（见上面的要点）；负数 key 怎么办（C++ 里负数取模结果为负，要写成 <code>(key % B + B) % B</code>）；怎么扩容（元素个数超过桶数乘以负载因子时，新建一个更大的桶数组，把每个元素重新取模放进去）。带扩容和分段加锁的版本见 <a href="/cpp-fundamentals/#sec-5-2">C++ 笔记 5.2</a>。</li>
+<li><strong>128 为什么是 O(n)？</strong> 外层循环虽然套着一个 <code>while</code>，但只有「每一段的起点」才会进入 <code>while</code>，每个数最多被某一段数到一次，总次数不超过 n。</li>
+</ul>
+<p><strong>Q5 · 拉链法和开放寻址怎么选</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>开放寻址的删除为什么要留墓碑？</strong> 查找靠「探测到空槽就停」来判断 key 不存在。如果把被删的槽直接清空，经过这个槽的探测链就被截断了，排在它后面的 key 再也找不到。墓碑的含义是「这里曾经有人，请继续往后找」。墓碑不会自己消失，积累多了查找变慢，只能靠 rehash 清理，这是开放寻址在删除频繁的场景下的主要代价。</li>
+<li><strong>线性探测的聚集是怎么回事？</strong> 一段连续被占的槽位越长，新 key 撞进这一段的概率就越大（落在段内任何位置都会被排到段尾），于是这一段变得更长，是正反馈。成功查找的期望探测次数约为 (1 + 1/(1 - α)) / 2，失败查找约为 (1 + 1/(1 - α)²) / 2：负载因子 α 为 0.5 时分别是 1.5 和 2.5 次，到 0.9 时变成 5.5 和 50.5 次。这就是开放寻址的扩容阈值必须比拉链法低的原因。</li>
+<li><strong>明知会聚集，为什么线性探测仍然是最常用的探测方式？</strong> 因为它探测的是相邻内存，一次缓存未命中载入的 64 字节能覆盖好几个槽位，后续几次探测都在缓存里。二次探测和双重哈希能缓解聚集，但每一步都跳到远处，每次探测都可能未命中。在现代硬件上访存代价远大于比较代价，缓存优势盖过了聚集劣势。</li>
+<li><strong><code>std::unordered_map</code> 为什么公认比较慢？</strong> 标准规定了两件事：rehash 之后指向元素的引用和指针必须仍然有效，以及必须提供按桶遍历的接口。这两条实际上强制了「每个元素一个独立分配的节点」的拉链实现，于是每次查找至少两次指针跳转，每次插入一次 <code>malloc</code>。absl 的 <code>flat_hash_map</code> 放弃了引用稳定性，把元素平铺在数组里，并用每槽一字节的控制信息配合 SIMD 一次比较 16 个槽，通常快两倍以上。</li>
+</ul>
+</details>
+<p><strong>Q6 · 哈希表扩容时发生了什么</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>负载因子的阈值为什么不设得很高来省内存？</strong> 拉链法下平均链长就等于负载因子 α，一次查找的期望代价是 O(1 + α)。α 是一个用空间换时间的旋钮：调高省内存但链变长，调低则相反。0.75 到 1 是经验上的折中点。</li>
+<li><strong>rehash 为什么要重新计算每个元素的位置？</strong> 桶号 = 哈希值 % 桶数，桶数变了结果就变了。桶数是 2 的幂并且每次翻倍时有一个好性质：元素要么留在原来的桶 i，要么去 i + 旧容量，只取决于哈希值里新露出来的那一位。Java 8 利用这一点，扩容时不重新取模，直接把一条链按那一位拆成两条。</li>
+<li><strong>Redis 的渐进式 rehash 是怎么做的，为什么要这样？</strong> 一次性搬迁是 O(n)，Redis 是单线程，几百万个 key 的表一搬就是一次明显的停顿。做法是新旧两张表并存，之后每次增删改查顺带搬一个桶，后台定时任务再补一些。期间查找要查两张表；新插入只进新表，保证旧表只减不增，搬迁一定能结束。本质是把摊还分析里那一笔大额开销，真的摊到了每次操作上。</li>
+<li><strong><code>unordered_map</code> rehash 之后，迭代器和引用还有效吗？</strong> 迭代器失效，引用和指针仍然有效。原因是 rehash 只是把节点重新挂到新的桶数组上，节点本身没有移动，所以指向元素的指针不变；而迭代器的遍历顺序依赖桶的排布，排布变了就不再可靠。</li>
+</ul>
+</details>
+<p><strong>Q7 · 哈希表最坏 O(n)，工程上怎么防</strong></p>
+<details class="qa">
+<summary>
+3 条追问与解答
+</summary>
+<ul>
+<li><strong>什么是哈希洪水攻击？</strong> 哈希函数是公开的，攻击者可以离线构造出大量落进同一个桶的 key，通过请求参数之类的入口塞进服务端的哈希表，让每次插入从 O(1) 退化成 O(n)，n 个 key 总共 O(n²)，几 KB 的请求就能吃满一个 CPU 核。</li>
+<li><strong>怎么防？</strong> 两条路。一是让攻击者无法预测哈希值：进程启动时生成随机种子，用带密钥的哈希函数（SipHash），Python 和 Rust 默认如此。二是限制最坏情况：Java 8 在单个桶的链长达到 8 且表容量不小于 64 时，把链表转成红黑树，最坏从 O(n) 变成 O(log n)。</li>
+<li><strong>Java 的树化阈值为什么是 8，退回链表为什么是 6？</strong> 哈希均匀时，桶内元素个数近似服从参数 0.5 的泊松分布，链长达到 8 的概率约为一亿分之六，正常情况下几乎不会触发，树化只是给攻击或劣质哈希函数兜底。不一开始就用树，是因为树节点的体积大约是普通节点的两倍。8 和 6 之间留出间隔，是为了避免元素个数在边界上下波动时反复转换。</li>
+</ul>
+</details>
+<p><strong>Q8 · 一致性哈希解决什么问题</strong></p>
+<details class="qa">
+<summary>
+3 条追问与解答
+</summary>
+<ul>
+<li><strong>直接用 hash(key) % N 分片有什么问题？</strong> N 一变，几乎所有 key 的归属都变了。对缓存集群来说等于全部缓存同时失效，请求一起打到后端，就是缓存雪崩。一致性哈希把 key 和节点都映射到同一个环上，key 归顺时针方向遇到的第一个节点；增删一个节点只影响它和前一个节点之间那一段，平均只有 1/N 的 key 需要迁移。</li>
+<li><strong>为什么需要虚拟节点？</strong> 节点数少的时候，几个点在环上的分布很不均匀，有的节点会分到远多于平均的一段。让每个物理节点在环上放一两百个虚拟节点，各段长度就趋于平均；节点下线时它的负载也会分散给很多节点，而不是全部压给顺时针的下一个。调整虚拟节点的数量还能表达权重。</li>
+<li><strong>用什么数据结构实现？</strong> 有序映射，key 是环上的位置，value 是节点。查找就是 <code>lower_bound(hash(key))</code>，走到末尾就回绕到 <code>begin()</code>，O(log N)。推理服务里按 prompt 前缀做缓存亲和路由，用的也是这一套：同一前缀稳定地路由到同一个实例，实例增减时只有少量前缀需要重新预热。</li>
+</ul>
+</details>
+<h2 id="sec-6"><span class="num">6.</span>堆与优先队列</h2>
+<ul>
+<li><strong>本质</strong>：一棵完全二叉树，只保证父节点不小于（或不大于）孩子，兄弟之间没有顺序要求。</li>
+<li><strong>存储</strong>：完全二叉树没有空洞，直接按层存进数组。下标从 0 开始时，父节点是 (i - 1) / 2，孩子是 2i + 1 和 2i + 2，不需要任何指针。</li>
+<li><strong>两个基本动作</strong>：上浮（插入到末尾之后和父节点比较交换）和下沉（删除堆顶后把末尾元素放到根，和较大的孩子比较交换），都是 O(log n)。</li>
+<li><strong>C++ 里怎么用、怎么手写</strong>：<code>std::priority_queue</code> 的用法见 <a href="#sec-6-1">6.1</a>；手写有两个版本（都是面试可手写的 <code>int</code> 版），有序数组（快排 + 二分）见 <a href="#sec-6-2">6.2</a>，二叉堆见 <a href="#sec-6-3">6.3</a>，取舍见 <a href="#sec-6-4">6.4</a>；堆排序和第 K 大见 <a href="#sec-6-5">6.5</a>。</li>
+<li><strong>不支持</strong>：查找任意元素、删除任意元素、有序遍历。需要这些就换平衡树，或者用懒删除（见 <a href="/leetcode-design/#sec-2-6">设计题模板 2.6</a>）。</li>
+</ul>
+<p><strong>Q9 · 建堆为什么是 O(n) 而不是 O(n log n)</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>O(n) 怎么来的？</strong> 自底向上，对每个非叶子节点做一次下沉。高度为 h 的节点最多下沉 h 层，而这样的节点大约有 n / 2^(h+1) 个，总代价是对 h · n / 2^(h+1) 求和，这个级数收敛到 O(n)。直觉是：一半的节点是叶子完全不用动，四分之一的节点只下沉一层，需要走完整棵树高度的只有根一个。逐个插入的建法正好相反，占多数的底层节点每个都可能上浮 log n 层，所以是 O(n log n)。</li>
+<li><strong>求最大的 K 个元素，为什么用小顶堆？</strong> 维护一个大小为 K 的堆，保存目前见过的最大的 K 个。新元素来的时候要回答的问题是「它能不能挤掉这 K 个里最小的那个」，所以需要快速拿到的是 K 个里的最小值，也就是小顶堆的堆顶。它相当于一道门槛：不高于门槛的直接丢弃，高于门槛的替换堆顶。</li>
+<li><strong>Top K 用堆还是快速选择？</strong> 堆是 O(n log K)，空间 O(K)，数据可以流式到来，也不要求全部装进内存。快速选择平均 O(n)，但要求数据全在内存里、会打乱原数组，而且最坏 O(n²)（随机选 pivot 可以让最坏情况不依赖输入）。海量数据或数据流只能用堆；一次性的内存内计算用快速选择更快。</li>
+<li><strong>堆为什么不能 O(log n) 查找任意元素？</strong> 堆只约束了父子之间的大小关系，左右子树之间没有任何关系，要找的值可能在任意一边，只能遍历，O(n)。这也是 <code>priority_queue</code> 不提供删除任意元素的原因：删除本身是 O(log n)，但先得 O(n) 找到它。</li>
+<li><strong>定时器用堆还是时间轮？</strong> 堆的插入和删除都是 O(log n)，取最近到期的是 O(1)，精度任意，Go 运行时用的是四叉堆。时间轮把时间切成固定的格子，每格挂一条链表，插入和删除都是 O(1)，适合数量巨大、精度要求固定的定时器（比如连接超时），代价是精度受格子大小限制；Linux 内核、Kafka、Netty 用的是时间轮。四叉堆相比二叉堆更矮，而且四个孩子在数组里相邻，能落在同一个缓存行里。</li>
+</ul>
+</details>
+<h3 id="sec-6-1">6.1 <code>std::priority_queue</code> 的用法</h3>
+<p>头文件 <code>&lt;queue&gt;</code>。完整的模板签名是 <code>priority_queue&lt;T, Container = vector&lt;T&gt;, Compare = less&lt;T&gt;&gt;</code>：它不是一个独立的容器，而是套在 <code>vector</code> 外面的<strong>适配器</strong>，内部就是对这个 <code>vector</code> 调用 <code>push_heap</code> 和 <code>pop_heap</code>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>复杂度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>push(x)</code></td>
+<td>O(log n)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>top()</code></td>
+<td>O(1)</td>
+<td>只读；空队列上调用是未定义行为，不会抛异常</td>
+</tr>
+<tr>
+<td><code>pop()</code></td>
+<td>O(log n)</td>
+<td>返回 <code>void</code>；空队列上调用同样是未定义行为</td>
+</tr>
+<tr>
+<td><code>size()</code> / <code>empty()</code></td>
+<td>O(1)</td>
+<td></td>
+</tr>
+<tr>
+<td>构造 <code>pq(v.begin(), v.end())</code></td>
+<td>O(n)</td>
+<td>直接建堆，比逐个 <code>push</code> 的 O(n log n) 快</td>
+</tr>
+<tr>
+<td><strong>没有的操作</strong></td>
+<td>–</td>
+<td><code>clear</code>、遍历、查找、删除任意元素、修改已入队的元素</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>基本用法</strong></p>
+<pre><code class="language-cpp">void basicUsage() {
+    priority_queue&lt;int&gt; maxHeap;                               // 默认是大顶堆
+    maxHeap.push(3);
+    maxHeap.push(5);
+    maxHeap.push(1);
+    assert(maxHeap.top() == 5);                                // top() 只看不删
+    maxHeap.pop();                                             // pop() 只删不返回：先 top() 取值，再 pop()
+    assert(maxHeap.top() == 3 &amp;&amp; maxHeap.size() == 2);
+
+    priority_queue&lt;int, vector&lt;int&gt;, greater&lt;int&gt;&gt; minHeap;    // 小顶堆：三个模板参数必须写全
+    minHeap.push(3);
+    minHeap.push(1);
+    minHeap.push(4);
+    assert(minHeap.top() == 1);
+
+    vector&lt;int&gt; v = {9, 2, 7, 4};
+    priority_queue&lt;int&gt; fromVec(v.begin(), v.end());           // 用一段数据直接建堆，O(n)；逐个 push 是 O(n log n)
+    assert(fromVec.top() == 9);
+
+    priority_queue&lt;pair&lt;int, string&gt;&gt; byPair;                  // pair 先比 first，相等再比 second
+    byPair.push({2, "b"});
+    byPair.push({2, "c"});
+    byPair.push({1, "z"});
+    assert(byPair.top().second == "c");
+
+    while (!maxHeap.empty()) maxHeap.pop();                    // 没有 clear()，只能一个个弹空
+}</code></pre>
+<p><strong>自定义比较器的三种写法</strong></p>
+<p>比较器的方向是最容易写反的地方。规则只有一条：<code>cmp(a, b)</code> 返回 true 表示 <strong>a 的优先级比 b 低</strong>。所以 <code>less</code> 得到大顶堆，<code>greater</code> 得到小顶堆。一个可靠的记法：把同一个比较器交给 <code>sort</code>，排在<strong>最后</strong>的那个元素就是堆顶。</p>
+<pre><code class="language-cpp">struct Task {
+    int priority;
+    string name;
+};
+
+// 写法一：仿函数。cmp(a, b) 返回 true 表示「a 的优先级比 b 低」，和 less 同一个方向
+struct TaskCmp {
+    bool operator()(const Task&amp; a, const Task&amp; b) { return a.priority &lt; b.priority; }   // priority 大的先出
+};
+
+void customUsage() {
+    priority_queue&lt;Task, vector&lt;Task&gt;, TaskCmp&gt; q1;
+    q1.push({1, "low"});
+    q1.push({5, "high"});
+    assert(q1.top().name == "high");
+
+    // 写法二：lambda。类型用 decltype(cmp)，并且要把 cmp 传给构造函数
+    auto cmp = [](const Task&amp; a, const Task&amp; b) { return a.priority &gt; b.priority; };    // 反过来：priority 小的先出
+    priority_queue&lt;Task, vector&lt;Task&gt;, decltype(cmp)&gt; q2(cmp);
+    q2.push({3, "c"});
+    q2.push({1, "a"});
+    assert(q2.top().name == "a");
+
+    // 写法三：不写比较器，直接用 pair，把要比的字段放在 first；存负数就能把大顶堆当小顶堆用
+    priority_queue&lt;pair&lt;int, int&gt;&gt; q3;                         // {-距离, 节点}：距离最小的在堆顶
+    q3.push({-7, 1});
+    q3.push({-2, 2});
+    assert(q3.top().second == 2);
+}</code></pre>
+<p><strong>两个高频模式</strong></p>
+<details class="code-card" open=""><summary>36 行 · 点击折叠</summary><pre><code class="language-cpp">// 模式一：最大的 K 个 → 大小为 K 的小顶堆，堆顶是「入选门槛」
+vector&lt;int&gt; topK(vector&lt;int&gt;&amp; nums, int k) {
+    priority_queue&lt;int, vector&lt;int&gt;, greater&lt;int&gt;&gt; pq;
+    for (int x : nums) {
+        pq.push(x);
+        if ((int)pq.size() &gt; k) pq.pop();                      // 超过 K 个就踢掉最小的
+    }
+    vector&lt;int&gt; res;
+    while (!pq.empty()) { res.push_back(pq.top()); pq.pop(); }
+    return res;                                                // 从小到大
+}
+
+// 模式二：合并 K 个有序链表。堆里放的是指针，必须自己写比较器去比 val，否则比的是地址
+struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int v) : val(v), next(nullptr) {}
+};
+
+ListNode* mergeKLists(vector&lt;ListNode*&gt;&amp; lists) {
+    auto cmp = [](ListNode* a, ListNode* b) { return a-&gt;val &gt; b-&gt;val; };   // val 小的先出
+    priority_queue&lt;ListNode*, vector&lt;ListNode*&gt;, decltype(cmp)&gt; pq(cmp);
+    for (ListNode* head : lists) {
+        if (head) pq.push(head);                               // 空链表不能进堆，否则比较器会解引用空指针
+    }
+    ListNode dummy(0);
+    ListNode* tail = &amp;dummy;
+    while (!pq.empty()) {
+        ListNode* node = pq.top();
+        pq.pop();
+        tail-&gt;next = node;
+        tail = node;
+        if (node-&gt;next) pq.push(node-&gt;next);
+    }
+    return dummy.next;
+}</code></pre></details>
+<p>第三个高频模式是 Dijkstra：堆里存 <code>{距离, 节点}</code> 的小顶堆，出堆时如果距离大于已经记录的最短距离就跳过，这就是 <a href="/leetcode-design/#sec-2-6">设计题模板 2.6</a> 的懒删除。对顶堆求中位数见 <a href="/leetcode-design/#sec-2-4">设计题模板 2.4</a>。</p>
+<p><strong><code>priority_queue</code> 内部在做什么</strong></p>
+<p>它只是在 <code>vector</code> 上调用 <code>&lt;algorithm&gt;</code> 里的两个堆算法。知道这一点，6.3 的手写版本就只是把这两个算法自己实现一遍。</p>
+<pre><code class="language-cpp">void heapAlgoUsage() {
+    vector&lt;int&gt; h;
+    for (int x : {3, 8, 5}) {
+        h.push_back(x);                                        // 先放到末尾，
+        push_heap(h.begin(), h.end());                         // 再让它上浮；push() 内部就是这两步
+    }
+    pop_heap(h.begin(), h.end());                              // 把堆顶换到末尾，前面 n - 1 个重新成堆
+    int best = h.back();                                       // 此时末尾就是原来的最大值
+    h.pop_back();                                              // pop() 内部就是 pop_heap + pop_back
+    assert(best == 8 &amp;&amp; h.front() == 5);
+}</code></pre>
+<p><strong>易错点清单</strong></p>
+<ul>
+<li><strong>方向写反。</strong> <code>less</code> 是大顶堆，<code>greater</code> 是小顶堆。</li>
+<li><strong>小顶堆少写模板参数。</strong> 比较器是第三个参数，想指定它就必须把第二个参数 <code>vector&lt;T&gt;</code> 也写出来。</li>
+<li><strong>空队列上调用 <code>top()</code> 或 <code>pop()</code>。</strong> 是未定义行为而不是异常，通常表现为读到垃圾值或崩溃。循环条件里先判 <code>empty()</code>。</li>
+<li><strong>想修改已经入队的元素。</strong> 做不到。要改优先级只能重新 <code>push</code> 一份新的，再用懒删除跳过旧的。</li>
+<li><strong>比较器里写 <code>&lt;=</code>，或者照 Java 的习惯写 <code>return a.x - b.x</code>。</strong> 前者违反严格弱序；后者在 C++ 里会被转成 <code>bool</code>，非零即真，<code>cmp(a, b)</code> 和 <code>cmp(b, a)</code> 同时为真，同样违反严格弱序，是未定义行为。</li>
+<li><strong>元素是指针却没写比较器。</strong> 默认比较的是地址，能编译、能运行，结果是错的，而且每次运行还不一样。</li>
+</ul>
+<p><strong>Q10 · <code>priority_queue</code> 的接口为什么设计成这样</strong></p>
+<details class="qa">
+<summary>
+6 条追问与解答
+</summary>
+<ul>
+<li><strong><code>less</code> 为什么得到的是大顶堆，这不是反了吗？</strong> 没有反，它和 <code>sort</code> 用的是同一套语义：<code>cmp(a, b)</code> 为真表示 a 排在 b 的前面。<code>sort</code> 配 <code>less</code> 得到升序，最大的元素排在最后；<code>priority_queue</code> 取出的正是「排在最后」的那个元素。标准库这样设计，是为了让同一个比较器在 <code>sort</code>、<code>set</code>、<code>priority_queue</code> 里含义一致，代价是堆这里读起来反直觉。</li>
+<li><strong><code>pop()</code> 为什么不直接返回被弹出的元素？</strong> 为了异常安全。如果 <code>pop</code> 按值返回，流程是先把元素从容器里移除，再拷贝构造返回值；要是拷贝构造抛了异常，元素已经不在队列里，又没有交到调用者手上，就丢了。拆成 <code>top()</code> 和 <code>pop()</code> 两步之后，任何一步失败都不会丢数据。<code>stack</code> 和 <code>queue</code> 同理。</li>
+<li><strong>为什么不能遍历、不能删除任意元素？</strong> 它是适配器，只暴露「优先队列」这个抽象允许的操作。堆数组里的顺序既不是有序的，也不是插入顺序，遍历出来没有意义；删除任意元素需要先 O(n) 找到它，违背了这个结构的复杂度承诺。确实需要这些能力时，自己用 <code>vector</code> 加上面两个堆算法，或者换成 <code>set</code>。</li>
+<li><strong>比较器里写 <code>&lt;=</code> 会怎样？</strong> 未定义行为。标准要求比较器是严格弱序，其中一条是 <code>cmp(a, a)</code> 必须为假。堆算法和排序算法内部都用「<code>cmp(a, b)</code> 和 <code>cmp(b, a)</code> 同时为假」来判定两个元素相等，<code>&lt;=</code> 让两个相等的元素互相「小于」对方，这套推理就不成立了。在 <code>sort</code> 里同样的错误更危险，可能直接越界访问。</li>
+<li><strong>用 lambda 做比较器时，为什么还要把它传给构造函数？</strong> 模板参数 <code>decltype(cmp)</code> 只提供了类型，<code>priority_queue</code> 内部还需要一个这个类型的对象。C++17 及以前，lambda 没有默认构造函数，所以必须传一个现成的对象进去让它拷贝。C++20 起没有捕获的 lambda 可以默认构造，可以不传。</li>
+<li><strong>底层容器能换成 <code>list</code> 吗？</strong> 不能，<code>vector</code> 和 <code>deque</code> 可以。原因是堆靠下标运算 (i - 1) / 2 和 2i + 1 来定位父子节点，必须能 O(1) 随机访问。默认选 <code>vector</code> 而不是 <code>deque</code>，是因为上浮和下沉是跳跃式访问，<code>vector</code> 是单块连续内存，<code>deque</code> 每次访问还要多一层间接寻址。</li>
+</ul>
+</details>
+<h3 id="sec-6-2">6.2 手搓优先队列之一：快排 + 二分（有序数组）</h3>
+<p>思路是让数组<strong>始终保持升序</strong>：一批数据进来时用快排一次排好，之后每插入一个元素，用二分找到位置再插进去。最大的元素固定在数组末尾，<code>top</code> 和 <code>pop</code> 都是 O(1)。</p>
+<p>下面是面试里能直接手写的版本：只处理 <code>int</code>，大的优先。要小的优先，把两处比较反过来，或者存相反数。</p>
+<details class="code-card" open=""><summary>40 行 · 点击折叠</summary><pre><code class="language-cpp">// 手搓优先队列，版本一：有序数组。批量建表用快排，单个插入用二分找位置。大的优先。
+class SortedPQ {
+    vector&lt;int&gt; a;                                 // 不变量：升序，最大的在末尾
+
+    void quickSort(int l, int r) {
+        if (l &gt;= r) return;
+        int pivot = a[l + rand() % (r - l + 1)];   // 随机选基准，有序输入也不会退化
+        int i = l, j = r;
+        while (i &lt;= j) {
+            while (a[i] &lt; pivot) ++i;              // 左边找一个不该在左边的
+            while (a[j] &gt; pivot) --j;              // 右边找一个不该在右边的
+            if (i &lt;= j) swap(a[i++], a[j--]);
+        }
+        quickSort(l, j);                           // 此时 j &lt; i，[l, j] 都不大于 pivot，[i, r] 都不小于 pivot
+        quickSort(i, r);
+    }
+
+    int lowerBound(int x) {                        // 第一个 &gt;= x 的位置，左闭右开 [lo, hi)
+        int lo = 0, hi = a.size();
+        while (lo &lt; hi) {
+            int mid = lo + (hi - lo) / 2;
+            if (a[mid] &lt; x) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+public:
+    SortedPQ() {}
+    SortedPQ(vector&lt;int&gt; nums) : a(nums) { quickSort(0, (int)a.size() - 1); }
+
+    void push(int x) {
+        int pos = lowerBound(x);                   // 二分找位置：O(log n)
+        a.insert(a.begin() + pos, x);              // 插入要搬移后面的元素：O(n)
+    }
+    int top() { return a.back(); }
+    void pop() { a.pop_back(); }                   // 尾删 O(1)，所以让最大的待在末尾
+    bool empty() { return a.empty(); }
+    int size() { return a.size(); }
+};</code></pre></details>
+<p>快排部分四个容易写错的地方：</p>
+<ul>
+<li><strong>基准要随机选。</strong> 固定取第一个元素，遇到已经有序的输入时每轮只能划掉一个元素，退化成 O(n²)，而「本来就排好序的任务列表」恰好是优先队列最常见的输入。</li>
+<li><strong>内层两个 <code>while</code> 必须是 <code>&lt;</code> 和 <code>&gt;</code>，不能带等号。</strong> 带了等号，数组元素全部相等时 <code>i</code> 会一路冲出数组右端。不带等号时，和基准相等的元素会被交换到对面去，两个指针总能停下来。</li>
+<li><strong>内层 <code>while</code> 为什么不用判断越界？</strong> 基准是区间里真实存在的一个值，第一轮 <code>i</code> 最晚走到它的位置就会停，<code>j</code> 同理。之后每次交换，都会在 <code>i</code> 的右边留下一个不小于基准的数、在 <code>j</code> 的左边留下一个不大于基准的数，它们就是下一轮的「挡板」。</li>
+<li><strong>递归区间是 <code>[l, j]</code> 和 <code>[i, r]</code>。</strong> 循环结束时 <code>j</code> 小于 <code>i</code>，<code>j</code> 及其左边都不大于基准，<code>i</code> 及其右边都不小于基准。写成 <code>[l, i]</code> 会在区间只剩两个元素时无限递归。</li>
+</ul>
+<p>二分部分用「左闭右开」写法：<code>hi</code> 初始为 <code>size()</code>，循环条件 <code>lo &lt; hi</code>，收缩时 <code>hi = mid</code>。找的是第一个不小于 x 的位置，x 比所有元素都大时自然返回 <code>size()</code>，正好是 <code>insert</code> 到末尾的位置，不需要特判。</p>
+<h3 id="sec-6-3">6.3 手搓优先队列之二：二叉堆</h3>
+<p>这才是 <code>std::priority_queue</code> 的真实做法。同样是只处理 <code>int</code> 的大顶堆，要小顶堆就把 <code>siftUp</code> 和 <code>siftDown</code> 里的三处比较反过来。</p>
+<p>把数组看成一棵完全二叉树：下标 i 的父节点是 (i - 1) / 2，两个孩子是 2i + 1 和 2i + 2。</p>
+<details class="code-card" open=""><summary>44 行 · 点击折叠</summary><pre><code class="language-cpp">// 手搓优先队列，版本二：二叉堆（大顶堆）。std::priority_queue 的真实做法。
+class MaxHeap {
+    vector&lt;int&gt; a;                                 // 不变量：每个节点都不小于它的两个孩子
+
+    void siftUp(int i) {
+        while (i &gt; 0) {
+            int p = (i - 1) / 2;                   // 父节点
+            if (a[p] &gt;= a[i]) break;
+            swap(a[p], a[i]);
+            i = p;
+        }
+    }
+    void siftDown(int i) {
+        int n = a.size();
+        while (true) {
+            int big = i, l = 2 * i + 1, r = 2 * i + 2;
+            if (l &lt; n &amp;&amp; a[l] &gt; a[big]) big = l;
+            if (r &lt; n &amp;&amp; a[r] &gt; a[big]) big = r;   // 要和两个孩子里较大的那个交换
+            if (big == i) break;
+            swap(a[i], a[big]);
+            i = big;
+        }
+    }
+
+public:
+    MaxHeap() {}
+    MaxHeap(vector&lt;int&gt; nums) : a(nums) {
+        int n = a.size();
+        for (int i = n / 2 - 1; i &gt;= 0; --i) siftDown(i);      // 从最后一个非叶子节点倒着下沉，O(n)
+    }
+
+    void push(int x) {
+        a.push_back(x);                            // 先放到末尾，
+        siftUp(a.size() - 1);                      // 再上浮
+    }
+    int top() { return a[0]; }
+    void pop() {
+        a[0] = a.back();                           // 末尾元素顶替堆顶，
+        a.pop_back();
+        if (!a.empty()) siftDown(0);               // 再下沉
+    }
+    bool empty() { return a.empty(); }
+    int size() { return a.size(); }
+};</code></pre></details>
+<p>三个要点：</p>
+<ul>
+<li><strong><code>pop</code> 是「末尾元素顶替堆顶，删掉末尾，再从根下沉」。</strong> 直接删除数组头部要搬移全部元素，而且会破坏完全二叉树的形状；用末尾元素顶上来，形状不变，只需要修复根节点这一处的大小关系。</li>
+<li><strong>下沉时必须和两个孩子里较大的那个交换。</strong> 如果和较小的那个交换，它上去之后比另一个孩子小，不变量仍然是坏的。</li>
+<li><strong>建堆的循环从 <code>n / 2 - 1</code> 开始倒着做。</strong> 下标不小于 n / 2 的全是叶子，单个节点天然是合法的堆，不需要处理。倒着做是为了保证处理某个节点时，它的两棵子树已经是合法的堆。这样建堆是 O(n)，原因见上面的 Q9。</li>
+</ul>
+<h3 id="sec-6-4">6.4 两种实现怎么选</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>有序数组（快排 + 二分）</th>
+<th>二叉堆</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一批数据建立</td>
+<td>平均 O(n log n)</td>
+<td>O(n)</td>
+</tr>
+<tr>
+<td><code>push</code></td>
+<td>二分 O(log n) + 搬移 O(n)</td>
+<td>O(log n)，随机输入下平均 O(1)</td>
+</tr>
+<tr>
+<td><code>top</code></td>
+<td>O(1)</td>
+<td>O(1)</td>
+</tr>
+<tr>
+<td><code>pop</code></td>
+<td>O(1)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>取最小的、取第 k 大</td>
+<td>O(1)，按下标取</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>按顺序遍历</td>
+<td>直接遍历数组</td>
+<td>只能逐个弹出</td>
+</tr>
+<tr>
+<td>优先级相同时先进先出</td>
+<td>可以做到（见下面的追问）</td>
+<td>做不到，要自己加入队序号</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>结论：通用场景用堆。有序数组版只在几种特定条件下更合适，但它是一个很好的面试回答，因为它能引出「为什么堆更好」的完整推理。</p>
+<p><strong>Q11 · 不用堆怎么实现优先队列，和堆相比各自赢在哪</strong></p>
+<details class="qa">
+<summary>
+6 条追问与解答
+</summary>
+<ul>
+<li><strong>有序数组版的 <code>push</code> 已经用了二分，为什么还是 O(n)？</strong> 二分只是把「找位置」降到了 O(log n)，但 <code>insert</code> 要把插入点之后的元素整体后移一格，搬移量是 O(n)。瓶颈从比较转移到了搬移。</li>
+<li><strong>为什么把最大的元素放在数组末尾，而不是开头？</strong> <code>vector</code> 只有尾部的删除是 O(1)。放在末尾，<code>top</code> 是 <code>back()</code>，<code>pop</code> 是 <code>pop_back()</code>；放在开头的话，每次 <code>pop</code> 都要搬移剩下的全部元素。底层容器在哪一端操作便宜，就让最频繁的操作落在哪一端。</li>
+<li><strong>什么情况下有序数组版反而比堆合适？</strong> 三种情况。先一次性装入、之后几乎只出队：一次排序之后每次 <code>pop</code> 是 O(1)，堆每次是 O(log n)。需要同时取最大和最小，或者取第 k 大：数组两端分别是最小和最大，第 k 大是一次下标访问，堆都做不到。n 很小（几十个以内）：整个数组只占几个缓存行，搬移是一次 <code>memmove</code>，比堆的分支跳转还快。</li>
+<li><strong>那为什么通用场景下堆才是正解？</strong> 堆只维护「父节点不小于孩子」这一条关系，不要求兄弟之间、子树之间有序。优先队列对外只承诺「能取到最大的那个」，这点关系已经足够。有序数组维护的是全体有序，信息量超出了优先队列的需要，多出来的那部分就是每次插入白付的 O(n)。数据结构维护的信息越少，维护代价越低，选型时要让它恰好等于需求。</li>
+<li><strong>堆的 <code>push</code> 为什么说平均是 O(1)？</strong> 完全二叉树里一半的节点是叶子，四分之一在倒数第二层。一个随机的新元素大概率比不过它的父节点，上浮一两层就停了，平均比较次数是一个小常数（约 2 到 3 次）。O(log n) 是一路浮到根的最坏情况，比如按递增顺序往大顶堆里插入。<code>pop</code> 没有这个好处：顶上来的是原来的末尾元素，通常很小，几乎总要沉到底。</li>
+<li><strong>元素换成带优先级的结构体，优先级相同时要求先进先出，两种实现各怎么做？</strong> 有序数组版不用改结构：二分找的是第一个不小于 x 的位置，新元素会插在所有同优先级元素的<strong>前面</strong>，而出队是从末尾取，所以同优先级里先来的先出。唯一要注意的是快排不稳定，初始那一批数据里同优先级的顺序会被打乱，要么改用归并排序，要么加入队序号。堆做不到，因为上浮和下沉会打乱相同元素的相对顺序，只能给每个元素加一个递增的入队序号，比较时优先级相同就比序号。</li>
+</ul>
+</details>
+<h3 id="sec-6-5">6.5 堆排序与第 K 大</h3>
+<p>堆的两道高频手撕题。堆排序复用 6.3 的下沉；第 K 大（215）面试官通常期望快速选择，用堆做是保底方案。</p>
+<pre><code class="language-cpp">// 堆排序：原地，O(n log n)，不稳定
+void siftDown(vector&lt;int&gt;&amp; a, int n, int i) {      // 在 a[0..n) 这个堆里把 i 号节点往下沉
+    while (true) {
+        int big = i, l = 2 * i + 1, r = 2 * i + 2;
+        if (l &lt; n &amp;&amp; a[l] &gt; a[big]) big = l;
+        if (r &lt; n &amp;&amp; a[r] &gt; a[big]) big = r;
+        if (big == i) break;
+        swap(a[i], a[big]);
+        i = big;
+    }
+}
+void heapSort(vector&lt;int&gt;&amp; a) {
+    int n = a.size();
+    for (int i = n / 2 - 1; i &gt;= 0; --i) siftDown(a, n, i);   // 建大顶堆
+    for (int end = n - 1; end &gt; 0; --end) {
+        swap(a[0], a[end]);                        // 当前最大的换到末尾，它就位了
+        siftDown(a, end, 0);                       // 前面 end 个重新成堆
+    }
+}</code></pre>
+<pre><code class="language-cpp">// 215. 数组中的第 K 个最大元素：快速选择，平均 O(n)
+int quickSelect(vector&lt;int&gt;&amp; a, int l, int r, int k) {        // 返回排好序后下标为 k 的那个数
+    if (l == r) return a[l];
+    int pivot = a[l + rand() % (r - l + 1)];
+    int i = l, j = r;
+    while (i &lt;= j) {
+        while (a[i] &lt; pivot) ++i;
+        while (a[j] &gt; pivot) --j;
+        if (i &lt;= j) swap(a[i++], a[j--]);
+    }
+    if (k &lt;= j) return quickSelect(a, l, j, k);    // 答案在左半边
+    if (k &gt;= i) return quickSelect(a, i, r, k);    // 答案在右半边
+    return a[k];                                   // j &lt; k &lt; i：夹在中间的都等于 pivot
+}
+int findKthLargest(vector&lt;int&gt;&amp; nums, int k) {
+    int n = nums.size();
+    return quickSelect(nums, 0, n - 1, n - k);     // 第 k 大 = 升序后下标 n - k
+}</code></pre>
+<ul>
+<li><strong>堆排序的第二个循环每次把堆的范围缩小一格</strong>：<code>siftDown(a, end, 0)</code> 的第二个参数是当前堆的大小，已经换到末尾的元素不再参与。</li>
+<li><strong>215 的两种解法怎么选</strong>：快速选择平均 O(n)、最坏 O(n²)，随机选基准让最坏情况不依赖输入；大小为 K 的小顶堆是稳定的 O(n log K)，而且能处理数据流（见 <a href="#sec-6-1">6.1</a> 的 Top K）。面试里先写快速选择，再口头补充堆的做法和各自的适用场景。</li>
+<li><strong>快速选择和 6.2 的快排是同一个划分过程</strong>，区别只是划分之后只进入包含第 k 个位置的那一半，所以平均代价是 n + n/2 + n/4 + …，收敛到 O(n)。</li>
+</ul>
+<h2 id="sec-7"><span class="num">7.</span>二叉搜索树与平衡树</h2>
+<ul>
+<li><strong>二叉搜索树</strong>：左子树全部小于根，右子树全部大于根，中序遍历有序。问题是输入有序时会退化成链表，O(n)。</li>
+<li><strong>平衡树</strong>：通过旋转限制树高。旋转只改变父子关系，不改变中序顺序，所以不会破坏有序性。</li>
+<li><strong>AVL</strong>：任意节点左右子树高度差不超过 1，高度不超过约 1.44 log n，最平衡，查找最快。</li>
+<li><strong>红黑树</strong>：平衡条件更宽松（最长路径不超过最短路径的两倍），高度不超过 2 log(n + 1)，换来的是插入删除时更少的旋转。</li>
+<li>各种树的对比表、epoll 为什么用红黑树见 <a href="/cpp-fundamentals/#sec-5-3">C++ 笔记 5.3</a>；<code>map</code> 和 <code>set</code> 的接口与迭代器规则见 <a href="/cpp-fundamentals/#sec-4-4">4.4</a>。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>面试不会让手写红黑树，考的是二叉搜索树本身的操作：查找、插入、删除、验证、中序遍历，以及「旋转是怎么回事」。</p>
+<pre><code class="language-cpp">struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}
+};</code></pre>
+<pre><code class="language-cpp">// 700. 查找
+TreeNode* searchBST(TreeNode* root, int val) {
+    while (root &amp;&amp; root-&gt;val != val) root = val &lt; root-&gt;val ? root-&gt;left : root-&gt;right;
+    return root;
+}</code></pre>
+<pre><code class="language-cpp">// 701. 插入：一路比较走到空位置，新节点一定是叶子
+TreeNode* insertIntoBST(TreeNode* root, int val) {
+    if (!root) return new TreeNode(val);
+    if (val &lt; root-&gt;val) root-&gt;left = insertIntoBST(root-&gt;left, val);
+    else root-&gt;right = insertIntoBST(root-&gt;right, val);
+    return root;
+}</code></pre>
+<pre><code class="language-cpp">// 450. 删除
+TreeNode* deleteNode(TreeNode* root, int key) {
+    if (!root) return nullptr;
+    if (key &lt; root-&gt;val) root-&gt;left = deleteNode(root-&gt;left, key);
+    else if (key &gt; root-&gt;val) root-&gt;right = deleteNode(root-&gt;right, key);
+    else {
+        if (!root-&gt;left) return root-&gt;right;       // 没有左孩子（包括叶子）：右孩子顶上来
+        if (!root-&gt;right) return root-&gt;left;
+        TreeNode* succ = root-&gt;right;              // 两个孩子都有：找右子树里最小的（后继）
+        while (succ-&gt;left) succ = succ-&gt;left;
+        root-&gt;val = succ-&gt;val;                     // 用后继的值覆盖自己，
+        root-&gt;right = deleteNode(root-&gt;right, succ-&gt;val);   // 再去右子树里删掉后继
+    }
+    return root;
+}</code></pre>
+<pre><code class="language-cpp">// 98. 验证二叉搜索树：每个节点都要落在祖先给出的 (lo, hi) 区间里，只和父节点比是错的
+bool isValidBST(TreeNode* root, long long lo = LLONG_MIN, long long hi = LLONG_MAX) {
+    if (!root) return true;
+    if (root-&gt;val &lt;= lo || root-&gt;val &gt;= hi) return false;
+    return isValidBST(root-&gt;left, lo, root-&gt;val) &amp;&amp; isValidBST(root-&gt;right, root-&gt;val, hi);
+}</code></pre>
+<pre><code class="language-cpp">// 230. 二叉搜索树中第 K 小的元素：迭代版中序遍历，数到第 k 个就停
+int kthSmallest(TreeNode* root, int k) {
+    stack&lt;TreeNode*&gt; st;
+    while (root || !st.empty()) {
+        while (root) { st.push(root); root = root-&gt;left; }   // 一路向左压栈
+        root = st.top();
+        st.pop();
+        if (--k == 0) return root-&gt;val;
+        root = root-&gt;right;
+    }
+    return -1;
+}</code></pre>
+<pre><code class="language-cpp">// 左旋：x 的右孩子 y 上位，x 变成 y 的左孩子，y 原来的左子树过继给 x 当右子树。中序顺序不变
+TreeNode* rotateLeft(TreeNode* x) {
+    TreeNode* y = x-&gt;right;
+    x-&gt;right = y-&gt;left;
+    y-&gt;left = x;
+    return y;                                      // 返回新的子树根，由调用方接回父节点
+}</code></pre>
+<ul>
+<li><strong>删除是最容易写错的。</strong> 三种情况：叶子直接删；只有一个孩子，让孩子顶上来；两个孩子都有，用右子树的最小节点（后继）的值覆盖自己，再去右子树里删掉那个后继。前两种情况可以合并成代码里的两行。</li>
+<li><strong>验证 BST 的经典错误</strong>是只比较节点和它的左右孩子。反例：根是 5，右孩子是 4 且 4 的左孩子是 3。每个节点都满足「左小右大」，但 3 和 4 出现在了 5 的右子树里。正确做法是把祖先给出的上下界一路传下去；上下界用 <code>long long</code>，因为节点值可以等于 <code>INT_MIN</code> 或 <code>INT_MAX</code>。</li>
+<li><strong>旋转只改三个指针，中序顺序不变</strong>，所以它能调整树高而不破坏有序性。右旋是完全对称的写法。</li>
+</ul>
+<p><strong>Q12 · 红黑树的性质分别保证了什么，为什么 <code>map</code> 选它</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>五条性质里真正起作用的是哪两条？</strong> 五条是：节点非红即黑；根是黑的；空叶子是黑的；红节点的孩子必须是黑的；从任一节点到它下面所有空叶子的路径上黑节点数相同。起作用的是后两条：黑高相同意味着最短的路径是全黑，不能连续红意味着最长的路径最多是红黑交替，所以最长路径不超过最短路径的两倍，树高不超过 2 log(n + 1)。</li>
+<li><strong><code>map</code> 为什么用红黑树而不是 AVL？</strong> AVL 更平衡，查找略快，但为了维持严格的平衡，删除时最坏要沿路径旋转 O(log n) 次。红黑树插入最多旋转 2 次、删除最多 3 次，其余的修复都是变色，而变色不改变树的结构，便宜得多。通用容器的读写比例未知，所以选写入代价更稳定的红黑树；明确读远多于写的场景可以选 AVL。</li>
+<li><strong>新插入的节点为什么染成红色？</strong> 染黑一定会让经过它的路径比别的路径多一个黑节点，破坏「黑高相同」，而这是一条全局性质，修复要牵动整棵树。染红最多破坏「不能连续红」（父节点恰好也是红的），这是局部问题，通过变色和至多两次旋转向上修复就行。选代价小的那种违规。</li>
+<li><strong>已经有哈希表了，为什么还需要平衡树？</strong> 哈希函数把 key 打散，key 之间的大小关系就丢了。需要范围查询、找前驱后继、按序遍历、取第 k 小的时候只能用有序结构。另外平衡树的 O(log n) 是最坏保证，哈希表的 O(1) 只是平均。</li>
+<li><strong>怎么在平衡树上查第 k 小、查某个值的排名？</strong> 每个节点多存一个子树大小。查第 k 小时，拿 k 和左子树大小比较，决定往左走、命中当前节点、还是往右走（同时 k 减去左子树大小加一）。旋转只影响两个节点的子树大小，O(1) 就能重新算好。<code>std::set</code> 没有暴露这个能力，面试里通常用树状数组加离散化，或者对顶堆来替代。</li>
+</ul>
+</details>
+<h2 id="sec-8"><span class="num">8.</span>B 树、B+ 树与 LSM 树</h2>
+<p>面向磁盘的结构，设计目标从「减少比较次数」变成「减少 IO 次数」。一个节点就是一个磁盘页（InnoDB 是 16KB），里面打包几百到上千个 key，整棵树只有三四层。</p>
+<p><strong>面试常考代码</strong></p>
+<p>B+ 树面试里一般只到「画出结构、讲清查找和范围查询的过程」，偶尔会让写节点定义和查找，不会让手写插入分裂。下面是这个范围内的最小实现。</p>
+<pre><code class="language-cpp">// B+ 树的节点结构、单点查找、范围查询。面试一般只要求到这个程度，不会让手写插入和分裂
+struct BPlusNode {
+    bool isLeaf;
+    vector&lt;int&gt; keys;                              // 节点内有序
+    vector&lt;BPlusNode*&gt; children;                   // 内部节点用：children.size() == keys.size() + 1
+    vector&lt;int&gt; values;                            // 叶子节点用：和 keys 一一对应
+    BPlusNode* next = nullptr;                     // 叶子节点用：指向右边相邻的叶子
+};</code></pre>
+<pre><code class="language-cpp">// 从根走到 key 应该在的那个叶子。约定：keys[i] 是 children[i + 1] 这棵子树里的最小 key
+BPlusNode* findLeaf(BPlusNode* root, int key) {
+    BPlusNode* cur = root;
+    while (!cur-&gt;isLeaf) {
+        int i = upper_bound(cur-&gt;keys.begin(), cur-&gt;keys.end(), key) - cur-&gt;keys.begin();   // 节点内二分
+        cur = cur-&gt;children[i];                    // 有几个 key 不大于它，就走第几个孩子
+    }
+    return cur;
+}
+
+bool bplusSearch(BPlusNode* root, int key, int&amp; value) {
+    BPlusNode* leaf = findLeaf(root, key);
+    int i = lower_bound(leaf-&gt;keys.begin(), leaf-&gt;keys.end(), key) - leaf-&gt;keys.begin();
+    if (i == (int)leaf-&gt;keys.size() || leaf-&gt;keys[i] != key) return false;
+    value = leaf-&gt;values[i];
+    return true;
+}</code></pre>
+<pre><code class="language-cpp">// 范围查询 [lo, hi]：先定位到 lo 所在的叶子，然后顺着叶子链表往右扫，不用再回到上层
+vector&lt;int&gt; bplusRange(BPlusNode* root, int lo, int hi) {
+    vector&lt;int&gt; res;
+    for (BPlusNode* leaf = findLeaf(root, lo); leaf; leaf = leaf-&gt;next) {
+        for (int i = 0; i &lt; (int)leaf-&gt;keys.size(); ++i) {
+            if (leaf-&gt;keys[i] &gt; hi) return res;
+            if (leaf-&gt;keys[i] &gt;= lo) res.push_back(leaf-&gt;values[i]);
+        }
+    }
+    return res;
+}</code></pre>
+<ul>
+<li><strong>单点查找的每一层都是「节点内二分 + 走向一个孩子」。</strong> 真实数据库里一个节点就是一个磁盘页，这一步对应一次 IO，所以查找的 IO 次数等于树高。</li>
+<li><strong>范围查询只在开头走一次树</strong>，之后全靠叶子上的 <code>next</code> 指针。这就是 B+ 树相对 B 树在范围扫描上的优势在代码里的体现。</li>
+</ul>
+<p><strong>Q13 · 数据库索引为什么用 B+ 树</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么不用红黑树？</strong> 红黑树每个节点只有一个 key，一千万行数据的树高是二十多层，每层一次随机 IO，一次查询就是二十多次磁盘访问。B+ 树每个节点塞满一页，扇出上千，同样的数据只要三层。在内存里比较次数是瓶颈，在磁盘上 IO 次数才是，所以要用「矮而胖」的树。</li>
+<li><strong>B 树和 B+ 树差在哪？</strong> B 树的内部节点也存数据，B+ 树的数据全在叶子、内部节点只存 key。后者带来三个好处：内部节点不放数据，同一页能放下更多 key，扇出更大、树更矮；所有查询都走到叶子，路径长度一致，性能稳定；叶子之间用链表串起来，范围查询定位到起点后顺着链表扫就行，是顺序 IO，B 树则要在树上来回做中序遍历。</li>
+<li><strong>「单表两千万行」这个经验值是怎么算出来的？</strong> 一页 16KB，主键 <code>bigint</code> 8 字节加页指针 6 字节约 14 字节，内部节点的扇出约 1170。假设一行 1KB，一个叶子页放 16 行。三层树能放 1170 × 1170 × 16，约 2190 万行。超过这个量级树会长到第四层，每次查询多一次 IO。所以这个数字取决于行的大小，行越小能放得越多，它不是一个固定的上限。</li>
+<li><strong>Redis 用跳表，为什么数据库不用？</strong> 跳表的每一步都是一次指针跳转，放到磁盘上就是一次随机 IO，而它的层数是 log₂ n，二十多层。B+ 树一次 IO 读进来一整页，上千个 key 在内存里二分，一次 IO 就排除掉了 99.9% 的范围。内存里指针跳转很便宜，所以 Redis 可以用跳表；磁盘上不行。结构的选择是由存储介质的代价模型决定的。</li>
+<li><strong>LSM 树为什么写得快，代价是什么？</strong> 写入只做两件事：追加写日志，插入内存里的有序结构（通常是跳表）。内存表满了就整体刷成一个不可变的有序文件。全程都是顺序 IO，没有 B+ 树那种原地更新随机页和页分裂。代价在读和后台：读要从新到旧查多层文件，靠每个文件配一个布隆过滤器来跳过不含这个 key 的文件；后台要不断合并文件，带来写放大。写多读少的场景（日志、时序、KV 存储）用它，LevelDB、RocksDB、HBase 都是这个结构。</li>
+</ul>
+</details>
+<h2 id="sec-9"><span class="num">9.</span>Trie 与字符串结构</h2>
+<p>Trie 的实现和取舍已经在 <a href="/leetcode-design/#sec-2-5">设计题模板 2.5</a> 讲过，这里补三个常见的延伸方向：</p>
+<ul>
+<li><strong>0-1 Trie</strong>：把整数按二进制从高位到低位插入 Trie。求「数组中两个数的最大异或值」时，对每个数从高位往下走，每一位都优先走和自己相反的那个孩子。原因是异或结果的高位是 1 比低位全是 1 还大，所以可以逐位贪心，O(32n)。</li>
+<li><strong>最长前缀匹配</strong>：路由表查找的就是「和目标地址匹配的最长前缀」。在 Trie 上一路往下走，记录沿途最后一个带结束标记的节点就是答案。</li>
+<li><strong>AC 自动机</strong>：Trie 加失配指针，一次扫描文本同时匹配多个模式串（敏感词过滤）。失配指针的含义和 KMP 的 next 数组一致：当前路径的最长真后缀同时也是某个模式串前缀的那个位置。1032 题的标准解法就是它。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>基础 Trie（208）和 0-1 Trie 求最大异或（421）。</p>
+<pre><code class="language-cpp">class Trie {
+    struct Node {
+        Node* next[26] = {};                       // 全部初始化为 nullptr
+        bool isEnd = false;
+    };
+    Node* root_ = new Node();
+
+    Node* walk(const string&amp; s) {                  // 沿着 s 往下走，走不通返回 nullptr
+        Node* cur = root_;
+        for (char c : s) {
+            cur = cur-&gt;next[c - 'a'];
+            if (!cur) return nullptr;
+        }
+        return cur;
+    }
+public:
+    void insert(string word) {
+        Node* cur = root_;
+        for (char c : word) {
+            if (!cur-&gt;next[c - 'a']) cur-&gt;next[c - 'a'] = new Node();
+            cur = cur-&gt;next[c - 'a'];
+        }
+        cur-&gt;isEnd = true;
+    }
+    bool search(string word) { Node* n = walk(word); return n &amp;&amp; n-&gt;isEnd; }
+    bool startsWith(string prefix) { return walk(prefix) != nullptr; }
+};</code></pre>
+<pre><code class="language-cpp">// 421. 数组中两个数的最大异或值：0-1 Trie，每一位都优先走和自己相反的那一边
+struct BitNode {
+    BitNode* next[2] = {};
+};
+
+int findMaximumXOR(vector&lt;int&gt;&amp; nums) {
+    BitNode* root = new BitNode();
+    int best = 0;
+    for (int x : nums) {
+        BitNode* cur = root;                       // 第一步：把 x 从高位到低位插进 Trie
+        for (int b = 30; b &gt;= 0; --b) {
+            int bit = (x &gt;&gt; b) &amp; 1;
+            if (!cur-&gt;next[bit]) cur-&gt;next[bit] = new BitNode();
+            cur = cur-&gt;next[bit];
+        }
+        cur = root;                                // 第二步：拿 x 去和已经插入的数配对
+        int val = 0;
+        for (int b = 30; b &gt;= 0; --b) {
+            int bit = (x &gt;&gt; b) &amp; 1;
+            if (cur-&gt;next[bit ^ 1]) {              // 有相反的位可走：这一位的异或结果是 1
+                val |= 1 &lt;&lt; b;
+                cur = cur-&gt;next[bit ^ 1];
+            } else {
+                cur = cur-&gt;next[bit];
+            }
+        }
+        best = max(best, val);
+    }
+    return best;
+}</code></pre>
+<ul>
+<li>带通配符的搜索（211）、带计数的删除（1804）、自动补全（642）等变形见 <a href="/leetcode-design/#sec-1-8">设计题清单 1.8</a>；Trie 的实现取舍（指针版和节点池版）见 <a href="/leetcode-design/#sec-2-5">设计题模板 2.5</a>。</li>
+<li><strong>421 为什么从第 30 位开始？</strong> 题目保证数值非负且小于 2^31，最高的有效位是第 30 位。从高位到低位贪心是因为高位的 1 比所有低位的 1 加起来还大，高位能取到 1 就一定要取。</li>
+</ul>
+<h2 id="sec-10"><span class="num">10.</span>并查集</h2>
+<p>维护若干个不相交的集合，支持两个操作：查询某个元素属于哪个集合（find），合并两个集合（union）。每个集合是一棵树，用根节点代表这个集合。模板代码见 <a href="/cpp-fundamentals/#sec-5-4">C++ 笔记 5.4</a>。</p>
+<p><strong>面试常考代码</strong></p>
+<p>并查集模板和一道最直接的应用题。模板本身只有十几行，要能闭着眼写出来。</p>
+<pre><code class="language-cpp">class UnionFind {
+    vector&lt;int&gt; parent_, size_;
+public:
+    int count;                                     // 当前还有多少个集合
+    UnionFind(int n) : parent_(n), size_(n, 1), count(n) {
+        for (int i = 0; i &lt; n; ++i) parent_[i] = i;
+    }
+    int find(int x) {
+        if (parent_[x] != x) parent_[x] = find(parent_[x]);   // 路径压缩：沿途节点直接挂到根上
+        return parent_[x];
+    }
+    bool unite(int a, int b) {
+        int ra = find(a), rb = find(b);
+        if (ra == rb) return false;                // 本来就在一个集合里
+        if (size_[ra] &lt; size_[rb]) swap(ra, rb);   // 按大小合并：小树挂到大树下面
+        parent_[rb] = ra;
+        size_[ra] += size_[rb];
+        --count;
+        return true;
+    }
+};</code></pre>
+<pre><code class="language-cpp">// 547. 省份数量
+int findCircleNum(vector&lt;vector&lt;int&gt;&gt;&amp; isConnected) {
+    int n = isConnected.size();
+    UnionFind uf(n);
+    for (int i = 0; i &lt; n; ++i) {
+        for (int j = i + 1; j &lt; n; ++j) {
+            if (isConnected[i][j]) uf.unite(i, j);
+        }
+    }
+    return uf.count;
+}</code></pre>
+<ul>
+<li><strong><code>find</code> 的递归写法同时完成了路径压缩</strong>：回溯时把沿途每个节点的父指针都改成根。</li>
+<li><strong><code>unite</code> 返回是否真的发生了合并</strong>，这个返回值很有用：684 冗余连接里，第一条让 <code>unite</code> 返回 false 的边就是答案；Kruskal 里返回 true 的边才计入生成树。</li>
+<li>同类题：200 岛屿数量（也可以用并查集做）、684 冗余连接、721 账户合并、1584 连接所有点的最小费用（Kruskal）。</li>
+</ul>
+<p><strong>Q14 · 并查集的两个优化各自解决什么问题</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>路径压缩和按秩合并分别在做什么？</strong> 路径压缩是在 find 的过程中把沿途的节点全部直接挂到根下面，让之后的查找一步到位。按秩（或按大小）合并是合并时把矮的树挂到高的树下面，从源头上不让树长高。只用其中一个是 O(log n)，两个一起用是摊还 O(α(n))。α 是反阿克曼函数，对宇宙中原子数量级的 n 也不超过 5，可以当常数。</li>
+<li><strong>并查集为什么不支持删除和拆分？</strong> 因为合并是有损的。union 之后只留下了「现在的根是谁」，丢掉了「当初是哪两棵树合并成的」；路径压缩又进一步抹掉了树原本的形状，没有信息可以用来还原。需要删边的连通性问题有两种绕法：离线倒着处理，把删边变成加边（803 打砖块）；或者用可撤销并查集，只做按秩合并、不做路径压缩，用栈记录每次修改以便回滚。</li>
+<li><strong>带权并查集能解决什么问题？</strong> 每个节点额外记录它和父节点之间的关系值（差值、比值、奇偶性），路径压缩时沿路累加或累乘。适用于关系可以传递的问题：399 除法求值（a / b 和 b / c 已知，求 a / c）、判断二分图和敌对关系。两个元素在同一个集合里，就说明它们之间的关系可以通过各自到根的关系推算出来。</li>
+<li><strong>求连通分量，并查集和 DFS 怎么选？</strong> 图是静态的、只求一次，DFS 是 O(V + E)，代码更简单。边不断增加、查询穿插其间的在线场景，并查集每次操作接近 O(1)，而 DFS 每次都得重跑。Kruskal 算法正是这种场景：按权重从小到大加边，每加一条之前要问两端是否已经连通。</li>
+</ul>
+</details>
+<h2 id="sec-11"><span class="num">11.</span>图的存储</h2>
+<p>算法部分（BFS、DFS、拓扑排序、最短路）见 <a href="/cpp-fundamentals/#sec-5-4">C++ 笔记 5.4</a>，这里只讲存储。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th></th>
+<th>邻接矩阵</th>
+<th>邻接表</th>
+<th>CSR（压缩稀疏行）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>空间</td>
+<td>O(V²)</td>
+<td>O(V + E)</td>
+<td>O(V + E)，两个连续数组</td>
+</tr>
+<tr>
+<td>判断边 (u, v) 是否存在</td>
+<td>O(1)</td>
+<td>O(deg u)</td>
+<td>O(deg u)，邻居有序时 O(log deg u)</td>
+</tr>
+<tr>
+<td>遍历 u 的邻居</td>
+<td>O(V)</td>
+<td>O(deg u)</td>
+<td>O(deg u)，连续内存</td>
+</tr>
+<tr>
+<td>加边</td>
+<td>O(1)</td>
+<td>O(1)</td>
+<td>代价很高，要重建</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>稠密图、Floyd</td>
+<td>面试题的默认选择</td>
+<td>静态大图、图计算、GPU</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>面试常考代码</strong></p>
+<p>三种建图方式各一道：网格（隐式图，不建图）、邻接表 + 入度数组（拓扑排序）、带权邻接表 + 堆（最短路）。</p>
+<pre><code class="language-cpp">// 200. 岛屿数量：网格是隐式图，不用建图。DFS 把整座岛淹掉，淹了几次就有几座岛
+void sink(vector&lt;vector&lt;char&gt;&gt;&amp; grid, int r, int c) {
+    if (r &lt; 0 || r &gt;= (int)grid.size() || c &lt; 0 || c &gt;= (int)grid[0].size()) return;
+    if (grid[r][c] != '1') return;
+    grid[r][c] = '0';                              // 原地标记已访问
+    sink(grid, r + 1, c);
+    sink(grid, r - 1, c);
+    sink(grid, r, c + 1);
+    sink(grid, r, c - 1);
+}
+int numIslands(vector&lt;vector&lt;char&gt;&gt;&amp; grid) {
+    int res = 0;
+    for (int r = 0; r &lt; (int)grid.size(); ++r) {
+        for (int c = 0; c &lt; (int)grid[0].size(); ++c) {
+            if (grid[r][c] == '1') { ++res; sink(grid, r, c); }
+        }
+    }
+    return res;
+}</code></pre>
+<pre><code class="language-cpp">// 207. 课程表：邻接表建图 + 拓扑排序（Kahn）。能全部出队就说明没有环
+bool canFinish(int numCourses, vector&lt;vector&lt;int&gt;&gt;&amp; prerequisites) {
+    vector&lt;vector&lt;int&gt;&gt; adj(numCourses);
+    vector&lt;int&gt; indeg(numCourses, 0);
+    for (auto&amp; p : prerequisites) {                // p = {a, b}：先学 b 才能学 a，边 b -&gt; a
+        adj[p[1]].push_back(p[0]);
+        ++indeg[p[0]];
+    }
+    queue&lt;int&gt; q;
+    for (int i = 0; i &lt; numCourses; ++i) if (indeg[i] == 0) q.push(i);
+    int done = 0;
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+        ++done;
+        for (int v : adj[u]) if (--indeg[v] == 0) q.push(v);
+    }
+    return done == numCourses;
+}</code></pre>
+<pre><code class="language-cpp">// 743. 网络延迟时间：Dijkstra + 小顶堆。节点编号从 1 开始
+int networkDelayTime(vector&lt;vector&lt;int&gt;&gt;&amp; times, int n, int k) {
+    vector&lt;vector&lt;pair&lt;int, int&gt;&gt;&gt; adj(n + 1);     // adj[u] = {{v, w}, ...}
+    for (auto&amp; t : times) adj[t[0]].push_back({t[1], t[2]});
+    vector&lt;int&gt; dist(n + 1, INT_MAX);
+    priority_queue&lt;pair&lt;int, int&gt;, vector&lt;pair&lt;int, int&gt;&gt;, greater&lt;pair&lt;int, int&gt;&gt;&gt; pq;   // {距离, 节点}
+    dist[k] = 0;
+    pq.push({0, k});
+    while (!pq.empty()) {
+        auto [d, u] = pq.top();
+        pq.pop();
+        if (d &gt; dist[u]) continue;                 // 过期的堆项（懒删除）
+        for (auto [v, w] : adj[u]) {
+            if (d + w &lt; dist[v]) {
+                dist[v] = d + w;
+                pq.push({dist[v], v});
+            }
+        }
+    }
+    int res = 0;
+    for (int i = 1; i &lt;= n; ++i) {
+        if (dist[i] == INT_MAX) return -1;         // 有节点到不了
+        res = max(res, dist[i]);
+    }
+    return res;
+}</code></pre>
+<ul>
+<li><strong>岛屿数量直接改原数组来标记已访问</strong>，省掉一个 visited 数组。如果面试官不允许修改输入，再另开一个同样大小的布尔数组。</li>
+<li><strong>Dijkstra 里那句 <code>if (d &gt; dist[u]) continue</code> 不能省。</strong> 同一个节点可能因为多次松弛而多次入堆，先出堆的是最短的那次，后面出来的都是过期项；不跳过的话结果仍然正确，但会做大量无用的松弛，复杂度失去保证。</li>
+<li>BFS / DFS 的通用模板、判环的三色标记、其他最短路算法的对比见 <a href="/cpp-fundamentals/#sec-5-4">C++ 笔记 5.4</a>。</li>
+</ul>
+<p><strong>Q15 · 图的存储方式怎么选</strong></p>
+<details class="qa">
+<summary>
+3 条追问与解答
+</summary>
+<ul>
+<li><strong>CSR 是什么，为什么大规模图计算都用它？</strong> 两个数组：<code>offsets</code> 长度为 V + 1，<code>edges</code> 长度为 E，节点 u 的邻居就是 <code>edges[offsets[u]]</code> 到 <code>edges[offsets[u + 1]]</code> 之前的这一段。整张图只有两块连续内存，遍历邻居时是纯顺序访存，也没有任何逐节点的内存分配。GPU 上稀疏矩阵的标准格式也是它，稀疏矩阵和图的邻接结构本来就是同一个东西。代价是加边要整体重建，只适合静态图。</li>
+<li><strong><code>vector&lt;vector&lt;int&gt;&gt;</code> 的邻接表有什么问题？</strong> 每个内层 <code>vector</code> 都是一次独立的堆分配，V 很大时分配次数多，各个节点的邻居表散落在堆的各处。面试题的规模下没有影响，这是默认写法。规模大时换成 CSR，或者用三个数组模拟链表的「链式前向星」，把所有的边放进一块连续内存。</li>
+<li><strong>网格类题目需要先建图吗？</strong> 不需要，它是隐式图：节点就是坐标 (r, c)，邻居由方向数组现场算出来，访问标记用同样大小的二维数组，或者在允许的情况下直接改原数组。显式建图只会多一倍内存和一遍预处理，没有任何收益。</li>
+</ul>
+</details>
+<h2 id="sec-12"><span class="num">12.</span>区间结构：前缀和、树状数组、线段树</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>需求</th>
+<th>结构</th>
+<th>修改</th>
+<th>查询</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>没有修改，只查区间和</td>
+<td>前缀和</td>
+<td>–</td>
+<td>O(1)</td>
+<td>区间和 = 两个前缀和之差</td>
+</tr>
+<tr>
+<td>区间加，最后才统一查询</td>
+<td>差分数组</td>
+<td>O(1)</td>
+<td>最后 O(n) 还原</td>
+<td>区间加只改变两个端点处的差分值</td>
+</tr>
+<tr>
+<td>单点修改 + 区间和</td>
+<td>树状数组</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>每个位置只影响 log n 个节点，见 <a href="/leetcode-design/#sec-2-8">设计题模板 2.8</a></td>
+</tr>
+<tr>
+<td>区间修改 + 区间查询，或查区间最值</td>
+<td>线段树 + 懒标记</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>最值不可差分，树状数组表达不了</td>
+</tr>
+<tr>
+<td>值域很大但操作次数少</td>
+<td>动态开点线段树，或离散化</td>
+<td>O(log V)</td>
+<td>O(log V)</td>
+<td>只为访问到的区间创建节点</td>
+</tr>
+<tr>
+<td>维护一组不相交的区间</td>
+<td>有序映射（起点→终点）</td>
+<td>摊还 O(log n)</td>
+<td>O(log n)</td>
+<td>新区间只会和它的前驱、后继若干个区间重叠</td>
+</tr>
+<tr>
+<td>操作复杂，线段树难以维护</td>
+<td>分块</td>
+<td>O(√n)</td>
+<td>O(√n)</td>
+<td>整块打标记，散块暴力</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>面试常考代码</strong></p>
+<p>前缀和、差分、合并区间是高频题；树状数组和线段树在面试里出现得少，但一旦出现就是要求手写的，两个都给出最短的版本。</p>
+<pre><code class="language-cpp">// 560. 和为 K 的子数组：前缀和 + 哈希。子数组和 = 两个前缀和之差
+int subarraySum(vector&lt;int&gt;&amp; nums, int k) {
+    unordered_map&lt;int, int&gt; cnt;                   // 前缀和 -&gt; 出现次数
+    cnt[0] = 1;                                    // 空前缀：让「从下标 0 开始的子数组」也能被数到
+    int sum = 0, res = 0;
+    for (int x : nums) {
+        sum += x;
+        if (cnt.count(sum - k)) res += cnt[sum - k];
+        ++cnt[sum];                                // 先查后存，避免把空子数组算进去
+    }
+    return res;
+}</code></pre>
+<pre><code class="language-cpp">// 1109. 航班预订统计：差分数组。区间 [l, r] 加 d 只改两个位置，最后求一遍前缀和还原
+vector&lt;int&gt; corpFlightBookings(vector&lt;vector&lt;int&gt;&gt;&amp; bookings, int n) {
+    vector&lt;int&gt; diff(n + 2, 0);
+    for (auto&amp; b : bookings) {
+        diff[b[0]] += b[2];
+        diff[b[1] + 1] -= b[2];
+    }
+    vector&lt;int&gt; res(n);
+    int cur = 0;
+    for (int i = 1; i &lt;= n; ++i) {
+        cur += diff[i];
+        res[i - 1] = cur;
+    }
+    return res;
+}</code></pre>
+<pre><code class="language-cpp">// 56. 合并区间：按左端点排序后，新区间只可能和结果里的最后一个重叠
+vector&lt;vector&lt;int&gt;&gt; mergeIntervals(vector&lt;vector&lt;int&gt;&gt;&amp; intervals) {
+    sort(intervals.begin(), intervals.end());
+    vector&lt;vector&lt;int&gt;&gt; res;
+    for (auto&amp; cur : intervals) {
+        if (!res.empty() &amp;&amp; cur[0] &lt;= res.back()[1]) res.back()[1] = max(res.back()[1], cur[1]);
+        else res.push_back(cur);
+    }
+    return res;
+}</code></pre>
+<p><strong>树状数组（307）</strong>：单点修改 + 前缀查询，两个循环方向相反。原理和追问见 <a href="/leetcode-design/#sec-2-8">设计题模板 2.8</a>。</p>
+<pre><code class="language-cpp">class NumArray {
+    vector&lt;int&gt; nums_, tree_;                      // tree_ 下标从 1 开始，tree_[i] 管辖长度为 lowbit(i) 的一段
+    int n_;
+    void add(int i, int delta) {
+        for (; i &lt;= n_; i += i &amp; -i) tree_[i] += delta;
+    }
+    int prefix(int i) {
+        int s = 0;
+        for (; i &gt; 0; i -= i &amp; -i) s += tree_[i];
+        return s;
+    }
+public:
+    NumArray(vector&lt;int&gt;&amp; nums) : nums_(nums), tree_(nums.size() + 1, 0), n_(nums.size()) {
+        for (int i = 0; i &lt; n_; ++i) add(i + 1, nums[i]);
+    }
+    void update(int index, int val) {
+        add(index + 1, val - nums_[index]);        // 树里存的是和，所以传增量而不是新值
+        nums_[index] = val;
+    }
+    int sumRange(int left, int right) { return prefix(right + 1) - prefix(left); }
+};</code></pre>
+<p><strong>线段树（307 的另一种解法）</strong>：同样是单点修改 + 区间求和。把 <code>sum_</code> 和汇总时的加法换成 <code>max</code>，就是区间最值。</p>
+<pre><code class="language-cpp">// 线段树（307. 区域和检索 - 数组可修改）：单点修改 + 区间求和。节点编号从 1 开始，左右孩子是 2k 和 2k + 1
+class SegTree {
+    int n_;
+    vector&lt;int&gt; sum_;
+
+    void build(vector&lt;int&gt;&amp; a, int node, int l, int r) {
+        if (l == r) { sum_[node] = a[l]; return; }
+        int mid = (l + r) / 2;
+        build(a, 2 * node, l, mid);
+        build(a, 2 * node + 1, mid + 1, r);
+        sum_[node] = sum_[2 * node] + sum_[2 * node + 1];
+    }
+    void update(int node, int l, int r, int idx, int val) {
+        if (l == r) { sum_[node] = val; return; }
+        int mid = (l + r) / 2;
+        if (idx &lt;= mid) update(2 * node, l, mid, idx, val);
+        else update(2 * node + 1, mid + 1, r, idx, val);
+        sum_[node] = sum_[2 * node] + sum_[2 * node + 1];     // 回溯时重新汇总
+    }
+    int query(int node, int l, int r, int ql, int qr) {
+        if (ql &lt;= l &amp;&amp; r &lt;= qr) return sum_[node];             // 当前节点被查询区间完全覆盖
+        int mid = (l + r) / 2, s = 0;
+        if (ql &lt;= mid) s += query(2 * node, l, mid, ql, qr);
+        if (qr &gt; mid) s += query(2 * node + 1, mid + 1, r, ql, qr);
+        return s;
+    }
+public:
+    SegTree(vector&lt;int&gt;&amp; a) : n_(a.size()), sum_(4 * a.size()) { build(a, 1, 0, n_ - 1); }
+    void update(int idx, int val) { update(1, 0, n_ - 1, idx, val); }
+    int sumRange(int l, int r) { return query(1, 0, n_ - 1, l, r); }
+};</code></pre>
+<ul>
+<li><strong>560 为什么不能用滑动窗口？</strong> 数组里有负数，窗口右端扩大时和不一定变大，左端收缩时和不一定变小，窗口失去了单调性。前缀和加哈希不依赖单调性。</li>
+<li><strong>线段树和树状数组选哪个写？</strong> 题目只要求「单点修改 + 区间和」就写树状数组，代码短一半。要区间最值、或者要区间修改，才写线段树。</li>
+</ul>
+<p><strong>Q16 · 线段树的懒标记为什么能把区间修改降到 O(log n)</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>懒标记做了什么？</strong> 任何一个区间最多被拆成 2 log n 个「被完整覆盖的节点」。区间修改时只走到这些节点就停下：更新节点自己的聚合值，再记一笔「我欠我的子树一次修改」，不继续往下。等到以后有操作需要进入这个节点的子树时，才把这笔欠账下推一层。查询时沿途下推，保证读到的每个节点都是最新的。没有人访问的子树永远不会被真正更新，省掉的就是这部分工作。</li>
+<li><strong>什么样的运算能放到线段树上？</strong> 聚合运算要满足结合律（和、最值、最大公约数、矩阵乘法），这样父节点的值才能由两个孩子合并出来。要支持懒标记还需要两个条件：标记之间可以叠加（先加 3 再加 5 等于加 8），以及标记对聚合值的影响能 O(1) 算出来。「区间加」对「区间和」的影响是增量乘以区间长度，可以；「区间加」对「区间内不同元素的个数」的影响算不出来，就不行。</li>
+<li><strong>数组为什么要开 4n？</strong> 用数组存线段树时，节点 i 的孩子编号是 2i 和 2i + 1，这是按满二叉树来编号的。n 不是 2 的幂时最后一层并不满，但编号仍然按满的来占位，最大编号可以接近 4n。开 2n 在 n 恰好是 2 的幂时够用，其他情况会越界。</li>
+<li><strong>值域到 10^9、又必须在线回答（比如 732 我的日程安排表 III），怎么办？</strong> 动态开点：不预先建树，节点只在第一次被访问到时创建，每次操作最多新建 O(log V) 个节点，总空间 O(q log V)。如果所有操作事先已知（离线），可以先把出现过的坐标离散化到 [0, 2q) 再建普通线段树。题目要求在线的话，就只能动态开点。</li>
+</ul>
+</details>
+<h2 id="sec-13"><span class="num">13.</span>位图、布隆过滤器与概率结构</h2>
+<p>用精度换空间。「海量数据」类的面试题基本都落在这一节。</p>
+<ul>
+<li><strong>位图</strong>：用 1 个 bit 表示一个整数在不在。全部 32 位无符号整数一共 2^32 个 bit，也就是 512MB，和元素个数无关。</li>
+<li><strong>布隆过滤器</strong>：m 个 bit 加 k 个哈希函数。插入时把 k 个位置置 1；查询时 k 个位置全是 1 回答「可能存在」，有任何一个是 0 回答「一定不存在」。误判率约为 (1 - e<sup>(-kn/m))</sup>k，k 取 (m/n) · ln 2 时最优。每个元素分配 10 个 bit、k 取 7，误判率约 1%。</li>
+<li><strong>HyperLogLog</strong>：估计去重后的元素个数。依据是哈希值里前导零的最大长度 ρ 暗示着大约见过 2^ρ 个不同的值；分成 16384 个桶各自估计，再取调和平均来压低方差。Redis 的实现固定占 12KB，标准误差 0.81%。</li>
+<li><strong>Count-Min Sketch</strong>：估计每个元素出现的次数。d 行 w 列的计数器，每行用一个哈希函数，插入时 d 个位置各加一，查询取 d 个位置里的最小值。因为冲突只会让计数变大，所以结果只会高估、不会低估，取最小值就是取受冲突影响最小的那个。用在热点 key 检测和近似 LFU（Caffeine 的 TinyLFU）上。</li>
+</ul>
+<p><strong>面试常考代码</strong></p>
+<p>位图和布隆过滤器。面试里多数时候只要求讲原理，但这两个实现都很短，写出来是加分项。</p>
+<pre><code class="language-cpp">// 位图：1 个 bit 表示一个整数在不在
+class Bitmap {
+    vector&lt;unsigned&gt; bits_;                        // 每个 unsigned 管 32 个数
+public:
+    Bitmap(int n) : bits_((n + 31) / 32, 0) {}
+    void set(int x) { bits_[x / 32] |= 1u &lt;&lt; (x % 32); }
+    void clear(int x) { bits_[x / 32] &amp;= ~(1u &lt;&lt; (x % 32)); }
+    bool test(int x) { return (bits_[x / 32] &gt;&gt; (x % 32)) &amp; 1; }
+};</code></pre>
+<pre><code class="language-cpp">// 布隆过滤器：m 个 bit + k 个哈希函数。说「不存在」一定对，说「存在」可能错
+class BloomFilter {
+    vector&lt;bool&gt; bits_;
+    int m_, k_;
+
+    int pos(const string&amp; s, int i) {              // 第 i 个哈希函数：用两个基础哈希组合出 k 个
+        size_t h1 = hash&lt;string&gt;()(s);
+        size_t h2 = hash&lt;string&gt;()(s + "#");
+        return (h1 + i * h2) % m_;
+    }
+public:
+    BloomFilter(int m, int k) : bits_(m, false), m_(m), k_(k) {}
+    void add(const string&amp; s) {
+        for (int i = 0; i &lt; k_; ++i) bits_[pos(s, i)] = true;
+    }
+    bool mayContain(const string&amp; s) {
+        for (int i = 0; i &lt; k_; ++i) {
+            if (!bits_[pos(s, i)]) return false;   // 有一位是 0：一定没加过
+        }
+        return true;                               // 全是 1：可能加过，也可能是别的元素凑出来的
+    }
+};</code></pre>
+<ul>
+<li><strong>位图的三个操作都是「先定位到第几个 <code>unsigned</code>，再定位到其中第几位」</strong>：<code>x / 32</code> 和 <code>x % 32</code>。置位用或，清位用「与上取反」，查询用右移后与 1。</li>
+<li><strong>布隆过滤器里的 k 个哈希函数不需要真的找 k 个</strong>：用两个基础哈希值 h1、h2 线性组合出 h1 + i × h2 就够了，这是工程上的标准做法。</li>
+<li><strong>没有 <code>remove</code> 是故意的</strong>，原因见下面的 Q。</li>
+</ul>
+<p><strong>Q17 · 布隆过滤器为什么只有假阳性、没有假阴性</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>原因是什么？</strong> 插入时置为 1 的位永远不会被清零，所以插入过的元素再来查询时，它的 k 个位置必然全是 1，不可能被判成不存在。而一个从没插入过的元素，它的 k 个位置有可能恰好被别的元素凑齐，于是被误判为存在。</li>
+<li><strong>典型的用途有什么共同点？</strong> 缓存穿透防护（先问过滤器，不存在的 key 直接拒绝，不去查数据库）、LSM 树读路径（每个文件配一个，跳过不可能含有这个 key 的文件）、爬虫的 URL 去重。共同点是：否定的回答很有价值而且必须可靠，肯定的回答反正还要去做一次真正的查询，错了只是多花一次查询的代价。</li>
+<li><strong>为什么不能删除，要删除怎么办？</strong> 一个 bit 可能被多个元素共用，删除时把它清零会连带着「删掉」别的元素，制造出假阴性。计数布隆过滤器把每个 bit 换成一个 4 位的计数器，插入加一、删除减一，空间变成四倍。Cuckoo filter 存的是指纹，天然支持删除，空间效率也更高。</li>
+<li><strong>十亿个 URL 去重，需要多少内存？</strong> 用哈希集合：一个 URL 平均几十字节，再加上节点和指针的开销，总量在百 GB 级别，单机放不下。用布隆过滤器并接受 1% 的误判：10 bit × 10 亿，约 1.2GB。如果要求精确，就按 hash(url) % 1000 把数据分到 1000 个小文件里，相同的 URL 必然落进同一个文件，再逐个文件用哈希集合去重。</li>
+</ul>
+</details>
+<p><strong>海量数据题的四个常用套路</strong></p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>做法</th>
+<th>为什么行得通</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>两个大文件找出共同的 URL</td>
+<td>两边都按 hash(url) % 1000 切成小文件，同编号的小文件两两求交</td>
+<td>相同的 URL 哈希值相同，必然落在同编号的分片里</td>
+</tr>
+<tr>
+<td>海量日志里出现次数最多的 K 个</td>
+<td>哈希分片 → 每片用哈希表计数 → 大小为 K 的小顶堆汇总</td>
+<td>同一个 key 只会出现在一个分片里，各片的计数可以直接比较</td>
+</tr>
+<tr>
+<td>40 亿个整数里找一个没出现过的</td>
+<td>位图 512MB；内存更小时先按高 16 位分桶计数，找到没装满的桶，再只对这个桶建位图</td>
+<td>两次扫描、每次只需要很小的内存，用扫描次数换空间</td>
+</tr>
+<tr>
+<td>海量数据求中位数</td>
+<td>按值域分桶计数，定位中位数落在哪个桶，再只在这个桶内精确求</td>
+<td>只需要知道每个桶的个数就能定位，不需要整体排序</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="sec-14"><span class="num">14.</span>并发场景下的数据结构</h2>
+<p>面向后端和基础架构岗位的追问方向。原子操作、内存序、手写互斥锁见 <a href="/cpp-fundamentals/#sec-8-3">C++ 笔记第 8 章</a>。</p>
+<p><strong>面试常考代码</strong></p>
+<p>并发方向最常让手写的数据结构是有界阻塞队列，也就是生产者-消费者模型。线程池、单例、手写互斥锁见 <a href="/cpp-fundamentals/#sec-8-5">C++ 笔记 8.5</a> 和 <a href="/cpp-fundamentals/#sec-8-6">8.6</a>。</p>
+<pre><code class="language-cpp">// 有界阻塞队列（生产者-消费者）：一把锁 + 两个条件变量
+class BlockingQueue {
+    queue&lt;int&gt; q_;
+    int cap_;
+    mutex mtx_;
+    condition_variable notFull_, notEmpty_;
+public:
+    BlockingQueue(int cap) : cap_(cap) {}
+    void push(int x) {
+        unique_lock&lt;mutex&gt; lk(mtx_);
+        notFull_.wait(lk, [&amp;] { return (int)q_.size() &lt; cap_; });   // 满了就等；带条件的 wait 自动处理虚假唤醒
+        q_.push(x);
+        notEmpty_.notify_one();
+    }
+    int pop() {
+        unique_lock&lt;mutex&gt; lk(mtx_);
+        notEmpty_.wait(lk, [&amp;] { return !q_.empty(); });            // 空了就等
+        int x = q_.front();
+        q_.pop();
+        notFull_.notify_one();
+        return x;
+    }
+};</code></pre>
+<ul>
+<li><strong><code>wait</code> 必须带条件（或者写在 <code>while</code> 循环里）。</strong> 条件变量存在虚假唤醒，被唤醒不代表条件真的成立；而且多个消费者同时被唤醒时，只有一个能抢到元素，其余的必须重新检查再继续等。</li>
+<li><strong>为什么用两个条件变量？</strong> 只用一个的话，<code>notify_one</code> 可能把一个生产者唤醒去通知另一个生产者「队列不满了」，而真正在等的消费者没被叫醒，严重时所有线程都在等。分成「不满」和「不空」两个，通知才能送到对的人手里。</li>
+<li><strong>必须用 <code>unique_lock</code> 而不是 <code>lock_guard</code></strong>，因为 <code>wait</code> 在睡眠期间要把锁释放掉、醒来再重新加锁，<code>lock_guard</code> 不支持中途解锁。</li>
+</ul>
+<p><strong>Q18 · 把一个哈希表改成线程安全，有哪几档做法</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>从粗到细有哪几档？</strong> 一把全局锁 → 分片，每片一把锁，按 hash % N 选片（Java 7 的 <code>ConcurrentHashMap</code> 是 16 个段）→ 桶级别：空桶用 CAS 插入，非空桶锁住桶的头节点（Java 8）→ 读多写少时用读写锁，或者写时复制。粒度越细并发度越高，但 <code>size()</code>、扩容、遍历这类需要全局视图的操作就越难做：分片之后 <code>size()</code> 要么逐片加锁求和，要么每片维护一个原子计数、接受结果是近似的。</li>
+<li><strong>LRU 缓存能用读写锁优化吗？</strong> 基本不能。LRU 的 <code>get</code> 要把节点挪到链表头部，读操作同时也是对链表的写操作，读写锁的读锁根本用不上。常规做法是分片，每片是一个独立的 LRU 加一把互斥锁，代价是淘汰顺序从全局 LRU 变成了分片内 LRU。更进一步的做法（Caffeine）是 <code>get</code> 只把「访问了谁」记进一个无锁的环形缓冲区，攒够一批之后再由单个线程统一应用到链表上，让读路径完全不碰锁。</li>
+<li><strong>无锁结构真正难的为什么是内存回收，而不是 CAS？</strong> 线程 A 读到了一个节点的指针，随即被调度出去；线程 B 把这个节点从结构里摘下来并释放了内存；A 醒来之后解引用，访问的是已经释放的内存。带垃圾回收的语言没有这个问题，因为只要 A 还持有引用，节点就不会被回收。C++ 需要 hazard pointer（每个线程公示自己正在使用的指针，回收之前先检查有没有人在用）或者基于 epoch 的回收（等所有线程都离开了旧的 epoch 才真正释放）。</li>
+<li><strong>ABA 问题是什么？</strong> CAS 只比较值是否相等。线程 A 读到指针值 P，期间 P 指向的节点被释放，分配器恰好把同一个地址又分给了一个新节点，A 的 CAS 比较发现仍然是 P，于是成功了，但节点早已不是原来那个，链表就此损坏。它的根源和上一条相同，都是地址被复用。解法是给指针配一个版本号一起做 CAS（x86-64 上可以借用指针的高 16 位），或者靠上面两种回收机制保证地址在还有人使用期间不会被复用。</li>
+</ul>
+</details>
+<h2 id="sec-15"><span class="num">15.</span>选型速查：从需求反推结构</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>需求</th>
+<th>结构</th>
+<th>C++ 容器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>按 key 精确查找</td>
+<td>哈希表</td>
+<td><code>unordered_map</code> / <code>unordered_set</code></td>
+</tr>
+<tr>
+<td>按 key 有序、范围查询、前驱后继</td>
+<td>平衡树</td>
+<td><code>map</code> / <code>set</code>，配合 <code>lower_bound</code> / <code>upper_bound</code></td>
+</tr>
+<tr>
+<td>只取最值，不删除其他元素</td>
+<td>堆</td>
+<td><code>priority_queue</code></td>
+</tr>
+<tr>
+<td>取最值，同时要删除或修改任意元素</td>
+<td>平衡树，或堆 + 懒删除</td>
+<td><code>set&lt;pair&lt;…&gt;&gt;</code> / <code>multiset</code>，或 <code>priority_queue</code> + 哈希</td>
+</tr>
+<tr>
+<td>动态中位数、分界线每次只移动一格的第 k 大</td>
+<td>对顶堆</td>
+<td>两个 <code>priority_queue</code></td>
+</tr>
+<tr>
+<td>动态的任意第 k 小、排名</td>
+<td>带子树大小的平衡树，或树状数组 + 离散化</td>
+<td>需手写，或 <code>__gnu_pbds::tree</code></td>
+</tr>
+<tr>
+<td>先进先出、滑动窗口</td>
+<td>队列、环形缓冲区</td>
+<td><code>queue</code> / <code>deque</code></td>
+</tr>
+<tr>
+<td>左右第一个更大或更小的元素</td>
+<td>单调栈</td>
+<td><code>vector</code> 当栈用</td>
+</tr>
+<tr>
+<td>滑动窗口内的最值</td>
+<td>单调队列</td>
+<td><code>deque</code></td>
+</tr>
+<tr>
+<td>O(1) 定位 + O(1) 调整顺序</td>
+<td>哈希 + 双向链表</td>
+<td><code>unordered_map&lt;K, list&lt;…&gt;::iterator&gt;</code> + <code>list::splice</code></td>
+</tr>
+<tr>
+<td>O(1) 插删 + O(1) 均匀随机</td>
+<td>哈希 + 数组</td>
+<td><code>unordered_map&lt;T, int&gt;</code> + <code>vector&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td>前缀匹配、按字典序枚举</td>
+<td>Trie</td>
+<td>手写</td>
+</tr>
+<tr>
+<td>只加边的动态连通性</td>
+<td>并查集</td>
+<td>手写，两个 <code>vector&lt;int&gt;</code></td>
+</tr>
+<tr>
+<td>静态区间和</td>
+<td>前缀和</td>
+<td><code>vector</code> / <code>partial_sum</code></td>
+</tr>
+<tr>
+<td>单点修改 + 区间和</td>
+<td>树状数组</td>
+<td>手写</td>
+</tr>
+<tr>
+<td>区间修改、区间最值</td>
+<td>线段树</td>
+<td>手写</td>
+</tr>
+<tr>
+<td>一组不相交的区间</td>
+<td>有序映射</td>
+<td><code>map&lt;int, int&gt;</code>（起点→终点）</td>
+</tr>
+<tr>
+<td>某个历史时刻的值</td>
+<td>追加数组 + 二分</td>
+<td><code>vector&lt;pair&lt;int, V&gt;&gt;</code> + <code>upper_bound</code></td>
+</tr>
+<tr>
+<td>判断是否存在，内存很紧，允许误判</td>
+<td>位图、布隆过滤器</td>
+<td><code>bitset</code> / <code>vector&lt;bool&gt;</code>，或手写</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<footer class="aris-footer">
+  由 <code>build_html.py</code> 从 <code>ds_fundamentals.md</code> 生成 · 2026-09-20 17:09 UTC<br>
+  改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
+</footer>
+</main>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- 语法高亮 ---------- */
+  if (window.hljs) {
+    document.querySelectorAll("pre code[class^='language-']").forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) { /* 未知语言，保持纯文本 */ }
+    });
+  }
+
+  /* ---------- 代码块复制按钮 ---------- */
+  document.querySelectorAll("pre > code").forEach(function (code) {
+    var pre = code.parentElement;
+    var wrap = document.createElement("div");
+    wrap.className = "pre-wrap";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement("button");
+    btn.className = "copy";
+    btn.type = "button";
+    btn.textContent = "复制";
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(code.innerText).then(function () {
+        btn.textContent = "已复制";
+        btn.classList.add("ok");
+        setTimeout(function () {
+          btn.textContent = "复制";
+          btn.classList.remove("ok");
+        }, 1400);
+      });
+    });
+    wrap.appendChild(btn);
+  });
+
+  /* ---------- 目录高亮（scrollspy） ---------- */
+  var links = {};
+  document.querySelectorAll("nav.toc a").forEach(function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  var heads = Array.prototype.filter.call(
+    document.querySelectorAll("main h2[id], main h3[id]"),
+    function (h) { return links[h.id]; }
+  );
+  if (heads.length) {
+    var spy = new IntersectionObserver(function () {
+      var top = null;
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].getBoundingClientRect().top <= 120) top = heads[i];
+      }
+      if (!top) top = heads[0];
+      for (var id in links) links[id].classList.remove("active");
+      links[top.id].classList.add("active");
+      var a = links[top.id];
+      var nav = document.querySelector("nav.toc");
+      if (nav && nav.scrollHeight > nav.clientHeight) {
+        var r = a.getBoundingClientRect(), nr = nav.getBoundingClientRect();
+        if (r.top < nr.top || r.bottom > nr.bottom) {
+          nav.scrollTop += r.top - nr.top - nav.clientHeight / 2;
+        }
+      }
+    }, { rootMargin: "-100px 0px -70% 0px", threshold: [0, 1] });
+    heads.forEach(function (h) { spy.observe(h); });
+    window.addEventListener("scroll", function () {
+      clearTimeout(window.__spyT);
+      window.__spyT = setTimeout(function () {
+        var top = heads[0];
+        heads.forEach(function (h) {
+          if (h.getBoundingClientRect().top <= 120) top = h;
+        });
+        for (var id in links) links[id].classList.remove("active");
+        if (links[top.id]) links[top.id].classList.add("active");
+      }, 60);
+    }, { passive: true });
+  }
+
+  /* ---------- 回到顶部 ---------- */
+  var top = document.createElement("button");
+  top.className = "to-top";
+  top.type = "button";
+  top.title = "回到顶部";
+  top.textContent = "↑";
+  top.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  document.body.appendChild(top);
+  window.addEventListener("scroll", function () {
+    top.classList.toggle("show", window.scrollY > 600);
+  }, { passive: true });
+
+  /* ---------- 进度勾选 + 筛选（仅清单页） ---------- */
+  var boxes = document.querySelectorAll("td.ck input[type=checkbox]");
+  if (!boxes.length) return;
+
+  var KEY = "interview-prep:" + (document.querySelector("meta[name=source-path]") || {}).content;
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
+
+  var save = function () {
+    try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) { /* 隐私模式，忽略 */ }
+  };
+
+  var q = document.getElementById("q");
+  var todoOnly = document.getElementById("todo");
+  var progress = document.getElementById("progress");
+  var priBtns = document.querySelectorAll(".toolbar .pris button");
+  var pri = "all";
+
+  var rows = Array.prototype.map.call(boxes, function (box) {
+    return { box: box, tr: box.closest("tr") };
+  });
+
+  function paint() {
+    var total = rows.length, n = 0;
+    var text = (q && q.value || "").trim().toLowerCase();
+    var onlyTodo = todoOnly && todoOnly.checked;
+
+    rows.forEach(function (r) {
+      var isDone = !!done[r.box.dataset.k];
+      r.box.checked = isDone;
+      r.tr.classList.toggle("done", isDone);
+      if (isDone) n++;
+      var ok = true;
+      if (pri !== "all" && r.tr.dataset.pri !== pri) ok = false;
+      if (ok && text && (r.tr.dataset.text || "").indexOf(text) === -1) ok = false;
+      if (ok && onlyTodo && isDone) ok = false;
+      r.tr.classList.toggle("hidden", !ok);
+    });
+
+    // 整张表被筛空时连同它的标题一起收起
+    document.querySelectorAll(".table-wrap").forEach(function (w) {
+      var prows = w.querySelectorAll("tr.prow");
+      if (!prows.length) return;
+      var any = Array.prototype.some.call(prows, function (tr) {
+        return !tr.classList.contains("hidden");
+      });
+      w.classList.toggle("hidden", !any);
+    });
+
+    if (progress) {
+      var pct = total ? Math.round((n / total) * 100) : 0;
+      progress.innerHTML = "已完成 <b>" + n + "</b> / " + total + " · " + pct + "%";
+    }
+  }
+
+  rows.forEach(function (r) {
+    r.box.addEventListener("change", function () {
+      if (r.box.checked) done[r.box.dataset.k] = 1;
+      else delete done[r.box.dataset.k];
+      save();
+      paint();
+    });
+  });
+
+  if (q) q.addEventListener("input", paint);
+  if (todoOnly) todoOnly.addEventListener("change", paint);
+  priBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      pri = b.dataset.p;
+      priBtns.forEach(function (x) { x.classList.toggle("on", x === b); });
+      paint();
+    });
+  });
+  var reset = document.getElementById("reset");
+  if (reset) {
+    reset.addEventListener("click", function () {
+      if (!confirm("清空本页所有勾选进度？")) return;
+      done = {};
+      save();
+      paint();
+    });
+  }
+
+  paint();
+})();
+
+</script>
+
+
+<script type="text/javascript" charset="utf-8" src="/js/lazyload-plugin/lazyload.intersectionObserver.min.js"></script></body></html>

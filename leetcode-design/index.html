@@ -1,0 +1,3076 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>leetcode design</title>
+<meta name="generator" content="build_html.py">
+<meta name="source-path" content="leetcode_design.md">
+<meta name="source-sha256" content="6e353fa3f312de47">
+<meta name="generated-at" content="2026-09-20 17:09 UTC">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+<style>
+:root {
+  --bg: #fdfcf7;
+  --bg-soft: #f4f1ea;
+  --bg-code: #f8f5ec;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --ink-muted: #6b6b6b;
+  --primary: #1a4a8c;
+  --primary-soft: #2d6cb8;
+  --accent: #b8390e;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --info-bg: #dbeafe;
+  --good-bg: #d1fae5;
+  --good: #065f46;
+  --bad-bg: #fee2e2;
+  --bad: #991b1b;
+  --border: #d6d0c0;
+  --border-soft: #e8e3d5;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: "Source Serif Pro", "Source Serif 4", "Crimson Pro", "Georgia", "Songti SC", "STSong", serif;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--bg);
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+
+.layout {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 48px;
+  padding: 40px 32px;
+}
+
+nav.toc {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  font-size: 13px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  padding-right: 16px;
+}
+nav.toc h3 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+nav.toc ol li { margin: 5px 0; counter-increment: toc; }
+nav.toc ol li::before { content: counter(toc) ". "; color: var(--ink-muted); margin-right: 4px; }
+nav.toc a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px dotted transparent;
+}
+nav.toc a:hover { color: var(--primary); border-bottom-color: var(--primary); }
+nav.toc ul { list-style: none; padding-left: 14px; margin: 3px 0; font-size: 12px; }
+nav.toc ul li::before { content: "→ "; color: var(--border); }
+
+main { min-width: 0; }
+
+header.hero {
+  border-bottom: 3px double var(--primary);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+}
+header.hero .eyebrow {
+  font-family: inherit;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+header.hero h1 {
+  font-size: 32px;
+  line-height: 1.2;
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+header.hero .subtitle {
+  font-size: 16px;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  font-style: italic;
+}
+header.hero .byline {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+header.hero .byline strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+header.hero .meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--border-soft);
+  padding-top: 14px;
+}
+header.hero .meta span strong { color: var(--ink-soft); }
+header.hero .meta code {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11px;
+  background: var(--bg-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+}
+
+h2 {
+  font-size: 24px;
+  margin: 44px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  font-weight: 700;
+}
+h2 .num { color: var(--primary); font-weight: 600; margin-right: 8px; }
+h3 { font-size: 19px; margin: 28px 0 10px; color: var(--primary); font-weight: 600; }
+h4 { font-size: 16px; margin: 20px 0 8px; color: var(--ink); font-weight: 600; }
+
+p { margin: 10px 0; }
+ul, ol { padding-left: 22px; margin: 10px 0; }
+ul li, ol li { margin: 4px 0; }
+ul li::marker { color: var(--primary); }
+
+strong { color: var(--accent); font-weight: 600; }
+em { color: var(--ink-soft); }
+
+a { color: var(--primary); }
+a:hover { color: var(--accent); }
+
+code:not(.hljs) {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.86em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  color: var(--accent);
+}
+
+pre {
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  padding: 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+pre code, pre code.hljs {
+  background: transparent !important;
+  display: block;
+  padding: 14px 18px !important;
+  font-size: 13px;
+  line-height: 1.55;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: var(--ink);
+}
+pre.diagram {
+  background: #f9f6ed;
+  border-left: 4px solid var(--accent);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.callout {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 4px;
+  border-left: 4px solid;
+  font-size: 15px;
+}
+.callout-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.callout-info { background: var(--info-bg); border-left-color: var(--primary); }
+.callout-info .callout-title { color: var(--primary); }
+.callout-warn { background: var(--warn-bg); border-left-color: var(--warn); }
+.callout-warn .callout-title { color: var(--warn); }
+.callout-good { background: var(--good-bg); border-left-color: var(--good); }
+.callout-good .callout-title { color: var(--good); }
+.callout-bad { background: var(--bad-bg); border-left-color: var(--bad); }
+.callout-bad .callout-title { color: var(--bad); }
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table-wrap table {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+thead { background: var(--primary); color: white; }
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th { font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: var(--bg-soft); }
+
+details.qa, details {
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 0;
+}
+details summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--primary);
+  list-style: none;
+  user-select: none;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::before {
+  content: "▸ ";
+  margin-right: 4px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+details[open] summary::before { transform: rotate(90deg); }
+details[open] summary { border-bottom: 1px solid var(--border-soft); }
+details > :not(summary) { padding: 10px 14px; }
+details p:first-of-type { margin-top: 8px; }
+
+mjx-container[display="true"] { margin: 12px 0 !important; }
+
+footer.aris-footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+footer.aris-footer a { color: var(--ink-muted); border-bottom: 1px dotted var(--border); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 20px; padding: 20px 16px; }
+  nav.toc {
+    position: static;
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+  header.hero h1 { font-size: 24px; }
+  h2 { font-size: 20px; }
+}
+@media print {
+  nav.toc { display: none; }
+  .layout { grid-template-columns: 1fr; padding: 0; }
+  body { background: white; }
+  header.hero { border-bottom-color: var(--ink); }
+  #cite-pop, dialog.lightbox { display: none !important; }
+}
+
+/* --- P0 polish: TOC scrollspy active state ---------------------------- */
+nav.toc a.active {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* --- P0 polish: Long-code auto-collapse ------------------------------- */
+details.code-card {
+  margin: 14px 0;
+  background: #fafaf6;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 4px;
+}
+details.code-card > summary {
+  cursor: pointer;
+  padding: 8px 14px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  list-style: none;
+  user-select: none;
+}
+details.code-card > summary::-webkit-details-marker { display: none; }
+details.code-card > summary::before { content: none; }
+details.code-card > pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: none;
+  border-radius: 0;
+}
+@media print {
+  details.code-card { border: 1px solid #ccc; background: white; }
+  details.code-card > summary { display: none !important; }
+  details.code-card > pre { border: 1px solid #ddd; border-radius: 4px; background: white; }
+}
+
+
+/* ===== 清单专用增强：徽章 / 工具条 / 进度勾选 ===== */
+
+/* --- 优先级徽章 --- */
+.pri {
+  display: inline-block;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pri-p0 { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.pri-p1 { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+.pri-p2 { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.pri-p3 { background: var(--bg-soft); color: var(--ink-muted); border-color: var(--border); }
+
+/* --- 难度徽章 --- */
+.diff {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.diff-easy { background: var(--good-bg); color: var(--good); }
+.diff-mid  { background: var(--warn-bg); color: var(--warn); }
+.diff-hard { background: var(--bad-bg);  color: var(--bad); }
+
+/* --- Hot100 标记 --- */
+.hot {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* --- 表格微调：题号列等宽字体，行内不换行的窄列 --- */
+td .pri, td .diff { vertical-align: middle; }
+tbody tr.prow:hover { background: #f0ece0; }
+tbody tr.done { opacity: 0.42; }
+tbody tr.done td:nth-child(5) { text-decoration: line-through; }
+
+th.ck, td.ck {
+  width: 34px;
+  text-align: center;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+td.ck input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 2px 0 0;
+}
+
+/* --- 顶部工具条 --- */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 160px;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.toolbar input[type="search"]:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.toolbar .pris { display: flex; gap: 4px; }
+.toolbar .pris button,
+.toolbar .reset {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.toolbar .pris button:hover,
+.toolbar .reset:hover { border-color: var(--primary); color: var(--primary); }
+.toolbar .pris button.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.toolbar .only-todo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toolbar .only-todo input { accent-color: var(--primary); cursor: pointer; }
+.toolbar .progress {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.toolbar .progress b { color: var(--accent); }
+
+/* 被筛掉的行 / 整表无结果 */
+tr.hidden, .table-wrap.hidden, h2.hidden, h3.hidden { display: none; }
+
+/* --- 代码块说明条 --- */
+.code-note {
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid #fcd34d;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 3px 10px;
+  margin: 14px 0 3px;
+  display: inline-block;
+}
+
+/* --- 复制按钮 --- */
+.pre-wrap { position: relative; }
+.pre-wrap .copy {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(253, 252, 247, 0.9);
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pre-wrap:hover .copy { opacity: 1; }
+.pre-wrap .copy:hover { color: var(--primary); border-color: var(--primary); }
+.pre-wrap .copy.ok { color: var(--good); border-color: var(--good); }
+
+/* --- 回到顶部 --- */
+.to-top {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-muted);
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.to-top.show { opacity: 1; pointer-events: auto; }
+.to-top:hover { color: var(--primary); border-color: var(--primary); }
+
+@media (max-width: 900px) {
+  .toolbar { position: static; }
+}
+@media print {
+  .toolbar, .to-top, .pre-wrap .copy { display: none !important; }
+  tr.hidden, .table-wrap.hidden { display: revert !important; }
+  tbody tr.done { opacity: 1; }
+}
+
+/* 表头不折行；正文列正常换行 */
+thead th { white-space: nowrap; }
+
+/* 标题自带编号（0. / 一、/ 表 A），关掉目录的自动序号避免双重编号 */
+nav.toc > ol > li { counter-increment: none; margin: 9px 0; }
+nav.toc > ol > li::before { content: none; }
+nav.toc > ol > li > a { font-weight: 600; color: var(--ink); }
+
+/* 表头里的行内代码要在深蓝底上可读 */
+thead th code:not(.hljs) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+/* 长代码卡默认展开，summary 作为折叠把手，不要抢戏 */
+details.code-card > summary { opacity: 0.55; }
+details.code-card > summary:hover { opacity: 1; color: var(--primary); }
+details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft); }
+
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目录</h3>
+<ol><li><a href="#sec-0">0. 怎么用这份文档</a><ul><li><a href="#sec-0-1">0.1 优先级怎么定的</a></li><li><a href="#sec-0-2">0.2 设计题的通用解题框架</a></li><li><a href="#sec-0-3">0.3 组合模式速查</a></li></ul></li><li><a href="#sec-1">1. 设计题全集（134 题，按底层结构组合分 12 类）</a><ul><li><a href="#sec-1-1">1.1 缓存、淘汰与顺序维护（哈希 + 双向链表 / 对顶结构）（9 题）</a></li><li><a href="#sec-1-2">1.2 手写基础容器与 O(1) 随机（11 题）</a></li><li><a href="#sec-1-3">1.3 栈与队列变体（8 题）</a></li><li><a href="#sec-1-4">1.4 堆 / 有序集合 + 哈希：动态最值与排行榜（20 题）</a></li><li><a href="#sec-1-5">1.5 数据流、滑动窗口与限流（9 题）</a></li><li><a href="#sec-1-6">1.6 时间戳 / 版本号 + 二分（8 题）</a></li><li><a href="#sec-1-7">1.7 区间、前缀和、树状数组与线段树（14 题）</a></li><li><a href="#sec-1-8">1.8 Trie 与字符串编码（13 题）</a></li><li><a href="#sec-1-9">1.9 迭代器（9 题）</a></li><li><a href="#sec-1-10">1.10 树与图：序列化、祖先、在线查询（11 题）</a></li><li><a href="#sec-1-11">1.11 哈希计数与预处理查询（9 题）</a></li><li><a href="#sec-1-12">1.12 业务模拟 / 面向对象建模（13 题）</a></li></ul></li><li><a href="#sec-2">2. 必须能默写的 10 个模板</a><ul><li><a href="#sec-2-1">2.1 最小栈（155）</a></li><li><a href="#sec-2-2">2.2 双栈实现队列（232）</a></li><li><a href="#sec-2-3">2.3 哈希 + 数组：O(1) 插入、删除、随机（380）</a></li><li><a href="#sec-2-4">2.4 对顶堆：数据流中位数（295）</a></li><li><a href="#sec-2-5">2.5 Trie（208）</a></li><li><a href="#sec-2-6">2.6 堆 + 懒删除（3408，同构题 2353 / 2034 / 2349 / 3885）</a></li><li><a href="#sec-2-7">2.7 环形队列（622）</a></li><li><a href="#sec-2-8">2.8 树状数组（307）</a></li><li><a href="#sec-2-9">2.9 时间戳 + 二分（981）</a></li><li><a href="#sec-2-10">2.10 跳表（1206）</a></li></ul></li><li><a href="#sec-3">3. 复习顺序与现场节奏</a><ul><li><a href="#sec-3-1">3.1 按轮次推进</a></li><li><a href="#sec-3-2">3.2 设计题的现场节奏</a></li></ul></li></ol>
+</nav>
+<main>
+<header class="hero">
+  <div class="eyebrow">数据结构设计</div>
+  <h1>LeetCode 数据结构设计题全集</h1>
+  <p class="subtitle">Design 标签全部 134 题按底层结构组合分 12 类，附频度分级与 10 个验证过的 C++ 模板</p>
+  <div class="meta">
+    <span><strong>来源</strong> <code>leetcode_design.md</code></span>
+    <span><strong>生成</strong> 2026-09-20 17:09 UTC</span>
+  </div>
+</header>
+
+<div class="toolbar" id="toolbar">
+  <input type="search" id="q" placeholder="搜索题号、题目、考点…" autocomplete="off">
+  <div class="pris">
+    <button data-p="all" class="on">全部</button>
+    <button data-p="p0">P0</button>
+    <button data-p="p1">P1</button>
+    <button data-p="p2">P2</button>
+    <button data-p="p3">P3</button>
+  </div>
+  <label class="only-todo"><input type="checkbox" id="todo"> 只看未完成</label>
+  <span class="progress" id="progress"></span>
+  <button id="reset" class="reset">清空进度</button>
+</div>
+<blockquote>
+<p>题目范围：LeetCode 官方 <strong>Design（设计）标签下的全部 134 题</strong>，2026-09-20 从 leetcode.com 题库接口抓取，未做任何删减。中文标题取自 doocs/leetcode 题目索引。 频度：CodeTop 上全部公司合计的出现次数，同日抓取。134 题里只有 54 题有频度记录，其余显示为 –。 代码：第 2 章的 C++ 模板全部是<strong>面试里能直接手写的版本</strong>（只用 <code>int</code>、<code>rand()</code>、裸指针，不做工程化封装），用 Apple clang <code>-std=c++17 -Wall -Wextra -fsanitize=address,undefined</code> 编译并跑过随机对拍（对照 <code>multiset</code>、暴力求和、<code>set</code> 版实现）。 会员题（🔒 共 35 道）无法在线核对题面，考点一栏按官方标签和已知题意整理。 配套：底层结构本身的原理与追问（哈希表、堆、平衡树、B+ 树、并查集、线段树、布隆过滤器等）单独放在 <a href="/ds-fundamentals/">数据结构基础面试要点</a>。</p>
+</blockquote>
+<h2 id="sec-0"><span class="num">0.</span>怎么用这份文档</h2>
+<h3 id="sec-0-1">0.1 优先级怎么定的</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>规则</th>
+<th>题数</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="pri pri-p0">P0</span></td>
+<td>面试频度最高的一档</td>
+<td>8</td>
+<td>15 分钟内 bug-free 写完，能主动讲清每个成员变量存在的理由，扛住 3 层追问</td>
+</tr>
+<tr>
+<td><span class="pri pri-p1">P1</span></td>
+<td>频度次高的一档</td>
+<td>18</td>
+<td>熟练写出，能说复杂度和至少一种替代方案</td>
+</tr>
+<tr>
+<td><span class="pri pri-p2">P2</span></td>
+<td>有任意频度记录，或人工提拔</td>
+<td>52</td>
+<td>写过一遍，知道坑在哪</td>
+</tr>
+<tr>
+<td><span class="pri pri-p3">P3</span></td>
+<td>其余</td>
+<td>56</td>
+<td>看懂「考点」一栏，知道属于哪种组合模式即可</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>两点说明，先看清依据再分配时间（另外，分档时除了表里展示的全部公司合计频度，还参考了 CodeTop 按公司筛选的频度，所以个别题的档位不能只由「频度」这一列推出）：</p>
+<ul>
+<li><strong>P2 里频度为 – 的 24 题是人工提拔的</strong>，依据是它们各自代表一种别处没有覆盖的模式（时间戳二分、区间合并、对顶栈、懒删除堆、迭代器惰性展开等），或是 P0 题的常见追问方向。这部分是判断而不是数据。</li>
+<li>设计题的频度分布极不均匀：146 一道题的频度（961）超过其余 133 题之和（683）。所以<strong>时间应该先砸在 P0 的 8 题上</strong>，而不是平均铺开。P3 的价值是面试官「换一道」时你能在 30 秒内认出它属于哪个模式。</li>
+</ul>
+<p>难度分布：易 14 / 中 88 / 难 32。</p>
+<h3 id="sec-0-2">0.2 设计题的通用解题框架</h3>
+<p>设计题和普通算法题的区别在于：没有「一个输入一个输出」，而是一组操作共享同一份状态，每个操作都有复杂度要求。按下面四步走，基本不会卡住。</p>
+<ol type="1">
+<li><strong>列操作表，标出复杂度目标。</strong> 把每个接口写下来，旁边写上题目要求或你打算做到的复杂度。这一步同时是和面试官确认需求的过程：key 会不会重复、时间戳是否递增、容量上限多大、非法输入怎么处理。</li>
+<li><strong>为每个操作找「最便宜的结构」，再看它们能不能共存。</strong> 单一结构通常满足不了所有操作，答案几乎总是两个结构的组合：一个负责<strong>按 key 定位</strong>（哈希表），另一个负责<strong>维护某种顺序</strong>（链表、堆、有序集合、数组）。见 0.3 的速查表。</li>
+<li><strong>写下不变量。</strong> 两个结构之间必须始终保持的关系，例如「哈希表里的每个 key 在链表里恰好有一个节点」「<code>lo_</code> 的每个数不大于 <code>hi_</code> 的每个数，且两者大小差不超过 1」。每个操作结束时都要恢复不变量。bug 几乎都出在某条路径忘了同步另一个结构。</li>
+<li><strong>逐个操作过边界。</strong> 空结构、容量为 1、重复插入同一个 key、删除不存在的 key、被操作的恰好是头 / 尾 / 最后一个元素。</li>
+</ol>
+<p>能主动说出第 3 步的候选人很少，这是拉开差距的地方：面试官追问「如果再加一个操作 X 呢」时，你只需要检查 X 会不会破坏不变量，而不是重新想一遍。</p>
+<h3 id="sec-0-3">0.3 组合模式速查</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>需求特征</th>
+<th>结构组合</th>
+<th>为什么是它</th>
+<th>代表题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>O(1) 定位 + O(1) 调整顺序 / 淘汰</td>
+<td>哈希 + 双向链表</td>
+<td>链表已知节点时插删 O(1)，但找节点要 O(n)，哈希补上定位</td>
+<td>146、460、432</td>
+</tr>
+<tr>
+<td>O(1) 插删 + O(1) 均匀随机</td>
+<td>哈希 + 动态数组</td>
+<td>随机访问必须是连续下标，数组删中间要搬移，用末尾元素填坑绕开</td>
+<td>380、381</td>
+</tr>
+<tr>
+<td>动态取最值，且元素属性会变</td>
+<td>哈希 + 有序集合，或哈希 + 堆懒删除</td>
+<td>堆不支持删除任意元素，要么换支持删除的平衡树，要么把删除推迟到出堆时</td>
+<td>2353、3408、2034</td>
+</tr>
+<tr>
+<td>动态中位数 / 第 k 大</td>
+<td>对顶堆</td>
+<td>只关心分界线两侧的极值，不需要全体有序</td>
+<td>295、2102、703</td>
+</tr>
+<tr>
+<td>写入按时间递增，查询「某时刻的值」</td>
+<td>哈希 + 追加数组 + 二分</td>
+<td>单调写入让数组天然有序，省掉平衡树</td>
+<td>981、1146、911</td>
+</tr>
+<tr>
+<td>最近一段时间的计数</td>
+<td>队列，或固定数量的时间桶</td>
+<td>过期元素只会从最旧的一端离开</td>
+<td>362、933、359</td>
+</tr>
+<tr>
+<td>静态区间和</td>
+<td>前缀和</td>
+<td>区间和 = 两个前缀和之差</td>
+<td>303、304</td>
+</tr>
+<tr>
+<td>单点修改 + 区间和</td>
+<td>树状数组</td>
+<td>每个位置只影响 log n 个节点</td>
+<td>307、308</td>
+</tr>
+<tr>
+<td>区间修改 / 区间最值</td>
+<td>线段树 + 懒标记</td>
+<td>树状数组表达不了最值和区间赋值</td>
+<td>732、2286</td>
+</tr>
+<tr>
+<td>维护一组不相交区间</td>
+<td>有序映射（起点→终点）</td>
+<td>新区间只可能与前驱和后继若干个区间重叠</td>
+<td>715、729、352、2276</td>
+</tr>
+<tr>
+<td>前缀匹配</td>
+<td>Trie</td>
+<td>公共前缀只存一份，查询与字典大小无关</td>
+<td>208、211、642</td>
+</tr>
+<tr>
+<td>撤销 / 光标移动</td>
+<td>对顶栈</td>
+<td>光标两侧各自只在靠近光标的一端变化</td>
+<td>2296、1472</td>
+</tr>
+<tr>
+<td>逐个吐出元素</td>
+<td>栈 / 下标保存现场，惰性推进</td>
+<td>不预先展开，空间从 O(n) 降到 O(深度)</td>
+<td>173、341、251</td>
+</tr>
+<tr>
+<td>定长缓冲</td>
+<td>环形数组</td>
+<td>头尾指针取模，无需搬移</td>
+<td>622、641、346</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="sec-1"><span class="num">1.</span>设计题全集（134 题，按底层结构组合分 12 类）</h2>
+<p>每张表内按优先级、频度排序。题目链接指向力扣中文站。勾选状态保存在浏览器本地。</p>
+<h3 id="sec-1-1">1.1 缓存、淘汰与顺序维护（哈希 + 双向链表 / 对顶结构）（9 题）</h3>
+<p>共同点：既要 O(1) 按 key 定位，又要 O(1) 维护某种「顺序」（最近使用、频次、光标位置）。哈希表只管定位，链表或对顶栈只管顺序，两个结构通过节点指针 / 迭代器互相引用。LRU、LFU 的完整手写和追问见 <a href="/cpp-fundamentals/#sec-5-5">C++ 笔记 5.5</a>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 146 lru 缓存 961 中  哈希 + 双向链表，双哨兵；get 也要挪到头部；节点里必须存 key 才能在淘汰时反查哈希">
+<td class="ck"><input type="checkbox" data-k="a7a44a0fb73e" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>146</td>
+<td><a href="https://leetcode.cn/problems/lru-cache/">LRU 缓存</a></td>
+<td>961</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>哈希 + 双向链表，双哨兵；get 也要挪到头部；节点里必须存 key 才能在淘汰时反查哈希</td>
+</tr>
+<tr class="prow" data-pri="p0" data-text="2 p0 460 lfu 缓存 58 难  key→节点、freq→双向链表 两张哈希 + minfreq；新插入时 minfreq 重置为 1，同频内按 lru 淘汰">
+<td class="ck"><input type="checkbox" data-k="83bd40c1620c" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>460</td>
+<td><a href="https://leetcode.cn/problems/lfu-cache/">LFU 缓存</a></td>
+<td>58</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>key→节点、freq→双向链表 两张哈希 + minFreq；新插入时 minFreq 重置为 1，同频内按 LRU 淘汰</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="3 p1 432 全 o(1) 的数据结构 2 难  按计数升序的「桶」双向链表，每个桶存一组 key；inc / dec 只会移动到相邻桶，所以 o(1)">
+<td class="ck"><input type="checkbox" data-k="86831cb241d1" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>432</td>
+<td><a href="https://leetcode.cn/problems/all-oone-data-structure/">全 O(1) 的数据结构</a></td>
+<td>2</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>按计数升序的「桶」双向链表，每个桶存一组 key；inc / dec 只会移动到相邻桶，所以 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 1472 设计浏览器历史记录 1 中  数组 + 当前下标 + 有效右边界，visit 只改右边界就等于截断前进历史，三个操作全 o(1)；双栈是直观解">
+<td class="ck"><input type="checkbox" data-k="a757402faa23" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1472</td>
+<td><a href="https://leetcode.cn/problems/design-browser-history/">设计浏览器历史记录</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>数组 + 当前下标 + 有效右边界，visit 只改右边界就等于截断前进历史，三个操作全 O(1)；双栈是直观解</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 1670 设计前中后队列 – 中  两个 deque，保持左右长度差不超过 1，中间元素永远在某个 deque 的端点">
+<td class="ck"><input type="checkbox" data-k="e1ecba114d2d" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1670</td>
+<td><a href="https://leetcode.cn/problems/design-front-middle-back-queue/">设计前中后队列</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>两个 deque，保持左右长度差不超过 1，中间元素永远在某个 deque 的端点</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="6 p2 1797 设计一个验证系统 – 中  token→过期时间；ttl 固定且时间递增，所以过期顺序 = 续期顺序，可用 lru 式链表从头部批量清理">
+<td class="ck"><input type="checkbox" data-k="2ae0d3d3fd2d" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1797</td>
+<td><a href="https://leetcode.cn/problems/design-authentication-manager/">设计一个验证系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>token→过期时间；TTL 固定且时间递增，所以过期顺序 = 续期顺序，可用 LRU 式链表从头部批量清理</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 2296 设计一个文本编辑器 – 难  对顶栈：光标左右各一个栈，移动光标就是两栈之间倒腾，每个操作 o(k)；追问 gap buffer / rope">
+<td class="ck"><input type="checkbox" data-k="5f6d2e56f252" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>2296</td>
+<td><a href="https://leetcode.cn/problems/design-a-text-editor/">设计一个文本编辑器</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>对顶栈：光标左右各一个栈，移动光标就是两栈之间倒腾，每个操作 O(k)；追问 gap buffer / rope</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 1429 第一个唯一数字 – 中 🔒 队列 + 计数哈希，查询时懒弹出队头计数 > 1 的元素；每个元素至多弹一次，摊还 o(1)">
+<td class="ck"><input type="checkbox" data-k="4d492a3dda19" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1429</td>
+<td><a href="https://leetcode.cn/problems/first-unique-number/">第一个唯一数字</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>队列 + 计数哈希，查询时懒弹出队头计数 &gt; 1 的元素；每个元素至多弹一次，摊还 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 1756 设计最近使用（mru）队列 – 中 🔒 分块（sqrt 分解）每块一个数组，取第 k 个后追加到末块；或树状数组 + 二分找第 k 个仍存在的位置">
+<td class="ck"><input type="checkbox" data-k="d2ffe6f80be2" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1756</td>
+<td><a href="https://leetcode.cn/problems/design-most-recently-used-queue/">设计最近使用（MRU）队列</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>分块（sqrt 分解）每块一个数组，取第 k 个后追加到末块；或树状数组 + 二分找第 k 个仍存在的位置</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-2">1.2 手写基础容器与 O(1) 随机（11 题）</h3>
+<p>这类题考的不是技巧而是「基础结构你真的写得出来吗」：取模环绕、哨兵、负载因子、随机层数。面试官常在写完后追问对应结构的原理，见 <a href="/ds-fundamentals/">数据结构基础面试要点</a>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 380 o(1) 时间插入、删除和获取随机元素 21 中  数组存值 + 哈希存下标；删除时用末尾元素填坑再 pop_back，注意被删的恰好是末尾元素">
+<td class="ck"><input type="checkbox" data-k="85525f35fa37" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>380</td>
+<td><a href="https://leetcode.cn/problems/insert-delete-getrandom-o1/">O(1) 时间插入、删除和获取随机元素</a></td>
+<td>21</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>数组存值 + 哈希存下标；删除时用末尾元素填坑再 pop_back，注意被删的恰好是末尾元素</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="2 p1 384 打乱数组 32 中  fisher–yates：第 i 位从 [i, n) 里均匀选一个交换；能说清为什么从 [0, n) 里选是不均匀的">
+<td class="ck"><input type="checkbox" data-k="f120830673ef" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>384</td>
+<td><a href="https://leetcode.cn/problems/shuffle-an-array/">打乱数组</a></td>
+<td>32</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>Fisher–Yates：第 i 位从 [i, n) 里均匀选一个交换；能说清为什么从 [0, n) 里选是不均匀的</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="3 p1 622 设计循环队列 18 中  环形缓冲区：head + size（或多留一个空位区分空满），下标一律取模">
+<td class="ck"><input type="checkbox" data-k="b87ca40b700a" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>622</td>
+<td><a href="https://leetcode.cn/problems/design-circular-queue/">设计循环队列</a></td>
+<td>18</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>环形缓冲区：head + size（或多留一个空位区分空满），下标一律取模</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="4 p1 706 设计哈希映射 15 易  拉链法：桶数组 + 链表，桶数取质数或 2 的幂；追问负载因子、rehash、为什么 java 8 链表转红黑树">
+<td class="ck"><input type="checkbox" data-k="b724051fdb5a" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>706</td>
+<td><a href="https://leetcode.cn/problems/design-hashmap/">设计哈希映射</a></td>
+<td>15</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>拉链法：桶数组 + 链表，桶数取质数或 2 的幂；追问负载因子、rehash、为什么 Java 8 链表转红黑树</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="5 p1 1206 设计跳表 11 难  多层有序链表，随机层数 p = 1/2 或 1/4；用 prev[] 记录每层的前驱，插删只改这些前驱的指针；期望 o(log n)">
+<td class="ck"><input type="checkbox" data-k="dbd309523af3" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>1206</td>
+<td><a href="https://leetcode.cn/problems/design-skiplist/">设计跳表</a></td>
+<td>11</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>多层有序链表，随机层数 p = 1/2 或 1/4；用 prev[] 记录每层的前驱，插删只改这些前驱的指针；期望 O(log n)</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="6 p1 381 o(1) 时间插入、删除和获取随机元素 - 允许重复 9 难  哈希的 value 换成下标集合（unordered_set）；填坑时先删旧下标再加新下标，顺序错了会在 val == last 时出错">
+<td class="ck"><input type="checkbox" data-k="2670e2f2e337" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>381</td>
+<td><a href="https://leetcode.cn/problems/insert-delete-getrandom-o1-duplicates-allowed/">O(1) 时间插入、删除和获取随机元素 - 允许重复</a></td>
+<td>9</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>哈希的 value 换成下标集合（unordered_set）；填坑时先删旧下标再加新下标，顺序错了会在 val == last 时出错</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 705 设计哈希集合 3 易  同 706，只存 key；数据范围小可以直接用 bitset">
+<td class="ck"><input type="checkbox" data-k="c1fee6bcc799" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>705</td>
+<td><a href="https://leetcode.cn/problems/design-hashset/">设计哈希集合</a></td>
+<td>3</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>同 706，只存 key；数据范围小可以直接用 bitset</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="8 p2 707 设计链表 2 中  哨兵头 + size 字段，所有下标操作先校验范围；单链表 addattail 要 o(n) 或者多存一个尾指针">
+<td class="ck"><input type="checkbox" data-k="2ec65be5565e" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>707</td>
+<td><a href="https://leetcode.cn/problems/design-linked-list/">设计链表</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>哨兵头 + size 字段，所有下标操作先校验范围；单链表 addAtTail 要 O(n) 或者多存一个尾指针</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="9 p2 641 设计循环双端队列 – 中  同 622 加头部操作，head 往前走要写成 (head - 1 + cap) % cap，避免负数取模">
+<td class="ck"><input type="checkbox" data-k="4f5cff09275a" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>641</td>
+<td><a href="https://leetcode.cn/problems/design-circular-deque/">设计循环双端队列</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>同 622 加头部操作，head 往前走要写成 (head - 1 + cap) % cap，避免负数取模</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="10 p3 379 电话目录管理系统 – 中 🔒 空闲号码池：队列或集合存可用号 + 布尔数组记状态，release 要判重防止同一个号进池两次">
+<td class="ck"><input type="checkbox" data-k="2643c3b0d9cb" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>379</td>
+<td><a href="https://leetcode.cn/problems/design-phone-directory/">电话目录管理系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>空闲号码池：队列或集合存可用号 + 布尔数组记状态，release 要判重防止同一个号进池两次</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="11 p3 2166 设计位集 – 中  翻转用一个 flipped 标志位懒处理 + 维护 1 的个数，flip / all / one / count 全 o(1)">
+<td class="ck"><input type="checkbox" data-k="5f154b0ea81c" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2166</td>
+<td><a href="https://leetcode.cn/problems/design-bitset/">设计位集</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>翻转用一个 flipped 标志位懒处理 + 维护 1 的个数，flip / all / one / count 全 O(1)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-3">1.3 栈与队列变体（8 题）</h3>
+<p>核心是「辅助结构同步记录历史信息」（最小值、频次、待加的增量），以及用摊还分析说明两个栈来回倒也是 O(1)。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 232 用栈实现队列 143 易  in / out 两个栈，只有 out 空了才整体搬运；每个元素最多进出每个栈各一次，摊还 o(1)">
+<td class="ck"><input type="checkbox" data-k="3101367c922a" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>232</td>
+<td><a href="https://leetcode.cn/problems/implement-queue-using-stacks/">用栈实现队列</a></td>
+<td>143</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>in / out 两个栈，只有 out 空了才整体搬运；每个元素最多进出每个栈各一次，摊还 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p0" data-text="2 p0 155 最小栈 99 中  每层同步存「到此为止的最小值」；追问只用一个栈：存与当前最小值的差值，弹出时还原上一个最小值（注意溢出）">
+<td class="ck"><input type="checkbox" data-k="9f2b9ac83b57" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>155</td>
+<td><a href="https://leetcode.cn/problems/min-stack/">最小栈</a></td>
+<td>99</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>每层同步存「到此为止的最小值」；追问只用一个栈：存与当前最小值的差值，弹出时还原上一个最小值（注意溢出）</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="3 p1 225 用队列实现栈 36 易  一个队列：push 后把前面 n - 1 个元素依次出队再入队，push o(n)、pop o(1)">
+<td class="ck"><input type="checkbox" data-k="f869d11a05fd" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>225</td>
+<td><a href="https://leetcode.cn/problems/implement-stack-using-queues/">用队列实现栈</a></td>
+<td>36</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>一个队列：push 后把前面 n - 1 个元素依次出队再入队，push O(n)、pop O(1)</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="4 p1 895 最大频率栈 9 难  freq 哈希 + 「频次→栈」哈希 + maxfreq；元素频次升到 f 时压入第 f 个栈且不从低频栈移除，所以 pop 后低频栈天然正确">
+<td class="ck"><input type="checkbox" data-k="f67a058b874c" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>895</td>
+<td><a href="https://leetcode.cn/problems/maximum-frequency-stack/">最大频率栈</a></td>
+<td>9</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>freq 哈希 + 「频次→栈」哈希 + maxFreq；元素频次升到 f 时压入第 f 个栈且不从低频栈移除，所以 pop 后低频栈天然正确</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="5 p1 716 最大栈 8 难 🔒 双向链表 + 有序映射（值→节点列表），popmax o(log n)；两个栈的写法 popmax 是 o(n)；也可用栈 + 堆 + 按 id 懒删除">
+<td class="ck"><input type="checkbox" data-k="72d60d6932d5" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>716</td>
+<td><a href="https://leetcode.cn/problems/max-stack/">最大栈</a></td>
+<td>8</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>双向链表 + 有序映射（值→节点列表），popMax O(log n)；两个栈的写法 popMax 是 O(n)；也可用栈 + 堆 + 按 id 懒删除</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="6 p1 1381 设计一个支持增量操作的栈 2 中  懒增量数组 inc[i] 表示「栈底到 i 都要加」，pop 时把 inc[i] 加到结果上并下传给 inc[i - 1]，increment 变成 o(1)">
+<td class="ck"><input type="checkbox" data-k="f209d7cb12c7" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>1381</td>
+<td><a href="https://leetcode.cn/problems/design-a-stack-with-increment-operation/">设计一个支持增量操作的栈</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>懒增量数组 inc[i] 表示「栈底到 i 都要加」，pop 时把 inc[i] 加到结果上并下传给 inc[i - 1]，increment 变成 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 901 股票价格跨度 2 中  单调递减栈存 (价格, 跨度)，新价格把不大于它的栈顶连同跨度一起吞并；每个元素进出栈一次，摊还 o(1)">
+<td class="ck"><input type="checkbox" data-k="4699d18f3ff1" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>901</td>
+<td><a href="https://leetcode.cn/problems/online-stock-span/">股票价格跨度</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>单调递减栈存 (价格, 跨度)，新价格把不大于它的栈顶连同跨度一起吞并；每个元素进出栈一次，摊还 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="8 p2 1172 餐盘栈 2 难  小顶堆（或有序集合）记录未满的栈下标，push 取最左；pop 从最右非空栈取并收缩右边界；popatstack 后把下标放回堆">
+<td class="ck"><input type="checkbox" data-k="e330c5376d6e" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1172</td>
+<td><a href="https://leetcode.cn/problems/dinner-plate-stacks/">餐盘栈</a></td>
+<td>2</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>小顶堆（或有序集合）记录未满的栈下标，push 取最左；pop 从最右非空栈取并收缩右边界；popAtStack 后把下标放回堆</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-4">1.4 堆 / 有序集合 + 哈希：动态最值与排行榜（20 题）</h3>
+<p>题量最大的一类，近两年新题几乎都是这个模式：哈希表保存「真相」（id → 当前属性），堆或有序集合负责按属性取最值。属性会被修改时有两条路：有序集合先删旧值再插新值，或者堆 + 懒删除（旧项留在堆里，出堆时和哈希里的真相比对）。模板见 <a href="#sec-2-6">2.6</a>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 295 数据流的中位数 37 难  对顶堆：大顶堆存较小一半、小顶堆存较大一半，大小差不超过 1；追问数据范围在 [0, 100] 时改用计数桶">
+<td class="ck"><input type="checkbox" data-k="577818114d5e" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>295</td>
+<td><a href="https://leetcode.cn/problems/find-median-from-data-stream/">数据流的中位数</a></td>
+<td>37</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>对顶堆：大顶堆存较小一半、小顶堆存较大一半，大小差不超过 1；追问数据范围在 [0, 100] 时改用计数桶</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="2 p1 703 数据流中的第 k 大元素 7 易  大小固定为 k 的小顶堆，堆顶就是第 k 大；比它小的新数直接丢弃">
+<td class="ck"><input type="checkbox" data-k="70053c5fa3cd" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>703</td>
+<td><a href="https://leetcode.cn/problems/kth-largest-element-in-a-stream/">数据流中的第 K 大元素</a></td>
+<td>7</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>大小固定为 k 的小顶堆，堆顶就是第 k 大；比它小的新数直接丢弃</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 355 设计推特 1 中  用户→推文列表（带全局时间戳）+ 关注集合；getnewsfeed 就是合并 k 个有序链表取前 10，用堆做多路归并">
+<td class="ck"><input type="checkbox" data-k="c2fbba524b48" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>355</td>
+<td><a href="https://leetcode.cn/problems/design-twitter/">设计推特</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>用户→推文列表（带全局时间戳）+ 关注集合；getNewsFeed 就是合并 K 个有序链表取前 10，用堆做多路归并</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 855 考场就座 – 中  有序集合存已坐座位，seat 时遍历相邻间隔 o(n)；进阶用堆 / 有序集合存区间并按「最近距离」排序，o(log n)">
+<td class="ck"><input type="checkbox" data-k="d96304386609" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>855</td>
+<td><a href="https://leetcode.cn/problems/exam-room/">考场就座</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>有序集合存已坐座位，seat 时遍历相邻间隔 O(n)；进阶用堆 / 有序集合存区间并按「最近距离」排序，O(log n)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 1845 座位预约管理系统 – 中  小顶堆存被释放的座位号 + 一个只增不减的计数器表示「从未分配过的最小号」，避免初始化时 o(n) 建堆">
+<td class="ck"><input type="checkbox" data-k="3b82e55f7f96" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1845</td>
+<td><a href="https://leetcode.cn/problems/seat-reservation-manager/">座位预约管理系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>小顶堆存被释放的座位号 + 一个只增不减的计数器表示「从未分配过的最小号」，避免初始化时 O(n) 建堆</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="6 p2 2034 股票价格波动 – 中  时间戳→价格 哈希 + 价格的有序多重集合；或最大堆最小堆各一个，出堆时校验该时间戳的价格是否仍等于堆里的值">
+<td class="ck"><input type="checkbox" data-k="0cb98f59abaf" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>2034</td>
+<td><a href="https://leetcode.cn/problems/stock-price-fluctuation/">股票价格波动</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>时间戳→价格 哈希 + 价格的有序多重集合；或最大堆最小堆各一个，出堆时校验该时间戳的价格是否仍等于堆里的值</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 2336 无限集中的最小数字 – 中  同 1845：指针 cur 表示无限尾部的起点，加回来的且小于 cur 的数放进有序集合（自带去重）">
+<td class="ck"><input type="checkbox" data-k="968d90ffda07" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>2336</td>
+<td><a href="https://leetcode.cn/problems/smallest-number-in-infinite-set/">无限集中的最小数字</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>同 1845：指针 cur 表示无限尾部的起点，加回来的且小于 cur 的数放进有序集合（自带去重）</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="8 p2 2353 设计食物评分系统 – 中  food→(菜系, 评分) 哈希 + 菜系→有序集合 (-评分, 名字)；改评分先删后插，或堆 + 懒删除">
+<td class="ck"><input type="checkbox" data-k="124311c2b258" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>2353</td>
+<td><a href="https://leetcode.cn/problems/design-a-food-rating-system/">设计食物评分系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>food→(菜系, 评分) 哈希 + 菜系→有序集合 (-评分, 名字)；改评分先删后插，或堆 + 懒删除</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 1244 力扣排行榜 – 中 🔒 哈希存分数；top(k) 用排序 / 大小为 k 的堆 / 有序多重集合，按操作频率选">
+<td class="ck"><input type="checkbox" data-k="93bfe05be0aa" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1244</td>
+<td><a href="https://leetcode.cn/problems/design-a-leaderboard/">力扣排行榜</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>哈希存分数；top(K) 用排序 / 大小为 K 的堆 / 有序多重集合，按操作频率选</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="10 p3 1500 设计文件分享系统 – 中 🔒 小顶堆回收用户 id + chunk→拥有者有序集合；request 成功后请求者也成为拥有者">
+<td class="ck"><input type="checkbox" data-k="42de8f50b905" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1500</td>
+<td><a href="https://leetcode.cn/problems/design-a-file-sharing-system/">设计文件分享系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>小顶堆回收用户 id + chunk→拥有者有序集合；request 成功后请求者也成为拥有者</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="11 p3 1825 求出 mk 平均值 – 难  三个多重集合 low / mid / high（大小 k、m - 2k、k）+ mid 的和 + 队列做滑动窗口；插入删除后逐级再平衡">
+<td class="ck"><input type="checkbox" data-k="de057559b139" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1825</td>
+<td><a href="https://leetcode.cn/problems/finding-mk-average/">求出 MK 平均值</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>三个多重集合 low / mid / high（大小 k、m - 2k、k）+ mid 的和 + 队列做滑动窗口；插入删除后逐级再平衡</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="12 p3 1912 设计电影租借系统 – 难  每部电影一个有序集合 (价格, 店铺) 存未借出；全局一个有序集合 (价格, 店铺, 电影) 存已借出；哈希 (店铺, 电影)→价格">
+<td class="ck"><input type="checkbox" data-k="a87edfe83897" aria-label="标记完成"></td>
+<td>12</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1912</td>
+<td><a href="https://leetcode.cn/problems/design-movie-rental-system/">设计电影租借系统</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>每部电影一个有序集合 (价格, 店铺) 存未借出；全局一个有序集合 (价格, 店铺, 电影) 存已借出；哈希 (店铺, 电影)→价格</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="13 p3 2102 序列顺序查询 – 难  对顶堆维护「第 i 好」的分界线，每次 get 把分界右移一格；或有序集合 + 一个只前进的迭代器">
+<td class="ck"><input type="checkbox" data-k="b8cdab2bf0b4" aria-label="标记完成"></td>
+<td>13</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2102</td>
+<td><a href="https://leetcode.cn/problems/sequentially-ordinal-rank-tracker/">序列顺序查询</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>对顶堆维护「第 i 好」的分界线，每次 get 把分界右移一格；或有序集合 + 一个只前进的迭代器</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="14 p3 2254 设计视频共享平台 – 难 🔒 小顶堆回收可复用的 videoid + 每个视频的观看 / 点赞 / 点踩计数；注意 watch 的区间裁剪和各接口的非法 id 返回值">
+<td class="ck"><input type="checkbox" data-k="8439fa623800" aria-label="标记完成"></td>
+<td>14</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2254</td>
+<td><a href="https://leetcode.cn/problems/design-video-sharing-platform/">设计视频共享平台</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>小顶堆回收可复用的 videoId + 每个视频的观看 / 点赞 / 点踩计数；注意 watch 的区间裁剪和各接口的非法 id 返回值</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="15 p3 2349 设计数字容器系统 – 中  index→number 哈希 + number→下标的小顶堆，查询时懒删除已被改写的下标">
+<td class="ck"><input type="checkbox" data-k="7d739736c39f" aria-label="标记完成"></td>
+<td>15</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2349</td>
+<td><a href="https://leetcode.cn/problems/design-a-number-container-system/">设计数字容器系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>index→number 哈希 + number→下标的小顶堆，查询时懒删除已被改写的下标</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="16 p3 3369 设计数组统计跟踪器 – 难 🔒 队列记录加入顺序 + 总和求均值 + 对顶有序集合求中位数 + (频次, 值) 有序集合求众数，删除最早元素时三处同步更新">
+<td class="ck"><input type="checkbox" data-k="185e545013d4" aria-label="标记完成"></td>
+<td>16</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3369</td>
+<td><a href="https://leetcode.cn/problems/design-an-array-statistics-tracker/">设计数组统计跟踪器</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>队列记录加入顺序 + 总和求均值 + 对顶有序集合求中位数 + (频次, 值) 有序集合求众数，删除最早元素时三处同步更新</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="17 p3 3391 设计一个高效的层跟踪三维二进制矩阵 – 中 🔒 每层 1 的个数数组 + 有序集合 (个数, 层号)，set / unset 时先删旧键再插新键；注意重复 set 同一格不能重复计数">
+<td class="ck"><input type="checkbox" data-k="33cd70038cc3" aria-label="标记完成"></td>
+<td>17</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3391</td>
+<td><a href="https://leetcode.cn/problems/design-a-3d-binary-matrix-with-efficient-layer-tracking/">设计一个高效的层跟踪三维二进制矩阵</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>每层 1 的个数数组 + 有序集合 (个数, 层号)，set / unset 时先删旧键再插新键；注意重复 set 同一格不能重复计数</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="18 p3 3408 设计任务管理器 – 中  taskid→(优先级, 用户) 哈希 + 大顶堆 (优先级, taskid) 懒删除；edit 直接压新项，模板题">
+<td class="ck"><input type="checkbox" data-k="c18ab9ef218c" aria-label="标记完成"></td>
+<td>18</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3408</td>
+<td><a href="https://leetcode.cn/problems/design-task-manager/">设计任务管理器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>taskId→(优先级, 用户) 哈希 + 大顶堆 (优先级, taskId) 懒删除；edit 直接压新项，模板题</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="19 p3 3815 设计拍卖系统 – 中  每件物品一个有序集合 (出价, userid) + 哈希 (user, item)→出价；取最大元素即答案，平局取 userid 大的">
+<td class="ck"><input type="checkbox" data-k="28486f32fc00" aria-label="标记完成"></td>
+<td>19</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3815</td>
+<td><a href="https://leetcode.cn/problems/design-auction-system/">设计拍卖系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>每件物品一个有序集合 (出价, userId) + 哈希 (user, item)→出价；取最大元素即答案，平局取 userId 大的</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="20 p3 3885 设计事件管理器 – 中  eventid→优先级 哈希 + 堆 (优先级, -eventid) 懒删除；和 3408 同构">
+<td class="ck"><input type="checkbox" data-k="429633a2e8d1" aria-label="标记完成"></td>
+<td>20</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3885</td>
+<td><a href="https://leetcode.cn/problems/design-event-manager/">设计事件管理器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>eventId→优先级 哈希 + 堆 (优先级, -eventId) 懒删除；和 3408 同构</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-5">1.5 数据流、滑动窗口与限流（9 题）</h3>
+<p>时间或序号单调递增的输入。队列保存窗口内元素、过期的从队头弹出是通用骨架；追问一般是「QPS 很高、内存有限怎么办」，答案是把逐条记录换成固定数量的时间桶。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p2" data-text="1 p2 362 敲击计数器 2 中 🔒 队列存时间戳，查询时弹出 300 秒前的；追问高并发：300 个环形桶 (时间戳, 计数)，内存 o(300) 与流量无关">
+<td class="ck"><input type="checkbox" data-k="8a260f209397" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>362</td>
+<td><a href="https://leetcode.cn/problems/design-hit-counter/">敲击计数器</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>队列存时间戳，查询时弹出 300 秒前的；追问高并发：300 个环形桶 (时间戳, 计数)，内存 O(300) 与流量无关</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="2 p2 346 数据流中的移动平均值 – 易 🔒 定长队列 + 滚动和，或环形数组覆盖最旧的元素">
+<td class="ck"><input type="checkbox" data-k="d9fced38ba49" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>346</td>
+<td><a href="https://leetcode.cn/problems/moving-average-from-data-stream/">数据流中的移动平均值</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td>🔒</td>
+<td>定长队列 + 滚动和，或环形数组覆盖最旧的元素</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 359 日志速率限制器 – 易 🔒 message→下次允许打印的时间；追问内存无限增长：队列 + 集合只保留最近 10 秒的消息">
+<td class="ck"><input type="checkbox" data-k="b96d861a8ec0" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>359</td>
+<td><a href="https://leetcode.cn/problems/logger-rate-limiter/">日志速率限制器</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td>🔒</td>
+<td>message→下次允许打印的时间；追问内存无限增长：队列 + 集合只保留最近 10 秒的消息</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 933 最近的请求次数 – 易  队列，弹出小于 t - 3000 的时间戳，返回队列长度">
+<td class="ck"><input type="checkbox" data-k="17e095023b6d" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>933</td>
+<td><a href="https://leetcode.cn/problems/number-of-recent-calls/">最近的请求次数</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>队列，弹出小于 t - 3000 的时间戳，返回队列长度</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="5 p3 1352 最后 k 个数的乘积 – 中  前缀积数组；遇到 0 就清空重来，查询的 k 超过当前长度说明窗口里有 0，直接返回 0">
+<td class="ck"><input type="checkbox" data-k="db747273ee91" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1352</td>
+<td><a href="https://leetcode.cn/problems/product-of-the-last-k-numbers/">最后 K 个数的乘积</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>前缀积数组；遇到 0 就清空重来，查询的 k 超过当前长度说明窗口里有 0，直接返回 0</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="6 p3 1656 设计有序流 – 易  数组 + 指针，插入后从指针处连续向后输出已填充的段">
+<td class="ck"><input type="checkbox" data-k="33fc95f91bf4" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1656</td>
+<td><a href="https://leetcode.cn/problems/design-an-ordered-stream/">设计有序流</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>数组 + 指针，插入后从指针处连续向后输出已填充的段</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 2526 找到数据流中的连续整数 – 中  只需一个计数器：等于 value 就加一，否则清零，判断是否不小于 k；不需要存窗口">
+<td class="ck"><input type="checkbox" data-k="4168c2594a55" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2526</td>
+<td><a href="https://leetcode.cn/problems/find-consecutive-integers-from-a-data-stream/">找到数据流中的连续整数</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>只需一个计数器：等于 value 就加一，否则清零，判断是否不小于 k；不需要存窗口</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 3508 设计路由器 – 中  fifo 队列 + 集合去重 + 每个目的地一个时间戳数组（带头部偏移）；getcount 用两次二分；超过内存上限先转发最旧的包">
+<td class="ck"><input type="checkbox" data-k="f4a60409dfd6" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3508</td>
+<td><a href="https://leetcode.cn/problems/implement-router/">设计路由器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>FIFO 队列 + 集合去重 + 每个目的地一个时间戳数组（带头部偏移）；getCount 用两次二分；超过内存上限先转发最旧的包</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 3829 设计共享出行系统 – 中  司机、乘客各一个 fifo 队列；取消用集合做懒删除，匹配时跳过已取消的乘客">
+<td class="ck"><input type="checkbox" data-k="cbd91b2dd23d" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3829</td>
+<td><a href="https://leetcode.cn/problems/design-ride-sharing-system/">设计共享出行系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>司机、乘客各一个 FIFO 队列；取消用集合做懒删除，匹配时跳过已取消的乘客</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-6">1.6 时间戳 / 版本号 + 二分（8 题）</h3>
+<p>写入按时间（或版本）单调递增，所以每个 key 挂一个只追加的有序数组，查询用 upper_bound。关键是先向面试官确认「时间戳是否保证递增」，这决定了用 vector 还是 map。模板见 <a href="#sec-2-9">2.9</a>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p1" data-text="1 p1 1146 快照数组 8 中  每个下标只记录发生修改时的 (snap_id, 值)，查询时二分；不要每次 snap 拷贝整个数组">
+<td class="ck"><input type="checkbox" data-k="7474903d069a" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>1146</td>
+<td><a href="https://leetcode.cn/problems/snapshot-array/">快照数组</a></td>
+<td>8</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>每个下标只记录发生修改时的 (snap_id, 值)，查询时二分；不要每次 snap 拷贝整个数组</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="2 p2 981 基于时间的键值存储 – 中  key→(时间戳, 值) 追加数组；get 用 upper_bound 找第一个大于目标的位置再退一格">
+<td class="ck"><input type="checkbox" data-k="76839a97bf8e" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>981</td>
+<td><a href="https://leetcode.cn/problems/time-based-key-value-store/">基于时间的键值存储</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>key→(时间戳, 值) 追加数组；get 用 upper_bound 找第一个大于目标的位置再退一格</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="3 p3 635 设计日志存储系统 – 中 🔒 时间戳字符串按粒度截取前缀后直接比较字典序；或转成有序映射做范围查询">
+<td class="ck"><input type="checkbox" data-k="a1add0b6bab5" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>635</td>
+<td><a href="https://leetcode.cn/problems/design-log-storage-system/">设计日志存储系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>时间戳字符串按粒度截取前缀后直接比较字典序；或转成有序映射做范围查询</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="4 p3 911 在线选举 – 中  预处理每个时刻的领先者，查询对时间二分；平票时最近得票者领先，所以更新领先者用 >=">
+<td class="ck"><input type="checkbox" data-k="f4593939c815" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>911</td>
+<td><a href="https://leetcode.cn/problems/online-election/">在线选举</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>预处理每个时刻的领先者，查询对时间二分；平票时最近得票者领先，所以更新领先者用 &gt;=</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="5 p3 1157 子数组中占绝大多数的元素 – 难  值→下标数组；随机采样 20 次 + 二分计数，失败概率约 2^-20；确定性解法是线段树维护摩尔投票候选再二分验证">
+<td class="ck"><input type="checkbox" data-k="542f0b3c1a07" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1157</td>
+<td><a href="https://leetcode.cn/problems/online-majority-element-in-subarray/">子数组中占绝大多数的元素</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>值→下标数组；随机采样 20 次 + 二分计数，失败概率约 2^-20；确定性解法是线段树维护摩尔投票候选再二分验证</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="6 p3 1348 推文计数 – 中  每个推文名一个有序时间序列（多重集合或排序后的数组），按 60 / 3600 / 86400 秒分桶计数">
+<td class="ck"><input type="checkbox" data-k="bc0eaf1f5f68" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1348</td>
+<td><a href="https://leetcode.cn/problems/tweet-counts-per-frequency/">推文计数</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>每个推文名一个有序时间序列（多重集合或排序后的数组），按 60 / 3600 / 86400 秒分桶计数</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 2080 区间内查询数字的频率 – 中  值→出现下标的有序数组，答案 = upper_bound(right) - lower_bound(left)">
+<td class="ck"><input type="checkbox" data-k="5b4ac9903476" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2080</td>
+<td><a href="https://leetcode.cn/problems/range-frequency-queries/">区间内查询数字的频率</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>值→出现下标的有序数组，答案 = upper_bound(right) - lower_bound(left)</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 3709 设计考试分数记录器 – 中  时间严格递增，所以是前缀和数组 + 对时间二分；注意返回值要用 64 位">
+<td class="ck"><input type="checkbox" data-k="25ce78ee32f9" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3709</td>
+<td><a href="https://leetcode.cn/problems/design-exam-scores-tracker/">设计考试分数记录器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>时间严格递增，所以是前缀和数组 + 对时间二分；注意返回值要用 64 位</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-7">1.7 区间、前缀和、树状数组与线段树（14 题）</h3>
+<p>先判断「有没有修改」：没有修改用前缀和；单点修改 + 区间查询用树状数组；区间修改或查最值用线段树；维护一组不相交区间用有序映射（起点 → 终点）。选型依据见 <a href="/ds-fundamentals/#sec-12">数据结构基础要点第 12 节</a>。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p1" data-text="1 p1 303 区域和检索 - 数组不可变 5 易  前缀和 pre[i + 1] = pre[i] + nums[i]，多留一位省掉边界判断">
+<td class="ck"><input type="checkbox" data-k="a1f159c07037" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>303</td>
+<td><a href="https://leetcode.cn/problems/range-sum-query-immutable/">区域和检索 - 数组不可变</a></td>
+<td>5</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>前缀和 pre[i + 1] = pre[i] + nums[i]，多留一位省掉边界判断</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="2 p1 304 二维区域和检索 - 矩阵不可变 3 中  二维前缀和 + 容斥；同样多留一行一列">
+<td class="ck"><input type="checkbox" data-k="1402835c83b9" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>304</td>
+<td><a href="https://leetcode.cn/problems/range-sum-query-2d-immutable/">二维区域和检索 - 矩阵不可变</a></td>
+<td>3</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>二维前缀和 + 容斥；同样多留一行一列</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 307 区域和检索 - 数组可修改 1 中  树状数组（单点改、前缀查）或线段树，o(log n)；追问分块做法 o(sqrt n)">
+<td class="ck"><input type="checkbox" data-k="25216b0370ba" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>307</td>
+<td><a href="https://leetcode.cn/problems/range-sum-query-mutable/">区域和检索 - 数组可修改</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>树状数组（单点改、前缀查）或线段树，O(log n)；追问分块做法 O(sqrt n)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 308 二维区域和检索 - 矩阵可修改 1 中 🔒 二维树状数组，两层 lowbit 循环，o(log m · log n)">
+<td class="ck"><input type="checkbox" data-k="e34f3d4290c7" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>308</td>
+<td><a href="https://leetcode.cn/problems/range-sum-query-2d-mutable/">二维区域和检索 - 矩阵可修改</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>二维树状数组，两层 lowbit 循环，O(log m · log n)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 729 我的日程安排表 i 1 中  有序映射存不相交区间，lower_bound 找到后继，只需检查前驱和后继是否与新区间重叠（半开区间）">
+<td class="ck"><input type="checkbox" data-k="41d08f5b2756" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>729</td>
+<td><a href="https://leetcode.cn/problems/my-calendar-i/">我的日程安排表 I</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>有序映射存不相交区间，lower_bound 找到后继，只需检查前驱和后继是否与新区间重叠（半开区间）</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="6 p2 732 我的日程安排表 iii 1 难  差分 + 有序映射，每次 book 后扫描求最大前缀和，o(n)；进阶用动态开点线段树 + 懒标记维护区间最大值">
+<td class="ck"><input type="checkbox" data-k="35de66165afc" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>732</td>
+<td><a href="https://leetcode.cn/problems/my-calendar-iii/">我的日程安排表 III</a></td>
+<td>1</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>差分 + 有序映射，每次 book 后扫描求最大前缀和，O(n)；进阶用动态开点线段树 + 懒标记维护区间最大值</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 352 将数据流变为多个不相交区间 – 难  有序映射 起点→终点，插入时检查能否与前驱、后继合并；也可以用并查集">
+<td class="ck"><input type="checkbox" data-k="2687442959eb" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>352</td>
+<td><a href="https://leetcode.cn/problems/data-stream-as-disjoint-intervals/">将数据流变为多个不相交区间</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>有序映射 起点→终点，插入时检查能否与前驱、后继合并；也可以用并查集</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="8 p2 715 range 模块 – 难  有序映射维护不相交区间：add 合并所有重叠区间，remove 把被切开的区间拆成两段，query 查前驱是否完整覆盖">
+<td class="ck"><input type="checkbox" data-k="6326f78cf974" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>715</td>
+<td><a href="https://leetcode.cn/problems/range-module/">Range 模块</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>有序映射维护不相交区间：add 合并所有重叠区间，remove 把被切开的区间拆成两段，query 查前驱是否完整覆盖</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="9 p2 731 我的日程安排表 ii – 中  两个列表：已预订区间和已出现二重重叠的区间，新区间先查后者；或差分 + 有序映射扫描是否出现 3">
+<td class="ck"><input type="checkbox" data-k="924c5af59836" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>731</td>
+<td><a href="https://leetcode.cn/problems/my-calendar-ii/">我的日程安排表 II</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>两个列表：已预订区间和已出现二重重叠的区间，新区间先查后者；或差分 + 有序映射扫描是否出现 3</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="10 p3 1476 子矩形查询 – 中  直接改矩阵，或只记录更新日志、查询时倒序找第一个覆盖该点的更新；按读写比例选">
+<td class="ck"><input type="checkbox" data-k="076d3aadb5e2" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1476</td>
+<td><a href="https://leetcode.cn/problems/subrectangle-queries/">子矩形查询</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>直接改矩阵，或只记录更新日志、查询时倒序找第一个覆盖该点的更新；按读写比例选</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="11 p3 1622 奇妙序列 – 难  全局懒标记 (mul, add)，append 时存入逆变换后的值 (v - add) · mul 的逆元；逆元用费马小定理求">
+<td class="ck"><input type="checkbox" data-k="a7fadd35f47a" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1622</td>
+<td><a href="https://leetcode.cn/problems/fancy-sequence/">奇妙序列</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>全局懒标记 (mul, add)，append 时存入逆变换后的值 (v - add) · mul 的逆元；逆元用费马小定理求</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="12 p3 2276 统计区间中的整数数目 – 难  同 715 的合并逻辑，合并时同步维护总长度；每个区间最多被合并删除一次，摊还 o(log n)">
+<td class="ck"><input type="checkbox" data-k="46b58a09bd48" aria-label="标记完成"></td>
+<td>12</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2276</td>
+<td><a href="https://leetcode.cn/problems/count-integers-in-intervals/">统计区间中的整数数目</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>同 715 的合并逻辑，合并时同步维护总长度；每个区间最多被合并删除一次，摊还 O(log n)</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="13 p3 2286 以组为单位订音乐会的门票 – 难  线段树同时维护每排已用座位的最小值与总和：gather 在树上二分找第一排放得下的，scatter 先查总量再从第一排未满处填">
+<td class="ck"><input type="checkbox" data-k="2a5e80b45593" aria-label="标记完成"></td>
+<td>13</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2286</td>
+<td><a href="https://leetcode.cn/problems/booking-concert-tickets-in-groups/">以组为单位订音乐会的门票</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>线段树同时维护每排已用座位的最小值与总和：gather 在树上二分找第一排放得下的，scatter 先查总量再从第一排未满处填</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="14 p3 2424 最长上传前缀 – 中  集合 + 只前进的指针，指针总移动量不超过 n，摊还 o(1)；也可用并查集把相邻已上传的段合并">
+<td class="ck"><input type="checkbox" data-k="3baa77abdb6e" aria-label="标记完成"></td>
+<td>14</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2424</td>
+<td><a href="https://leetcode.cn/problems/longest-uploaded-prefix/">最长上传前缀</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>集合 + 只前进的指针，指针总移动量不超过 n，摊还 O(1)；也可用并查集把相邻已上传的段合并</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-8">1.8 Trie 与字符串编码（13 题）</h3>
+<p>前缀相关一律先想 Trie。两个常见变形：节点上挂额外信息（经过次数、前缀和、热门 Top 3），以及把后缀问题通过「反转字符串」或「拼接」转回前缀问题。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 208 实现 trie (前缀树) 42 中  节点 = 26 个孩子 + 结束标记；search 与 startswith 只差最后是否检查结束标记">
+<td class="ck"><input type="checkbox" data-k="2079df9bd769" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>208</td>
+<td><a href="https://leetcode.cn/problems/implement-trie-prefix-tree/">实现 Trie (前缀树)</a></td>
+<td>42</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>节点 = 26 个孩子 + 结束标记；search 与 startsWith 只差最后是否检查结束标记</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="2 p1 211 添加与搜索单词 - 数据结构设计 2 中  trie + dfs，遇到 ‘.’ 枚举全部孩子；最坏情况指数级，但被单词长度限制住">
+<td class="ck"><input type="checkbox" data-k="c980ee10ef90" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>211</td>
+<td><a href="https://leetcode.cn/problems/design-add-and-search-words-data-structure/">添加与搜索单词 - 数据结构设计</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>Trie + DFS，遇到 ‘.’ 枚举全部孩子；最坏情况指数级，但被单词长度限制住</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 745 前缀和后缀搜索 3 难  把每个单词的所有「后缀 + # + 整词」插入同一棵 trie，查询变成搜前缀 suffix#prefix；节点存最大下标">
+<td class="ck"><input type="checkbox" data-k="e092fbcf58ef" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>745</td>
+<td><a href="https://leetcode.cn/problems/prefix-and-suffix-search/">前缀和后缀搜索</a></td>
+<td>3</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>把每个单词的所有「后缀 + # + 整词」插入同一棵 Trie，查询变成搜前缀 suffix#prefix；节点存最大下标</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 535 tinyurl 的加密与解密 1 中  自增 id 转 62 进制或随机 6 位码 + 两张哈希；追问碰撞处理、可预测性、分布式发号">
+<td class="ck"><input type="checkbox" data-k="d21c79294ce5" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>535</td>
+<td><a href="https://leetcode.cn/problems/encode-and-decode-tinyurl/">TinyURL 的加密与解密</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>自增 id 转 62 进制或随机 6 位码 + 两张哈希；追问碰撞处理、可预测性、分布式发号</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 588 设计内存文件系统 1 难 🔒 目录树就是 trie，节点 = 有序的孩子映射 + 文件内容；ls 要求字典序，所以孩子用有序映射">
+<td class="ck"><input type="checkbox" data-k="e16410171988" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>588</td>
+<td><a href="https://leetcode.cn/problems/design-in-memory-file-system/">设计内存文件系统</a></td>
+<td>1</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>目录树就是 Trie，节点 = 有序的孩子映射 + 文件内容；ls 要求字典序，所以孩子用有序映射</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="6 p2 676 实现一个魔法字典 1 中  trie 上 dfs，状态里带「是否已经用掉一次修改」，到结尾时必须恰好改过一次；或用通配模式 h*llo 做哈希计数">
+<td class="ck"><input type="checkbox" data-k="2a5fad3010a4" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>676</td>
+<td><a href="https://leetcode.cn/problems/implement-magic-dictionary/">实现一个魔法字典</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>Trie 上 DFS，状态里带「是否已经用掉一次修改」，到结尾时必须恰好改过一次；或用通配模式 h*llo 做哈希计数</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="7 p2 677 键值映射 1 中  节点存前缀和；同一个 key 重复插入时沿路径加的是「新值 - 旧值」，所以还要一张哈希记旧值">
+<td class="ck"><input type="checkbox" data-k="778061fefe35" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>677</td>
+<td><a href="https://leetcode.cn/problems/map-sum-pairs/">键值映射</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>节点存前缀和；同一个 key 重复插入时沿路径加的是「新值 - 旧值」，所以还要一张哈希记旧值</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="8 p2 1166 设计文件系统 1 中 🔒 路径→值 的哈希即可，创建前检查父路径存在；或按 / 切分走 trie">
+<td class="ck"><input type="checkbox" data-k="7a8998edd1e7" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1166</td>
+<td><a href="https://leetcode.cn/problems/design-file-system/">设计文件系统</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>路径→值 的哈希即可，创建前检查父路径存在；或按 / 切分走 Trie</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="9 p2 271 字符串的编码与解码 – 中 🔒 长度前缀编码「长度 + # + 内容」；能说清为什么分隔符转义方案容易出错（内容里可以出现任何字符）">
+<td class="ck"><input type="checkbox" data-k="77d41643c14e" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>271</td>
+<td><a href="https://leetcode.cn/problems/encode-and-decode-strings/">字符串的编码与解码</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>长度前缀编码「长度 + # + 内容」；能说清为什么分隔符转义方案容易出错（内容里可以出现任何字符）</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="10 p2 642 设计搜索自动补全系统 – 难 🔒 trie 每个节点缓存热度 top 3，或查询时 dfs 收集再排序；输入 # 时把整句计数加一并重置当前节点">
+<td class="ck"><input type="checkbox" data-k="444bdbc079f9" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>642</td>
+<td><a href="https://leetcode.cn/problems/design-search-autocomplete-system/">设计搜索自动补全系统</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>Trie 每个节点缓存热度 Top 3，或查询时 DFS 收集再排序；输入 # 时把整句计数加一并重置当前节点</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="11 p2 1032 字符流 – 难  把单词反转后建 trie，维护最近的字符缓冲，每来一个字符从尾部往前在 trie 上走；进阶是 ac 自动机">
+<td class="ck"><input type="checkbox" data-k="49994a95c64f" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1032</td>
+<td><a href="https://leetcode.cn/problems/stream-of-characters/">字符流</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>把单词反转后建 Trie，维护最近的字符缓冲，每来一个字符从尾部往前在 Trie 上走；进阶是 AC 自动机</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="12 p2 1804 实现 trie （前缀树） ii – 中 🔒 节点存「经过次数」和「结束次数」两个计数，erase 沿路径把两个计数减一">
+<td class="ck"><input type="checkbox" data-k="a21fc19e9993" aria-label="标记完成"></td>
+<td>12</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1804</td>
+<td><a href="https://leetcode.cn/problems/implement-trie-ii-prefix-tree/">实现 Trie （前缀树） II</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>节点存「经过次数」和「结束次数」两个计数，erase 沿路径把两个计数减一</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="13 p3 2227 加密解密字符串 – 难  加密直接查表；解密计数反过来想：把字典里每个词预先加密并对密文计数，查询变成一次哈希查找">
+<td class="ck"><input type="checkbox" data-k="15e2ed3bb71f" aria-label="标记完成"></td>
+<td>13</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2227</td>
+<td><a href="https://leetcode.cn/problems/encrypt-and-decrypt-strings/">加密解密字符串</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>加密直接查表；解密计数反过来想：把字典里每个词预先加密并对密文计数，查询变成一次哈希查找</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-9">1.9 迭代器（9 题）</h3>
+<p>共同原则：惰性。不在构造函数里把数据全部展开（那样空间 O(n) 且可能做无用功），而是只保存「恢复现场所需的最小状态」；并且把推进逻辑放在 hasNext 里，保证 hasNext 可以被重复调用。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p1" data-text="1 p1 173 二叉搜索树迭代器 8 中  栈里存「左链」，next 弹出一个节点后把它右子树的左链压栈；摊还 o(1)，空间 o(h)">
+<td class="ck"><input type="checkbox" data-k="1054403cff1d" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>173</td>
+<td><a href="https://leetcode.cn/problems/binary-search-tree-iterator/">二叉搜索树迭代器</a></td>
+<td>8</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>栈里存「左链」，next 弹出一个节点后把它右子树的左链压栈；摊还 O(1)，空间 O(h)</td>
+</tr>
+<tr class="prow" data-pri="p1" data-text="2 p1 341 扁平化嵌套列表迭代器 4 中  栈里存迭代器（或倒序压入元素），hasnext 负责把栈顶展开到整数为止；next 不做展开">
+<td class="ck"><input type="checkbox" data-k="63f1bb063297" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>341</td>
+<td><a href="https://leetcode.cn/problems/flatten-nested-list-iterator/">扁平化嵌套列表迭代器</a></td>
+<td>4</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>栈里存迭代器（或倒序压入元素），hasNext 负责把栈顶展开到整数为止；next 不做展开</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 281 锯齿迭代器 1 中 🔒 队列里放各个向量的迭代器，取一个元素后若该向量未耗尽就放回队尾，天然推广到 k 个向量">
+<td class="ck"><input type="checkbox" data-k="80eae29ead90" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>281</td>
+<td><a href="https://leetcode.cn/problems/zigzag-iterator/">锯齿迭代器</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>队列里放各个向量的迭代器，取一个元素后若该向量未耗尽就放回队尾，天然推广到 k 个向量</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 251 展开二维向量 – 中 🔒 行、列两个下标，hasnext 里跳过空行；不要预先拷贝成一维数组">
+<td class="ck"><input type="checkbox" data-k="aa1ac68caf9d" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>251</td>
+<td><a href="https://leetcode.cn/problems/flatten-2d-vector/">展开二维向量</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>行、列两个下标，hasNext 里跳过空行；不要预先拷贝成一维数组</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 284 窥视迭代器 – 中  提前取出一个元素缓存起来，peek 返回缓存，next 返回缓存并再取下一个">
+<td class="ck"><input type="checkbox" data-k="2b2408f44721" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>284</td>
+<td><a href="https://leetcode.cn/problems/peeking-iterator/">窥视迭代器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>提前取出一个元素缓存起来，peek 返回缓存，next 返回缓存并再取下一个</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="6 p3 604 迭代压缩字符串 – 易 🔒 指针 + 当前字符剩余次数，剩余为 0 时才解析下一组；次数可能是多位数">
+<td class="ck"><input type="checkbox" data-k="61edef4f1ee1" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>604</td>
+<td><a href="https://leetcode.cn/problems/design-compressed-string-iterator/">迭代压缩字符串</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td>🔒</td>
+<td>指针 + 当前字符剩余次数，剩余为 0 时才解析下一组；次数可能是多位数</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 900 rle 迭代器 – 中  下标 + 当前段已消耗的数量，next(n) 时跨段扣减；次数可到 10^9，要用 64 位或小心减法">
+<td class="ck"><input type="checkbox" data-k="018f8573635f" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>900</td>
+<td><a href="https://leetcode.cn/problems/rle-iterator/">RLE 迭代器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>下标 + 当前段已消耗的数量，next(n) 时跨段扣减；次数可到 10^9，要用 64 位或小心减法</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 1286 字母组合迭代器 – 中  位掩码从大到小枚举恰有 k 个 1 的数，或实现「下一个组合」；预生成全部组合是最省事的写法">
+<td class="ck"><input type="checkbox" data-k="5a2d07624215" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1286</td>
+<td><a href="https://leetcode.cn/problems/iterator-for-combination/">字母组合迭代器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>位掩码从大到小枚举恰有 k 个 1 的数，或实现「下一个组合」；预生成全部组合是最省事的写法</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 1586 二叉搜索树迭代器 ii – 中 🔒 在 173 的基础上用数组记录已经访问过的节点 + 一个下标，prev 和已访问范围内的 next 直接移动下标">
+<td class="ck"><input type="checkbox" data-k="6180f0c78fce" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1586</td>
+<td><a href="https://leetcode.cn/problems/binary-search-tree-iterator-ii/">二叉搜索树迭代器 II</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>在 173 的基础上用数组记录已经访问过的节点 + 一个下标，prev 和已访问范围内的 next 直接移动下标</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-10">1.10 树与图：序列化、祖先、在线查询（11 题）</h3>
+<p>序列化题要能说清「什么信息足以唯一还原结构」；在线查询题（边不断加、查询穿插其间）要根据操作比例选预处理策略。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p0" data-text="1 p0 297 二叉树的序列化与反序列化 59 难  前序 + 空节点标记，或层序；反序列化用流式读取逐个 token 递归；追问树很深时递归爆栈 → 改迭代">
+<td class="ck"><input type="checkbox" data-k="1c6ba2243712" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p0">P0</span></td>
+<td>297</td>
+<td><a href="https://leetcode.cn/problems/serialize-and-deserialize-binary-tree/">二叉树的序列化与反序列化</a></td>
+<td>59</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>前序 + 空节点标记，或层序；反序列化用流式读取逐个 token 递归；追问树很深时递归爆栈 → 改迭代</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="2 p2 449 序列化和反序列化二叉搜索树 5 中  bst 只需前序遍历、不需要空标记：用上下界就能判断下一个值属于哪棵子树，编码更紧凑">
+<td class="ck"><input type="checkbox" data-k="01e7f5c5c1ca" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>449</td>
+<td><a href="https://leetcode.cn/problems/serialize-and-deserialize-bst/">序列化和反序列化二叉搜索树</a></td>
+<td>5</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>BST 只需前序遍历、不需要空标记：用上下界就能判断下一个值属于哪棵子树，编码更紧凑</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 1483 树节点的第 k 个祖先 2 难  倍增：up[j][v] 表示 v 的第 2^j 个祖先，预处理 o(n log n)，查询按 k 的二进制位跳，o(log k)">
+<td class="ck"><input type="checkbox" data-k="b511de123058" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1483</td>
+<td><a href="https://leetcode.cn/problems/kth-ancestor-of-a-tree-node/">树节点的第 K 个祖先</a></td>
+<td>2</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>倍增：up[j][v] 表示 v 的第 2^j 个祖先，预处理 O(n log n)，查询按 k 的二进制位跳，O(log k)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 431 将 n 叉树编码为二叉树 1 难 🔒 左孩子右兄弟表示法：第一个孩子挂到左指针，其余兄弟沿右指针串起来">
+<td class="ck"><input type="checkbox" data-k="8be0802cbc4c" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>431</td>
+<td><a href="https://leetcode.cn/problems/encode-n-ary-tree-to-binary-tree/">将 N 叉树编码为二叉树</a></td>
+<td>1</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>左孩子右兄弟表示法：第一个孩子挂到左指针，其余兄弟沿右指针串起来</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="5 p2 919 完全二叉树插入器 1 中  队列保存「孩子不满两个」的节点，插入时挂到队头节点下；或用节点总数的二进制位表示从根出发的路径">
+<td class="ck"><input type="checkbox" data-k="58ffcc2dc7aa" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>919</td>
+<td><a href="https://leetcode.cn/problems/complete-binary-tree-inserter/">完全二叉树插入器</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>队列保存「孩子不满两个」的节点，插入时挂到队头节点下；或用节点总数的二进制位表示从根出发的路径</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="6 p2 1261 在受污染的二叉树中查找元素 1 中  dfs 按 2x + 1、2x + 2 还原并存入哈希集合；追问 o(1) 额外空间：由 target + 1 的二进制位从根导航">
+<td class="ck"><input type="checkbox" data-k="1c477cf0e3f4" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1261</td>
+<td><a href="https://leetcode.cn/problems/find-elements-in-a-contaminated-binary-tree/">在受污染的二叉树中查找元素</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>DFS 按 2x + 1、2x + 2 还原并存入哈希集合；追问 O(1) 额外空间：由 target + 1 的二进制位从根导航</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 1600 王位继承顺序 – 中  多叉树（孩子按出生顺序存）+ 死亡集合，继承顺序就是跳过死者的前序遍历">
+<td class="ck"><input type="checkbox" data-k="4c25eb33faa6" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1600</td>
+<td><a href="https://leetcode.cn/problems/throne-inheritance/">王位继承顺序</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>多叉树（孩子按出生顺序存）+ 死亡集合，继承顺序就是跳过死者的前序遍历</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 1628 设计带解析函数的表达式树 – 中 🔒 后缀表达式用栈建树；节点用多态（数字节点、运算符节点各自实现 evaluate），考的是面向对象设计">
+<td class="ck"><input type="checkbox" data-k="4a98f6124aeb" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1628</td>
+<td><a href="https://leetcode.cn/problems/design-an-expression-tree-with-evaluate-function/">设计带解析函数的表达式树</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>后缀表达式用栈建树；节点用多态（数字节点、运算符节点各自实现 evaluate），考的是面向对象设计</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 1724 检查边长度限制的路径是否存在 ii – 难 🔒 在线版本不能像离线那样给查询排序：建最小生成树 + 倍增维护路径最大边，或 kruskal 重构树 / 可持久化并查集">
+<td class="ck"><input type="checkbox" data-k="fbc97b06afcb" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1724</td>
+<td><a href="https://leetcode.cn/problems/checking-existence-of-edge-length-limited-paths-ii/">检查边长度限制的路径是否存在 II</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>在线版本不能像离线那样给查询排序：建最小生成树 + 倍增维护路径最大边，或 Kruskal 重构树 / 可持久化并查集</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="10 p3 1993 树上的操作 – 中  lock / unlock o(1)；upgrade 沿父指针检查祖先全部未上锁，再 dfs 检查并解锁后代中已上锁的节点">
+<td class="ck"><input type="checkbox" data-k="96530b654cd7" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1993</td>
+<td><a href="https://leetcode.cn/problems/operations-on-tree/">树上的操作</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>lock / unlock O(1)；upgrade 沿父指针检查祖先全部未上锁，再 DFS 检查并解锁后代中已上锁的节点</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="11 p3 2642 设计可以求最短路径的图类 – 难  每次查询跑 dijkstra；或维护 floyd 矩阵，加边 (u, v, w) 时用 d[i][u] + w + d[v][j] 做 o(n^2) 增量更新，按读写比例选">
+<td class="ck"><input type="checkbox" data-k="84693339e80a" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2642</td>
+<td><a href="https://leetcode.cn/problems/design-graph-with-shortest-path-calculator/">设计可以求最短路径的图类</a></td>
+<td>–</td>
+<td><span class="diff diff-hard">难</span></td>
+<td></td>
+<td>每次查询跑 Dijkstra；或维护 Floyd 矩阵，加边 (u, v, w) 时用 d[i][u] + w + d[v][j] 做 O(n^2) 增量更新，按读写比例选</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-11">1.11 哈希计数与预处理查询（9 题）</h3>
+<p>关键是看清哪个操作被调用得更多、哪个数组更短，把开销挪到便宜的那一侧。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p2" data-text="1 p2 244 最短单词距离 ii 2 中 🔒 单词→下标数组（天然有序），查询时双指针归并 o(m + n)">
+<td class="ck"><input type="checkbox" data-k="8e6fd4276f35" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>244</td>
+<td><a href="https://leetcode.cn/problems/shortest-word-distance-ii/">最短单词距离 II</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>单词→下标数组（天然有序），查询时双指针归并 O(m + n)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="2 p2 170 两数之和 iii - 数据结构设计 1 易 🔒 哈希计数，add o(1)、find 遍历 o(n)；x 与 target - x 相等时要求计数至少为 2；也可反过来预计算所有两数之和">
+<td class="ck"><input type="checkbox" data-k="cd37f3b8d073" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>170</td>
+<td><a href="https://leetcode.cn/problems/two-sum-iii-data-structure-design/">两数之和 III - 数据结构设计</a></td>
+<td>1</td>
+<td><span class="diff diff-easy">易</span></td>
+<td>🔒</td>
+<td>哈希计数，add O(1)、find 遍历 O(n)；x 与 target - x 相等时要求计数至少为 2；也可反过来预计算所有两数之和</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 1396 设计地铁系统 1 中  进站哈希 id→(站, 时间) + 行程哈希 (起点, 终点)→(总时长, 次数)">
+<td class="ck"><input type="checkbox" data-k="5f63b53db42c" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1396</td>
+<td><a href="https://leetcode.cn/problems/design-underground-system/">设计地铁系统</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>进站哈希 id→(站, 时间) + 行程哈希 (起点, 终点)→(总时长, 次数)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 1570 两个稀疏向量的点积 1 中 🔒 只存非零项 (下标, 值) 并双指针求交；追问一个稀疏一个稠密：遍历稀疏的那个，在另一个里二分或直接按下标取">
+<td class="ck"><input type="checkbox" data-k="76edf03ad073" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>1570</td>
+<td><a href="https://leetcode.cn/problems/dot-product-of-two-sparse-vectors/">两个稀疏向量的点积</a></td>
+<td>1</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>只存非零项 (下标, 值) 并双指针求交；追问一个稀疏一个稠密：遍历稀疏的那个，在另一个里二分或直接按下标取</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="5 p3 288 单词的唯一缩写 – 中 🔒 缩写→单词集合；isunique 的含义是「没有别的不同单词拥有相同缩写」，字典里就是它自己也算 unique">
+<td class="ck"><input type="checkbox" data-k="f67d245f0d0b" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>288</td>
+<td><a href="https://leetcode.cn/problems/unique-word-abbreviation/">单词的唯一缩写</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>缩写→单词集合；isUnique 的含义是「没有别的不同单词拥有相同缩写」，字典里就是它自己也算 unique</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="6 p3 1357 每隔 n 个顾客打折 – 中  商品→价格 哈希 + 顾客计数器，每逢第 n 位打折">
+<td class="ck"><input type="checkbox" data-k="39850afc5406" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1357</td>
+<td><a href="https://leetcode.cn/problems/apply-discount-every-n-orders/">每隔 n 个顾客打折</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>商品→价格 哈希 + 顾客计数器，每逢第 n 位打折</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 1865 找出和为指定值的下标对 – 中  nums1 很短（不超过 1000）而 nums2 很长：对 nums2 做频次哈希，count 时遍历 nums1；数据范围的不对称决定了设计">
+<td class="ck"><input type="checkbox" data-k="3a7e1d1887d6" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1865</td>
+<td><a href="https://leetcode.cn/problems/finding-pairs-with-a-certain-sum/">找出和为指定值的下标对</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>nums1 很短（不超过 1000）而 nums2 很长：对 nums2 做频次哈希，count 时遍历 nums1；数据范围的不对称决定了设计</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 2013 检测正方形 – 中  点→出现次数；枚举与查询点同 x 的点确定边长，再乘上另外两个角的出现次数；重复点要按次数相乘">
+<td class="ck"><input type="checkbox" data-k="fbf803d23ef7" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2013</td>
+<td><a href="https://leetcode.cn/problems/detect-squares/">检测正方形</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>点→出现次数；枚举与查询点同 x 的点确定边长，再乘上另外两个角的出现次数；重复点要按次数相乘</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 2671 频率跟踪器 – 中  两张哈希：数→频次、频次→拥有该频次的数的个数，hasfrequency o(1)；deleteone 先确认存在">
+<td class="ck"><input type="checkbox" data-k="1df0f1b36c8b" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2671</td>
+<td><a href="https://leetcode.cn/problems/frequency-tracker/">频率跟踪器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>两张哈希：数→频次、频次→拥有该频次的数的个数，hasFrequency O(1)；deleteOne 先确认存在</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="sec-1-12">1.12 业务模拟 / 面向对象建模（13 题）</h3>
+<p>算法含量低，考的是接口边界、状态合法性检查和代码整洁度。写之前先口头确认非法输入怎么处理，是这类题的主要得分点。</p>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th class="ck">✓</th>
+<th>#</th>
+<th>优先级</th>
+<th>题号</th>
+<th>题目</th>
+<th>频度</th>
+<th>难度</th>
+<th>会员</th>
+<th>考点 / 技巧</th>
+</tr>
+</thead>
+<tbody>
+<tr class="prow" data-pri="p1" data-text="1 p1 631 设计 excel 求和公式 2 难 🔒 每个格子记录公式（依赖格→引用次数），get 时递归求值；或建依赖图，set 后按拓扑序传播；set 普通值要清掉旧公式">
+<td class="ck"><input type="checkbox" data-k="e8a9897dd414" aria-label="标记完成"></td>
+<td>1</td>
+<td><span class="pri pri-p1">P1</span></td>
+<td>631</td>
+<td><a href="https://leetcode.cn/problems/design-excel-sum-formula/">设计 Excel 求和公式</a></td>
+<td>2</td>
+<td><span class="diff diff-hard">难</span></td>
+<td>🔒</td>
+<td>每个格子记录公式（依赖格→引用次数），get 时递归求值；或建依赖图，set 后按拓扑序传播；set 普通值要清掉旧公式</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="2 p2 353 贪吃蛇 2 中 🔒 双端队列存蛇身 + 哈希集合判断撞到自己；先移除尾巴再判断碰撞，因为蛇头可以走进尾巴刚离开的格子">
+<td class="ck"><input type="checkbox" data-k="112e76ded153" aria-label="标记完成"></td>
+<td>2</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>353</td>
+<td><a href="https://leetcode.cn/problems/design-snake-game/">贪吃蛇</a></td>
+<td>2</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>双端队列存蛇身 + 哈希集合判断撞到自己；先移除尾巴再判断碰撞，因为蛇头可以走进尾巴刚离开的格子</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="3 p2 348 设计井字棋 – 中 🔒 每行、每列、两条对角线各一个计数器，玩家一加 1、玩家二减 1，绝对值到 n 即获胜，每步 o(1)">
+<td class="ck"><input type="checkbox" data-k="5c5c8c9f3659" aria-label="标记完成"></td>
+<td>3</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>348</td>
+<td><a href="https://leetcode.cn/problems/design-tic-tac-toe/">设计井字棋</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>每行、每列、两条对角线各一个计数器，玩家一加 1、玩家二减 1，绝对值到 n 即获胜，每步 O(1)</td>
+</tr>
+<tr class="prow" data-pri="p2" data-text="4 p2 2502 设计内存分配器 – 中  n 不超过 1000 时数组暴力找首个足够长的空闲段即可；进阶用有序的空闲区间表 + 释放时合并相邻空闲块，就是 malloc 的雏形">
+<td class="ck"><input type="checkbox" data-k="1d6d513eb1c9" aria-label="标记完成"></td>
+<td>4</td>
+<td><span class="pri pri-p2">P2</span></td>
+<td>2502</td>
+<td><a href="https://leetcode.cn/problems/design-memory-allocator/">设计内存分配器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>n 不超过 1000 时数组暴力找首个足够长的空闲段即可；进阶用有序的空闲区间表 + 释放时合并相邻空闲块，就是 malloc 的雏形</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="5 p3 1603 设计停车系统 – 易  三个计数器">
+<td class="ck"><input type="checkbox" data-k="fa269e5c8440" aria-label="标记完成"></td>
+<td>5</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>1603</td>
+<td><a href="https://leetcode.cn/problems/design-parking-system/">设计停车系统</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>三个计数器</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="6 p3 2043 简易银行系统 – 中  数组存余额，统一校验账号合法和余额充足；追问并发转账：按账号 id 固定顺序加锁避免死锁">
+<td class="ck"><input type="checkbox" data-k="3bcb1521155e" aria-label="标记完成"></td>
+<td>6</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2043</td>
+<td><a href="https://leetcode.cn/problems/simple-bank-system/">简易银行系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>数组存余额，统一校验账号合法和余额充足；追问并发转账：按账号 id 固定顺序加锁避免死锁</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="7 p3 2069 模拟行走机器人 ii – 中  机器人只会沿外圈走，步数先对周长 2(w + h) - 4 取模；坑：走满整圈回到原点时朝向是南而不是东">
+<td class="ck"><input type="checkbox" data-k="ab86ab1f1da6" aria-label="标记完成"></td>
+<td>7</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2069</td>
+<td><a href="https://leetcode.cn/problems/walking-robot-simulation-ii/">模拟行走机器人 II</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>机器人只会沿外圈走，步数先对周长 2(w + h) - 4 取模；坑：走满整圈回到原点时朝向是南而不是东</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="8 p3 2241 设计一个 atm 机器 – 中  题目规定必须从大面额开始贪心，凑不出就失败（即使换一种组合能凑出也算失败）；先试算、成功再提交，失败不能改动库存；金额用 64 位">
+<td class="ck"><input type="checkbox" data-k="e8b4bdb666d5" aria-label="标记完成"></td>
+<td>8</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2241</td>
+<td><a href="https://leetcode.cn/problems/design-an-atm-machine/">设计一个 ATM 机器</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>题目规定必须从大面额开始贪心，凑不出就失败（即使换一种组合能凑出也算失败）；先试算、成功再提交，失败不能改动库存；金额用 64 位</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="9 p3 2408 设计 sql – 中  表名→(列数, 自增 id, id→行)；被删除的 id 不复用，非法表名 / 列数不符 / 行不存在都要有明确返回">
+<td class="ck"><input type="checkbox" data-k="d5ccc7b4d511" aria-label="标记完成"></td>
+<td>9</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2408</td>
+<td><a href="https://leetcode.cn/problems/design-sql/">设计 SQL</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>表名→(列数, 自增 id, id→行)；被删除的 id 不复用，非法表名 / 列数不符 / 行不存在都要有明确返回</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="10 p3 2590 设计一个待办事项清单 – 中 🔒 任务自增 id + 用户→任务表；按截止日期排序输出，标签过滤，完成的任务要从结果里剔除">
+<td class="ck"><input type="checkbox" data-k="322446e0839c" aria-label="标记完成"></td>
+<td>10</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>2590</td>
+<td><a href="https://leetcode.cn/problems/design-a-todo-list/">设计一个待办事项清单</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>任务自增 id + 用户→任务表；按截止日期排序输出，标签过滤，完成的任务要从结果里剔除</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="11 p3 3242 设计相邻元素求和服务 – 易  值→坐标 哈希 + 两组方向数组，注意越界">
+<td class="ck"><input type="checkbox" data-k="d517a5ec4cf1" aria-label="标记完成"></td>
+<td>11</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3242</td>
+<td><a href="https://leetcode.cn/problems/design-neighbor-sum-service/">设计相邻元素求和服务</a></td>
+<td>–</td>
+<td><span class="diff diff-easy">易</span></td>
+<td></td>
+<td>值→坐标 哈希 + 两组方向数组，注意越界</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="12 p3 3484 设计电子表格 – 中  格子→值 哈希；解析「=x+y」，操作数首字符是字母就查表（未设置视为 0），否则按整数解析">
+<td class="ck"><input type="checkbox" data-k="0bb8a20327c8" aria-label="标记完成"></td>
+<td>12</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3484</td>
+<td><a href="https://leetcode.cn/problems/design-spreadsheet/">设计电子表格</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td></td>
+<td>格子→值 哈希；解析「=X+Y」，操作数首字符是字母就查表（未设置视为 0），否则按整数解析</td>
+</tr>
+<tr class="prow" data-pri="p3" data-text="13 p3 3822 设计订单管理系统 – 中 🔒 订单 id→(方向, 价格) 哈希 + (方向, 价格)→订单 id 集合，修改价格时两边同步迁移">
+<td class="ck"><input type="checkbox" data-k="d024f3a0fb34" aria-label="标记完成"></td>
+<td>13</td>
+<td><span class="pri pri-p3">P3</span></td>
+<td>3822</td>
+<td><a href="https://leetcode.cn/problems/design-order-management-system/">设计订单管理系统</a></td>
+<td>–</td>
+<td><span class="diff diff-mid">中</span></td>
+<td>🔒</td>
+<td>订单 id→(方向, 价格) 哈希 + (方向, 价格)→订单 id 集合，修改价格时两边同步迁移</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="sec-2"><span class="num">2.</span>必须能默写的 10 个模板</h2>
+<p>覆盖全部 P0 和每个大类的骨架。LRU（146）和 LFU（460）的完整手写、<code>std::list</code> 版本和并发追问已经在 <a href="/cpp-fundamentals/#sec-5-5">C++ 笔记 5.5</a> 里，这里不重复。 <code>std::priority_queue</code> 的用法和手写优先队列（有序数组版、二叉堆版）在 <a href="/ds-fundamentals/#sec-6-1">数据结构基础要点 6.1 到 6.4</a>，2.4 和 2.6 两个模板都依赖它。 代码全部是<strong>面试里能直接手写的版本</strong>：随机数用 <code>rand()</code>，节点用裸指针 <code>new</code>，二分自己写循环，不做模板化和工程封装；工程上该怎么改放在追问里讲。 每个模板先写<strong>不变量</strong>（这个结构任何时刻必须成立的关系），再给代码，追问点开就是答案，每条都是「结论 + 为什么」。</p>
+<h3 id="sec-2-1">2.1 最小栈（155）</h3>
+<p><strong>不变量</strong>：第 i 层存的第二个值 = 栈底到第 i 层所有元素的最小值。栈只在顶端变化，所以弹出一层后，下面各层记录的最小值依然有效。</p>
+<pre><code class="language-cpp">class MinStack {
+    vector&lt;pair&lt;int, int&gt;&gt; st_;                    // {值, 压入该值之后的栈内最小值}
+public:
+    void push(int val) {
+        int curMin = st_.empty() ? val : min(val, st_.back().second);
+        st_.push_back({val, curMin});
+    }
+    void pop() { st_.pop_back(); }
+    int top() { return st_.back().first; }
+    int getMin() { return st_.back().second; }
+};</code></pre>
+<p><strong>Q1 · 最小栈为什么要每层都存一份最小值</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>只用一个变量记最小值为什么不行？</strong> 弹出最小值之后需要知道「次小值」，而次小值取决于栈里还剩哪些元素，一个变量存不下这段历史。每层存一份相当于给历史拍快照，LIFO 保证弹出一层后下一层的快照仍然正确。</li>
+<li><strong>辅助栈能不能只在遇到更小值时才压？</strong> 能，可以省空间，但判断必须用 <code>&lt;=</code> 而不是 <code>&lt;</code>。原因是重复的最小值要各压一次，否则弹出其中一个时辅助栈跟着弹，剩下那个相同的最小值就丢了。</li>
+<li><strong>O(1) 额外空间怎么做？</strong> 栈里不存原值，存 <code>val - curMin</code> 的差值。压入时差值为负说明它成了新的最小值；弹出时如果差值为负，上一个最小值 = <code>curMin - diff</code>。原因是差值同时编码了「原值」和「最小值是否在这一步发生变化」两条信息。差值可能溢出 <code>int</code>，要用 <code>long long</code>。</li>
+<li><strong>最大栈（716）多了 popMax 为什么就变成难题？</strong> popMax 删的是栈中间的元素，破坏了「只在一端变化」这个前提，下面各层的快照全部失效。所以要换成双向链表（O(1) 删中间）+ 有序映射（O(log n) 找最大值对应的节点）。</li>
+</ul>
+</details>
+<h3 id="sec-2-2">2.2 双栈实现队列（232）</h3>
+<p><strong>不变量</strong>：<code>out_</code> 从栈顶到栈底是队列里最老的那批元素（按出队顺序），<code>in_</code> 从栈底到栈顶是较新的那批。整个队列的顺序 = <code>out_</code> 自顶向下，接 <code>in_</code> 自底向上。</p>
+<pre><code class="language-cpp">class MyQueue {
+    stack&lt;int&gt; in_, out_;
+    void shift() {                                 // 只有 out_ 空了才搬，否则会打乱先后顺序
+        if (!out_.empty()) return;
+        while (!in_.empty()) { out_.push(in_.top()); in_.pop(); }
+    }
+public:
+    void push(int x) { in_.push(x); }
+    int pop() { shift(); int v = out_.top(); out_.pop(); return v; }
+    int peek() { shift(); return out_.top(); }
+    bool empty() { return in_.empty() &amp;&amp; out_.empty(); }
+};</code></pre>
+<p><strong>Q2 · 双栈队列的摊还复杂度怎么证明</strong></p>
+<details class="qa">
+<summary>
+3 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么是摊还 O(1)？</strong> 每个元素一生最多经历 4 次栈操作：进 <code>in_</code>、出 <code>in_</code>、进 <code>out_</code>、出 <code>out_</code>。n 次队列操作总共最多 4n 次栈操作，平均每次 O(1)。单次 <code>pop</code> 最坏仍是 O(n)，摊还说的是总量而不是单次。</li>
+<li><strong>为什么必须等 <code>out_</code> 空了才搬？</strong> <code>out_</code> 的栈顶是当前最老的元素。如果它非空时就把 <code>in_</code> 的元素压上去，新元素会盖在老元素上面，下次出队的就变成了新元素，先进先出被破坏。</li>
+<li><strong>反过来用队列实现栈（225）为什么做不到摊还 O(1)？</strong> 栈倒一次顺序反转，倒两次恢复正序，所以两个栈能拼出队列。而队列是先进先出，元素出队再入队只是轮转，相对顺序永远不变；想让最新的元素排到队头，只能把它前面的 n - 1 个全部轮转一遍，每次 push 都是 O(n)。</li>
+</ul>
+</details>
+<h3 id="sec-2-3">2.3 哈希 + 数组：O(1) 插入、删除、随机（380）</h3>
+<p><strong>不变量</strong>：<code>pos_[vals_[i]] == i</code> 对所有 i 成立，且 <code>vals_</code> 没有空洞（下标连续，才能均匀随机）。</p>
+<pre><code class="language-cpp">class RandomizedSet {
+    vector&lt;int&gt; vals_;
+    unordered_map&lt;int, int&gt; pos_;                  // val -&gt; 它在 vals_ 里的下标
+public:
+    bool insert(int val) {
+        if (pos_.count(val)) return false;
+        pos_[val] = vals_.size();
+        vals_.push_back(val);
+        return true;
+    }
+    bool remove(int val) {
+        if (!pos_.count(val)) return false;
+        int i = pos_[val], last = vals_.back();
+        vals_[i] = last;                           // 用末尾元素填坑，避免 O(n) 搬移
+        pos_[last] = i;                            // 先改 last 的下标，再删 val：val == last 时顺序反了会出错
+        pos_.erase(val);
+        vals_.pop_back();
+        return true;
+    }
+    int getRandom() { return vals_[rand() % vals_.size()]; }
+};</code></pre>
+<p><strong>Q3 · 为什么 O(1) 随机必须是哈希加数组</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>只用哈希表为什么不行？</strong> 均匀随机需要「O(1) 取第 k 个元素」，这要求元素放在连续下标上。哈希表的元素散落在桶里，取第 k 个只能遍历，O(n)；随机挑一个桶再挑桶内元素又不均匀，因为各桶长度不同。</li>
+<li><strong>为什么删除时和末尾交换？</strong> 数组删中间之所以 O(n)，是因为要保持元素的相对顺序而搬移后面所有元素。这里顺序没有意义，只要求下标连续，所以拿末尾元素填坑、再 <code>pop_back</code>，O(1)。</li>
+<li><strong>允许重复（381）要改哪里？</strong> <code>pos_</code> 的 value 从单个下标换成下标集合 <code>unordered_set&lt;int&gt;</code>。删除时从 val 的集合里任取一个下标 i，安全的更新顺序是：val 的集合删 i → last 的集合加 i → last 的集合删 n - 1。原因是当 val 就是 last 时两个集合是同一个，这个顺序在 i 等于或不等于 n - 1 两种情况下都正确，换个顺序就会在其中一种情况下多删或漏删。</li>
+<li><strong>getRandom 要按出现次数加权怎么办？</strong> 381 天然就是加权的：重复元素在数组里占了多个槽位，被抽中的概率正比于出现次数，不需要额外处理。</li>
+</ul>
+</details>
+<h3 id="sec-2-4">2.4 对顶堆：数据流中位数（295）</h3>
+<p><strong>不变量</strong>：<code>lo_</code> 的每个数 ≤ <code>hi_</code> 的每个数；<code>lo_.size()</code> 等于 <code>hi_.size()</code> 或比它多 1。于是中位数只和两个堆顶有关。</p>
+<pre><code class="language-cpp">class MedianFinder {
+    priority_queue&lt;int&gt; lo_;                                  // 大顶堆：较小的一半
+    priority_queue&lt;int, vector&lt;int&gt;, greater&lt;int&gt;&gt; hi_;       // 小顶堆：较大的一半
+public:
+    void addNum(int num) {
+        lo_.push(num);
+        hi_.push(lo_.top()); lo_.pop();            // 新数先过一遍 lo_，保证 lo_ 的每个数 &lt;= hi_ 的每个数
+        if (hi_.size() &gt; lo_.size()) { lo_.push(hi_.top()); hi_.pop(); }   // 约定 lo_ 多一个或相等
+    }
+    double findMedian() {
+        if (lo_.size() &gt; hi_.size()) return lo_.top();
+        return (lo_.top() + hi_.top()) / 2.0;
+    }
+};</code></pre>
+<p><strong>Q4 · 对顶堆为什么能 O(1) 取中位数</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么新数要先进 <code>lo_</code>，再把 <code>lo_</code> 的堆顶转给 <code>hi_</code>？</strong> 为了不写分支就能维持「<code>lo_</code> 全部 ≤ <code>hi_</code> 全部」。新数无论大小先进 <code>lo_</code>，此时 <code>lo_</code> 的堆顶是 <code>lo_</code> 加上新数之后的最大值，把它交给 <code>hi_</code> 一定不破坏大小关系；最后只需要按数量调平。如果直接比较新数和堆顶再决定进哪个堆，也对，但要处理堆为空的分支。</li>
+<li><strong>为什么不用排序数组加二分插入？</strong> 二分找位置是 O(log n)，但插入要搬移元素，O(n)。中位数只关心分界线两侧的极值，不需要全体有序，堆恰好只维护极值，所以 add 是 O(log n)，find 是 O(1)。</li>
+<li><strong>所有数都在 [0, 100] 怎么优化？</strong> 用 101 个计数桶加总数，找中位数时扫一遍桶，O(101) 即 O(1)，空间也是 O(1)。如果是 99% 的数在这个范围：再加两个计数器记小于 0 和大于 100 的个数，只要离群值不到一半，中位数一定落在桶里。</li>
+<li><strong>滑动窗口中位数（480）为什么对顶堆就不够了？</strong> 窗口滑动要删除任意一个旧元素，而堆只能删堆顶。两条路：换成两个 <code>multiset</code>（支持任意删除），或者堆 + 懒删除并额外维护两边的「有效元素个数」，因为残留的过期项会让 <code>size()</code> 失真。</li>
+</ul>
+</details>
+<h3 id="sec-2-5">2.5 Trie（208）</h3>
+<p><strong>不变量</strong>：从根到某节点的路径唯一对应一个前缀；<code>isEnd</code> 为真当且仅当这个前缀本身是一个被插入过的完整单词。</p>
+<pre><code class="language-cpp">class Trie {
+    struct Node {
+        Node* next[26] = {};                       // 全部初始化为 nullptr
+        bool isEnd = false;
+    };
+    Node* root_ = new Node();
+
+    Node* walk(const string&amp; s) {                  // 沿着 s 往下走，走不通返回 nullptr
+        Node* cur = root_;
+        for (char c : s) {
+            cur = cur-&gt;next[c - 'a'];
+            if (!cur) return nullptr;
+        }
+        return cur;
+    }
+public:
+    void insert(string word) {
+        Node* cur = root_;
+        for (char c : word) {
+            if (!cur-&gt;next[c - 'a']) cur-&gt;next[c - 'a'] = new Node();
+            cur = cur-&gt;next[c - 'a'];
+        }
+        cur-&gt;isEnd = true;
+    }
+    bool search(string word) { Node* n = walk(word); return n &amp;&amp; n-&gt;isEnd; }
+    bool startsWith(string prefix) { return walk(prefix) != nullptr; }
+};</code></pre>
+<p><strong>Q5 · Trie 的实现取舍</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>面试版用 <code>new</code> 建节点、没写析构，会被追问吗？工程上怎么写？</strong> 面试里时间有限，默认可以不写析构，但要主动说一句「这里省略了释放」。工程上常见的做法是节点池：所有节点放进一个 <code>vector&lt;Node&gt;</code>，孩子存 <code>int</code> 下标而不是指针。好处有三个：<code>vector</code> 析构时整体释放，不用写递归 delete（很深的 Trie 递归析构可能爆栈）；节点连续存放，缓存命中率高；<code>int</code> 下标 4 字节，比 8 字节指针省一半。代价是 <code>vector</code> 扩容会让指向节点的引用失效，所以每次都要通过下标重新取。</li>
+<li><strong>空间复杂度是多少，字符集很大怎么办？</strong> 最坏 O(总字符数 × 字符集大小)，每个节点都开满 26 个槽位。字符集大（如 Unicode）时把数组换成哈希表或有序映射，用时间换空间；进一步压缩是 radix tree，把只有一个孩子的链压成一个节点，节点上存字符串片段。</li>
+<li><strong>Trie 和哈希表存字典怎么选？</strong> 精确查找两者都是 O(L)，哈希表常数更小。Trie 的优势只在三件事：前缀查询、按字典序遍历、多模式匹配（AC 自动机的底座）。原因是哈希函数把整个字符串打散了，前缀相同的串之间没有任何位置关系，而 Trie 把公共前缀显式地存成公共路径。需求里没有「前缀」就用哈希表。</li>
+<li><strong>怎么支持删除？</strong> 每个节点加一个「经过次数」（1804 题的做法），删除时沿路径逐个减一。原因是一个节点可能被多个单词共享，只有计数归零才说明没有单词再经过它，才能回收。</li>
+</ul>
+</details>
+<h3 id="sec-2-6">2.6 堆 + 懒删除（3408，同构题 2353 / 2034 / 2349 / 3885）</h3>
+<p><strong>不变量</strong>：哈希表 <code>info_</code> 是唯一的真相；堆里的项只是「曾经的快照」，一个堆项有效当且仅当它和 <code>info_</code> 里的当前值完全一致。</p>
+<pre><code class="language-cpp">class TaskManager {
+    unordered_map&lt;int, pair&lt;int, int&gt;&gt; info_;      // taskId -&gt; {priority, userId}，这是唯一的真相
+    priority_queue&lt;pair&lt;int, int&gt;&gt; heap_;          // {priority, taskId}，允许残留过期项
+public:
+    TaskManager(vector&lt;vector&lt;int&gt;&gt;&amp; tasks) {
+        for (auto&amp; t : tasks) add(t[0], t[1], t[2]);
+    }
+    void add(int userId, int taskId, int priority) {
+        info_[taskId] = {priority, userId};
+        heap_.push({priority, taskId});
+    }
+    void edit(int taskId, int newPriority) {
+        info_[taskId].first = newPriority;
+        heap_.push({newPriority, taskId});         // 旧项不删，留到出堆时识别
+    }
+    void rmv(int taskId) { info_.erase(taskId); }
+    int execTop() {
+        while (!heap_.empty()) {
+            auto [pri, id] = heap_.top();
+            heap_.pop();
+            if (!info_.count(id) || info_[id].first != pri) continue;   // 和真相对不上，是过期项
+            int user = info_[id].second;
+            info_.erase(id);
+            return user;
+        }
+        return -1;
+    }
+};</code></pre>
+<p><strong>Q6 · 堆里的元素优先级会变，怎么办</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么不直接在堆里改优先级？</strong> <code>std::priority_queue</code> 只暴露堆顶，找到任意元素要 O(n)。即使找到了，改完还要上浮或下沉，这需要知道它在底层数组里的下标，也就是要自己维护一张「id → 堆下标」的表并在每次交换时同步更新，这就是索引堆。能写，但代码量和出错概率都远高于懒删除。</li>
+<li><strong>懒删除为什么正确？</strong> 每次修改都压入一个新快照，旧快照留在堆里。出堆时和 <code>info_</code> 比对：id 已不存在，或优先级对不上，就丢弃。同一个 (优先级, id) 可能在堆里有多份（比如改走又改回来），但第一份被执行后 <code>info_</code> 里的记录已删除，后面几份自然被判为过期。</li>
+<li><strong>代价是什么？</strong> 空间从 O(存活元素数) 变成 O(历史操作总数)。时间上单次 <code>execTop</code> 可能连续弹出多个过期项，但每个堆项一生只会被弹出一次，所以摊还仍是 O(log n)。</li>
+<li><strong>什么时候不该用懒删除？</strong> 修改极多而出堆极少的场景，过期项只进不出，内存持续上涨。这时换成 <code>set&lt;pair&lt;int,int&gt;&gt;</code>（修改 = 先删旧 pair 再插新 pair，O(log n)），或者在过期项超过一半时重建堆。</li>
+<li><strong><code>set</code> 和 <code>priority_queue</code> 性能上怎么选？</strong> 堆的底层是连续数组，没有逐节点内存分配，缓存友好，常数小；<code>set</code> 是红黑树，每个节点单独分配、靠指针跳转，常数大几倍，但支持任意删除和有序遍历。只需要取最值用堆，需要删除或范围查询用 <code>set</code>。</li>
+</ul>
+</details>
+<h3 id="sec-2-7">2.7 环形队列（622）</h3>
+<p><strong>不变量</strong>：有效元素是从 <code>head_</code> 开始、长度为 <code>size_</code> 的一段，下标对 <code>cap_</code> 取模；<code>0 ≤ size_ ≤ cap_</code>。</p>
+<pre><code class="language-cpp">class MyCircularQueue {
+    vector&lt;int&gt; buf_;
+    int cap_, head_ = 0, size_ = 0;                // 记 head + size，不记 tail：空和满不会混淆
+public:
+    MyCircularQueue(int k) : buf_(k), cap_(k) {}
+    bool enQueue(int value) {
+        if (isFull()) return false;
+        buf_[(head_ + size_) % cap_] = value;
+        ++size_;
+        return true;
+    }
+    bool deQueue() {
+        if (isEmpty()) return false;
+        head_ = (head_ + 1) % cap_;
+        --size_;
+        return true;
+    }
+    int Front() { return isEmpty() ? -1 : buf_[head_]; }
+    int Rear() { return isEmpty() ? -1 : buf_[(head_ + size_ - 1) % cap_]; }
+    bool isEmpty() { return size_ == 0; }
+    bool isFull() { return size_ == cap_; }
+};</code></pre>
+<p><strong>Q7 · 环形缓冲区怎么区分空和满</strong></p>
+<details class="qa">
+<summary>
+3 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么记 <code>size</code> 而不是 <code>tail</code>？</strong> 只记 head 和 tail 时，空和满都表现为 <code>head == tail</code>，无法区分。解法有两种：多记一个 size，或者故意浪费一个槽位（满定义为 <code>(tail + 1) % cap == head</code>）。单线程下记 size 最直观。</li>
+<li><strong>那「浪费一个槽位」的方案有什么用？</strong> 单生产者单消费者的无锁队列用的就是它。原因是 head 只被消费者写、tail 只被生产者写，两个变量各归一个线程所有，用原子读写就够了；而 size 会被两个线程同时修改，必须用原子的读改写，竞争更重。</li>
+<li><strong>容量取 2 的幂有什么好处？</strong> 取模可以换成 <code>&amp; (cap - 1)</code>。整数除法指令的延迟是十几到几十个周期，按位与只要一个周期，环形缓冲区的每次读写都要算下标，热路径上差别明显。双端版本（641）里 head 向前走要写成 <code>(head - 1 + cap) % cap</code>，因为 C++ 对负数取模结果为负；换成按位与之后这个问题也不存在了（无符号下标自然回绕）。</li>
+</ul>
+</details>
+<h3 id="sec-2-8">2.8 树状数组（307）</h3>
+<p><strong>不变量</strong>：<code>tree_[i]</code> = 原数组区间 <code>(i - lowbit(i), i]</code> 的和（下标从 1 开始），其中 <code>lowbit(i) = i &amp; -i</code>。</p>
+<pre><code class="language-cpp">class NumArray {
+    vector&lt;int&gt; nums_, tree_;                      // tree_ 下标从 1 开始，tree_[i] 管辖长度为 lowbit(i) 的一段
+    int n_;
+    void add(int i, int delta) {
+        for (; i &lt;= n_; i += i &amp; -i) tree_[i] += delta;
+    }
+    int prefix(int i) {
+        int s = 0;
+        for (; i &gt; 0; i -= i &amp; -i) s += tree_[i];
+        return s;
+    }
+public:
+    NumArray(vector&lt;int&gt;&amp; nums) : nums_(nums), tree_(nums.size() + 1, 0), n_(nums.size()) {
+        for (int i = 0; i &lt; n_; ++i) add(i + 1, nums[i]);
+    }
+    void update(int index, int val) {
+        add(index + 1, val - nums_[index]);        // 树里存的是和，所以传增量而不是新值
+        nums_[index] = val;
+    }
+    int sumRange(int left, int right) { return prefix(right + 1) - prefix(left); }
+};</code></pre>
+<p><strong>Q8 · 树状数组为什么两个循环方向相反</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong><code>i &amp; -i</code> 为什么是最低位的 1？</strong> 补码下 <code>-i = ~i + 1</code>。取反后最低位的 1 变成 0、它右边的 0 全变成 1；再加 1，进位一路传到那一位把它变回 1、右边变回 0，而左边保持取反状态。所以和原数按位与之后只剩最低位的那个 1。</li>
+<li><strong>查询为什么是减 lowbit，更新为什么是加 lowbit？</strong> 查询前缀 [1, i]：<code>tree_[i]</code> 覆盖末尾长度为 lowbit(i) 的一段，去掉这一段后剩下 [1, i - lowbit(i)]，继续同样处理，二进制里有几个 1 就拼几段，最多 log n 段。更新位置 i：要找所有覆盖 i 的节点，<code>i + lowbit(i)</code> 恰好是下一个管辖范围更大、且包含 i 的节点，同样最多 log n 个。</li>
+<li><strong>建树能做到 O(n) 吗？</strong> 能。先令 <code>tree_[i] = nums[i - 1]</code>，然后从小到大遍历 i，把 <code>tree_[i]</code> 加到它的直接父节点 <code>tree_[i + lowbit(i)]</code> 上。每个节点只向上贡献一次，所以是 O(n)；模板里逐个 <code>add</code> 的写法是 O(n log n)，面试写这个足够，但要能说出优化。</li>
+<li><strong>树状数组和线段树怎么选？</strong> 树状数组代码短、常数小、内存恰好 n；但它靠「区间 = 两个前缀之差」工作，只适用于可以做减法的运算（求和、异或）。区间最值没有逆运算，知道两个前缀的最大值推不出中间一段的最大值，所以必须用线段树。区间赋值、区间加同时区间查询也用线段树 + 懒标记。</li>
+<li><strong>要支持「区间加、单点查」怎么办？</strong> 对差分数组建树状数组。区间 [l, r] 加 d 等价于差分数组在 l 处加 d、在 r + 1 处减 d，两次单点更新；某个位置的当前值就是差分数组的前缀和，一次前缀查询。</li>
+</ul>
+</details>
+<h3 id="sec-2-9">2.9 时间戳 + 二分（981）</h3>
+<p><strong>不变量</strong>：每个 key 对应的数组按时间戳严格递增。这条不变量不是代码维护的，而是题目「set 的时间戳严格递增」保证的，动手前必须向面试官确认。</p>
+<pre><code class="language-cpp">class TimeMap {
+    // 题目保证同一个 key 的 timestamp 严格递增，所以 vector 追加后天然有序
+    unordered_map&lt;string, vector&lt;pair&lt;int, string&gt;&gt;&gt; data_;
+public:
+    void set(string key, string value, int timestamp) {
+        data_[key].push_back({timestamp, value});
+    }
+    string get(string key, int timestamp) {
+        auto&amp; v = data_[key];
+        int lo = 0, hi = v.size();                 // 在 [lo, hi) 里找第一个时间戳大于目标的位置
+        while (lo &lt; hi) {
+            int mid = lo + (hi - lo) / 2;
+            if (v[mid].first &lt;= timestamp) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo == 0 ? "" : v[lo - 1].second;    // 它的前一个就是「不超过目标的最新版本」
+    }
+};</code></pre>
+<p><strong>Q9 · 查「不超过 t 的最新版本」，二分的目标怎么定</strong></p>
+<details class="qa">
+<summary>
+4 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么二分找的是「第一个大于 t 的位置」再退一格，而不是直接找「最后一个不超过 t 的」？</strong> 两者等价，但前一种写法边界更少：用左闭右开区间，<code>v[mid].first &lt;= t</code> 就往右收、否则 <code>hi = mid</code>，循环结束时 <code>lo</code> 就是第一个大于 t 的位置，它的前一个正好是答案；t 恰好命中某个时间戳时同样成立，只需要处理 <code>lo == 0</code>（前面没有元素）这一种边界。直接找「最后一个不超过」的写法要用闭区间并且 <code>mid</code> 向上取整，否则会死循环，更容易写错。</li>
+<li><strong>能直接用标准库的 <code>upper_bound</code> 吗？</strong> 能，但数组元素是 <code>pair</code>，要传自定义比较器，而 <code>upper_bound</code> 的比较器参数顺序是 (目标值, 元素)，<code>lower_bound</code> 是 (元素, 目标值)，两者正好相反，写反了会触发一大段模板报错。面试里手写这六行二分更稳，也顺便展示了二分的基本功。</li>
+<li><strong>时间戳不保证递增怎么办？</strong> 追加之后数组不再有序，二分失效。换成 <code>map&lt;int, string&gt;</code>，<code>set</code> 变成 O(log n)，<code>get</code> 用成员函数 <code>upper_bound</code>。这就是为什么动手前要确认输入是否单调：它决定了用数组还是用平衡树。</li>
+<li><strong>快照数组（1146）为什么不能每次 snap 拷贝一份？</strong> 拷贝是 O(n) 每次，而两次快照之间通常只改了少数几个位置。每个下标各自挂一个 (snap_id, 值) 的追加数组，只在被修改时记录，空间正比于修改次数；查询时对 snap_id 二分，和本题完全同构。</li>
+</ul>
+</details>
+<h3 id="sec-2-10">2.10 跳表（1206）</h3>
+<p><strong>不变量</strong>：每一层都是有序链表；第 i + 1 层的节点集合是第 i 层的子集；第 0 层包含全部元素。</p>
+<details class="code-card" open=""><summary>47 行 · 点击折叠</summary><pre><code class="language-cpp">class Skiplist {
+    static const int MAX_LEVEL = 16;
+    struct Node {
+        int val;
+        vector&lt;Node*&gt; next;                        // next[i] 是第 i 层的后继
+        Node(int v, int level) : val(v), next(level, nullptr) {}
+    };
+    Node* head_ = new Node(-1, MAX_LEVEL);         // 哨兵头，拥有全部层
+
+    int randomLevel() {
+        int level = 1;
+        while (level &lt; MAX_LEVEL &amp;&amp; rand() % 4 == 0) ++level;   // 每升一层的概率 1/4
+        return level;
+    }
+    // prev[i] = 第 i 层里最后一个 val &lt; target 的节点。始终从最高层找起，省掉维护「当前层数」的代码
+    vector&lt;Node*&gt; findPrev(int target) {
+        vector&lt;Node*&gt; prev(MAX_LEVEL);
+        Node* cur = head_;
+        for (int i = MAX_LEVEL - 1; i &gt;= 0; --i) {
+            while (cur-&gt;next[i] &amp;&amp; cur-&gt;next[i]-&gt;val &lt; target) cur = cur-&gt;next[i];
+            prev[i] = cur;
+        }
+        return prev;
+    }
+public:
+    bool search(int target) {
+        Node* p = findPrev(target)[0]-&gt;next[0];
+        return p &amp;&amp; p-&gt;val == target;
+    }
+    void add(int num) {
+        vector&lt;Node*&gt; prev = findPrev(num);
+        int level = randomLevel();
+        Node* node = new Node(num, level);
+        for (int i = 0; i &lt; level; ++i) {          // 在第 0 到 level - 1 层各做一次链表插入
+            node-&gt;next[i] = prev[i]-&gt;next[i];
+            prev[i]-&gt;next[i] = node;
+        }
+    }
+    bool erase(int num) {
+        vector&lt;Node*&gt; prev = findPrev(num);
+        Node* p = prev[0]-&gt;next[0];
+        if (!p || p-&gt;val != num) return false;
+        for (int i = 0; i &lt; (int)p-&gt;next.size(); ++i) prev[i]-&gt;next[i] = p-&gt;next[i];
+        delete p;
+        return true;
+    }
+};</code></pre></details>
+<p><strong>Q10 · 跳表的复杂度和工程取舍</strong></p>
+<details class="qa">
+<summary>
+5 条追问与解答
+</summary>
+<ul>
+<li><strong>为什么期望 O(log n)？</strong> 每个节点以概率 p 晋升到上一层，所以第 i 层期望有 n · p^i 个节点，层数期望为 log n（以 1/p 为底）。查找时在每一层向右走的期望步数不超过 1/p（再多走一步就说明那个节点本应出现在上一层），总步数 = 层数 × 每层常数。</li>
+<li><strong>p 取 1/2 还是 1/4？</strong> p 越小，层数越少，每个节点的平均指针数 1 / (1 - p) 也越少：p = 1/2 时 2 个，p = 1/4 时约 1.33 个；代价是每层横向多走几步。Redis 取 1/4，原因是查找步数相差不大，但每个节点的指针数少了三分之一。</li>
+<li><strong>有重复值时，<code>erase</code> 直接改 <code>prev[i]-&gt;next[i]</code> 会不会删错节点？</strong> 不会。<code>findPrev</code> 找的是每层最后一个小于 num 的节点，所以 <code>prev[i]-&gt;next[i]</code> 是第 i 层第一个不小于 num 的节点，而 p 是第 0 层第一个等于 num 的节点。各层的相对顺序一致：如果第 i 层有另一个等值节点排在 p 前面，它在第 0 层也必然排在 p 前面，与 p 是第一个矛盾。所以在 p 出现的每一层，<code>prev[i]</code> 的后继恰好就是 p，不需要再判断。</li>
+<li><strong>Redis 的有序集合为什么用跳表而不是红黑树？</strong> 作者给的理由有三条：范围查询是主要操作，跳表找到起点后沿底层链表顺序走即可，红黑树要做中序后继；实现和调试简单得多；内存占用可以用 p 调节，并不比平衡树差。</li>
+<li><strong>为什么说跳表对并发更友好？</strong> 插入只修改新节点每层前驱的那几个指针，影响是局部的；红黑树的旋转和重新着色会沿着路径向上传播，可能牵动远处的节点，要锁的范围大。所以无锁有序结构基本都是跳表，例如 Java 的 <code>ConcurrentSkipListMap</code> 和 LevelDB 的 memtable（单写多读，读不加锁）。</li>
+</ul>
+</details>
+<h2 id="sec-3"><span class="num">3.</span>复习顺序与现场节奏</h2>
+<h3 id="sec-3-1">3.1 按轮次推进</h3>
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>轮次</th>
+<th>范围</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第 1 轮</td>
+<td>P0 的 8 题：146 → 460 → 155 → 232 → 380 → 295 → 208 → 297</td>
+<td>每题限时 15 分钟手写，写完对照第 2 章的不变量逐条自查，再把追问口头答一遍。146 和 460 放在最前面，因为 146 的频度超过其余所有设计题之和</td>
+</tr>
+<tr>
+<td>第 2 轮</td>
+<td>P1 的 18 题</td>
+<td>按类别成组做，同一类连着写更容易看出骨架相同：栈类（225、716、895、1381）→ 手写容器（706、622、1206、381、384）→ 迭代器（173、341）→ 前缀和（303、304）→ 其余</td>
+</tr>
+<tr>
+<td>第 3 轮</td>
+<td>P2 里人工提拔的 24 题</td>
+<td>每题代表一种模式，目标是写过一遍。优先 981、715、2296、2353、362、642，它们各自对应一整类题</td>
+</tr>
+<tr>
+<td>第 4 轮</td>
+<td>其余 P2 和全部 P3</td>
+<td>只读「考点」一栏，能在 30 秒内说出用什么结构组合、为什么，就算过关，不必动手写</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>底层结构本身的原理和追问（哈希表怎么扩容、堆为什么 O(n) 建成、红黑树为什么比 AVL 适合做 <code>map</code>）单独整理在 <a href="/ds-fundamentals/">数据结构基础面试要点</a> 里，建议和第 1 轮并行看：设计题写完后面试官的追问几乎都落在那份文档的范围里。</p>
+<h3 id="sec-3-2">3.2 设计题的现场节奏</h3>
+<ol type="1">
+<li><strong>先问清楚再动手（1 到 2 分钟）。</strong> 容量上限、key 是否重复、时间戳是否单调、非法输入返回什么、各操作的调用比例。这些问题的答案会直接改变结构选择，例如时间戳单调就可以用数组加二分代替平衡树。</li>
+<li><strong>口头给出结构和不变量（1 分钟）。</strong> 「我用一个哈希表做定位，一个双向链表维护最近使用顺序，不变量是两者的元素一一对应。」得到面试官确认后再写，避免写到一半被推翻。</li>
+<li><strong>写代码（10 分钟左右）。</strong> 先写成员变量和私有辅助函数（摘节点、插到头部），公开接口只调用辅助函数。设计题的 bug 大多是两个结构没有同步更新，辅助函数能把同步逻辑收拢到一处。</li>
+<li><strong>带一个小例子走一遍（2 分钟）。</strong> 特意挑边界：容量为 1、重复写入同一个 key、删除刚刚插入的元素。</li>
+<li><strong>主动报复杂度，并提一句可扩展的方向。</strong> 线程安全怎么加、数据量放不进内存怎么办、要支持过期时间怎么改。面试官的追问通常就从你提的这几个方向里选。</li>
+</ol>
+
+<footer class="aris-footer">
+  由 <code>build_html.py</code> 从 <code>leetcode_design.md</code> 生成 · 2026-09-20 17:09 UTC<br>
+  改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
+</footer>
+</main>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- 语法高亮 ---------- */
+  if (window.hljs) {
+    document.querySelectorAll("pre code[class^='language-']").forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) { /* 未知语言，保持纯文本 */ }
+    });
+  }
+
+  /* ---------- 代码块复制按钮 ---------- */
+  document.querySelectorAll("pre > code").forEach(function (code) {
+    var pre = code.parentElement;
+    var wrap = document.createElement("div");
+    wrap.className = "pre-wrap";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    var btn = document.createElement("button");
+    btn.className = "copy";
+    btn.type = "button";
+    btn.textContent = "复制";
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(code.innerText).then(function () {
+        btn.textContent = "已复制";
+        btn.classList.add("ok");
+        setTimeout(function () {
+          btn.textContent = "复制";
+          btn.classList.remove("ok");
+        }, 1400);
+      });
+    });
+    wrap.appendChild(btn);
+  });
+
+  /* ---------- 目录高亮（scrollspy） ---------- */
+  var links = {};
+  document.querySelectorAll("nav.toc a").forEach(function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  var heads = Array.prototype.filter.call(
+    document.querySelectorAll("main h2[id], main h3[id]"),
+    function (h) { return links[h.id]; }
+  );
+  if (heads.length) {
+    var spy = new IntersectionObserver(function () {
+      var top = null;
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].getBoundingClientRect().top <= 120) top = heads[i];
+      }
+      if (!top) top = heads[0];
+      for (var id in links) links[id].classList.remove("active");
+      links[top.id].classList.add("active");
+      var a = links[top.id];
+      var nav = document.querySelector("nav.toc");
+      if (nav && nav.scrollHeight > nav.clientHeight) {
+        var r = a.getBoundingClientRect(), nr = nav.getBoundingClientRect();
+        if (r.top < nr.top || r.bottom > nr.bottom) {
+          nav.scrollTop += r.top - nr.top - nav.clientHeight / 2;
+        }
+      }
+    }, { rootMargin: "-100px 0px -70% 0px", threshold: [0, 1] });
+    heads.forEach(function (h) { spy.observe(h); });
+    window.addEventListener("scroll", function () {
+      clearTimeout(window.__spyT);
+      window.__spyT = setTimeout(function () {
+        var top = heads[0];
+        heads.forEach(function (h) {
+          if (h.getBoundingClientRect().top <= 120) top = h;
+        });
+        for (var id in links) links[id].classList.remove("active");
+        if (links[top.id]) links[top.id].classList.add("active");
+      }, 60);
+    }, { passive: true });
+  }
+
+  /* ---------- 回到顶部 ---------- */
+  var top = document.createElement("button");
+  top.className = "to-top";
+  top.type = "button";
+  top.title = "回到顶部";
+  top.textContent = "↑";
+  top.addEventListener("click", function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  document.body.appendChild(top);
+  window.addEventListener("scroll", function () {
+    top.classList.toggle("show", window.scrollY > 600);
+  }, { passive: true });
+
+  /* ---------- 进度勾选 + 筛选（仅清单页） ---------- */
+  var boxes = document.querySelectorAll("td.ck input[type=checkbox]");
+  if (!boxes.length) return;
+
+  var KEY = "interview-prep:" + (document.querySelector("meta[name=source-path]") || {}).content;
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { done = {}; }
+
+  var save = function () {
+    try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) { /* 隐私模式，忽略 */ }
+  };
+
+  var q = document.getElementById("q");
+  var todoOnly = document.getElementById("todo");
+  var progress = document.getElementById("progress");
+  var priBtns = document.querySelectorAll(".toolbar .pris button");
+  var pri = "all";
+
+  var rows = Array.prototype.map.call(boxes, function (box) {
+    return { box: box, tr: box.closest("tr") };
+  });
+
+  function paint() {
+    var total = rows.length, n = 0;
+    var text = (q && q.value || "").trim().toLowerCase();
+    var onlyTodo = todoOnly && todoOnly.checked;
+
+    rows.forEach(function (r) {
+      var isDone = !!done[r.box.dataset.k];
+      r.box.checked = isDone;
+      r.tr.classList.toggle("done", isDone);
+      if (isDone) n++;
+      var ok = true;
+      if (pri !== "all" && r.tr.dataset.pri !== pri) ok = false;
+      if (ok && text && (r.tr.dataset.text || "").indexOf(text) === -1) ok = false;
+      if (ok && onlyTodo && isDone) ok = false;
+      r.tr.classList.toggle("hidden", !ok);
+    });
+
+    // 整张表被筛空时连同它的标题一起收起
+    document.querySelectorAll(".table-wrap").forEach(function (w) {
+      var prows = w.querySelectorAll("tr.prow");
+      if (!prows.length) return;
+      var any = Array.prototype.some.call(prows, function (tr) {
+        return !tr.classList.contains("hidden");
+      });
+      w.classList.toggle("hidden", !any);
+    });
+
+    if (progress) {
+      var pct = total ? Math.round((n / total) * 100) : 0;
+      progress.innerHTML = "已完成 <b>" + n + "</b> / " + total + " · " + pct + "%";
+    }
+  }
+
+  rows.forEach(function (r) {
+    r.box.addEventListener("change", function () {
+      if (r.box.checked) done[r.box.dataset.k] = 1;
+      else delete done[r.box.dataset.k];
+      save();
+      paint();
+    });
+  });
+
+  if (q) q.addEventListener("input", paint);
+  if (todoOnly) todoOnly.addEventListener("change", paint);
+  priBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      pri = b.dataset.p;
+      priBtns.forEach(function (x) { x.classList.toggle("on", x === b); });
+      paint();
+    });
+  });
+  var reset = document.getElementById("reset");
+  if (reset) {
+    reset.addEventListener("click", function () {
+      if (!confirm("清空本页所有勾选进度？")) return;
+      done = {};
+      save();
+      paint();
+    });
+  }
+
+  paint();
+})();
+
+</script>
+
+
+<script type="text/javascript" charset="utf-8" src="/js/lazyload-plugin/lazyload.intersectionObserver.min.js"></script></body></html>
