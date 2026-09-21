@@ -3,9 +3,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ds fundamentals</title>
 <meta name="generator" content="build_html.py">
-<meta name="source-path" content="ds_fundamentals.md">
-<meta name="source-sha256" content="bd56a5f8e87b6421">
-<meta name="generated-at" content="2026-09-20 17:09 UTC">
+<meta name="source-path" content="ds_fundamentals_blog.md">
+<meta name="source-sha256" content="a5e5d9b5431d9797">
+<meta name="generated-at" content="2026-09-21 06:16 UTC">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-light.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 
@@ -576,13 +576,13 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
   <h1>数据结构基础面试要点</h1>
   <p class="subtitle">数组到 B+ 树、并查集到布隆过滤器：每种结构为什么这样设计、代价在哪、什么时候不该用，附追问链</p>
   <div class="meta">
-    <span><strong>来源</strong> <code>ds_fundamentals.md</code></span>
-    <span><strong>生成</strong> 2026-09-20 17:09 UTC</span>
+    <span><strong>来源</strong> <code>ds_fundamentals_blog.md</code></span>
+    <span><strong>生成</strong> 2026-09-21 06:16 UTC</span>
   </div>
 </header>
 
 <blockquote>
-<p>范围：数组、链表、栈与队列、哈希表、堆、平衡树、B+ 树与 LSM、Trie、并查集、图的存储、区间结构、概率结构、并发场景，共 15 节、18 道主问题、78 条追问。 定位：和语言无关，讲每种结构<strong>为什么这样设计、代价在哪、什么时候不该用</strong>。C++ 容器层面的细节（<code>vector</code> 扩容、<code>map</code> 与 <code>unordered_map</code> 的实现、手写 vector / 哈希表 / LRU）已经在 <a href="/cpp-fundamentals/#sec-4-1">C++ 基础深度笔记第 4 章</a> 和 <a href="/cpp-fundamentals/#sec-5-1">第 5 章</a> 里，这里只给链接，不重复。 配套：<a href="/leetcode-design/">LeetCode 数据结构设计题全集</a> 里有 134 道设计题的分类清单，以及跳表、树状数组、Trie、环形队列、对顶堆、懒删除堆等 10 个验证过的 C++ 模板。 代码：每一节都配了面试常考的 C++ 代码，全部是<strong>面试里能直接手写的版本</strong>：只处理 <code>int</code>、随机数用 <code>rand()</code>、节点用裸指针，不用模板和工程化封装。所有代码用 Apple clang <code>-std=c++17 -Wall -Wextra -fsanitize=address,undefined</code> 编译，并和暴力解法或标准库做过随机对拍（快排类代码单独测了全部相等、大量重复、已经有序、空输入；阻塞队列另外过了 ThreadSanitizer）。 写法约定：每条追问的回答都是「结论 + 为什么」。判断标准是这条回答能不能推出一个你没背过的结论。</p>
+<p>范围：数组、链表、栈与队列、哈希表、堆、平衡树、B+ 树与 LSM、Trie、并查集、图的存储、区间结构、概率结构、并发场景，共 15 节、18 道主问题、78 条追问。 定位：和语言无关，讲每种结构<strong>为什么这样设计、代价在哪、什么时候不该用</strong>。C++ 容器层面的细节（<code>vector</code> 扩容、<code>map</code> 与 <code>unordered_map</code> 的实现、手写 vector / 哈希表 / LRU）已经在 <a href="/cpp-fundamentals/#sec-4-1">C++ 基础深度笔记第 4 章</a> 和 <a href="/cpp-fundamentals/#sec-5-1">第 5 章</a> 里，这里只给链接，不重复。 代码：每一节都配了面试常考的 C++ 代码，全部是<strong>面试里能直接手写的版本</strong>：只处理 <code>int</code>、随机数用 <code>rand()</code>、节点用裸指针，不用模板和工程化封装。所有代码用 Apple clang <code>-std=c++17 -Wall -Wextra -fsanitize=address,undefined</code> 编译，并和暴力解法或标准库做过随机对拍（快排类代码单独测了全部相等、大量重复、已经有序、空输入；阻塞队列另外过了 ThreadSanitizer）。 写法约定：每条追问的回答都是「结论 + 为什么」。判断标准是这条回答能不能推出一个你没背过的结论。</p>
 </blockquote>
 <h2 id="sec-0"><span class="num">0.</span>怎么用这份文档</h2>
 <div class="table-wrap">
@@ -613,7 +613,7 @@ details.code-card[open] > summary { border-bottom: 1px solid var(--border-soft);
 </tbody>
 </table>
 </div>
-<p>这张优先级表是经验判断，没有频度数据支撑：依据是各结构在后端与基础架构方向面经里被追问的普遍程度。需要数据支撑的优先级见设计题清单（基于 CodeTop 频度）。</p>
+<p>这张优先级表是经验判断，没有频度数据支撑：依据是各结构在后端与基础架构方向面经里被追问的普遍程度。</p>
 <p>每节的结构是：几条要点 → 面试常考代码（附易错点）→ 主问题，点开是追问和解答。<a href="#sec-15">第 15 节</a> 是从需求反推结构的速查表，适合面试前最后扫一遍。</p>
 <h2 id="sec-1"><span class="num">1.</span>复杂度速查与四种「O(1)」</h2>
 <div class="table-wrap">
@@ -950,7 +950,7 @@ public:
 };</code></pre></details>
 <ul>
 <li><strong>LRU 的三个易错点</strong>：<code>get</code> 也要把节点挪到最前面；节点里必须存 key，否则淘汰尾节点时没法从哈希表里删掉它；<code>put</code> 一个已经存在的 key 是更新并挪到最前面，不是新增，不能触发淘汰。</li>
-<li>用 <code>std::list</code> 加迭代器的写法、加过期时间、加并发的追问见 <a href="/cpp-fundamentals/#sec-5-5">C++ 笔记 5.5</a>；LFU 和其他缓存类设计题见 <a href="/leetcode-design/#sec-1-1">设计题清单 1.1</a>。</li>
+<li>用 <code>std::list</code> 加迭代器的写法、加过期时间、加并发的追问见 <a href="/cpp-fundamentals/#sec-5-5">C++ 笔记 5.5</a>。</li>
 </ul>
 <p><strong>Q3 · 「链表插入是 O(1)」这句话的前提是什么</strong></p>
 <details class="qa">
@@ -967,13 +967,13 @@ public:
 <h2 id="sec-4"><span class="num">4.</span>栈、队列与双端队列</h2>
 <ul>
 <li><strong>栈</strong>：数组尾部进出即可，压栈和弹栈都是 O(1)。</li>
-<li><strong>队列</strong>：数组实现必须做成环形缓冲区（见 <a href="/leetcode-design/#sec-2-7">设计题模板 2.7</a>），否则出队要搬移元素；链表实现需要同时记头尾指针。</li>
+<li><strong>队列</strong>：数组实现必须做成环形缓冲区（头尾下标对容量取模），否则出队要搬移元素；链表实现需要同时记头尾指针。</li>
 <li><strong><code>std::deque</code></strong>：分段连续。一个中控数组存着若干个定长缓冲块的指针，头尾各自向外生长，不需要搬移已有元素。</li>
 <li><strong>适配器的默认底层</strong>：<code>stack</code> 和 <code>queue</code> 默认用 <code>deque</code>，<code>priority_queue</code> 默认用 <code>vector</code>。</li>
 <li><strong>单调栈 / 单调队列</strong>：在栈或队列里只保留「将来还有可能成为答案」的元素，其余提前淘汰。</li>
 </ul>
 <p><strong>面试常考代码</strong></p>
-<p>栈的代表题是括号匹配，单调栈和单调队列各一道。最小栈、双栈实现队列、环形队列这三道设计题的代码在 <a href="/leetcode-design/#sec-2-1">设计题模板 2.1</a>、<a href="/leetcode-design/#sec-2-2">2.2</a>、<a href="/leetcode-design/#sec-2-7">2.7</a>。</p>
+<p>栈的代表题是括号匹配，单调栈和单调队列各一道。</p>
 <pre><code class="language-cpp">// 20. 有效的括号
 bool isValid(string s) {
     stack&lt;char&gt; st;
@@ -1186,7 +1186,7 @@ int longestConsecutive(vector&lt;int&gt;&amp; nums) {
 <li><strong>存储</strong>：完全二叉树没有空洞，直接按层存进数组。下标从 0 开始时，父节点是 (i - 1) / 2，孩子是 2i + 1 和 2i + 2，不需要任何指针。</li>
 <li><strong>两个基本动作</strong>：上浮（插入到末尾之后和父节点比较交换）和下沉（删除堆顶后把末尾元素放到根，和较大的孩子比较交换），都是 O(log n)。</li>
 <li><strong>C++ 里怎么用、怎么手写</strong>：<code>std::priority_queue</code> 的用法见 <a href="#sec-6-1">6.1</a>；手写有两个版本（都是面试可手写的 <code>int</code> 版），有序数组（快排 + 二分）见 <a href="#sec-6-2">6.2</a>，二叉堆见 <a href="#sec-6-3">6.3</a>，取舍见 <a href="#sec-6-4">6.4</a>；堆排序和第 K 大见 <a href="#sec-6-5">6.5</a>。</li>
-<li><strong>不支持</strong>：查找任意元素、删除任意元素、有序遍历。需要这些就换平衡树，或者用懒删除（见 <a href="/leetcode-design/#sec-2-6">设计题模板 2.6</a>）。</li>
+<li><strong>不支持</strong>：查找任意元素、删除任意元素、有序遍历。需要这些就换平衡树，或者用懒删除（旧元素留在堆里，出堆时再判断它是否已经过期）。</li>
 </ul>
 <p><strong>Q9 · 建堆为什么是 O(n) 而不是 O(n log n)</strong></p>
 <details class="qa">
@@ -1342,7 +1342,7 @@ ListNode* mergeKLists(vector&lt;ListNode*&gt;&amp; lists) {
     }
     return dummy.next;
 }</code></pre></details>
-<p>第三个高频模式是 Dijkstra：堆里存 <code>{距离, 节点}</code> 的小顶堆，出堆时如果距离大于已经记录的最短距离就跳过，这就是 <a href="/leetcode-design/#sec-2-6">设计题模板 2.6</a> 的懒删除。对顶堆求中位数见 <a href="/leetcode-design/#sec-2-4">设计题模板 2.4</a>。</p>
+<p>第三个高频模式是 Dijkstra：堆里存 <code>{距离, 节点}</code> 的小顶堆，出堆时如果距离大于已经记录的最短距离就跳过，这种「不删、出堆时再识别���的做法叫懒删除。</p>
 <p><strong><code>priority_queue</code> 内部在做什么</strong></p>
 <p>它只是在 <code>vector</code> 上调用 <code>&lt;algorithm&gt;</code> 里的两个堆算法。知道这一点，6.3 的手写版本就只是把这两个算法自己实现一遍。</p>
 <pre><code class="language-cpp">void heapAlgoUsage() {
@@ -1735,7 +1735,7 @@ vector&lt;int&gt; bplusRange(BPlusNode* root, int lo, int hi) {
 </ul>
 </details>
 <h2 id="sec-9"><span class="num">9.</span>Trie 与字符串结构</h2>
-<p>Trie 的实现和取舍已经在 <a href="/leetcode-design/#sec-2-5">设计题模板 2.5</a> 讲过，这里补三个常见的延伸方向：</p>
+<p>基础实现见本节后面的代码，这里先补三个常见的延伸方向：</p>
 <ul>
 <li><strong>0-1 Trie</strong>：把整数按二进制从高位到低位插入 Trie。求「数组中两个数的最大异或值」时，对每个数从高位往下走，每一位都优先走和自己相反的那个孩子。原因是异或结果的高位是 1 比低位全是 1 还大，所以可以逐位贪心，O(32n)。</li>
 <li><strong>最长前缀匹配</strong>：路由表查找的就是「和目标地址匹配的最长前缀」。在 Trie 上一路往下走，记录沿途最后一个带结束标记的节点就是答案。</li>
@@ -1801,7 +1801,7 @@ int findMaximumXOR(vector&lt;int&gt;&amp; nums) {
     return best;
 }</code></pre>
 <ul>
-<li>带通配符的搜索（211）、带计数的删除（1804）、自动补全（642）等变形见 <a href="/leetcode-design/#sec-1-8">设计题清单 1.8</a>；Trie 的实现取舍（指针版和节点池版）见 <a href="/leetcode-design/#sec-2-5">设计题模板 2.5</a>。</li>
+<li>常见变形：带通配符的搜索（211，遇到 <code>.</code> 就枚举所有孩子做 DFS）、带计数的删除（1804，每个节点多存一个经过次数）、自动补全（642，节点上缓存热度最高的几条）。</li>
 <li><strong>421 为什么从第 30 位开始？</strong> 题目保证数值非负且小于 2^31，最高的有效位是第 30 位。从高位到低位贪心是因为高位的 1 比所有低位的 1 加起来还大，高位能取到 1 就一定要取。</li>
 </ul>
 <h2 id="sec-10"><span class="num">10.</span>并查集</h2>
@@ -2017,7 +2017,7 @@ int networkDelayTime(vector&lt;vector&lt;int&gt;&gt;&amp; times, int n, int k) {
 <td>树状数组</td>
 <td>O(log n)</td>
 <td>O(log n)</td>
-<td>每个位置只影响 log n 个节点，见 <a href="/leetcode-design/#sec-2-8">设计题模板 2.8</a></td>
+<td>每个位置只影响 log n 个节点</td>
 </tr>
 <tr>
 <td>区间修改 + 区间查询，或查区间最值</td>
@@ -2089,7 +2089,7 @@ vector&lt;vector&lt;int&gt;&gt; mergeIntervals(vector&lt;vector&lt;int&gt;&gt;&a
     }
     return res;
 }</code></pre>
-<p><strong>树状数组（307）</strong>：单点修改 + 前缀查询，两个循环方向相反。原理和追问见 <a href="/leetcode-design/#sec-2-8">设计题模板 2.8</a>。</p>
+<p><strong>树状数组（307）</strong>：单点修改 + 前缀查询，两个循环方向相反：<code>tree_[i]</code> 管辖以 i 结尾、长度为 <code>i &amp; -i</code> 的一段，查询时不断减去这个长度往前拼，更新时不断加上它去找所有覆盖 i 的节点。</p>
 <pre><code class="language-cpp">class NumArray {
     vector&lt;int&gt; nums_, tree_;                      // tree_ 下标从 1 开始，tree_[i] 管辖长度为 lowbit(i) 的一段
     int n_;
@@ -2292,7 +2292,7 @@ public:
 <li><strong>从粗到细有哪几档？</strong> 一把全局锁 → 分片，每片一把锁，按 hash % N 选片（Java 7 的 <code>ConcurrentHashMap</code> 是 16 个段）→ 桶级别：空桶用 CAS 插入，非空桶锁住桶的头节点（Java 8）→ 读多写少时用读写锁，或者写时复制。粒度越细并发度越高，但 <code>size()</code>、扩容、遍历这类需要全局视图的操作就越难做：分片之后 <code>size()</code> 要么逐片加锁求和，要么每片维护一个原子计数、接受结果是近似的。</li>
 <li><strong>LRU 缓存能用读写锁优化吗？</strong> 基本不能。LRU 的 <code>get</code> 要把节点挪到链表头部，读操作同时也是对链表的写操作，读写锁的读锁根本用不上。常规做法是分片，每片是一个独立的 LRU 加一把互斥锁，代价是淘汰顺序从全局 LRU 变成了分片内 LRU。更进一步的做法（Caffeine）是 <code>get</code> 只把「访问了谁」记进一个无锁的环形缓冲区，攒够一批之后再由单个线程统一应用到链表上，让读路径完全不碰锁。</li>
 <li><strong>无锁结构真正难的为什么是内存回收，而不是 CAS？</strong> 线程 A 读到了一个节点的指针，随即被调度出去；线程 B 把这个节点从结构里摘下来并释放了内存；A 醒来之后解引用，访问的是已经释放的内存。带垃圾回收的语言没有这个问题，因为只要 A 还持有引用，节点就不会被回收。C++ 需要 hazard pointer（每个线程公示自己正在使用的指针，回收之前先检查有没有人在用）或者基于 epoch 的回收（等所有线程都离开了旧的 epoch 才真正释放）。</li>
-<li><strong>ABA 问题是什么？</strong> CAS 只比较值是否相等。线程 A 读到指针值 P，期间 P 指向的节点被释放，分配器恰好把同一个地址又分给了一个新节点，A 的 CAS 比较发现仍然是 P，于是成功了，但节点早已不是原来那个，链表就此损坏。它的根源和上一条相同，都是地址被复用。解法是给指针配一个版本号一起做 CAS（x86-64 上可以借用指针的高 16 位），或者靠上面两种回收机制保证地址在还有人使用期间不会被复用。</li>
+<li><strong>ABA 问题是什么？</strong> CAS 只比较值���否相等。线程 A 读到指针值 P，期间 P 指向的节点被释放，分配器恰好把同一个地址又分给了一个新节点，A 的 CAS 比较发现仍然是 P，于是成功了，但节点早已不是原来那个，链表就此损坏。它的根源和上一条相同，都是地址被复用。解法是给指针配一个版本号一起做 CAS（x86-64 上可以借用指针的高 16 位），或者靠上面两种回收机制保证地址在还有人使用期间不会被复用。</li>
 </ul>
 </details>
 <h2 id="sec-15"><span class="num">15.</span>选型速查：从需求反推结构</h2>
@@ -2406,7 +2406,7 @@ public:
 </div>
 
 <footer class="aris-footer">
-  由 <code>build_html.py</code> 从 <code>ds_fundamentals.md</code> 生成 · 2026-09-20 17:09 UTC<br>
+  由 <code>build_html.py</code> 从 <code>ds_fundamentals_blog.md</code> 生成 · 2026-09-21 06:16 UTC<br>
   改 markdown 后重跑 <code>python3 build_html.py</code> 即可更新。
 </footer>
 </main>
