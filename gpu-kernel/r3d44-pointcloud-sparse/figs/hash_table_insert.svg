@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.3;marker-end:url(#ah1)}
+</style>
+<defs>
+  <marker id="ah1" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">GPU Hash Table: Open-Addressing Insert with atomicCAS</text>
+
+<!-- Hash table slots -->
+<g transform="translate(30,35)">
+  <text x="0" y="12" class="label">hash table slots[0..7]:</text>
+  <rect x="0" y="20" width="75" height="35" rx="3" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="37" y="42" text-anchor="middle" class="code" font-size="10">EMPTY</text>
+  <rect x="80" y="20" width="75" height="35" rx="3" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="117" y="42" text-anchor="middle" class="code" font-size="10">key=42</text>
+  <rect x="160" y="20" width="75" height="35" rx="3" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="197" y="42" text-anchor="middle" class="code" font-size="10">EMPTY</text>
+  <rect x="240" y="20" width="75" height="35" rx="3" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="277" y="42" text-anchor="middle" class="code" font-size="10">key=97</text>
+  <rect x="320" y="20" width="75" height="35" rx="3" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="357" y="42" text-anchor="middle" class="code" font-size="10" fill="#ef4444">EMPTY</text>
+  <rect x="400" y="20" width="75" height="35" rx="3" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="437" y="42" text-anchor="middle" class="code" font-size="10">EMPTY</text>
+  <rect x="480" y="20" width="75" height="35" rx="3" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="517" y="42" text-anchor="middle" class="code" font-size="10">key=13</text>
+  <rect x="560" y="20" width="75" height="35" rx="3" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="597" y="42" text-anchor="middle" class="code" font-size="10">EMPTY</text>
+</g>
+
+<!-- Insert flow -->
+<g transform="translate(30,110)">
+  <text x="0" y="0" class="title" fill="#ef4444">Thread A: insert voxel (3,5,7)</text>
+
+  <rect x="0" y="10" width="150" height="30" rx="4" fill="#fef9c3" stroke="#eab308"/>
+  <text x="75" y="30" text-anchor="middle" class="code" font-size="10">hash(3,5,7) = 4</text>
+
+  <line x1="155" y1="25" x2="195" y2="25" class="arrow"/>
+
+  <rect x="200" y="10" width="180" height="30" rx="4" fill="#fef2f2" stroke="#ef4444"/>
+  <text x="290" y="30" text-anchor="middle" class="code" font-size="10">atomicCAS(&amp;key[4],EMPTY,k)</text>
+
+  <line x1="385" y1="25" x2="425" y2="25" class="arrow"/>
+
+  <rect x="430" y="10" width="100" height="30" rx="4" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="480" y="30" text-anchor="middle" class="code" font-size="10">prev==EMPTY</text>
+
+  <line x1="535" y1="25" x2="570" y2="25" class="arrow"/>
+  <text x="575" y="30" class="title" fill="#22c55e">Success!</text>
+</g>
+
+<!-- Collision flow -->
+<g transform="translate(30,170)">
+  <text x="0" y="0" class="title" fill="#8b5cf6">Thread B: insert voxel (1,2,3) &mdash; collision</text>
+
+  <rect x="0" y="10" width="150" height="30" rx="4" fill="#fef9c3" stroke="#eab308"/>
+  <text x="75" y="30" text-anchor="middle" class="code" font-size="10">hash(1,2,3) = 1</text>
+
+  <line x1="155" y1="25" x2="195" y2="25" class="arrow"/>
+
+  <rect x="200" y="10" width="180" height="30" rx="4" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="290" y="30" text-anchor="middle" class="code" font-size="10">atomicCAS(&amp;key[1],EMPTY,k)</text>
+
+  <line x1="385" y1="25" x2="425" y2="25" class="arrow"/>
+
+  <rect x="430" y="10" width="100" height="30" rx="4" fill="#fef2f2" stroke="#ef4444"/>
+  <text x="480" y="30" text-anchor="middle" class="code" font-size="10">prev==42</text>
+
+  <text x="0" y="65" class="label" fill="#8b5cf6">&darr; linear probe: try slot 2</text>
+
+  <rect x="0" y="75" width="180" height="30" rx="4" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="90" y="95" text-anchor="middle" class="code" font-size="10">atomicCAS(&amp;key[2],EMPTY,k)</text>
+
+  <line x1="185" y1="90" x2="225" y2="90" class="arrow"/>
+
+  <rect x="230" y="75" width="100" height="30" rx="4" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="280" y="95" text-anchor="middle" class="code" font-size="10">prev==EMPTY</text>
+
+  <line x1="335" y1="90" x2="370" y2="90" class="arrow"/>
+  <text x="375" y="95" class="title" fill="#22c55e">Success!</text>
+</g>
+
+<text x="340" y="295" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

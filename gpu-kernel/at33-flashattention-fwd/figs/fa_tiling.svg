@@ -1,0 +1,83 @@
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah6); }
+    .math { font-size: 11px; font-style: italic; fill: #1a1a1a; }
+  </style>
+  <defs>
+    <marker id="ah6" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">FlashAttention 前向：tiling + online softmax</text>
+
+  <!-- HBM -->
+  <rect x="20" y="40" width="140" height="130" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="90" y="60" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">HBM</text>
+  <text x="30" y="80" class="sublabel">Q [N, d]</text>
+  <text x="30" y="95" class="sublabel">K [N, d]</text>
+  <text x="30" y="110" class="sublabel">V [N, d]</text>
+  <text x="30" y="130" class="sublabel" fill="#D55E00">不存 S [N, N]</text>
+  <text x="30" y="145" class="sublabel" fill="#D55E00">不存 P [N, N]</text>
+  <text x="30" y="162" class="sublabel" fill="#388E3C">只写 O [N, d] + LSE [N]</text>
+
+  <!-- Arrow to SRAM -->
+  <path d="M165,105 L195,105" class="arrow" stroke="#D55E00"/>
+
+  <!-- SRAM tile view -->
+  <rect x="200" y="40" width="300" height="195" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="350" y="60" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">SRAM（每个 CTA 的 shared memory）</text>
+
+  <!-- Q block -->
+  <rect x="215" y="72" width="80" height="40" rx="3" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="255" y="96" text-anchor="middle" class="sublabel" fill="#1976D2">Q_i [Br, d]</text>
+
+  <!-- K block -->
+  <rect x="310" y="72" width="80" height="40" rx="3" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="350" y="96" text-anchor="middle" class="sublabel" fill="#388E3C">K_j [Bc, d]</text>
+
+  <!-- V block -->
+  <rect x="405" y="72" width="80" height="40" rx="3" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="445" y="96" text-anchor="middle" class="sublabel" fill="#7B1FA2">V_j [Bc, d]</text>
+
+  <!-- Compute flow -->
+  <text x="255" y="132" text-anchor="middle" class="math">S_ij = Q_i K_j&hairsp;&#x1D40;</text>
+  <text x="350" y="132" text-anchor="middle" class="sublabel">[Br, Bc]</text>
+  <text x="255" y="152" text-anchor="middle" class="math">P_ij = softmax(S_ij)</text>
+  <text x="255" y="172" text-anchor="middle" class="math">O_i += P_ij V_j</text>
+  <text x="350" y="172" text-anchor="middle" class="sublabel">[Br, d]</text>
+
+  <text x="350" y="195" text-anchor="middle" class="sublabel" fill="#D55E00">S 和 P 只存在于 SRAM，从不写回 HBM</text>
+
+  <!-- Accumulator -->
+  <rect x="200" y="205" width="300" height="30" rx="3" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="350" y="224" text-anchor="middle" class="sublabel" fill="#D55E00">O_i [Br, d] 在寄存器中累加，最后写回 HBM</text>
+
+  <!-- FA2 loop order -->
+  <rect x="520" y="40" width="185" height="195" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="612" y="60" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">FA2 循环顺序</text>
+  <text x="530" y="82" class="sublabel" fill="#388E3C">外层：Q block i</text>
+  <text x="530" y="97" class="sublabel">&emsp;Q_i 加载一次，常驻寄存器</text>
+  <text x="530" y="117" class="sublabel" fill="#388E3C">内层：KV block j</text>
+  <text x="530" y="132" class="sublabel">&emsp;K_j, V_j 流水加载</text>
+  <text x="530" y="152" class="sublabel">&emsp;计算 S_ij, P_ij, O_i += ...</text>
+  <text x="530" y="172" class="sublabel" fill="#D55E00">优势：O_i 只写回 HBM 一次</text>
+  <text x="530" y="192" class="sublabel" fill="#D55E00">grid = (batch, head, Q_block)</text>
+  <text x="530" y="210" class="sublabel" fill="#D55E00">每个 CTA 产出一块完整 O</text>
+
+  <!-- Online softmax -->
+  <rect x="20" y="250" width="685" height="100" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="270" class="label" fill="#D55E00" font-weight="600">Online Softmax（核心算法）</text>
+  <text x="30" y="290" class="sublabel">每个 Q block 维护 running max m_i 和 running sum l_i：</text>
+  <text x="30" y="310" class="sublabel">1. m_i^new = max(m_i, rowmax(S_ij))</text>
+  <text x="30" y="325" class="sublabel">2. l_i^new = exp(m_i - m_i^new) &middot; l_i + rowsum(exp(S_ij - m_i^new))</text>
+  <text x="30" y="340" class="sublabel">3. O_i^new = exp(m_i - m_i^new) &middot; O_i + exp(S_ij - m_i^new) &middot; V_j</text>
+  <text x="400" y="290" class="sublabel" fill="#D55E00">不需要两遍扫描（先求 max，再求 exp/sum）</text>
+  <text x="400" y="310" class="sublabel" fill="#D55E00">每处理一个 KV block，用 rescale 修正之前的累加</text>
+  <text x="400" y="325" class="sublabel" fill="#D55E00">最终 O_i = O_i / l_i</text>
+  <text x="400" y="340" class="sublabel" fill="#388E3C">输出 logsumexp = m_i + log(l_i)，供反向使用</text>
+</svg>

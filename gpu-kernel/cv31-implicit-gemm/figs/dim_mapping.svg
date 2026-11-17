@@ -1,0 +1,54 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah3); }
+  </style>
+  <defs>
+    <marker id="ah3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Implicit GEMM：卷积 → GEMM 维度映射</text>
+
+  <!-- Conv view -->
+  <rect x="20" y="40" width="320" height="120" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="180" y="62" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">卷积视角</text>
+
+  <text x="35" y="85" class="sublabel">Input: [N, H, W, C_in]</text>
+  <text x="35" y="102" class="sublabel">Weight: [C_out, C_in, R, S]</text>
+  <text x="35" y="119" class="sublabel">Output: [N, H_out, W_out, C_out]</text>
+  <text x="35" y="145" class="sublabel" fill="#D55E00">滑动窗口 → 每个 (n, oh, ow) 读 C_in&middot;R&middot;S 个值</text>
+
+  <!-- Arrow -->
+  <path d="M350,100 L380,100" class="arrow" stroke="#D55E00"/>
+
+  <!-- GEMM view -->
+  <rect x="390" y="40" width="310" height="120" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="545" y="62" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">GEMM 视角</text>
+
+  <text x="405" y="85" class="sublabel">A (Weight): [M, K] = [C_out, C_in&middot;R&middot;S]</text>
+  <text x="405" y="102" class="sublabel">B (col):    [K, N] = [C_in&middot;R&middot;S, N&middot;P]</text>
+  <text x="405" y="119" class="sublabel">C (Output): [M, N] = [C_out, N&middot;P]</text>
+  <text x="405" y="145" class="sublabel" fill="#D55E00">P = H_out &times; W_out</text>
+
+  <!-- Key difference -->
+  <rect x="20" y="175" width="680" height="55" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="195" class="label" fill="#D55E00" font-weight="600">Implicit GEMM 的关键</text>
+  <text x="30" y="215" class="sublabel">不物化 B 矩阵（col）——在 GEMM 主循环的 tile 加载阶段，从 (k, n_p) 反推 (ci, r, s, oh, ow)，实时计算输入地址。</text>
+
+  <!-- Three GEMM variants -->
+  <text x="360" y="252" text-anchor="middle" class="label" font-weight="600">卷积三个 pass 的 GEMM 映射</text>
+
+  <rect x="20" y="260" width="210" height="34" rx="4" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="125" y="282" text-anchor="middle" class="sublabel" fill="#388E3C">fprop: M=C_out, N=N&middot;P, K=C_in&middot;R&middot;S</text>
+
+  <rect x="255" y="260" width="210" height="34" rx="4" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="360" y="282" text-anchor="middle" class="sublabel" fill="#1976D2">dgrad: M=C_in, N=N&middot;H&middot;W, K=C_out</text>
+
+  <rect x="490" y="260" width="210" height="34" rx="4" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="595" y="282" text-anchor="middle" class="sublabel" fill="#7B1FA2">wgrad: M=C_out, N=K, K=N&middot;P (split-K)</text>
+</svg>

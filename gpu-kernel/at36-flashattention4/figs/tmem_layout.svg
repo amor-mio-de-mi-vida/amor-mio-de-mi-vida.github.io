@@ -1,0 +1,53 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; stroke-width: 1; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">TMEM 布局：S/P 和 acc_O 在 Tensor Memory 中的驻留</text>
+
+  <!-- SM diagram -->
+  <rect x="20" y="45" width="680" height="220" rx="8" fill="#f8f8f8" stroke="#ccc" stroke-width="1.5"/>
+  <text x="360" y="65" text-anchor="middle" class="label" font-weight="600">Blackwell SM — 256 KB TMEM（4 sub-partitions &times; 64 KB）</text>
+
+  <!-- Sub-partition boxes -->
+  <rect x="40" y="80" width="150" height="170" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="115" y="98" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">Sub-partition 0 — 64 KB TMEM</text>
+
+  <rect x="55" y="108" width="120" height="25" rx="3" fill="#388E3C" opacity="0.3"/>
+  <text x="115" y="125" text-anchor="middle" class="sublabel" fill="#388E3C">acc_S tile (FP32)</text>
+
+  <rect x="55" y="138" width="120" height="25" rx="3" fill="#D55E00" opacity="0.3"/>
+  <text x="115" y="155" text-anchor="middle" class="sublabel" fill="#D55E00">P tile (FP16/FP8)</text>
+
+  <rect x="55" y="168" width="120" height="50" rx="3" fill="#7B1FA2" opacity="0.2"/>
+  <text x="115" y="190" text-anchor="middle" class="sublabel" fill="#7B1FA2">acc_O (FP32)</text>
+  <text x="115" y="205" text-anchor="middle" class="sublabel" fill="#7B1FA2">跨 tile 累加</text>
+
+  <text x="115" y="238" text-anchor="middle" class="sublabel" fill="#1976D2">TMEM 可被 tcgen05</text>
+  <text x="115" y="248" text-anchor="middle" class="sublabel" fill="#1976D2">MMA 直接读写</text>
+
+  <!-- Sub-partition 1 -->
+  <rect x="210" y="80" width="150" height="170" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="285" y="98" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">Sub-partition 1 — 64 KB TMEM</text>
+  <rect x="225" y="108" width="120" height="25" rx="3" fill="#388E3C" opacity="0.3"/>
+  <text x="285" y="125" text-anchor="middle" class="sublabel" fill="#388E3C">acc_S tile</text>
+  <rect x="225" y="138" width="120" height="25" rx="3" fill="#D55E00" opacity="0.3"/>
+  <text x="285" y="155" text-anchor="middle" class="sublabel" fill="#D55E00">P tile</text>
+  <rect x="225" y="168" width="120" height="50" rx="3" fill="#7B1FA2" opacity="0.2"/>
+  <text x="285" y="190" text-anchor="middle" class="sublabel" fill="#7B1FA2">acc_O</text>
+
+  <!-- Sub-partition 2-3 (abbreviated) -->
+  <rect x="380" y="80" width="150" height="170" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="455" y="98" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">Sub-partition 2</text>
+  <text x="455" y="165" text-anchor="middle" class="sublabel" fill="#999">&hellip; 同样布局 &hellip;</text>
+
+  <rect x="550" y="80" width="140" height="170" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="620" y="98" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">Sub-partition 3</text>
+  <text x="620" y="165" text-anchor="middle" class="sublabel" fill="#999">&hellip; 同样布局 &hellip;</text>
+
+  <!-- Bottom annotation -->
+  <text x="360" y="275" text-anchor="middle" class="sublabel" fill="#D55E00">TMEM 对 tcgen05 MMA 透明可见——S 的 GEMM₀ 结果直接写入 TMEM，softmax warp 从 TMEM 读取，P 写回 TMEM 供 GEMM₁ 使用。无需经过 shared memory。</text>
+</svg>

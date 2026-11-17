@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 220">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Open Addressing: Linear Probe with atomicCAS</text>
+
+<!-- Hash table slots -->
+<g transform="translate(50,40)">
+  <rect x="0" y="0" width="70" height="40" class="box" fill="#fee2e2" stroke="#ef4444"/>
+  <text x="35" y="16" text-anchor="middle" class="code" font-size="10">slot 0</text>
+  <text x="35" y="32" text-anchor="middle" class="code" font-size="9" fill="#dc2626">key=42</text>
+
+  <rect x="80" y="0" width="70" height="40" class="box" fill="#fee2e2" stroke="#ef4444"/>
+  <text x="115" y="16" text-anchor="middle" class="code" font-size="10">slot 1</text>
+  <text x="115" y="32" text-anchor="middle" class="code" font-size="9" fill="#dc2626">key=97</text>
+
+  <rect x="160" y="0" width="70" height="40" class="box" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="195" y="16" text-anchor="middle" class="code" font-size="10">slot 2</text>
+  <text x="195" y="32" text-anchor="middle" class="code" font-size="9" fill="#16a34a">EMPTY</text>
+
+  <rect x="240" y="0" width="70" height="40" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="275" y="16" text-anchor="middle" class="code" font-size="10">slot 3</text>
+  <text x="275" y="32" text-anchor="middle" class="code" font-size="9">key=15</text>
+
+  <rect x="320" y="0" width="70" height="40" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="355" y="16" text-anchor="middle" class="code" font-size="10">slot 4</text>
+  <text x="355" y="32" text-anchor="middle" class="code" font-size="9">key=63</text>
+
+  <rect x="400" y="0" width="70" height="40" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="435" y="16" text-anchor="middle" class="code" font-size="10">slot 5</text>
+  <text x="435" y="32" text-anchor="middle" class="code" font-size="9">EMPTY</text>
+
+  <rect x="480" y="0" width="70" height="40" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="515" y="16" text-anchor="middle" class="code" font-size="10">slot 6</text>
+  <text x="515" y="32" text-anchor="middle" class="code" font-size="9">EMPTY</text>
+</g>
+
+<!-- Thread inserting key=55, h(55)=0 -->
+<text x="85" y="105" text-anchor="middle" class="code" fill="#2563eb" font-size="10">Thread: insert key=55</text>
+<text x="85" y="120" text-anchor="middle" class="code" fill="#2563eb" font-size="10">h(55) = 0</text>
+
+<!-- Probe arrows -->
+<line x1="85" y1="125" x2="85" y2="82" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#arx)"/>
+<text x="85" y="140" text-anchor="middle" class="label" font-size="9" fill="#dc2626">CAS fail (42)</text>
+
+<line x1="165" y1="125" x2="165" y2="82" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#arx)"/>
+<text x="165" y="140" text-anchor="middle" class="label" font-size="9" fill="#dc2626">CAS fail (97)</text>
+
+<line x1="245" y1="125" x2="245" y2="82" stroke="#22c55e" stroke-width="2" marker-end="url(#arx)"/>
+<text x="245" y="140" text-anchor="middle" class="label" font-size="9" fill="#16a34a">CAS success!</text>
+
+<!-- Legend -->
+<rect x="50" y="160" width="600" height="45" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="178" text-anchor="middle" class="code" font-size="10">atomicCAS(&amp;keys[slot], EMPTY, 55): if keys[slot]==EMPTY, write 55 and return EMPTY</text>
+<text x="350" y="196" text-anchor="middle" class="label">Load factor &lt; 70%: avg probes &lt; 3 | &gt; 80%: probe chains explode, warp divergence</text>
+
+<defs><marker id="arx" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+</svg>

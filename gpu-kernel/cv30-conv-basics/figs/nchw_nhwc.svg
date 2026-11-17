@@ -1,0 +1,77 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">NCHW vs NHWC：内存布局对 GPU 的影响</text>
+
+  <!-- NCHW -->
+  <text x="180" y="50" text-anchor="middle" class="label" font-weight="600">NCHW（channels first）</text>
+
+  <!-- Channel planes -->
+  <rect x="40" y="62" width="100" height="80" rx="3" fill="#BBDEFB" stroke="#1976D2" stroke-width="1"/>
+  <text x="90" y="105" text-anchor="middle" class="sublabel" fill="#1976D2">C=0</text>
+  <rect x="60" y="72" width="100" height="80" rx="3" fill="#90CAF9" stroke="#1976D2" stroke-width="1"/>
+  <text x="110" y="115" text-anchor="middle" class="sublabel" fill="#1976D2">C=1</text>
+  <rect x="80" y="82" width="100" height="80" rx="3" fill="#64B5F6" stroke="#1976D2" stroke-width="1"/>
+  <text x="130" y="125" text-anchor="middle" class="sublabel" fill="#fff">C=2</text>
+
+  <!-- Memory layout arrow -->
+  <text x="230" y="100" class="sublabel">内存连续方向 &rarr;</text>
+  <!-- Memory cells NCHW -->
+  <rect x="40" y="175" width="280" height="24" rx="3" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="55" y="191" class="sublabel" fill="#1976D2">c0h0w0</text>
+  <line x1="92" y1="175" x2="92" y2="199" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="97" y="191" class="sublabel" fill="#1976D2">c0h0w1</text>
+  <line x1="134" y1="175" x2="134" y2="199" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="147" y="191" class="sublabel" fill="#1976D2">&hellip;</text>
+  <line x1="170" y1="175" x2="170" y2="199" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="175" y="191" class="sublabel" fill="#D55E00">c1h0w0</text>
+  <line x1="212" y1="175" x2="212" y2="199" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="217" y="191" class="sublabel" fill="#D55E00">c1h0w1</text>
+  <line x1="254" y1="175" x2="254" y2="199" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="272" y="191" class="sublabel">&hellip;</text>
+
+  <text x="180" y="220" text-anchor="middle" class="sublabel" fill="#D55E00">同一像素的不同通道相隔 H&times;W</text>
+
+  <!-- NHWC -->
+  <text x="540" y="50" text-anchor="middle" class="label" font-weight="600">NHWC（channels last）</text>
+
+  <!-- Pixel blocks -->
+  <g transform="translate(400,62)">
+    <rect x="0" y="0" width="24" height="100" rx="3" fill="#BBDEFB" stroke="#1976D2"/>
+    <rect x="26" y="0" width="24" height="100" rx="3" fill="#FFF3E0" stroke="#D55E00"/>
+    <rect x="52" y="0" width="24" height="100" rx="3" fill="#E8F5E9" stroke="#388E3C"/>
+    <text x="12" y="55" text-anchor="middle" class="sublabel" fill="#1976D2">C0</text>
+    <text x="38" y="55" text-anchor="middle" class="sublabel" fill="#D55E00">C1</text>
+    <text x="64" y="55" text-anchor="middle" class="sublabel" fill="#388E3C">C2</text>
+    <text x="38" y="115" text-anchor="middle" class="sublabel">pixel (h,w)</text>
+  </g>
+  <text x="500" y="125" class="sublabel">&hellip;</text>
+  <g transform="translate(520,62)">
+    <rect x="0" y="0" width="24" height="100" rx="3" fill="#BBDEFB" stroke="#1976D2"/>
+    <rect x="26" y="0" width="24" height="100" rx="3" fill="#FFF3E0" stroke="#D55E00"/>
+    <rect x="52" y="0" width="24" height="100" rx="3" fill="#E8F5E9" stroke="#388E3C"/>
+  </g>
+
+  <!-- Memory cells NHWC -->
+  <rect x="400" y="175" width="280" height="24" rx="3" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="415" y="191" class="sublabel" fill="#1976D2">h0w0c0</text>
+  <line x1="452" y1="175" x2="452" y2="199" stroke="#388E3C" stroke-width="0.5"/>
+  <text x="457" y="191" class="sublabel" fill="#D55E00">h0w0c1</text>
+  <line x1="494" y1="175" x2="494" y2="199" stroke="#388E3C" stroke-width="0.5"/>
+  <text x="499" y="191" class="sublabel" fill="#388E3C">h0w0c2</text>
+  <line x1="536" y1="175" x2="536" y2="199" stroke="#388E3C" stroke-width="0.5"/>
+  <text x="541" y="191" class="sublabel" fill="#1976D2">h0w1c0</text>
+  <line x1="578" y1="175" x2="578" y2="199" stroke="#388E3C" stroke-width="0.5"/>
+  <text x="595" y="191" class="sublabel">&hellip;</text>
+
+  <text x="540" y="220" text-anchor="middle" class="sublabel" fill="#388E3C">同一像素的 C 个通道连续 &rarr; 128B 合并访存</text>
+
+  <!-- Comparison box -->
+  <rect x="40" y="240" width="640" height="48" rx="6" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
+  <text x="50" y="260" class="sublabel" fill="#D55E00" font-weight="600">为什么推荐 NHWC：</text>
+  <text x="50" y="276" class="sublabel">Tensor Core 的 GEMM 要求 K 维度（= C_in）连续。NHWC 让通道连续，一次 128B load 就读到多个通道；NCHW 则需转置。cuDNN 默认 NHWC。</text>
+</svg>

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 340">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:3;ry:3;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Shared Memory Bank Conflict: Transpose Example</text>
+
+<!-- No conflict side -->
+<rect x="20" y="35" width="310" height="275" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="175" y="55" text-anchor="middle" class="title" fill="#16a34a">No Conflict (with padding)</text>
+
+<!-- Banks row -->
+<g transform="translate(35,65)">
+  <text x="0" y="-3" class="label" font-size="10">Bank</text>
+  <rect x="40" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="52" y="2" text-anchor="middle" class="code" font-size="9">0</text>
+  <rect x="68" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="80" y="2" text-anchor="middle" class="code" font-size="9">1</text>
+  <rect x="96" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="108" y="2" text-anchor="middle" class="code" font-size="9">2</text>
+  <rect x="124" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="136" y="2" text-anchor="middle" class="code" font-size="9">3</text>
+  <rect x="152" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="164" y="2" text-anchor="middle" class="code" font-size="9">...</text>
+  <rect x="180" y="-12" width="24" height="18" rx="2" fill="#bbf7d0" stroke="#86efac"/><text x="192" y="2" text-anchor="middle" class="code" font-size="9">31</text>
+  <rect x="208" y="-12" width="16" height="18" rx="2" fill="#e5e7eb" stroke="#9ca3af"/><text x="216" y="2" text-anchor="middle" class="code" font-size="8" fill="#9ca3af">P</text>
+</g>
+
+<!-- Thread access pattern - no conflict -->
+<g transform="translate(35,100)">
+  <text x="0" y="0" class="label" font-size="10">Thread</text>
+  <rect x="40" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="52" y="2" text-anchor="middle" class="code" font-size="9">t0</text>
+  <rect x="68" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="80" y="2" text-anchor="middle" class="code" font-size="9">t1</text>
+  <rect x="96" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="108" y="2" text-anchor="middle" class="code" font-size="9">t2</text>
+  <rect x="124" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="136" y="2" text-anchor="middle" class="code" font-size="9">t3</text>
+  <rect x="152" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="164" y="2" text-anchor="middle" class="code" font-size="9">...</text>
+  <rect x="180" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="192" y="2" text-anchor="middle" class="code" font-size="9">t31</text>
+</g>
+
+<!-- Arrows - 1:1 mapping -->
+<g transform="translate(35,78)">
+  <line x1="52" y1="0" x2="52" y2="10" stroke="#22c55e" stroke-width="1.5"/>
+  <line x1="80" y1="0" x2="80" y2="10" stroke="#22c55e" stroke-width="1.5"/>
+  <line x1="108" y1="0" x2="108" y2="10" stroke="#22c55e" stroke-width="1.5"/>
+  <line x1="136" y1="0" x2="136" y2="10" stroke="#22c55e" stroke-width="1.5"/>
+  <line x1="192" y1="0" x2="192" y2="10" stroke="#22c55e" stroke-width="1.5"/>
+</g>
+
+<text x="175" y="135" text-anchor="middle" class="code" font-size="10" fill="#16a34a">smem[ty][tx + 1]  // +1 padding</text>
+<text x="175" y="152" text-anchor="middle" class="label" font-size="10">Each thread hits different bank</text>
+<text x="175" y="168" text-anchor="middle" class="title" fill="#16a34a">1 cycle (no serialization)</text>
+
+<!-- Memory layout visualization -->
+<rect x="35" y="180" width="280" height="55" rx="3" fill="#f0fdf4" stroke="#bbf7d0"/>
+<text x="175" y="198" text-anchor="middle" class="code" font-size="10">__shared__ float s[32][33]; // 33!</text>
+<text x="175" y="215" text-anchor="middle" class="label" font-size="10">Row stride = 33 floats = offset by 1 bank</text>
+<text x="175" y="230" text-anchor="middle" class="label" font-size="10">Column access: t0&rarr;bank0, t1&rarr;bank1, ...</text>
+
+<!-- Conflict side -->
+<rect x="370" y="35" width="310" height="275" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#dc2626">32-way Conflict (naive)</text>
+
+<!-- Banks row -->
+<g transform="translate(385,65)">
+  <text x="0" y="-3" class="label" font-size="10">Bank</text>
+  <rect x="40" y="-12" width="24" height="18" rx="2" fill="#fecaca" stroke="#fca5a5"/><text x="52" y="2" text-anchor="middle" class="code" font-size="9">0</text>
+  <rect x="68" y="-12" width="24" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="80" y="2" text-anchor="middle" class="code" font-size="9">1</text>
+  <rect x="96" y="-12" width="24" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="108" y="2" text-anchor="middle" class="code" font-size="9">2</text>
+  <rect x="124" y="-12" width="24" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="136" y="2" text-anchor="middle" class="code" font-size="9">3</text>
+  <rect x="152" y="-12" width="24" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="164" y="2" text-anchor="middle" class="code" font-size="9">...</text>
+  <rect x="180" y="-12" width="24" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="192" y="2" text-anchor="middle" class="code" font-size="9">31</text>
+</g>
+
+<!-- Thread access - all hit bank 0 -->
+<g transform="translate(385,100)">
+  <text x="0" y="0" class="label" font-size="10">Thread</text>
+  <rect x="40" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="52" y="2" text-anchor="middle" class="code" font-size="9">t0</text>
+  <rect x="68" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="80" y="2" text-anchor="middle" class="code" font-size="9">t1</text>
+  <rect x="96" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="108" y="2" text-anchor="middle" class="code" font-size="9">t2</text>
+  <rect x="124" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="136" y="2" text-anchor="middle" class="code" font-size="9">t3</text>
+  <rect x="152" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="164" y="2" text-anchor="middle" class="code" font-size="9">...</text>
+  <rect x="180" y="-12" width="24" height="18" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="192" y="2" text-anchor="middle" class="code" font-size="9">t31</text>
+</g>
+
+<!-- Arrows - all converge to bank 0 -->
+<g transform="translate(385,78)">
+  <line x1="52" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1.5"/>
+  <line x1="80" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1"/>
+  <line x1="108" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1"/>
+  <line x1="136" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1"/>
+  <line x1="192" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1"/>
+</g>
+
+<text x="525" y="135" text-anchor="middle" class="code" font-size="10" fill="#dc2626">smem[ty][tx]  // naive</text>
+<text x="525" y="152" text-anchor="middle" class="label" font-size="10">All 32 threads hit bank 0</text>
+<text x="525" y="168" text-anchor="middle" class="title" fill="#dc2626">32 cycles (serialized!)</text>
+
+<!-- Memory layout - conflict -->
+<rect x="385" y="180" width="280" height="55" rx="3" fill="#fef2f2" stroke="#fecaca"/>
+<text x="525" y="198" text-anchor="middle" class="code" font-size="10">__shared__ float s[32][32]; // naive</text>
+<text x="525" y="215" text-anchor="middle" class="label" font-size="10">Row stride = 32 floats = bank 0 aligned</text>
+<text x="525" y="230" text-anchor="middle" class="label" font-size="10">Column access: ALL &rarr; bank 0</text>
+
+<text x="350" y="335" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (32-bank shared memory, 4-byte bank width)</text>
+</svg>

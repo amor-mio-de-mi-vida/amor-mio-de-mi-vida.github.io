@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.5;marker-end:url(#ah4)}
+</style>
+<defs>
+  <marker id="ah4" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">Gather-GEMM-Scatter Sparse Convolution</text>
+
+<!-- Step 1: Gather -->
+<g transform="translate(20,35)">
+  <rect width="180" height="130" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="90" y="20" text-anchor="middle" class="title" fill="#3b82f6">1. Gather</text>
+
+  <rect x="10" y="30" width="70" height="25" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="45" y="47" text-anchor="middle" class="code" font-size="9">feat[A]</text>
+  <rect x="10" y="58" width="70" height="25" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="45" y="75" text-anchor="middle" class="code" font-size="9">feat[C]</text>
+  <rect x="10" y="86" width="70" height="25" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="45" y="103" text-anchor="middle" class="code" font-size="9">feat[B]</text>
+
+  <line x1="85" y1="42" x2="100" y2="42" class="arrow"/>
+  <line x1="85" y1="70" x2="100" y2="70" class="arrow"/>
+  <line x1="85" y1="98" x2="100" y2="98" class="arrow"/>
+
+  <rect x="105" y="30" width="65" height="81" rx="3" fill="#bfdbfe" stroke="#3b82f6"/>
+  <text x="137" y="75" text-anchor="middle" class="code" font-size="9">gathered</text>
+  <text x="137" y="88" text-anchor="middle" class="code" font-size="8">[nnz,C_in]</text>
+</g>
+
+<!-- Step 2: GEMM -->
+<g transform="translate(230,35)">
+  <rect width="200" height="130" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+  <text x="100" y="20" text-anchor="middle" class="title" fill="#854d0e">2. GEMM (cuBLAS)</text>
+
+  <rect x="10" y="35" width="55" height="60" rx="3" fill="#bfdbfe" stroke="#3b82f6"/>
+  <text x="37" y="65" text-anchor="middle" class="code" font-size="9">gathered</text>
+  <text x="37" y="78" text-anchor="middle" class="code" font-size="8">[nnz,Cin]</text>
+
+  <text x="75" y="68" text-anchor="middle" class="title">&times;</text>
+
+  <rect x="85" y="35" width="50" height="60" rx="3" fill="#fef2f2" stroke="#ef4444"/>
+  <text x="110" y="65" text-anchor="middle" class="code" font-size="9">W_k</text>
+  <text x="110" y="78" text-anchor="middle" class="code" font-size="8">[Cin,Cout]</text>
+
+  <text x="145" y="68" text-anchor="middle" class="title">=</text>
+
+  <rect x="152" y="35" width="40" height="60" rx="3" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="172" y="68" text-anchor="middle" class="code" font-size="9">out</text>
+
+  <text x="100" y="115" class="label" font-size="10">per kernel offset k</text>
+</g>
+
+<!-- Step 3: Scatter -->
+<g transform="translate(460,35)">
+  <rect width="200" height="130" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+  <text x="100" y="20" text-anchor="middle" class="title" fill="#22c55e">3. Scatter (atomicAdd)</text>
+
+  <rect x="10" y="30" width="65" height="81" rx="3" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="42" y="72" text-anchor="middle" class="code" font-size="9">gemm_out</text>
+
+  <line x1="80" y1="42" x2="115" y2="42" class="arrow"/>
+  <line x1="80" y1="70" x2="115" y2="70" class="arrow"/>
+  <line x1="80" y1="98" x2="115" y2="98" class="arrow"/>
+
+  <rect x="120" y="30" width="70" height="25" rx="3" fill="#bbf7d0" stroke="#22c55e"/>
+  <text x="155" y="47" text-anchor="middle" class="code" font-size="9">out[C]</text>
+  <rect x="120" y="58" width="70" height="25" rx="3" fill="#bbf7d0" stroke="#22c55e"/>
+  <text x="155" y="75" text-anchor="middle" class="code" font-size="9">out[D]</text>
+  <rect x="120" y="86" width="70" height="25" rx="3" fill="#bbf7d0" stroke="#22c55e"/>
+  <text x="155" y="103" text-anchor="middle" class="code" font-size="9">out[D]</text>
+</g>
+
+<!-- Flow arrows between stages -->
+<line x1="205" y1="100" x2="225" y2="100" class="arrow"/>
+<line x1="435" y1="100" x2="455" y2="100" class="arrow"/>
+
+<!-- Comparison -->
+<rect x="20" y="185" width="640" height="90" rx="5" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="340" y="205" text-anchor="middle" class="title">Gather-GEMM-Scatter vs Implicit GEMM</text>
+<text x="40" y="225" class="code" font-size="10" fill="#ef4444">Gather-GEMM-Scatter: 3 kernels, extra gathered buffer, cuBLAS-friendly dense GEMM</text>
+<text x="40" y="245" class="code" font-size="10" fill="#22c55e">Implicit GEMM: 1 fused kernel, no extra buffer, but irregular memory access pattern</text>
+<text x="40" y="265" class="label">Trade-off: memory overhead vs kernel launch + access regularity</text>
+
+<text x="340" y="295" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after spconv / TorchSparse)</text>
+</svg>

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .bar{rx:3;ry:3}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">GPU Kernel Interview Topics Distribution</text>
+
+<!-- Bars -->
+<rect x="180" y="35" width="320" height="22" class="bar" fill="#dcfce7" stroke="#22c55e" stroke-width="0.8"/>
+<text x="175" y="50" text-anchor="end" class="label">Hardware / Exec Model</text>
+<text x="505" y="50" class="code">~40 questions</text>
+
+<rect x="180" y="62" width="240" height="22" class="bar" fill="#eff6ff" stroke="#3b82f6" stroke-width="0.8"/>
+<text x="175" y="77" text-anchor="end" class="label">Memory Hierarchy</text>
+<text x="425" y="77" class="code">~30 questions</text>
+
+<rect x="180" y="89" width="200" height="22" class="bar" fill="#fef9c3" stroke="#eab308" stroke-width="0.8"/>
+<text x="175" y="104" text-anchor="end" class="label">Tensor Core / GEMM</text>
+<text x="385" y="104" class="code">~25 questions</text>
+
+<rect x="180" y="116" width="200" height="22" class="bar" fill="#fef2f2" stroke="#ef4444" stroke-width="0.8"/>
+<text x="175" y="131" text-anchor="end" class="label">Attention / FlashAttn</text>
+<text x="385" y="131" class="code">~25 questions</text>
+
+<rect x="180" y="143" width="160" height="22" class="bar" fill="#ede9fe" stroke="#8b5cf6" stroke-width="0.8"/>
+<text x="175" y="158" text-anchor="end" class="label">Parallel Primitives</text>
+<text x="345" y="158" class="code">~20 questions</text>
+
+<rect x="180" y="170" width="160" height="22" class="bar" fill="#fce7f3" stroke="#ec4899" stroke-width="0.8"/>
+<text x="175" y="185" text-anchor="end" class="label">Communication</text>
+<text x="345" y="185" class="code">~20 questions</text>
+
+<rect x="180" y="197" width="120" height="22" class="bar" fill="#f3f4f6" stroke="#9ca3af" stroke-width="0.8"/>
+<text x="175" y="212" text-anchor="end" class="label">Profiling / Tools</text>
+<text x="305" y="212" class="code">~15 questions</text>
+
+<rect x="180" y="224" width="120" height="22" class="bar" fill="#f3f4f6" stroke="#9ca3af" stroke-width="0.8"/>
+<text x="175" y="239" text-anchor="end" class="label">Conv / Quantization</text>
+<text x="305" y="239" class="code">~15 questions</text>
+
+<rect x="180" y="251" width="80" height="22" class="bar" fill="#f3f4f6" stroke="#9ca3af" stroke-width="0.8"/>
+<text x="175" y="266" text-anchor="end" class="label">Estimation / Design</text>
+<text x="265" y="266" class="code">~10 questions</text>
+
+<!-- Total -->
+<text x="340" y="300" text-anchor="middle" class="title">Total: ~200 questions across 14 topics</text>
+
+<text x="340" y="318" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

@@ -1,0 +1,69 @@
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .d-arrow { stroke: var(--ink-3, #8a8a86); stroke-width: 1.2; fill: none; marker-end: url(#ah3); }
+    .fill-blue  { fill: #56B4E9; opacity: 0.25; }
+    .fill-green { fill: #009E73; opacity: 0.25; }
+    .fill-acc   { fill: #D55E00; opacity: 0.25; }
+  </style>
+  <defs>
+    <marker id="ah3" viewBox="0 0 8 6" refX="8" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-3, #8a8a86)"/>
+    </marker>
+    <marker id="ah3r" viewBox="0 0 8 6" refX="8" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#D55E00"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="d-label">2-CTA Cluster：CTA0 加载 A，CTA1 加载 B</text>
+
+  <!-- CTA 0 -->
+  <rect x="40" y="50" width="300" height="260" rx="8" style="stroke:#56B4E9;stroke-width:2;fill:none"/>
+  <rect x="40" y="50" width="300" height="260" rx="8" class="fill-blue"/>
+  <text x="190" y="72" text-anchor="middle" class="d-label" style="fill:#56B4E9">CTA 0</text>
+
+  <!-- CTA 0 Producer -->
+  <rect x="60" y="84" width="120" height="50" rx="4" class="d-box" style="fill:#56B4E9;opacity:0.3"/>
+  <text x="120" y="104" text-anchor="middle" class="d-note" style="font-weight:600">Producer</text>
+  <text x="120" y="118" text-anchor="middle" class="d-note">TMA load A</text>
+
+  <!-- CTA 0 Consumer -->
+  <rect x="60" y="150" width="260" height="70" rx="4" class="d-box" style="fill:#009E73;opacity:0.2"/>
+  <text x="190" y="174" text-anchor="middle" class="d-note" style="font-weight:600">Consumer（tcgen05.mma）</text>
+  <text x="190" y="190" text-anchor="middle" class="d-note">sA₀ × sB₁ → TMEM₀</text>
+
+  <!-- CTA 0 smem -->
+  <rect x="60" y="236" width="120" height="30" rx="3" class="d-box" style="fill:#56B4E9;opacity:0.4"/>
+  <text x="120" y="256" text-anchor="middle" class="d-note">smem A (sA₀)</text>
+  <rect x="200" y="236" width="120" height="30" rx="3" class="d-box" style="fill:#e4e4e0"/>
+  <text x="260" y="256" text-anchor="middle" class="d-note">TMEM₀</text>
+
+  <!-- CTA 1 -->
+  <rect x="380" y="50" width="300" height="260" rx="8" style="stroke:#009E73;stroke-width:2;fill:none"/>
+  <rect x="380" y="50" width="300" height="260" rx="8" class="fill-green"/>
+  <text x="530" y="72" text-anchor="middle" class="d-label" style="fill:#009E73">CTA 1</text>
+
+  <!-- CTA 1 Producer -->
+  <rect x="540" y="84" width="120" height="50" rx="4" class="d-box" style="fill:#009E73;opacity:0.3"/>
+  <text x="600" y="104" text-anchor="middle" class="d-note" style="font-weight:600">Producer</text>
+  <text x="600" y="118" text-anchor="middle" class="d-note">TMA load B</text>
+
+  <!-- CTA 1 Consumer -->
+  <rect x="400" y="150" width="260" height="70" rx="4" class="d-box" style="fill:#009E73;opacity:0.2"/>
+  <text x="530" y="174" text-anchor="middle" class="d-note" style="font-weight:600">Consumer（tcgen05.mma）</text>
+  <text x="530" y="190" text-anchor="middle" class="d-note">sA₀ × sB₁ → TMEM₁</text>
+
+  <!-- CTA 1 smem -->
+  <rect x="400" y="236" width="120" height="30" rx="3" class="d-box" style="fill:#009E73;opacity:0.4"/>
+  <text x="460" y="256" text-anchor="middle" class="d-note">smem B (sB₁)</text>
+  <rect x="540" y="236" width="120" height="30" rx="3" class="d-box" style="fill:#e4e4e0"/>
+  <text x="600" y="256" text-anchor="middle" class="d-note">TMEM₁</text>
+
+  <!-- Cross-CTA arrows (mapa) -->
+  <path d="M180,266 C180,310 460,310 460,266" style="stroke:#D55E00;stroke-width:1.8;fill:none;stroke-dasharray:4,3" marker-end="url(#ah3r)"/>
+  <path d="M460,266 C460,296 180,296 180,266" style="stroke:#D55E00;stroke-width:1.8;fill:none;stroke-dasharray:4,3" marker-end="url(#ah3r)"/>
+  <text x="360" y="330" text-anchor="middle" class="d-note" style="fill:#D55E00;font-weight:600">mapa：cluster 内互访 smem</text>
+  <text x="360" y="348" text-anchor="middle" class="d-note">CTA0 的 consumer 读 CTA1 的 sB₁，CTA1 的 consumer 读 CTA0 的 sA₀</text>
+</svg>

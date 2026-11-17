@@ -1,0 +1,77 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; }
+    .dim { font-size: 11px; font-weight: 600; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">GroupNorm 归约维度（NHWC 布局）</text>
+
+  <!-- Tensor shape label -->
+  <text x="360" y="48" text-anchor="middle" class="label">张量 shape: [N, H, W, C]，G 个 group，每组 C/G 个 channel</text>
+
+  <!-- Draw a 3D-ish block representing the tensor -->
+  <!-- N axis -->
+  <text x="30" y="100" class="dim" fill="#333">N</text>
+  <text x="30" y="116" class="sublabel">(batch)</text>
+
+  <!-- Sample n=0 -->
+  <rect x="70" y="70" width="280" height="180" rx="4" fill="#f8f8f8" stroke="#ccc"/>
+  <text x="80" y="88" class="sublabel" fill="#666">sample n = 0</text>
+
+  <!-- H×W grid (small cells) -->
+  <!-- Group 0: channels 0..C/G-1 -->
+  <rect x="85" y="100" width="120" height="130" class="box" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="145" y="118" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">Group 0</text>
+
+  <!-- Grid lines inside group 0 to suggest H×W spatial dims -->
+  <line x1="85" y1="130" x2="205" y2="130" stroke="#1976D2" opacity="0.2"/>
+  <line x1="85" y1="155" x2="205" y2="155" stroke="#1976D2" opacity="0.2"/>
+  <line x1="85" y1="180" x2="205" y2="180" stroke="#1976D2" opacity="0.2"/>
+  <line x1="85" y1="205" x2="205" y2="205" stroke="#1976D2" opacity="0.2"/>
+  <line x1="125" y1="100" x2="125" y2="230" stroke="#1976D2" opacity="0.2"/>
+  <line x1="165" y1="100" x2="165" y2="230" stroke="#1976D2" opacity="0.2"/>
+
+  <text x="145" y="175" text-anchor="middle" class="sublabel" fill="#1976D2">H &times; W &times; C/G</text>
+  <text x="145" y="190" text-anchor="middle" class="sublabel" fill="#1976D2">个元素</text>
+  <text x="145" y="222" text-anchor="middle" class="sublabel" fill="#E53935" font-weight="600">归约 &rarr; &mu;, &sigma;&sup2;</text>
+
+  <!-- Group 1 -->
+  <rect x="215" y="100" width="120" height="130" class="box" fill="#E8F5E9" stroke="#388E3C" stroke-width="1.5"/>
+  <text x="275" y="118" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">Group 1</text>
+
+  <line x1="215" y1="130" x2="335" y2="130" stroke="#388E3C" opacity="0.2"/>
+  <line x1="215" y1="155" x2="335" y2="155" stroke="#388E3C" opacity="0.2"/>
+  <line x1="215" y1="180" x2="335" y2="180" stroke="#388E3C" opacity="0.2"/>
+  <line x1="215" y1="205" x2="335" y2="205" stroke="#388E3C" opacity="0.2"/>
+  <line x1="255" y1="100" x2="255" y2="230" stroke="#388E3C" opacity="0.2"/>
+  <line x1="295" y1="100" x2="295" y2="230" stroke="#388E3C" opacity="0.2"/>
+
+  <text x="275" y="175" text-anchor="middle" class="sublabel" fill="#388E3C">H &times; W &times; C/G</text>
+  <text x="275" y="190" text-anchor="middle" class="sublabel" fill="#388E3C">个元素</text>
+  <text x="275" y="222" text-anchor="middle" class="sublabel" fill="#E53935" font-weight="600">归约 &rarr; &mu;, &sigma;&sup2;</text>
+
+  <!-- Dots for more groups -->
+  <text x="355" y="170" class="label" fill="#666">&hellip;</text>
+
+  <!-- Sample n=1 (offset, partial) -->
+  <rect x="385" y="70" width="280" height="180" rx="4" fill="#f8f8f8" stroke="#ccc"/>
+  <text x="395" y="88" class="sublabel" fill="#666">sample n = 1</text>
+
+  <rect x="400" y="100" width="120" height="130" class="box" fill="#FFF3E0" stroke="#D55E00" stroke-width="1.5"/>
+  <text x="460" y="118" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">Group 0</text>
+  <text x="460" y="175" text-anchor="middle" class="sublabel" fill="#D55E00">独立归约</text>
+  <text x="460" y="222" text-anchor="middle" class="sublabel" fill="#E53935" font-weight="600">归约 &rarr; &mu;, &sigma;&sup2;</text>
+
+  <rect x="530" y="100" width="120" height="130" class="box" fill="#F3E5F5" stroke="#7B1FA2" stroke-width="1.5"/>
+  <text x="590" y="118" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">Group 1</text>
+  <text x="590" y="175" text-anchor="middle" class="sublabel" fill="#7B1FA2">独立归约</text>
+  <text x="590" y="222" text-anchor="middle" class="sublabel" fill="#E53935" font-weight="600">归约 &rarr; &mu;, &sigma;&sup2;</text>
+
+  <!-- Annotation -->
+  <text x="360" y="272" text-anchor="middle" class="label" fill="#E53935">每个 (n, g) pair 独立归约 &rarr; 一个 block 处理一个 (n, g)</text>
+  <text x="360" y="292" text-anchor="middle" class="sublabel">grid = (N &times; G) blocks，每 block 归约 H&times;W&times;(C/G) 个元素</text>
+  <text x="360" y="308" text-anchor="middle" class="sublabel">两遍：pass 1 算 &mu;, &sigma;&sup2;（shared memory reduce） → pass 2 normalize + SiLU</text>
+</svg>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">AllReduce = ReduceScatter + AllGather</text>
+
+<!-- Before -->
+<rect x="20" y="30" width="150" height="100" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="95" y="48" text-anchor="middle" class="title">Before</text>
+<rect x="30" y="55" width="55" height="15" rx="2" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="57" y="66" text-anchor="middle" class="code" font-size="9">G0: A</text>
+<rect x="105" y="55" width="55" height="15" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="132" y="66" text-anchor="middle" class="code" font-size="9">G0: B</text>
+<rect x="30" y="75" width="55" height="15" rx="2" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="57" y="86" text-anchor="middle" class="code" font-size="9">G1: A</text>
+<rect x="105" y="75" width="55" height="15" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="132" y="86" text-anchor="middle" class="code" font-size="9">G1: B</text>
+<rect x="30" y="95" width="55" height="15" rx="2" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="57" y="106" text-anchor="middle" class="code" font-size="9">G2: A</text>
+<rect x="105" y="95" width="55" height="15" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="132" y="106" text-anchor="middle" class="code" font-size="9">G2: B</text>
+
+<!-- ReduceScatter -->
+<line x1="175" y1="80" x2="220" y2="80" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#ay)"/>
+<text x="198" y="72" text-anchor="middle" font-size="10" fill="#a16207">RS</text>
+
+<rect x="225" y="30" width="150" height="100" rx="5" fill="#fef9c3" stroke="#f59e0b"/>
+<text x="300" y="48" text-anchor="middle" class="title" fill="#a16207">After RS</text>
+<rect x="235" y="58" width="130" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="300" y="69" text-anchor="middle" class="code" font-size="9">G0: &#x2211;A (chunk 0)</text>
+<rect x="235" y="78" width="130" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="300" y="89" text-anchor="middle" class="code" font-size="9">G1: &#x2211;A (chunk 1)</text>
+<rect x="235" y="98" width="130" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="300" y="109" text-anchor="middle" class="code" font-size="9">G2: &#x2211;B (chunk 0)</text>
+
+<!-- AllGather -->
+<line x1="380" y1="80" x2="425" y2="80" stroke="#22c55e" stroke-width="1.5" marker-end="url(#ag)"/>
+<text x="403" y="72" text-anchor="middle" font-size="10" fill="#16a34a">AG</text>
+
+<rect x="430" y="30" width="170" height="100" rx="5" fill="#dcfce7" stroke="#22c55e"/>
+<text x="515" y="48" text-anchor="middle" class="title" fill="#16a34a">After AG = AllReduce</text>
+<rect x="440" y="58" width="150" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="515" y="69" text-anchor="middle" class="code" font-size="9">G0: &#x2211;A|&#x2211;B (full)</text>
+<rect x="440" y="78" width="150" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="515" y="89" text-anchor="middle" class="code" font-size="9">G1: &#x2211;A|&#x2211;B (full)</text>
+<rect x="440" y="98" width="150" height="15" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="515" y="109" text-anchor="middle" class="code" font-size="9">G2: &#x2211;A|&#x2211;B (full)</text>
+
+<!-- Communication volume analysis -->
+<rect x="20" y="148" width="660" height="120" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="168" text-anchor="middle" class="title">通信量分析 (N GPU, D bytes)</text>
+
+<text x="40" y="192" class="label">ReduceScatter:  每 GPU 发 (N-1)/N · D   (发自己负责之外的 chunks)</text>
+<text x="40" y="210" class="label">AllGather:      每 GPU 发 (N-1)/N · D   (广播自己的归约结果)</text>
+<text x="40" y="232" class="label" fill="#2563eb">AllReduce total: 2 · (N-1)/N · D   &#x2192;  N=8 时 = 1.75D, N&#x2192;&#x221e; 时 &#x2192; 2D</text>
+<text x="40" y="254" class="label">Broadcast:       D;   All-to-All: (N-1)/N · D (每 GPU 发 N-1 个不同 chunks)</text>
+
+<defs>
+<marker id="ay" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#f59e0b"/></marker>
+<marker id="ag" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#22c55e"/></marker>
+</defs>
+<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

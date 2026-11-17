@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">Triton Autotune: Searching the Configuration Space</text>
+
+<!-- Config space -->
+<rect x="20" y="30" width="310" height="200" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+<text x="175" y="50" text-anchor="middle" class="title" fill="#854d0e">Configuration Space</text>
+
+<text x="35" y="72" class="code" font-size="10">BLOCK_M: [64, 128, 256]</text>
+<text x="35" y="92" class="code" font-size="10">BLOCK_N: [64, 128, 256]</text>
+<text x="35" y="112" class="code" font-size="10">BLOCK_K: [32, 64]</text>
+<text x="35" y="132" class="code" font-size="10">num_warps: [2, 4, 8]</text>
+<text x="35" y="152" class="code" font-size="10">num_stages: [2, 3, 4, 5]</text>
+<text x="35" y="172" class="code" font-size="10">GROUP_M: [4, 8]</text>
+
+<text x="35" y="200" class="label">3 &times; 3 &times; 2 &times; 3 &times; 4 &times; 2 = 432 configs</text>
+<text x="35" y="218" class="label">keyed on (M, N, K) &mdash; cache per shape</text>
+
+<!-- Selection process -->
+<rect x="350" y="30" width="310" height="200" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+<text x="505" y="50" text-anchor="middle" class="title" fill="#22c55e">Autotune Process</text>
+
+<text x="365" y="72" class="code" font-size="10">1. First call: compile ALL configs</text>
+<text x="365" y="92" class="code" font-size="10">2. Benchmark each on actual input</text>
+<text x="365" y="112" class="code" font-size="10">3. Select fastest config</text>
+<text x="365" y="132" class="code" font-size="10">4. Cache: key=(M,N,K) &rarr; best config</text>
+<text x="365" y="152" class="code" font-size="10">5. Subsequent calls: instant lookup</text>
+
+<text x="365" y="185" class="label" fill="#22c55e">Trade-off: first-call latency (seconds)</text>
+<text x="365" y="203" class="label" fill="#22c55e">vs optimal performance thereafter</text>
+<text x="365" y="221" class="label" fill="#22c55e">Pruning heuristics reduce search space</text>
+
+<text x="340" y="255" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after Triton @autotune)</text>
+</svg>

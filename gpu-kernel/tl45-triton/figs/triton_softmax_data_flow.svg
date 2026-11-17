@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Fused Softmax: PyTorch (3 kernels) vs Triton (1 kernel)</text>
+
+<!-- PyTorch standard -->
+<rect x="20" y="35" width="310" height="120" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="175" y="55" text-anchor="middle" class="title" fill="#dc2626">PyTorch Standard (3 Kernels)</text>
+
+<rect x="35" y="65" width="85" height="35" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="77" y="87" text-anchor="middle" class="code" font-size="9">K1: max(S)</text>
+
+<line x1="120" y1="82" x2="135" y2="82" stroke="#888" stroke-width="1" marker-end="url(#arr9)"/>
+<text x="127" y="75" class="label" font-size="8">HBM</text>
+
+<rect x="135" y="65" width="85" height="35" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="177" y="87" text-anchor="middle" class="code" font-size="9">K2: exp/sum</text>
+
+<line x1="220" y1="82" x2="235" y2="82" stroke="#888" stroke-width="1" marker-end="url(#arr9)"/>
+<text x="227" y="75" class="label" font-size="8">HBM</text>
+
+<rect x="235" y="65" width="85" height="35" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="277" y="87" text-anchor="middle" class="code" font-size="9">K3: div</text>
+
+<text x="175" y="125" text-anchor="middle" class="code accent" fill="#dc2626" font-size="10">HBM traffic: 3&#xd7; read + 3&#xd7; write = 6N bytes</text>
+<text x="175" y="143" text-anchor="middle" class="label" font-size="10">Each kernel launch reads entire row from HBM</text>
+
+<!-- Triton fused -->
+<rect x="370" y="35" width="310" height="120" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#16a34a">Triton Fused (1 Kernel)</text>
+
+<rect x="410" y="65" width="230" height="35" rx="3" fill="#d1fae5" stroke="#86efac"/>
+<text x="525" y="87" text-anchor="middle" class="code" font-size="9">max &#x2192; exp &#x2192; sum &#x2192; div (all in registers)</text>
+
+<text x="525" y="125" text-anchor="middle" class="code" fill="#16a34a" font-size="10">HBM traffic: 1&#xd7; read + 1&#xd7; write = 2N bytes</text>
+<text x="525" y="143" text-anchor="middle" class="label" font-size="10">Entire softmax in one program, one pass</text>
+
+<!-- Speedup -->
+<rect x="150" y="175" width="400" height="85" class="box" fill="#f0f9ff" stroke="#3b82f6"/>
+<text x="350" y="197" text-anchor="middle" class="title" fill="#2563eb">Why Fusion Matters</text>
+<text x="170" y="217" class="code" font-size="10">N=4096, FP16:  Standard = 3&#xd7;(4K&#xd7;2B read + 4K&#xd7;2B write) = 48 KB/row</text>
+<text x="170" y="235" class="code" font-size="10">               Fused    = 1&#xd7;(4K&#xd7;2B read + 4K&#xd7;2B write) = 16 KB/row</text>
+<text x="170" y="253" class="code" font-size="10">               3&#xd7; less HBM traffic &#x2192; ~2&#xd7; speedup (memory-bound)</text>
+
+<defs><marker id="arr9" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="275" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed</text>
+</svg>

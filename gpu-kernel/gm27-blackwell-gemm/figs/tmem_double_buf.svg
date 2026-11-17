@@ -1,0 +1,65 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .fill-green { fill: #009E73; opacity: 0.3; }
+    .fill-acc   { fill: #D55E00; opacity: 0.3; }
+    .d-arrow { stroke: var(--ink-3, #8a8a86); stroke-width: 1.2; fill: none; marker-end: url(#ah5); }
+  </style>
+  <defs>
+    <marker id="ah5" viewBox="0 0 8 6" refX="8" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-3, #8a8a86)"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="d-label">TMEM 双缓冲：Epilogue 与 MMA 重叠</text>
+
+  <!-- Phase labels -->
+  <text x="200" y="50" text-anchor="middle" class="d-label">Phase A（tile k 完成时）</text>
+  <text x="540" y="50" text-anchor="middle" class="d-label">Phase B（tile k+1 完成时）</text>
+
+  <!-- Phase A: MMA writes to TMEM0, Epilogue reads TMEM1 -->
+  <g transform="translate(60, 70)">
+    <!-- TMEM 0 -->
+    <rect x="0" y="0" width="120" height="60" rx="4" class="d-box fill-green"/>
+    <text x="60" y="25" text-anchor="middle" class="d-label" style="font-size:12px">TMEM₀</text>
+    <text x="60" y="44" text-anchor="middle" class="d-note" style="fill:#009E73">tcgen05 写入</text>
+
+    <!-- TMEM 1 -->
+    <rect x="160" y="0" width="120" height="60" rx="4" class="d-box fill-acc"/>
+    <text x="220" y="25" text-anchor="middle" class="d-label" style="font-size:12px">TMEM₁</text>
+    <text x="220" y="44" text-anchor="middle" class="d-note" style="fill:#D55E00">Epilogue 读出</text>
+
+    <!-- Arrows -->
+    <text x="60" y="-8" text-anchor="middle" class="d-note" style="fill:#009E73;font-weight:600">← MMA 累加</text>
+    <path d="M220,60 L220,95" class="d-arrow" style="stroke:#D55E00"/>
+    <text x="220" y="110" text-anchor="middle" class="d-note" style="fill:#D55E00">→ Register → C</text>
+  </g>
+
+  <!-- Phase B: swap — MMA writes to TMEM1, Epilogue reads TMEM0 -->
+  <g transform="translate(400, 70)">
+    <!-- TMEM 0 -->
+    <rect x="0" y="0" width="120" height="60" rx="4" class="d-box fill-acc"/>
+    <text x="60" y="25" text-anchor="middle" class="d-label" style="font-size:12px">TMEM₀</text>
+    <text x="60" y="44" text-anchor="middle" class="d-note" style="fill:#D55E00">Epilogue 读出</text>
+
+    <!-- TMEM 1 -->
+    <rect x="160" y="0" width="120" height="60" rx="4" class="d-box fill-green"/>
+    <text x="220" y="25" text-anchor="middle" class="d-label" style="font-size:12px">TMEM₁</text>
+    <text x="220" y="44" text-anchor="middle" class="d-note" style="fill:#009E73">tcgen05 写入</text>
+
+    <path d="M60,60 L60,95" class="d-arrow" style="stroke:#D55E00"/>
+    <text x="60" y="110" text-anchor="middle" class="d-note" style="fill:#D55E00">→ Register → C</text>
+    <text x="220" y="-8" text-anchor="middle" class="d-note" style="fill:#009E73;font-weight:600">← MMA 累加</text>
+  </g>
+
+  <!-- Swap arrow between phases -->
+  <path d="M330,106 L390,106" style="stroke:#D55E00;stroke-width:2;fill:none;stroke-dasharray:4,3" marker-end="url(#ah5)"/>
+  <text x="360" y="98" text-anchor="middle" class="d-note" style="font-weight:600">交换</text>
+
+  <!-- Note -->
+  <text x="360" y="220" text-anchor="middle" class="d-note">Hopper 不能做到这一点——MMA 累加器在寄存器文件中，</text>
+  <text x="360" y="236" text-anchor="middle" class="d-note">epilogue 读累加器时 MMA 无法同时写入。</text>
+  <text x="360" y="252" text-anchor="middle" class="d-note" style="fill:#D55E00;font-weight:600">TMEM 是 Blackwell 独有的，让 epilogue 和 MMA 真正并行。</text>
+</svg>

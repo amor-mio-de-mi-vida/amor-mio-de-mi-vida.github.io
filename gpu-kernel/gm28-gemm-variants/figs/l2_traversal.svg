@@ -1,0 +1,82 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; stroke-width: 1; }
+  </style>
+
+  <text x="360" y="24" text-anchor="middle" class="title">Tile 遍历顺序对 L2 命中率的影响</text>
+
+  <!-- Left: row-major -->
+  <text x="160" y="50" text-anchor="middle" class="label">Row-major 遍历</text>
+
+  <!-- 4x4 grid -->
+  <rect x="50" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.7"/>
+  <text x="75" y="84" text-anchor="middle" class="sublabel" fill="white">0</text>
+  <rect x="105" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.5"/>
+  <text x="130" y="84" text-anchor="middle" class="sublabel" fill="white">1</text>
+  <rect x="160" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.3"/>
+  <text x="185" y="84" text-anchor="middle" class="sublabel" fill="white">2</text>
+  <rect x="215" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.2"/>
+  <text x="240" y="84" text-anchor="middle" class="sublabel">3</text>
+
+  <rect x="50" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.7"/>
+  <text x="75" y="129" text-anchor="middle" class="sublabel" fill="white">4</text>
+  <rect x="105" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.5"/>
+  <text x="130" y="129" text-anchor="middle" class="sublabel" fill="white">5</text>
+  <rect x="160" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.3"/>
+  <text x="185" y="129" text-anchor="middle" class="sublabel" fill="white">6</text>
+  <rect x="215" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.2"/>
+  <text x="240" y="129" text-anchor="middle" class="sublabel">7</text>
+
+  <rect x="50" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="75" y="174" text-anchor="middle" class="sublabel">8</text>
+  <rect x="105" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="130" y="174" text-anchor="middle" class="sublabel">9</text>
+  <rect x="160" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="185" y="174" text-anchor="middle" class="sublabel">10</text>
+  <rect x="215" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="240" y="174" text-anchor="middle" class="sublabel">11</text>
+
+  <text x="50" y="210" class="sublabel" fill="#D55E00">Wave 0: CTA 0&ndash;3 读 B 的 4 列</text>
+  <text x="50" y="224" class="sublabel" fill="#56B4E9">Wave 1: CTA 4&ndash;7 读 B 的 4 列</text>
+  <text x="50" y="238" class="sublabel">&rarr; B 列跨度大，L2 驱逐</text>
+
+  <!-- Right: swizzle -->
+  <text x="530" y="50" text-anchor="middle" class="label">Swizzle 遍历</text>
+
+  <rect x="420" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.7"/>
+  <text x="445" y="84" text-anchor="middle" class="sublabel" fill="white">0</text>
+  <rect x="475" y="60" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.5"/>
+  <text x="500" y="84" text-anchor="middle" class="sublabel" fill="white">2</text>
+  <rect x="530" y="60" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.5"/>
+  <text x="555" y="84" text-anchor="middle" class="sublabel" fill="white">4</text>
+  <rect x="585" y="60" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.3"/>
+  <text x="610" y="84" text-anchor="middle" class="sublabel" fill="white">6</text>
+
+  <rect x="420" y="105" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.3"/>
+  <text x="445" y="129" text-anchor="middle" class="sublabel" fill="white">1</text>
+  <rect x="475" y="105" width="50" height="40" class="box" fill="#D55E00" stroke="#993F00" opacity="0.2"/>
+  <text x="500" y="129" text-anchor="middle" class="sublabel">3</text>
+  <rect x="530" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.3"/>
+  <text x="555" y="129" text-anchor="middle" class="sublabel" fill="white">5</text>
+  <rect x="585" y="105" width="50" height="40" class="box" fill="#56B4E9" stroke="#0072B2" opacity="0.2"/>
+  <text x="610" y="129" text-anchor="middle" class="sublabel">7</text>
+
+  <rect x="420" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="445" y="174" text-anchor="middle" class="sublabel">8</text>
+  <rect x="475" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="500" y="174" text-anchor="middle" class="sublabel">9</text>
+  <rect x="530" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="555" y="174" text-anchor="middle" class="sublabel">10</text>
+  <rect x="585" y="150" width="50" height="40" class="box" fill="#f5f5f3" stroke="#ccc"/>
+  <text x="610" y="174" text-anchor="middle" class="sublabel">11</text>
+
+  <text x="420" y="210" class="sublabel" fill="#D55E00">列组 0: CTA 0&ndash;3 共享 B 左半</text>
+  <text x="420" y="224" class="sublabel" fill="#56B4E9">列组 1: CTA 4&ndash;7 共享 B 右半</text>
+  <text x="420" y="238" class="sublabel">&rarr; 同组 CTA 复用 B 列，L2 命中</text>
+
+  <!-- Divider -->
+  <line x1="350" y1="45" x2="350" y2="250" stroke="#ccc" stroke-width="1" stroke-dasharray="4,3"/>
+</svg>

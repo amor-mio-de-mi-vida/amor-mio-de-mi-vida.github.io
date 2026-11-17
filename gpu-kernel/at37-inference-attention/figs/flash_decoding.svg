@@ -1,0 +1,57 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah11); }
+  </style>
+  <defs>
+    <marker id="ah11" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">FlashDecoding：Split-KV 并行 Decode Attention</text>
+
+  <!-- Problem -->
+  <rect x="20" y="42" width="200" height="55" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="120" y="62" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">问题</text>
+  <text x="30" y="78" class="sublabel">Decode：Q 长度 = 1</text>
+  <text x="30" y="90" class="sublabel">KV 长度 = N（很长）→ memory-bound</text>
+
+  <!-- Step 1: Split KV -->
+  <path d="M225,70 L255,70" class="arrow" stroke="#333"/>
+  <rect x="260" y="42" width="200" height="80" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="360" y="62" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">第一步：Split-KV</text>
+  <text x="270" y="82" class="sublabel">把 KV 分成 T 个 split</text>
+  <text x="270" y="97" class="sublabel">每个 split 独立计算：</text>
+  <text x="270" y="112" class="sublabel" font-style="italic">O_t = softmax(q &middot; K_t&hairsp;&#x1D40;) &middot; V_t, LSE_t</text>
+
+  <!-- Split illustration -->
+  <rect x="260" y="140" width="40" height="30" rx="3" fill="#1976D2" opacity="0.3"/>
+  <text x="280" y="160" text-anchor="middle" class="sublabel" fill="#1976D2">split₀</text>
+  <rect x="305" y="140" width="40" height="30" rx="3" fill="#1976D2" opacity="0.4"/>
+  <text x="325" y="160" text-anchor="middle" class="sublabel" fill="#1976D2">split₁</text>
+  <rect x="350" y="140" width="40" height="30" rx="3" fill="#1976D2" opacity="0.5"/>
+  <text x="370" y="160" text-anchor="middle" class="sublabel" fill="#1976D2">split₂</text>
+  <rect x="395" y="140" width="40" height="30" rx="3" fill="#1976D2" opacity="0.6"/>
+  <text x="415" y="160" text-anchor="middle" class="sublabel" fill="#1976D2">&hellip;</text>
+
+  <text x="360" y="190" text-anchor="middle" class="sublabel" fill="#1976D2">T 个 CTA 并行（T 可远大于 FA 的外层 block 数）</text>
+
+  <!-- Step 2: Reduce -->
+  <path d="M465,70 L495,70" class="arrow" stroke="#333"/>
+  <rect x="500" y="42" width="200" height="80" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="600" y="62" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">第二步：LogSumExp 合并</text>
+  <text x="510" y="82" class="sublabel">用 LSE_t 重新加权每个 split 的 O_t：</text>
+  <text x="510" y="97" class="sublabel" font-style="italic">O = &sum;(exp(LSE_t - LSE_global) &middot; O_t)</text>
+  <text x="510" y="112" class="sublabel">一个小 reduce kernel 完成</text>
+
+  <!-- Why it helps -->
+  <rect x="20" y="215" width="680" height="75" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="235" class="label" fill="#D55E00" font-weight="600">为什么 FlashDecoding 更快？</text>
+  <text x="30" y="255" class="sublabel">标准 FlashAttention decode：外层循环 Q block = 1 个 block → 只有 1 个 CTA，GPU 利用率极低。</text>
+  <text x="30" y="270" class="sublabel">FlashDecoding：把 KV 拆成 T 个 split，T 个 CTA 并行处理，充分利用 GPU 的 SM。</text>
+  <text x="30" y="285" class="sublabel">代价：第二步 reduce kernel（很小），以及临时存储 T 个 O_t 和 LSE_t。</text>
+</svg>

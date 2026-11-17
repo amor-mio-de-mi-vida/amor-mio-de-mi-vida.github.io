@@ -1,0 +1,91 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .grid { stroke: #ccc; stroke-width: 0.5; }
+    .sample-reg { fill: #1976D2; }
+    .sample-def { fill: #D55E00; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Deformable Convolution：可学习的采样偏移</text>
+
+  <!-- Regular conv grid -->
+  <text x="120" y="50" text-anchor="middle" class="label" font-weight="600">标准 3&times;3 卷积</text>
+  <text x="120" y="65" text-anchor="middle" class="sublabel">固定网格采样</text>
+
+  <g transform="translate(50, 75)">
+    <!-- Grid 5x5 -->
+    <rect x="0" y="0" width="140" height="140" fill="#F5F5F5" stroke="#ddd" rx="2"/>
+    <line x1="28" y1="0" x2="28" y2="140" class="grid"/>
+    <line x1="56" y1="0" x2="56" y2="140" class="grid"/>
+    <line x1="84" y1="0" x2="84" y2="140" class="grid"/>
+    <line x1="112" y1="0" x2="112" y2="140" class="grid"/>
+    <line x1="0" y1="28" x2="140" y2="28" class="grid"/>
+    <line x1="0" y1="56" x2="140" y2="56" class="grid"/>
+    <line x1="0" y1="84" x2="140" y2="84" class="grid"/>
+    <line x1="0" y1="112" x2="140" y2="112" class="grid"/>
+    <!-- 3x3 sample points (regular grid) -->
+    <circle cx="28" cy="28" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="56" cy="28" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="84" cy="28" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="28" cy="56" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="56" cy="56" r="7" fill="#D55E00" opacity="0.9"/>
+    <circle cx="84" cy="56" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="28" cy="84" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="56" cy="84" r="5" class="sample-reg" opacity="0.8"/>
+    <circle cx="84" cy="84" r="5" class="sample-reg" opacity="0.8"/>
+    <text x="56" y="60" text-anchor="middle" class="sublabel" fill="white" font-size="8">p</text>
+  </g>
+
+  <!-- Arrow -->
+  <text x="240" y="150" text-anchor="middle" class="label" font-size="24">→</text>
+
+  <!-- Deformable conv -->
+  <text x="400" y="50" text-anchor="middle" class="label" font-weight="600">可变形卷积</text>
+  <text x="400" y="65" text-anchor="middle" class="sublabel">p + &Delta;p（可学习偏移）</text>
+
+  <g transform="translate(310, 75)">
+    <rect x="0" y="0" width="180" height="140" fill="#F5F5F5" stroke="#ddd" rx="2"/>
+    <line x1="36" y1="0" x2="36" y2="140" class="grid"/>
+    <line x1="72" y1="0" x2="72" y2="140" class="grid"/>
+    <line x1="108" y1="0" x2="108" y2="140" class="grid"/>
+    <line x1="144" y1="0" x2="144" y2="140" class="grid"/>
+    <line x1="0" y1="28" x2="180" y2="28" class="grid"/>
+    <line x1="0" y1="56" x2="180" y2="56" class="grid"/>
+    <line x1="0" y1="84" x2="180" y2="84" class="grid"/>
+    <line x1="0" y1="112" x2="180" y2="112" class="grid"/>
+    <!-- Center point -->
+    <circle cx="90" cy="70" r="7" fill="#D55E00" opacity="0.9"/>
+    <text x="90" y="74" text-anchor="middle" class="sublabel" fill="white" font-size="8">p</text>
+    <!-- Offset sample points (irregular) -->
+    <circle cx="35" cy="20" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="70" cy="15" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="115" cy="30" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="25" cy="65" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="135" cy="55" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="40" cy="110" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="80" cy="120" r="5" class="sample-def" opacity="0.7"/>
+    <circle cx="150" cy="105" r="5" class="sample-def" opacity="0.7"/>
+    <!-- Offset arrows from regular grid positions -->
+    <line x1="36" y1="28" x2="35" y2="22" stroke="#D55E00" stroke-width="0.8" stroke-dasharray="2"/>
+    <line x1="72" y1="28" x2="70" y2="17" stroke="#D55E00" stroke-width="0.8" stroke-dasharray="2"/>
+    <line x1="108" y1="28" x2="115" y2="32" stroke="#D55E00" stroke-width="0.8" stroke-dasharray="2"/>
+  </g>
+
+  <!-- Explanation box -->
+  <rect x="510" y="75" width="195" height="140" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="520" y="95" class="label" fill="#D55E00" font-weight="600">关键实现细节</text>
+  <text x="520" y="115" class="sublabel">1. 偏移量是亚像素 → 双线性插值</text>
+  <text x="520" y="133" class="sublabel">2. 前向：bilinear_sample()</text>
+  <text x="520" y="151" class="sublabel">3. 反向：梯度散射到 4 个邻居</text>
+  <text x="520" y="169" class="sublabel">   → atomicAdd（不确定性来源）</text>
+  <text x="520" y="187" class="sublabel" fill="#D55E00">4. 偏移由额外 conv 预测</text>
+  <text x="520" y="205" class="sublabel">   R&times;S&times;2 个偏移通道</text>
+
+  <!-- Bottom note -->
+  <rect x="20" y="235" width="680" height="38" rx="6" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="30" y="253" class="sublabel" fill="#388E3C" font-weight="600">DCNv2 额外学习 modulation mask（0–1 权重），等价于可学习的注意力权重——让网络自适应调整感受野形状。</text>
+  <text x="30" y="267" class="sublabel" fill="#388E3C">实现复杂度主要来自双线性插值的反向和 atomicAdd 的非确定性。</text>
+</svg>

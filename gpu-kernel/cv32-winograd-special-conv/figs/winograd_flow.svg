@@ -1,0 +1,71 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah5); }
+    .math { font-size: 11px; font-style: italic; fill: #1a1a1a; }
+  </style>
+  <defs>
+    <marker id="ah5" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Winograd F(2,3) 卷积变换流程</text>
+
+  <!-- Input tile -->
+  <rect x="20" y="45" width="120" height="70" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="80" y="68" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">输入 tile d</text>
+  <text x="80" y="88" text-anchor="middle" class="sublabel">4&times;4 像素</text>
+  <text x="80" y="103" text-anchor="middle" class="sublabel">(m+r-1 = 2+3-1)</text>
+
+  <!-- BT d B -->
+  <path d="M145,80 L175,80" class="arrow" stroke="#D55E00"/>
+  <rect x="180" y="50" width="130" height="60" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="245" y="72" text-anchor="middle" class="math">V = B&#x1D40; d B</text>
+  <text x="245" y="92" text-anchor="middle" class="sublabel">输入变换（4&times;4 → 4&times;4）</text>
+
+  <!-- Filter -->
+  <rect x="20" y="140" width="120" height="60" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="80" y="163" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">滤波器 g</text>
+  <text x="80" y="183" text-anchor="middle" class="sublabel">3&times;3 权重</text>
+
+  <!-- GgGT -->
+  <path d="M145,170 L175,170" class="arrow" stroke="#D55E00"/>
+  <rect x="180" y="140" width="130" height="60" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="245" y="162" text-anchor="middle" class="math">U = G g G&#x1D40;</text>
+  <text x="245" y="182" text-anchor="middle" class="sublabel">滤波器变换（3&times;3 → 4&times;4）</text>
+
+  <!-- Element-wise multiply -->
+  <path d="M315,80 L345,110" class="arrow" stroke="#D55E00"/>
+  <path d="M315,170 L345,140" class="arrow" stroke="#D55E00"/>
+  <rect x="350" y="95" width="140" height="60" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="420" y="117" text-anchor="middle" class="math">M = U &odot; V</text>
+  <text x="420" y="137" text-anchor="middle" class="sublabel">逐元素乘（4&times;4 &odot; 4&times;4）</text>
+
+  <!-- AT M A -->
+  <path d="M495,125 L525,125" class="arrow" stroke="#D55E00"/>
+  <rect x="530" y="95" width="130" height="60" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="595" y="117" text-anchor="middle" class="math">Y = A&#x1D40; M A</text>
+  <text x="595" y="137" text-anchor="middle" class="sublabel">输出变换（4&times;4 → 2&times;2）</text>
+
+  <!-- Output -->
+  <path d="M595,160 L595,190" class="arrow" stroke="#D55E00"/>
+  <rect x="540" y="195" width="110" height="50" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="595" y="218" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">输出 tile</text>
+  <text x="595" y="235" text-anchor="middle" class="sublabel">2&times;2 像素</text>
+
+  <!-- Cost comparison -->
+  <rect x="20" y="225" width="460" height="85" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="245" class="label" fill="#D55E00" font-weight="600">乘法数对比（F(2,3) 1D）</text>
+  <text x="30" y="265" class="sublabel">直接计算：m&times;r = 2&times;3 = 6 次乘法</text>
+  <text x="30" y="280" class="sublabel">Winograd：m+r-1 = 4 次乘法 + 变换加法</text>
+  <text x="30" y="295" class="sublabel" fill="#388E3C" font-weight="600">F(2&times;2, 3&times;3) 2D：直接 36 次 → Winograd 16 次（省 2.25&times;）</text>
+
+  <text x="250" y="245" class="sublabel" fill="#D55E00" font-weight="600">为什么 F(4,3) 不常用？</text>
+  <text x="250" y="265" class="sublabel">变换矩阵含更大系数 → 变换域误差放大</text>
+  <text x="250" y="280" class="sublabel">FP16/BF16 的精度不够 → 只安全到 F(2,3)</text>
+  <text x="250" y="295" class="sublabel">FP32 可以用 F(4,3) 或 F(6,3)</text>
+</svg>

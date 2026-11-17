@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10px}
+  .sm{font-size:9.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">mma.sync.m16n8k16 Register Layout</text>
+
+<!-- A operand: 16x16 FP16 -->
+<rect x="20" y="35" width="160" height="160" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="100" y="52" text-anchor="middle" class="title" fill="#2563eb">A: 16&#xd7;16 (FP16)</text>
+<text x="100" y="68" text-anchor="middle" class="label">4 regs/thread (frag_a[0..3])</text>
+
+<!-- A matrix grid 4x4 -->
+<rect x="35" y="78" width="60" height="50" rx="2" fill="#bfdbfe" stroke="#93c5fd"/>
+<text x="65" y="105" text-anchor="middle" class="sm">T0-T3</text>
+<text x="65" y="118" text-anchor="middle" class="sm">rows 0-7</text>
+<rect x="105" y="78" width="60" height="50" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="135" y="105" text-anchor="middle" class="sm">T0-T3</text>
+<text x="135" y="118" text-anchor="middle" class="sm">cols 8-15</text>
+<rect x="35" y="138" width="60" height="50" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="65" y="165" text-anchor="middle" class="sm">T16-T19</text>
+<text x="65" y="178" text-anchor="middle" class="sm">rows 8-15</text>
+<rect x="105" y="138" width="60" height="50" rx="2" fill="#bfdbfe" stroke="#93c5fd"/>
+<text x="135" y="165" text-anchor="middle" class="sm">T16-T19</text>
+<text x="135" y="178" text-anchor="middle" class="sm">cols 8-15</text>
+
+<!-- Multiply sign -->
+<text x="200" y="120" text-anchor="middle" font-size="24" fill="#6b7280">&#xd7;</text>
+
+<!-- B operand: 16x8 FP16 -->
+<rect x="220" y="55" width="100" height="120" rx="4" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+<text x="270" y="72" text-anchor="middle" class="title" fill="#16a34a">B: 16&#xd7;8 (FP16)</text>
+<text x="270" y="88" text-anchor="middle" class="label">2 regs/thread</text>
+<text x="270" y="102" text-anchor="middle" class="label">(frag_b[0..1])</text>
+
+<rect x="235" y="112" width="70" height="50" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="270" y="138" text-anchor="middle" class="sm">T0-T3: 8 rows</text>
+<text x="270" y="152" text-anchor="middle" class="sm">each 8 FP16</text>
+
+<!-- Equals sign -->
+<text x="340" y="120" text-anchor="middle" font-size="24" fill="#6b7280">=</text>
+
+<!-- C accumulator: 16x8 FP32 -->
+<rect x="360" y="35" width="160" height="160" rx="4" fill="#fef9c3" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="440" y="52" text-anchor="middle" class="title" fill="#a16207">C: 16&#xd7;8 (FP32)</text>
+<text x="440" y="68" text-anchor="middle" class="label">4 regs/thread (acc[0..3])</text>
+
+<!-- C matrix detail -->
+<rect x="375" y="78" width="60" height="50" rx="2" fill="#fde68a" stroke="#fcd34d"/>
+<text x="405" y="98" text-anchor="middle" class="sm">T0: (0,0)(0,1)</text>
+<text x="405" y="112" text-anchor="middle" class="sm">(8,0)(8,1)</text>
+<rect x="445" y="78" width="60" height="50" rx="2" fill="#fef3c7" stroke="#fcd34d"/>
+<text x="475" y="98" text-anchor="middle" class="sm">T1: (0,2)(0,3)</text>
+<text x="475" y="112" text-anchor="middle" class="sm">(8,2)(8,3)</text>
+<rect x="375" y="138" width="60" height="50" rx="2" fill="#fef3c7" stroke="#fcd34d"/>
+<text x="405" y="158" text-anchor="middle" class="sm">T16: (8,0)(8,1)</text>
+<text x="405" y="172" text-anchor="middle" class="sm">(16,0)(16,1)</text>
+<rect x="445" y="138" width="60" height="50" rx="2" fill="#fde68a" stroke="#fcd34d"/>
+<text x="475" y="158" text-anchor="middle" class="sm">T17: (8,2)(8,3)</text>
+<text x="475" y="172" text-anchor="middle" class="sm">(16,2)(16,3)</text>
+
+<!-- Annotation box -->
+<rect x="540" y="45" width="150" height="140" rx="5" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="550" y="62" class="sm" font-weight="700">Key observations:</text>
+<text x="550" y="80" class="sm">&#x2022; Each thread holds 4</text>
+<text x="555" y="93" class="sm">non-contiguous C values</text>
+<text x="550" y="111" class="sm">&#x2022; Row 0 and row 8 are</text>
+<text x="555" y="124" class="sm">in the SAME thread</text>
+<text x="550" y="142" class="sm">&#x2022; Direct GMEM write</text>
+<text x="555" y="155" class="sm">= non-coalesced</text>
+<text x="550" y="173" class="sm">&#x2022; Must go through</text>
+<text x="555" y="186" class="sm">SMEM for coalescing</text>
+
+<!-- FLOP annotation -->
+<rect x="30" y="210" width="660" height="40" rx="4" fill="#fef2f2" stroke="#fca5a5"/>
+<text x="360" y="228" text-anchor="middle" class="code">mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32</text>
+<text x="360" y="243" text-anchor="middle" class="label">= 2 &#xd7; 16 &#xd7; 8 &#xd7; 16 = 4096 FP16 FMA per instruction per warp</text>
+
+<text x="350" y="315" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: PTX ISA 9.4 &#xa7;9.7.17</text>
+</svg>

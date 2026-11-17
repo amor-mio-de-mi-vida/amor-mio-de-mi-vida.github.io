@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">跨 GPU 内存序: volatile vs release/acquire</text>
+
+<!-- Wrong way -->
+<rect x="20" y="35" width="320" height="225" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="180" y="55" text-anchor="middle" class="title" fill="#dc2626">BUG: 仅用 volatile</text>
+
+<text x="40" y="80" class="label">Producer GPU (GPU 0):</text>
+<text x="40" y="98" class="code">data[i] = value;     // store data</text>
+<text x="40" y="116" class="code">*flag = 1;           // volatile store</text>
+
+<text x="40" y="145" class="label">Consumer GPU (GPU 1):</text>
+<text x="40" y="163" class="code">while (*flag != 1);  // volatile load</text>
+<text x="40" y="181" class="code">val = data[i];       // may be STALE!</text>
+
+<rect x="35" y="198" width="290" height="50" rx="3" fill="#fee2e2" stroke="#ef4444"/>
+<text x="180" y="216" text-anchor="middle" class="label" fill="#dc2626">NVLink 可能把 flag store 先于 data store</text>
+<text x="180" y="232" text-anchor="middle" class="label" fill="#dc2626">传播到 GPU 1 → GPU 1 看到 flag=1 但 data 是旧值</text>
+
+<!-- Right way -->
+<rect x="360" y="35" width="320" height="225" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
+<text x="520" y="55" text-anchor="middle" class="title" fill="#16a34a">正确: release / acquire</text>
+
+<text x="380" y="80" class="label">Producer GPU (GPU 0):</text>
+<text x="380" y="98" class="code">data[i] = value;      // store data</text>
+<text x="380" y="116" class="code" fill="#16a34a">__threadfence_system();</text>
+<text x="380" y="134" class="code" fill="#16a34a">st.release.sys flag,1 // release</text>
+
+<text x="380" y="160" class="label">Consumer GPU (GPU 1):</text>
+<text x="380" y="178" class="code" fill="#16a34a">ld.acquire.sys flag   // acquire</text>
+<text x="380" y="196" class="code">val = data[i];        // GUARANTEED fresh</text>
+
+<rect x="375" y="210" width="290" height="40" rx="3" fill="#bbf7d0" stroke="#22c55e"/>
+<text x="520" y="228" text-anchor="middle" class="label" fill="#16a34a">release 保证 data store 先于 flag store 可见</text>
+<text x="520" y="242" text-anchor="middle" class="label" fill="#16a34a">acquire 保证 flag load 之后才 load data</text>
+
+<!-- Summary -->
+<rect x="20" y="270" width="660" height="22" rx="4" fill="#f0fdf4" stroke="#22c55e"/>
+<text x="350" y="285" text-anchor="middle" class="label" fill="#16a34a">release-acquire 对形成跨 GPU 的 happens-before 关系, 等价于 C++11 memory_order_release / acquire</text>
+
+<text x="350" y="298" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

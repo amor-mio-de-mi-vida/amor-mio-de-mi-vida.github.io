@@ -1,0 +1,80 @@
+<svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .cell { stroke-width: 0.8; }
+    .header { font-size: 10px; font-weight: 600; fill: #1a1a1a; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">偏移表：预计算 k → (ci, r, s) 的地址增量</text>
+
+  <!-- Offset table -->
+  <rect x="30" y="38" width="400" height="24" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="0.5"/>
+  <text x="45" y="54" class="header" fill="#1976D2">k</text>
+  <text x="80" y="54" class="header">ci</text>
+  <text x="115" y="54" class="header">r</text>
+  <text x="145" y="54" class="header">s</text>
+  <text x="185" y="54" class="header">delta_h</text>
+  <text x="245" y="54" class="header">delta_w</text>
+  <text x="310" y="54" class="header">delta_c</text>
+  <text x="375" y="54" class="header">pred</text>
+
+  <!-- Rows -->
+  <rect x="30" y="62" width="400" height="20" rx="1" fill="#F5F5F5" stroke="#ddd" stroke-width="0.3"/>
+  <text x="45" y="76" class="sublabel">0</text>
+  <text x="80" y="76" class="sublabel">0</text>
+  <text x="115" y="76" class="sublabel">0</text>
+  <text x="145" y="76" class="sublabel">0</text>
+  <text x="195" y="76" class="sublabel">-1</text>
+  <text x="255" y="76" class="sublabel">-1</text>
+  <text x="320" y="76" class="sublabel">0</text>
+  <text x="375" y="76" class="sublabel" fill="#388E3C">T</text>
+
+  <rect x="30" y="82" width="400" height="20" rx="1" fill="#fff" stroke="#ddd" stroke-width="0.3"/>
+  <text x="45" y="96" class="sublabel">1</text>
+  <text x="80" y="96" class="sublabel">0</text>
+  <text x="115" y="96" class="sublabel">0</text>
+  <text x="145" y="96" class="sublabel">1</text>
+  <text x="195" y="96" class="sublabel">0</text>
+  <text x="255" y="96" class="sublabel">+1</text>
+  <text x="320" y="96" class="sublabel">0</text>
+  <text x="375" y="96" class="sublabel" fill="#388E3C">T</text>
+
+  <rect x="30" y="102" width="400" height="20" rx="1" fill="#F5F5F5" stroke="#ddd" stroke-width="0.3"/>
+  <text x="45" y="116" class="sublabel">2</text>
+  <text x="80" y="116" class="sublabel">0</text>
+  <text x="115" y="116" class="sublabel">0</text>
+  <text x="145" y="116" class="sublabel">2</text>
+  <text x="195" y="116" class="sublabel">0</text>
+  <text x="255" y="116" class="sublabel">+1</text>
+  <text x="320" y="116" class="sublabel">0</text>
+  <text x="375" y="116" class="sublabel" fill="#388E3C">T</text>
+
+  <text x="200" y="136" text-anchor="middle" class="sublabel">&hellip; (C_in &times; R &times; S rows total) &hellip;</text>
+
+  <rect x="30" y="142" width="400" height="20" rx="1" fill="#FFF3E0" stroke="#D55E00" stroke-width="0.5"/>
+  <text x="45" y="156" class="sublabel" fill="#D55E00">8</text>
+  <text x="80" y="156" class="sublabel" fill="#D55E00">1</text>
+  <text x="115" y="156" class="sublabel" fill="#D55E00">0</text>
+  <text x="145" y="156" class="sublabel" fill="#D55E00">2</text>
+  <text x="195" y="156" class="sublabel" fill="#D55E00">-2</text>
+  <text x="255" y="156" class="sublabel" fill="#D55E00">-2</text>
+  <text x="320" y="156" class="sublabel" fill="#D55E00">+1</text>
+  <text x="375" y="156" class="sublabel" fill="#D55E00">?</text>
+
+  <!-- Explanation -->
+  <rect x="460" y="38" width="240" height="130" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="470" y="58" class="label" fill="#D55E00" font-weight="600">增量迭代器</text>
+  <text x="470" y="78" class="sublabel">delta_h = r[k] - r[k-1] (dilation)</text>
+  <text x="470" y="93" class="sublabel">delta_w = s[k] - s[k-1] (dilation)</text>
+  <text x="470" y="108" class="sublabel">delta_c = ci[k] - ci[k-1]</text>
+  <text x="470" y="128" class="sublabel">pred = (ih &ge; 0 &amp;&amp; ih &lt; H &amp;&amp; ...)</text>
+  <text x="470" y="148" class="sublabel" fill="#D55E00">谓词判断 padding 区域 → 加载 0</text>
+
+  <!-- Bottom note -->
+  <rect x="30" y="180" width="660" height="60" rx="6" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="40" y="200" class="sublabel" fill="#388E3C" font-weight="600">为什么用增量而不是绝对地址？</text>
+  <text x="40" y="218" class="sublabel">同一 CTA 内所有线程的 k 步进相同 → delta 可以在 host 预计算并存入 constant memory。</text>
+  <text x="40" y="232" class="sublabel">每步只需一次加法（指针 += delta）而不是除法/取模 → 地址计算开销从 O(K) 次除法降到 O(K) 次加法。</text>
+</svg>

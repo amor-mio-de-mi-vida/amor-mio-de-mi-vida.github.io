@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 310">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.3;marker-end:url(#ah4)}
+</style>
+<defs>
+  <marker id="ah4" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">Per-Pixel (Original) vs Per-Splat Backward Parallelism</text>
+<!-- Left: per-pixel -->
+<rect x="20" y="35" width="300" height="225" rx="6" fill="#fdf2f8" stroke="#ec4899" stroke-width="1.2"/>
+<text x="170" y="55" text-anchor="middle" class="title" fill="#ec4899">Per-Pixel (original 3DGS)</text>
+<text x="30" y="78" class="label">Parallelism: 1 block = 1 tile (256 pixels)</text>
+<text x="30" y="98" class="label">Each pixel traverses its Gaussian list</text>
+<!-- Pixel grid -->
+<g transform="translate(50,110)">
+  <rect width="220" height="60" rx="3" fill="#fce7f3" stroke="#f9a8d4"/>
+  <text x="10" y="17" class="code" font-size="10">pixel (3,5): G_a, G_c, G_f</text>
+  <text x="10" y="35" class="code" font-size="10">pixel (3,6): G_a, G_c, G_d</text>
+  <text x="10" y="53" class="code" font-size="10">pixel (4,5): G_a, G_f</text>
+</g>
+<text x="30" y="192" class="label" fill="#ef4444">Problem: G_a gets atomics from</text>
+<text x="30" y="208" class="label" fill="#ef4444">all 3 pixels &rarr; contention</text>
+<text x="30" y="230" class="label">Advantage: same tile structure</text>
+<text x="30" y="246" class="label">as forward; easy to implement</text>
+<!-- Right: per-splat -->
+<rect x="350" y="35" width="310" height="225" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+<text x="505" y="55" text-anchor="middle" class="title" fill="#22c55e">Per-Splat (gsplat alternative)</text>
+<text x="360" y="78" class="label">Parallelism: 1 block = 1 Gaussian</text>
+<text x="360" y="98" class="label">Each Gaussian iterates over its pixels</text>
+<!-- Gaussian blocks -->
+<g transform="translate(380,110)">
+  <rect width="250" height="60" rx="3" fill="#dcfce7" stroke="#86efac"/>
+  <text x="10" y="17" class="code" font-size="10">G_a: pixels (3,5)(3,6)(4,5) ...</text>
+  <text x="10" y="35" class="code" font-size="10">G_c: pixels (3,5)(3,6) ...</text>
+  <text x="10" y="53" class="code" font-size="10">G_f: pixels (3,5)(4,5) ...</text>
+</g>
+<text x="360" y="192" class="label" fill="#22c55e">Each Gaussian owns its gradient</text>
+<text x="360" y="208" class="label" fill="#22c55e">&rarr; no atomics needed!</text>
+<text x="360" y="230" class="label">Challenge: different parallelism</text>
+<text x="360" y="246" class="label">pattern; load balancing harder</text>
+<text x="340" y="298" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

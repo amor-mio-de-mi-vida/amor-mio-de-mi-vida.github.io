@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.3;marker-end:url(#ah2)}
+</style>
+<defs>
+  <marker id="ah2" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">Back-to-Front Replay vs Forward</text>
+<!-- Forward timeline (top) -->
+<text x="30" y="50" class="title" fill="#3b82f6">Forward (front-to-back)</text>
+<g transform="translate(30,58)">
+  <rect x="0" y="0" width="80" height="28" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="40" y="18" text-anchor="middle" class="code">G_0 (z=1)</text>
+  <line x1="82" y1="14" x2="98" y2="14" class="arrow"/>
+  <rect x="100" y="0" width="80" height="28" rx="4" fill="#bfdbfe" stroke="#3b82f6"/>
+  <text x="140" y="18" text-anchor="middle" class="code">G_1 (z=2)</text>
+  <line x1="182" y1="14" x2="198" y2="14" class="arrow"/>
+  <rect x="200" y="0" width="80" height="28" rx="4" fill="#93c5fd" stroke="#3b82f6"/>
+  <text x="240" y="18" text-anchor="middle" class="code">G_2 (z=3)</text>
+  <line x1="282" y1="14" x2="298" y2="14" class="arrow"/>
+  <text x="310" y="18" class="code">...</text>
+  <line x1="330" y1="14" x2="346" y2="14" class="arrow"/>
+  <rect x="348" y="0" width="80" height="28" rx="4" fill="#60a5fa" stroke="#3b82f6"/>
+  <text x="388" y="18" text-anchor="middle" class="code">G_N (last)</text>
+</g>
+<text x="510" y="78" class="label">T decreases &rarr;</text>
+<text x="510" y="93" class="label">saves final_T, n_contrib</text>
+<!-- Backward timeline (bottom) -->
+<text x="30" y="135" class="title" fill="#ef4444">Backward (back-to-front)</text>
+<g transform="translate(30,143)">
+  <rect x="348" y="0" width="80" height="28" rx="4" fill="#fecaca" stroke="#ef4444"/>
+  <text x="388" y="18" text-anchor="middle" class="code">G_N</text>
+  <line x1="346" y1="14" x2="330" y2="14" class="arrow"/>
+  <text x="310" y="18" class="code">...</text>
+  <line x1="298" y1="14" x2="282" y2="14" class="arrow"/>
+  <rect x="200" y="0" width="80" height="28" rx="4" fill="#fca5a5" stroke="#ef4444"/>
+  <text x="240" y="18" text-anchor="middle" class="code">G_2</text>
+  <line x1="198" y1="14" x2="182" y2="14" class="arrow"/>
+  <rect x="100" y="0" width="80" height="28" rx="4" fill="#f87171" stroke="#ef4444"/>
+  <text x="140" y="18" text-anchor="middle" class="code">G_1</text>
+  <line x1="98" y1="14" x2="82" y2="14" class="arrow"/>
+  <rect x="0" y="0" width="80" height="28" rx="4" fill="#ef4444" stroke="#dc2626"/>
+  <text x="40" y="18" text-anchor="middle" class="code" fill="#fff">G_0</text>
+</g>
+<text x="510" y="163" class="label">T recovery: T = T / (1-&alpha;)</text>
+<!-- T recovery formula box -->
+<rect x="80" y="200" width="520" height="65" rx="5" fill="#fef9c3" stroke="#eab308"/>
+<text x="340" y="222" text-anchor="middle" class="title" fill="#854d0e">Transparency Recovery</text>
+<text x="100" y="242" class="code">Forward saved: final_T[pix] = T_N+1 = &prod;(1-&alpha;_j)</text>
+<text x="100" y="258" class="code">At step i (back-to-front): T_i = T_{i+1} / (1 - &alpha;_i)</text>
+<text x="340" y="288" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

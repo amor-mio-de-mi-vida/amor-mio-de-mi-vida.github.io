@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">Estimation Question Reasoning Flow</text>
+
+<!-- Step 1 -->
+<rect x="30" y="35" width="180" height="50" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="120" y="55" text-anchor="middle" class="title" fill="#166534">1. Count FLOPs</text>
+<text x="120" y="72" text-anchor="middle" class="code">GEMM: 2MNK</text>
+
+<line x1="210" y1="60" x2="250" y2="60" stroke="#888" stroke-width="1.2" marker-end="url(#arr3)"/>
+
+<!-- Step 2 -->
+<rect x="250" y="35" width="180" height="50" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="340" y="55" text-anchor="middle" class="title" fill="#3b82f6">2. Count Bytes</text>
+<text x="340" y="72" text-anchor="middle" class="code">read + write * dtype</text>
+
+<line x1="430" y1="60" x2="470" y2="60" stroke="#888" stroke-width="1.2" marker-end="url(#arr3)"/>
+
+<!-- Step 3 -->
+<rect x="470" y="35" width="180" height="50" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="560" y="55" text-anchor="middle" class="title" fill="#854d0e">3. AI = FLOP/Byte</text>
+<text x="560" y="72" text-anchor="middle" class="code">arithmetic intensity</text>
+
+<!-- Arrow down from step 3 -->
+<line x1="560" y1="85" x2="560" y2="110" stroke="#888" stroke-width="1.2" marker-end="url(#arr3)"/>
+
+<!-- Step 4: Compare with ridge point -->
+<rect x="380" y="110" width="260" height="55" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="510" y="130" text-anchor="middle" class="title" fill="#ef4444">4. Compare AI vs Ridge Point</text>
+<text x="510" y="150" text-anchor="middle" class="code">ridge = peak_FLOPS / peak_BW</text>
+
+<!-- Branch -->
+<line x1="440" y1="165" x2="200" y2="200" stroke="#22c55e" stroke-width="1.5"/>
+<line x1="580" y1="165" x2="560" y2="200" stroke="#ef4444" stroke-width="1.5"/>
+
+<!-- Memory-bound -->
+<rect x="50" y="200" width="300" height="50" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="200" y="218" text-anchor="middle" class="title" fill="#166534">AI &lt; ridge: Memory-Bound</text>
+<text x="200" y="238" text-anchor="middle" class="code">time = bytes / bandwidth</text>
+
+<!-- Compute-bound -->
+<rect x="380" y="200" width="270" height="50" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="515" y="218" text-anchor="middle" class="title" fill="#ef4444">AI &gt; ridge: Compute-Bound</text>
+<text x="515" y="238" text-anchor="middle" class="code">time = flops / peak_flops</text>
+
+<!-- Bottom -->
+<rect x="150" y="265" width="380" height="28" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="340" y="284" text-anchor="middle" class="label">Actual time &ge; max(compute_time, memory_time)</text>
+
+<defs><marker id="arr3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+
+<text x="340" y="300" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

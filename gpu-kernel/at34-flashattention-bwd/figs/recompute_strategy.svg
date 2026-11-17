@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 340">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+  .accent{fill:#dc2626}
+  .blue{fill:#2563eb}
+  .green{fill:#16a34a}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Forward Saves vs Backward Recomputes</text>
+
+<!-- Forward outputs saved to HBM -->
+<rect x="20" y="35" width="310" height="140" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="175" y="55" text-anchor="middle" class="title blue">Forward: What to Save</text>
+
+<rect x="35" y="68" width="120" height="28" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="95" y="87" text-anchor="middle" class="code">O [N, d]</text>
+<text x="170" y="87" class="label">&#x2713; saved for dO&#183;O = D</text>
+
+<rect x="35" y="103" width="120" height="28" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="95" y="122" text-anchor="middle" class="code">LSE [N]</text>
+<text x="170" y="122" class="label">&#x2713; saved for P recovery</text>
+
+<rect x="35" y="138" width="120" height="28" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="95" y="157" text-anchor="middle" class="code">S [N, N]</text>
+<text x="170" y="157" class="label accent">&#x2717; NOT saved (O(N&#xb2;)!)</text>
+
+<!-- Backward recomputation -->
+<rect x="370" y="35" width="310" height="140" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="525" y="55" text-anchor="middle" class="title accent">Backward: What to Recompute</text>
+
+<rect x="385" y="68" width="280" height="28" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="525" y="87" text-anchor="middle" class="code">S = Q K&#x1D40; / &#x221A;d  (extra GEMM!)</text>
+
+<rect x="385" y="103" width="280" height="28" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="525" y="122" text-anchor="middle" class="code">P = exp(S - LSE)  (recover softmax)</text>
+
+<rect x="385" y="138" width="280" height="28" rx="4" fill="#dcfce7" stroke="#86efac"/>
+<text x="525" y="157" text-anchor="middle" class="code">D = rowsum(dO &#x2299; O)  (precompute)</text>
+
+<!-- Arrow -->
+<line x1="330" y1="105" x2="370" y2="105" stroke="#888" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="350" y="100" text-anchor="middle" font-size="10" fill="#888">&#x2192;</text>
+
+<!-- Trade-off box -->
+<rect x="20" y="195" width="660" height="130" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="215" text-anchor="middle" class="title">Memory vs Compute Trade-off</text>
+
+<rect x="40" y="228" width="295" height="84" rx="4" fill="#fff" stroke="#e5e7eb"/>
+<text x="187" y="248" text-anchor="middle" class="title accent">Standard Attention Backward</text>
+<text x="55" y="268" class="code">Save S [N&#xb2;] + P [N&#xb2;]</text>
+<text x="55" y="285" class="label">Memory: O(N&#xb2;)  |  N=4096: 64 MB/head</text>
+<text x="55" y="300" class="label">FLOP: 4 GEMMs = 8N&#xb2;d</text>
+
+<rect x="365" y="228" width="295" height="84" rx="4" fill="#fff" stroke="#e5e7eb"/>
+<text x="512" y="248" text-anchor="middle" class="title green">FlashAttention Backward</text>
+<text x="380" y="268" class="code">Save O [Nd] + LSE [N]</text>
+<text x="380" y="285" class="label">Memory: O(Nd)  |  N=4096: 1 MB/head</text>
+<text x="380" y="300" class="label">FLOP: 5 GEMMs = 10N&#xb2;d (+25%)</text>
+
+<defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="338" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

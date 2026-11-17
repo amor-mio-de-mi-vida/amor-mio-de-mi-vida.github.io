@@ -1,0 +1,228 @@
+<svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .sub { font-size: 13px; font-weight: 600; fill: #4a4a4a; }
+    .cell { stroke: #ccc; stroke-width: 0.5; }
+    .conflict { fill: #D55E00; opacity: 0.35; }
+    .ok { fill: #009E73; opacity: 0.25; }
+    .header { fill: #f5f5f3; }
+    .num { font-size: 9px; fill: #666; text-anchor: middle; dominant-baseline: central; }
+    .label { font-size: 11px; fill: #4a4a4a; }
+    .formula { font-size: 12px; fill: #1a1a1a; font-family: 'SF Mono', 'Fira Code', monospace; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">共享内存 bank 冲突与 XOR swizzle</text>
+
+  <!-- (a) Without swizzle -->
+  <text x="175" y="48" text-anchor="middle" class="sub">(a) 无 swizzle：ldmatrix 4 路冲突</text>
+
+  <!-- Bank header -->
+  <g transform="translate(20, 56)">
+    <text x="-6" y="8" class="label" text-anchor="end">行</text>
+    <!-- Bank numbers -->
+    <g>
+      <rect class="cell header" x="0" y="-2" width="20" height="14"/>
+      <text class="num" x="10" y="6">0</text>
+      <rect class="cell header" x="20" y="-2" width="20" height="14"/>
+      <text class="num" x="30" y="6">1</text>
+      <rect class="cell header" x="40" y="-2" width="20" height="14"/>
+      <text class="num" x="50" y="6">2</text>
+      <rect class="cell header" x="60" y="-2" width="20" height="14"/>
+      <text class="num" x="70" y="6">3</text>
+      <rect class="cell header" x="80" y="-2" width="20" height="14"/>
+      <text class="num" x="90" y="6">4</text>
+      <rect class="cell header" x="100" y="-2" width="20" height="14"/>
+      <text class="num" x="110" y="6">5</text>
+      <rect class="cell header" x="120" y="-2" width="20" height="14"/>
+      <text class="num" x="130" y="6">6</text>
+      <rect class="cell header" x="140" y="-2" width="20" height="14"/>
+      <text class="num" x="150" y="6">7</text>
+      <rect class="cell header" x="160" y="-2" width="20" height="14"/>
+      <text class="num" x="170" y="6">...</text>
+      <rect class="cell header" x="180" y="-2" width="20" height="14"/>
+      <text class="num" x="190" y="6">...</text>
+      <rect class="cell header" x="200" y="-2" width="20" height="14"/>
+      <text class="num" x="210" y="6">...</text>
+      <rect class="cell header" x="220" y="-2" width="20" height="14"/>
+      <text class="num" x="230" y="6">...</text>
+      <rect class="cell header" x="240" y="-2" width="20" height="14"/>
+      <text class="num" x="250" y="6">28</text>
+      <rect class="cell header" x="260" y="-2" width="20" height="14"/>
+      <text class="num" x="270" y="6">29</text>
+      <rect class="cell header" x="280" y="-2" width="20" height="14"/>
+      <text class="num" x="290" y="6">30</text>
+      <rect class="cell header" x="300" y="-2" width="20" height="14"/>
+      <text class="num" x="310" y="6">31</text>
+    </g>
+
+    <!-- Row 0-3: threads T0-T3 all hit same banks (conflict) -->
+    <g transform="translate(0, 16)">
+      <text x="-6" y="8" class="num" text-anchor="end">0</text>
+      <rect class="cell conflict" x="0" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="20" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="40" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="60" y="0" width="20" height="16"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <text class="num" x="10" y="9">T0</text>
+    </g>
+    <g transform="translate(0, 32)">
+      <text x="-6" y="8" class="num" text-anchor="end">1</text>
+      <rect class="cell conflict" x="0" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="20" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="40" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="60" y="0" width="20" height="16"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <text class="num" x="10" y="9">T1</text>
+    </g>
+    <g transform="translate(0, 48)">
+      <text x="-6" y="8" class="num" text-anchor="end">2</text>
+      <rect class="cell conflict" x="0" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="20" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="40" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="60" y="0" width="20" height="16"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <text class="num" x="10" y="9">T2</text>
+    </g>
+    <g transform="translate(0, 64)">
+      <text x="-6" y="8" class="num" text-anchor="end">3</text>
+      <rect class="cell conflict" x="0" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="20" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="40" y="0" width="20" height="16"/>
+      <rect class="cell conflict" x="60" y="0" width="20" height="16"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <text class="num" x="10" y="9">T3</text>
+    </g>
+    <!-- Conflict bracket -->
+    <line x1="-14" y1="16" x2="-14" y2="80" stroke="#D55E00" stroke-width="2"/>
+    <text x="-16" y="52" text-anchor="end" font-size="10" fill="#D55E00" font-weight="600">4路冲突</text>
+  </g>
+
+  <!-- (b) With swizzle -->
+  <text x="540" y="48" text-anchor="middle" class="sub">(b) XOR swizzle：无冲突</text>
+
+  <g transform="translate(380, 56)">
+    <!-- Bank numbers -->
+    <g>
+      <rect class="cell header" x="0" y="-2" width="20" height="14"/>
+      <text class="num" x="10" y="6">0</text>
+      <rect class="cell header" x="20" y="-2" width="20" height="14"/>
+      <text class="num" x="30" y="6">1</text>
+      <rect class="cell header" x="40" y="-2" width="20" height="14"/>
+      <text class="num" x="50" y="6">2</text>
+      <rect class="cell header" x="60" y="-2" width="20" height="14"/>
+      <text class="num" x="70" y="6">3</text>
+      <rect class="cell header" x="80" y="-2" width="20" height="14"/>
+      <text class="num" x="90" y="6">4</text>
+      <rect class="cell header" x="100" y="-2" width="20" height="14"/>
+      <text class="num" x="110" y="6">5</text>
+      <rect class="cell header" x="120" y="-2" width="20" height="14"/>
+      <text class="num" x="130" y="6">6</text>
+      <rect class="cell header" x="140" y="-2" width="20" height="14"/>
+      <text class="num" x="150" y="6">7</text>
+      <rect class="cell header" x="160" y="-2" width="20" height="14"/>
+      <text class="num" x="170" y="6">...</text>
+      <rect class="cell header" x="180" y="-2" width="20" height="14"/>
+      <text class="num" x="190" y="6">...</text>
+      <rect class="cell header" x="200" y="-2" width="20" height="14"/>
+      <text class="num" x="210" y="6">...</text>
+      <rect class="cell header" x="220" y="-2" width="20" height="14"/>
+      <text class="num" x="230" y="6">...</text>
+      <rect class="cell header" x="240" y="-2" width="20" height="14"/>
+      <text class="num" x="250" y="6">28</text>
+      <rect class="cell header" x="260" y="-2" width="20" height="14"/>
+      <text class="num" x="270" y="6">29</text>
+      <rect class="cell header" x="280" y="-2" width="20" height="14"/>
+      <text class="num" x="290" y="6">30</text>
+      <rect class="cell header" x="300" y="-2" width="20" height="14"/>
+      <text class="num" x="310" y="6">31</text>
+    </g>
+
+    <!-- Row 0: T0 hits bank 0-3 -->
+    <g transform="translate(0, 16)">
+      <text x="-6" y="8" class="num" text-anchor="end">0</text>
+      <rect class="cell ok" x="0" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="20" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="40" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="60" y="0" width="20" height="16"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <text class="num" x="10" y="9">T0</text>
+    </g>
+    <!-- Row 1: T1 shifted by XOR → bank 4-7 -->
+    <g transform="translate(0, 32)">
+      <text x="-6" y="8" class="num" text-anchor="end">1</text>
+      <rect class="cell" x="0" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="20" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="40" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="60" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell ok" x="80" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="100" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="120" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="140" y="0" width="20" height="16"/>
+      <text class="num" x="90" y="9">T1</text>
+    </g>
+    <!-- Row 2: T2 → bank 8-11 -->
+    <g transform="translate(0, 48)">
+      <text x="-6" y="8" class="num" text-anchor="end">2</text>
+      <rect class="cell" x="0" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="20" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="40" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="60" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell ok" x="160" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="180" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="200" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="220" y="0" width="20" height="16"/>
+      <text class="num" x="170" y="9">T2</text>
+    </g>
+    <!-- Row 3: T3 → bank 12-15 -->
+    <g transform="translate(0, 64)">
+      <text x="-6" y="8" class="num" text-anchor="end">3</text>
+      <rect class="cell" x="0" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="20" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="40" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="60" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="80" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="100" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="120" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="140" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="160" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="180" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="200" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell" x="220" y="0" width="20" height="16" fill="#fff"/>
+      <rect class="cell ok" x="240" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="260" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="280" y="0" width="20" height="16"/>
+      <rect class="cell ok" x="300" y="0" width="20" height="16"/>
+      <text class="num" x="250" y="9">T3</text>
+    </g>
+  </g>
+
+  <!-- Formula -->
+  <rect x="100" y="180" width="520" height="46" rx="6" fill="#f5f5f3" stroke="#e4e4e0"/>
+  <text x="360" y="200" text-anchor="middle" class="formula">swizzled_addr = addr ^ ((addr &gt;&gt; 4) &amp; 0x7) &lt;&lt; 9</text>
+  <text x="360" y="218" text-anchor="middle" font-size="11" fill="#666">行号的低 3 位 XOR 到列地址的 bank 选择位，使相邻行错开 bank</text>
+
+  <!-- Legend -->
+  <rect x="100" y="240" width="14" height="12" rx="2" fill="#D55E00" opacity="0.35" stroke="#D55E00" stroke-width="0.5"/>
+  <text x="120" y="251" font-size="12" fill="#4a4a4a">多线程同时访问同一 bank（冲突）</text>
+  <rect x="380" y="240" width="14" height="12" rx="2" fill="#009E73" opacity="0.25" stroke="#009E73" stroke-width="0.5"/>
+  <text x="400" y="251" font-size="12" fill="#4a4a4a">每线程访问不同 bank（无冲突）</text>
+</svg>

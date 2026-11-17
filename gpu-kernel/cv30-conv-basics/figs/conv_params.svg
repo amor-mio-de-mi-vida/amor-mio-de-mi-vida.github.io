@@ -1,0 +1,86 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .cell { stroke-width: 0.8; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">卷积参数可视化：stride、padding、dilation</text>
+
+  <!-- Stride=1 -->
+  <text x="120" y="50" text-anchor="middle" class="label">stride=1, pad=0</text>
+  <!-- 5x5 input grid -->
+  <g transform="translate(50,58)">
+    <rect x="0" y="0" width="140" height="140" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="0.5"/>
+    <!-- Grid lines -->
+    <line x1="28" y1="0" x2="28" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="56" y1="0" x2="56" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="84" y1="0" x2="84" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="112" y1="0" x2="112" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="28" x2="140" y2="28" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="56" x2="140" y2="56" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="84" x2="140" y2="84" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="112" x2="140" y2="112" stroke="#1976D2" stroke-width="0.3"/>
+    <!-- 3x3 filter position 1 -->
+    <rect x="0" y="0" width="84" height="84" rx="2" fill="#D55E00" opacity="0.2" stroke="#D55E00" stroke-width="1.5"/>
+    <!-- 3x3 filter position 2 -->
+    <rect x="28" y="0" width="84" height="84" rx="2" fill="#D55E00" opacity="0.1" stroke="#D55E00" stroke-width="1" stroke-dasharray="3,2"/>
+  </g>
+  <text x="120" y="210" text-anchor="middle" class="sublabel">5&times;5 input, 3&times;3 filter &rarr; 3&times;3 output</text>
+
+  <!-- Stride=2 -->
+  <text x="360" y="50" text-anchor="middle" class="label">stride=2, pad=0</text>
+  <g transform="translate(290,58)">
+    <rect x="0" y="0" width="140" height="140" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="0.5"/>
+    <line x1="28" y1="0" x2="28" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="56" y1="0" x2="56" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="84" y1="0" x2="84" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="112" y1="0" x2="112" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="28" x2="140" y2="28" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="56" x2="140" y2="56" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="84" x2="140" y2="84" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="112" x2="140" y2="112" stroke="#1976D2" stroke-width="0.3"/>
+    <!-- Position 1 -->
+    <rect x="0" y="0" width="84" height="84" rx="2" fill="#D55E00" opacity="0.2" stroke="#D55E00" stroke-width="1.5"/>
+    <!-- Position 2 (stride 2) -->
+    <rect x="56" y="0" width="84" height="84" rx="2" fill="#D55E00" opacity="0.1" stroke="#D55E00" stroke-width="1" stroke-dasharray="3,2"/>
+  </g>
+  <text x="360" y="210" text-anchor="middle" class="sublabel">5&times;5 input, 3&times;3 filter, stride 2 &rarr; 2&times;2 output</text>
+
+  <!-- Dilation -->
+  <text x="600" y="50" text-anchor="middle" class="label">dilation=2, pad=0</text>
+  <g transform="translate(530,58)">
+    <rect x="0" y="0" width="140" height="140" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="0.5"/>
+    <line x1="20" y1="0" x2="20" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="40" y1="0" x2="40" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="60" y1="0" x2="60" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="80" y1="0" x2="80" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="100" y1="0" x2="100" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="120" y1="0" x2="120" y2="140" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="20" x2="140" y2="20" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="40" x2="140" y2="40" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="60" x2="140" y2="60" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="80" x2="140" y2="80" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="100" x2="140" y2="100" stroke="#1976D2" stroke-width="0.3"/>
+    <line x1="0" y1="120" x2="140" y2="120" stroke="#1976D2" stroke-width="0.3"/>
+    <!-- Dilated 3x3: sample at (0,0), (0,2), (0,4), (2,0)... -->
+    <circle cx="10" cy="10" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="50" cy="10" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="90" cy="10" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="10" cy="50" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="50" cy="50" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="90" cy="50" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="10" cy="90" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="50" cy="90" r="5" fill="#D55E00" opacity="0.6"/>
+    <circle cx="90" cy="90" r="5" fill="#D55E00" opacity="0.6"/>
+    <!-- Effective receptive field -->
+    <rect x="0" y="0" width="100" height="100" rx="2" fill="none" stroke="#D55E00" stroke-width="1.5" stroke-dasharray="4,2"/>
+  </g>
+  <text x="600" y="210" text-anchor="middle" class="sublabel">7&times;7 input, 3&times;3 filter, dil 2 &rarr; 3&times;3 output</text>
+  <text x="600" y="224" text-anchor="middle" class="sublabel" fill="#D55E00">有效感受野 5&times;5</text>
+
+  <!-- Formula -->
+  <rect x="50" y="232" width="620" height="24" rx="4" fill="#F5F5F5" stroke="#ccc"/>
+  <text x="360" y="249" text-anchor="middle" class="sublabel">H_out = &lfloor;(H + 2&middot;pad - dilation&middot;(R - 1) - 1) / stride&rfloor; + 1</text>
+</svg>

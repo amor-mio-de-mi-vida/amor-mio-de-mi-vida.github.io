@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Explicit im2col vs Implicit GEMM: Memory &amp; Bandwidth</text>
+
+<!-- Explicit im2col path -->
+<rect x="20" y="35" width="320" height="210" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="180" y="55" text-anchor="middle" class="title" fill="#dc2626">Explicit im2col + GEMM</text>
+
+<rect x="35" y="68" width="120" height="35" rx="4" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="95" y="90" text-anchor="middle" class="code">Input [C,H,W]</text>
+
+<text x="170" y="90" class="title" fill="#888">&#x2192;</text>
+
+<rect x="185" y="68" width="140" height="35" rx="4" fill="#fee2e2" stroke="#ef4444"/>
+<text x="255" y="82" text-anchor="middle" class="code">im2col kernel</text>
+<text x="255" y="96" text-anchor="middle" class="label">write col to HBM</text>
+
+<rect x="100" y="115" width="140" height="35" rx="4" fill="#fee2e2" stroke="#ef4444"/>
+<text x="170" y="130" text-anchor="middle" class="code">col [K, P]</text>
+<text x="170" y="143" text-anchor="middle" class="label" fill="#dc2626">9&#xd7; input size</text>
+
+<text x="255" y="138" class="title" fill="#888">&#x2192;</text>
+
+<rect x="100" y="160" width="140" height="35" rx="4" fill="#fde68a" stroke="#f59e0b"/>
+<text x="170" y="175" text-anchor="middle" class="code">GEMM kernel</text>
+<text x="170" y="188" text-anchor="middle" class="label">read col from HBM</text>
+
+<text x="40" y="215" class="label" fill="#dc2626">Extra memory: O(C&#xb7;R&#xb7;S&#xb7;P)</text>
+<text x="40" y="230" class="label" fill="#dc2626">Extra bandwidth: 2&#xd7; col size (W+R)</text>
+
+<!-- Implicit GEMM path -->
+<rect x="370" y="35" width="310" height="210" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#16a34a">Implicit GEMM</text>
+
+<rect x="385" y="68" width="120" height="35" rx="4" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="445" y="90" text-anchor="middle" class="code">Input [C,H,W]</text>
+
+<rect x="385" y="120" width="280" height="50" rx="5" fill="#bbf7d0" stroke="#86efac"/>
+<text x="525" y="140" text-anchor="middle" class="code">GEMM kernel (fused load)</text>
+<text x="525" y="155" text-anchor="middle" class="label">address calc: k &#x2192; (ci,r,s) &#x2192; input[ih,iw]</text>
+
+<line x1="445" y1="103" x2="445" y2="120" stroke="#22c55e" stroke-width="1.2" marker-end="url(#arr)"/>
+<text x="455" y="115" class="label" fill="#16a34a">direct read</text>
+
+<text x="390" y="195" class="label" fill="#16a34a">Extra memory: 0</text>
+<text x="390" y="210" class="label" fill="#16a34a">Extra bandwidth: 0</text>
+<text x="390" y="228" class="label">Trade-off: address computation per tile</text>
+
+<defs><marker id="arr" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+  <path d="M0,0 L6,2.5 L0,5" fill="#22c55e"/>
+</marker></defs>
+<text x="350" y="275" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

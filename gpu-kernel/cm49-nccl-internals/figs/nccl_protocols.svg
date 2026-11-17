@@ -1,0 +1,117 @@
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .proto-box { stroke-width: 1.5; rx: 5; }
+    .data-cell { opacity: 0.3; rx: 2; }
+    .flag-cell { opacity: 0.6; rx: 2; }
+    .grid-line { stroke: var(--rule, #e4e4e0); stroke-width: 0.5; }
+  </style>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">NCCL 三种协议对比</text>
+
+  <!-- Protocol 1: Simple -->
+  <rect x="30" y="45" width="200" height="230" fill="#E69F00" opacity="0.06" class="proto-box" stroke="#E69F00"/>
+  <text x="130" y="68" text-anchor="middle" class="d-label" style="font-size:12px;fill:#E69F00">Simple</text>
+  <text x="130" y="85" text-anchor="middle" class="d-note" style="font-size:10px">大消息 (>256 KB)</text>
+
+  <!-- Simple diagram: large chunk transfer -->
+  <g transform="translate(45, 100)">
+    <rect x="0" y="0" width="170" height="20" fill="#E69F00" class="data-cell"/>
+    <text x="85" y="14" text-anchor="middle" class="d-note" style="font-size:9px">数据块（512 KB chunk）</text>
+
+    <text x="85" y="42" text-anchor="middle" class="d-note" style="font-size:10px">↓ DMA copy ↓</text>
+
+    <rect x="0" y="52" width="170" height="20" fill="#E69F00" class="data-cell"/>
+    <text x="85" y="66" text-anchor="middle" class="d-note" style="font-size:9px">bounce buffer</text>
+
+    <text x="85" y="92" text-anchor="middle" class="d-note" style="font-size:10px">→ proxy 触发 IB send →</text>
+
+    <text x="0" y="120" class="d-note" style="font-size:10px">优点：吞吐高</text>
+    <text x="0" y="136" class="d-note" style="font-size:10px">缺点：需要 proxy 线程</text>
+    <text x="0" y="152" class="d-note" style="font-size:10px">　　　启动延迟较大</text>
+    <text x="0" y="168" class="d-note" style="font-size:10px;font-weight:600">效率：100%</text>
+  </g>
+
+  <!-- Protocol 2: LL (Low Latency) -->
+  <rect x="260" y="45" width="200" height="230" fill="#56B4E9" opacity="0.06" class="proto-box" stroke="#56B4E9"/>
+  <text x="360" y="68" text-anchor="middle" class="d-label" style="font-size:12px;fill:#56B4E9">LL (Low Latency)</text>
+  <text x="360" y="85" text-anchor="middle" class="d-note" style="font-size:10px">小消息 (&lt;8 KB)</text>
+
+  <!-- LL diagram: data+flag interleaved -->
+  <g transform="translate(275, 100)">
+    <!-- 4B data + 4B flag pattern -->
+    <rect x="0" y="0" width="40" height="20" fill="#56B4E9" class="data-cell"/>
+    <rect x="40" y="0" width="20" height="20" fill="#D55E00" class="flag-cell"/>
+    <rect x="65" y="0" width="40" height="20" fill="#56B4E9" class="data-cell"/>
+    <rect x="105" y="0" width="20" height="20" fill="#D55E00" class="flag-cell"/>
+    <rect x="130" y="0" width="40" height="20" fill="#56B4E9" class="data-cell"/>
+
+    <text x="20" y="14" text-anchor="middle" class="d-note" style="font-size:8px">4B</text>
+    <text x="50" y="14" text-anchor="middle" class="d-note" style="font-size:7px;fill:#D55E00">flag</text>
+    <text x="85" y="14" text-anchor="middle" class="d-note" style="font-size:8px">4B</text>
+    <text x="115" y="14" text-anchor="middle" class="d-note" style="font-size:7px;fill:#D55E00">flag</text>
+    <text x="150" y="14" text-anchor="middle" class="d-note" style="font-size:8px">4B</text>
+
+    <text x="85" y="40" text-anchor="middle" class="d-note" style="font-size:10px">每 4B 数据附带 4B flag</text>
+    <text x="85" y="56" text-anchor="middle" class="d-note" style="font-size:10px">接收方 spin-wait on flag</text>
+    <text x="85" y="72" text-anchor="middle" class="d-note" style="font-size:10px">8B 原子写保证可见性</text>
+
+    <text x="0" y="100" class="d-note" style="font-size:10px">优点：无 proxy，延迟低</text>
+    <text x="0" y="116" class="d-note" style="font-size:10px">缺点：flag 浪费 50% 带宽</text>
+    <text x="0" y="132" class="d-note" style="font-size:10px">　　　仅 NVLink 可用</text>
+    <text x="0" y="148" class="d-note" style="font-size:10px;font-weight:600">效率：4/6 ≈ 67%</text>
+  </g>
+
+  <!-- Protocol 3: LL128 -->
+  <rect x="490" y="45" width="200" height="230" fill="#009E73" opacity="0.06" class="proto-box" stroke="#009E73"/>
+  <text x="590" y="68" text-anchor="middle" class="d-label" style="font-size:12px;fill:#009E73">LL128</text>
+  <text x="590" y="85" text-anchor="middle" class="d-note" style="font-size:10px">中等消息 (8–256 KB)</text>
+
+  <!-- LL128 diagram: 128B atomic -->
+  <g transform="translate(505, 100)">
+    <rect x="0" y="0" width="120" height="20" fill="#009E73" class="data-cell"/>
+    <rect x="120" y="0" width="50" height="20" fill="#D55E00" class="flag-cell"/>
+
+    <text x="60" y="14" text-anchor="middle" class="d-note" style="font-size:8px">120 B 数据</text>
+    <text x="145" y="14" text-anchor="middle" class="d-note" style="font-size:7px;fill:#D55E00">8B flag</text>
+
+    <text x="85" y="40" text-anchor="middle" class="d-note" style="font-size:10px">NVLink 128B 原子传输</text>
+    <text x="85" y="56" text-anchor="middle" class="d-note" style="font-size:10px">120B 数据 + 8B flag</text>
+    <text x="85" y="72" text-anchor="middle" class="d-note" style="font-size:10px">利用 NVLink 原子性</text>
+
+    <text x="0" y="100" class="d-note" style="font-size:10px">优点：低延迟 + 高效率</text>
+    <text x="0" y="116" class="d-note" style="font-size:10px">缺点：仅 NVLink</text>
+    <text x="0" y="132" class="d-note" style="font-size:10px">　　　需要 sm_70+</text>
+    <text x="0" y="148" class="d-note" style="font-size:10px;font-weight:600">效率：120/128 ≈ 94%</text>
+  </g>
+
+  <!-- Message size decision diagram -->
+  <g transform="translate(50, 300)">
+    <text x="0" y="0" class="d-label" style="font-size:11px">NCCL 协议自动选择</text>
+    <line x1="0" y1="20" x2="620" y2="20" stroke="var(--ink-3,#8a8a86)" stroke-width="1"/>
+
+    <!-- Size axis -->
+    <rect x="0" y="25" width="80" height="20" fill="#56B4E9" opacity="0.2" rx="3"/>
+    <text x="40" y="39" text-anchor="middle" class="d-note" style="font-size:10px;fill:#56B4E9">LL</text>
+
+    <rect x="85" y="25" width="200" height="20" fill="#009E73" opacity="0.2" rx="3"/>
+    <text x="185" y="39" text-anchor="middle" class="d-note" style="font-size:10px;fill:#009E73">LL128</text>
+
+    <rect x="290" y="25" width="330" height="20" fill="#E69F00" opacity="0.2" rx="3"/>
+    <text x="455" y="39" text-anchor="middle" class="d-note" style="font-size:10px;fill:#E69F00">Simple</text>
+
+    <!-- Size markers -->
+    <text x="0" y="60" class="d-note" style="font-size:9px">0</text>
+    <text x="80" y="60" text-anchor="middle" class="d-note" style="font-size:9px">~8 KB</text>
+    <text x="285" y="60" text-anchor="middle" class="d-note" style="font-size:9px">~256 KB</text>
+    <text x="620" y="60" text-anchor="end" class="d-note" style="font-size:9px">∞</text>
+
+    <!-- Arrows with priority -->
+    <text x="0" y="80" class="d-note" style="font-size:10px">← 延迟优先 ←</text>
+    <text x="500" y="80" class="d-note" style="font-size:10px">→ 吞吐优先 →</text>
+  </g>
+
+  <!-- IB note -->
+  <text x="360" y="410" text-anchor="middle" class="d-note" style="font-size:10px">InfiniBand 仅支持 Simple（需 proxy 线程调用 ibv_post_send）；NVLink 支持全部三种</text>
+</svg>

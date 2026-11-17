@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .sm{font-size:10px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Backward FLOP Breakdown: 5 GEMMs</text>
+
+<!-- Forward reference bar -->
+<rect x="40" y="35" width="620" height="28" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
+<text x="50" y="53" class="title" fill="#2563eb">Forward (reference): 2 GEMMs = 4N&#xb2;d FLOP</text>
+<rect x="410" y="39" width="100" height="20" rx="3" fill="#93c5fd"/>
+<text x="460" y="53" text-anchor="middle" class="sm" fill="#1e3a5f">QK&#x1D40;: 2N&#xb2;d</text>
+<rect x="515" y="39" width="100" height="20" rx="3" fill="#60a5fa"/>
+<text x="565" y="53" text-anchor="middle" class="sm" fill="#fff">PV: 2N&#xb2;d</text>
+
+<!-- 5 backward GEMMs -->
+<text x="50" y="85" class="title" fill="#dc2626">Backward: 5 GEMMs = 10N&#xb2;d FLOP (2.5&#xd7; forward)</text>
+
+<!-- GEMM 1: recompute QK^T -->
+<rect x="40" y="95" width="620" height="36" rx="4" fill="#fef2f2" stroke="#fca5a5" stroke-width="1"/>
+<text x="55" y="110" class="code" fill="#dc2626">GEMM 1</text>
+<text x="130" y="110" class="code">S = Q &#xb7; K&#x1D40; / &#x221A;d</text>
+<text x="350" y="110" class="label">recompute (not in fwd save)</text>
+<rect x="530" y="100" width="120" height="22" rx="3" fill="#fca5a5"/>
+<text x="590" y="115" text-anchor="middle" class="sm">2N&#xb2;d FLOP</text>
+
+<!-- GEMM 2: dV -->
+<rect x="40" y="137" width="620" height="36" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="1"/>
+<text x="55" y="152" class="code" fill="#16a34a">GEMM 2</text>
+<text x="130" y="152" class="code">dV = P&#x1D40; &#xb7; dO</text>
+<text x="350" y="152" class="label">[Bc,Br] &#xb7; [Br,d] &#x2192; [Bc,d]</text>
+<rect x="530" y="142" width="120" height="22" rx="3" fill="#86efac"/>
+<text x="590" y="157" text-anchor="middle" class="sm">2N&#xb2;d FLOP</text>
+
+<!-- GEMM 3: dP -->
+<rect x="40" y="179" width="620" height="36" rx="4" fill="#dcfce7" stroke="#86efac" stroke-width="1"/>
+<text x="55" y="194" class="code" fill="#16a34a">GEMM 3</text>
+<text x="130" y="194" class="code">dP = dO &#xb7; V&#x1D40;</text>
+<text x="350" y="194" class="label">[Br,d] &#xb7; [d,Bc] &#x2192; [Br,Bc]</text>
+<rect x="530" y="184" width="120" height="22" rx="3" fill="#86efac"/>
+<text x="590" y="199" text-anchor="middle" class="sm">2N&#xb2;d FLOP</text>
+
+<!-- GEMM 4: dQ -->
+<rect x="40" y="221" width="620" height="36" rx="4" fill="#fef9c3" stroke="#fde047" stroke-width="1"/>
+<text x="55" y="236" class="code" fill="#a16207">GEMM 4</text>
+<text x="130" y="236" class="code">dQ += dS &#xb7; K</text>
+<text x="350" y="236" class="label">[Br,Bc] &#xb7; [Bc,d] &#x2192; [Br,d] (cross-block!)</text>
+<rect x="530" y="226" width="120" height="22" rx="3" fill="#fde047"/>
+<text x="590" y="241" text-anchor="middle" class="sm">2N&#xb2;d FLOP</text>
+
+<!-- GEMM 5: dK -->
+<rect x="40" y="263" width="620" height="36" rx="4" fill="#fef9c3" stroke="#fde047" stroke-width="1"/>
+<text x="55" y="278" class="code" fill="#a16207">GEMM 5</text>
+<text x="130" y="278" class="code">dK += dS&#x1D40; &#xb7; Q</text>
+<text x="350" y="278" class="label">[Bc,Br] &#xb7; [Br,d] &#x2192; [Bc,d]</text>
+<rect x="530" y="268" width="120" height="22" rx="3" fill="#fde047"/>
+<text x="590" y="283" text-anchor="middle" class="sm">2N&#xb2;d FLOP</text>
+
+<!-- Summary -->
+<text x="350" y="315" text-anchor="middle" class="label">Red = recompute overhead | Green = gradient GEMMs | Yellow = gradient GEMMs with cross-block issues</text>
+
+</svg>

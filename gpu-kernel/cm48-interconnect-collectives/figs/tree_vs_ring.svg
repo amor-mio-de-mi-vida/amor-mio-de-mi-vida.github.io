@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Ring vs Tree AllReduce: 延迟与带宽权衡</text>
+
+<!-- Ring side -->
+<rect x="20" y="32" width="320" height="200" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="180" y="52" text-anchor="middle" class="title" fill="#2563eb">Ring AllReduce</text>
+
+<circle cx="80" cy="90" r="14" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="80" y="94" text-anchor="middle" class="code">G0</text>
+<circle cx="180" cy="90" r="14" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="180" y="94" text-anchor="middle" class="code">G1</text>
+<circle cx="280" cy="90" r="14" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="280" y="94" text-anchor="middle" class="code">G2</text>
+<circle cx="180" cy="150" r="14" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="180" y="154" text-anchor="middle" class="code">G3</text>
+
+<line x1="94" y1="90" x2="166" y2="90" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#ab)"/>
+<line x1="194" y1="90" x2="266" y2="90" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#ab)"/>
+<line x1="275" y1="104" x2="194" y2="140" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#ab)"/>
+<line x1="166" y1="146" x2="85" y2="104" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#ab)"/>
+
+<text x="40" y="185" class="label">Steps: 2(N-1) = 6</text>
+<text x="40" y="200" class="label">BW: 2·(N-1)/N·D = 1.5D</text>
+<text x="40" y="215" class="label" fill="#2563eb">Latency: O(N) &#x2717;</text>
+<text x="40" y="230" class="label" fill="#16a34a">Bandwidth: optimal &#x2713;</text>
+
+<!-- Tree side -->
+<rect x="360" y="32" width="320" height="200" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="520" y="52" text-anchor="middle" class="title" fill="#dc2626">Tree AllReduce</text>
+
+<circle cx="520" cy="85" r="14" fill="#fee2e2" stroke="#ef4444"/>
+<text x="520" y="89" text-anchor="middle" class="code">G0</text>
+<circle cx="440" cy="130" r="14" fill="#fee2e2" stroke="#ef4444"/>
+<text x="440" y="134" text-anchor="middle" class="code">G1</text>
+<circle cx="600" cy="130" r="14" fill="#fee2e2" stroke="#ef4444"/>
+<text x="600" y="134" text-anchor="middle" class="code">G2</text>
+<circle cx="520" cy="175" r="14" fill="#fee2e2" stroke="#ef4444"/>
+<text x="520" y="179" text-anchor="middle" class="code">G3</text>
+
+<line x1="510" y1="98" x2="450" y2="118" stroke="#ef4444" stroke-width="1.2" marker-end="url(#ar)"/>
+<line x1="530" y1="98" x2="590" y2="118" stroke="#ef4444" stroke-width="1.2" marker-end="url(#ar)"/>
+<line x1="520" y1="162" x2="520" y2="99" stroke="#ef4444" stroke-width="1.2" marker-end="url(#ar)"/>
+
+<text x="380" y="200" class="label">Steps: 2·log(N) = 4</text>
+<text x="380" y="215" class="label">BW: D·log(N) = 2D</text>
+<text x="380" y="230" class="label" fill="#16a34a">Latency: O(log N) &#x2713;</text>
+
+<defs>
+<marker id="ab" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#3b82f6"/></marker>
+<marker id="ar" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#ef4444"/></marker>
+</defs>
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

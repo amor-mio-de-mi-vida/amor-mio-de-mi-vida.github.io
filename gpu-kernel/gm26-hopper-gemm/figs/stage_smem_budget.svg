@@ -1,0 +1,72 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .bar     { fill: #56B4E9; opacity: 0.7; }
+    .bar-over { fill: #D55E00; opacity: 0.5; }
+    .limit-line { stroke: #D55E00; stroke-width: 1.5; stroke-dasharray: 6,3; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="d-label">流水线级数 vs 共享内存用量（BM=128, BN=256, BK=64, BF16）</text>
+
+  <!-- Y axis -->
+  <line x1="80" y1="40" x2="80" y2="260" stroke="var(--ink-3,#8a8a86)" stroke-width="1"/>
+  <text x="36" y="154" text-anchor="middle" class="d-label" transform="rotate(-90,36,154)">KB</text>
+
+  <!-- Y ticks: 0, 48, 96, 144, 192, 228, 240 -->
+  <text x="72" y="258" text-anchor="end" class="d-note">0</text>
+  <line x1="76" y1="255" x2="84" y2="255" stroke="var(--ink-3,#8a8a86)"/>
+
+  <text x="72" y="214" text-anchor="end" class="d-note">48</text>
+  <line x1="76" y1="211" x2="84" y2="211" stroke="var(--ink-3,#8a8a86)"/>
+
+  <text x="72" y="170" text-anchor="end" class="d-note">96</text>
+  <line x1="76" y1="167" x2="84" y2="167" stroke="var(--ink-3,#8a8a86)"/>
+
+  <text x="72" y="126" text-anchor="end" class="d-note">144</text>
+  <line x1="76" y1="123" x2="84" y2="123" stroke="var(--ink-3,#8a8a86)"/>
+
+  <text x="72" y="82" text-anchor="end" class="d-note">192</text>
+  <line x1="76" y1="79" x2="84" y2="79" stroke="var(--ink-3,#8a8a86)"/>
+
+  <text x="72" y="48" text-anchor="end" class="d-note">240</text>
+  <line x1="76" y1="45" x2="84" y2="45" stroke="var(--ink-3,#8a8a86)"/>
+
+  <!-- 228KB H100 limit line -->
+  <line x1="80" y1="56" x2="680" y2="56" class="limit-line"/>
+  <text x="685" y="60" class="d-note" style="fill:#D55E00">228 KB (H100)</text>
+
+  <!-- X axis -->
+  <line x1="80" y1="255" x2="680" y2="255" stroke="var(--ink-3,#8a8a86)" stroke-width="1"/>
+
+  <!-- Each stage = (128×64 + 64×256) × 2 bytes = (8192+16384)×2 = 49152 = 48 KB -->
+  <!-- Bars: stages 1..5 -->
+
+  <!-- Stage 1: 48KB -->
+  <rect x="120" y="211" width="80" height="44" class="bar"/>
+  <text x="160" y="205" text-anchor="middle" class="d-note">48 KB</text>
+  <text x="160" y="272" text-anchor="middle" class="d-note">1 级</text>
+
+  <!-- Stage 2: 96KB -->
+  <rect x="230" y="167" width="80" height="88" class="bar"/>
+  <text x="270" y="161" text-anchor="middle" class="d-note">96 KB</text>
+  <text x="270" y="272" text-anchor="middle" class="d-note">2 级</text>
+
+  <!-- Stage 3: 144KB -->
+  <rect x="340" y="123" width="80" height="132" class="bar"/>
+  <text x="380" y="117" text-anchor="middle" class="d-note">144 KB</text>
+  <text x="380" y="272" text-anchor="middle" class="d-note">3 级</text>
+
+  <!-- Stage 4: 192KB (fits in 228) -->
+  <rect x="450" y="79" width="80" height="176" class="bar"/>
+  <text x="490" y="73" text-anchor="middle" class="d-note">192 KB</text>
+  <text x="490" y="272" text-anchor="middle" class="d-note">4 级</text>
+
+  <!-- Stage 5: 240KB (exceeds 228) -->
+  <rect x="560" y="45" width="80" height="210" class="bar-over"/>
+  <text x="600" y="39" text-anchor="middle" class="d-note" style="fill:#D55E00">240 KB</text>
+  <text x="600" y="272" text-anchor="middle" class="d-note">5 级</text>
+
+  <!-- Note -->
+  <text x="380" y="300" text-anchor="middle" class="d-note">每级 = (BM×BK + BK×BN) × 2 B = (128×64 + 64×256) × 2 = 48 KB</text>
+</svg>

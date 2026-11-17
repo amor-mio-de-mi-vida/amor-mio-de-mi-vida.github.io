@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+  .accent{fill:#dc2626}
+  .blue{fill:#2563eb}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Standard Attention: HBM Traffic Analysis</text>
+
+<!-- Q, K matrices -->
+<rect x="20" y="35" width="70" height="50" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="55" y="64" text-anchor="middle" class="code blue">Q [N,d]</text>
+<rect x="100" y="35" width="70" height="50" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="135" y="64" text-anchor="middle" class="code blue">K [N,d]</text>
+
+<!-- Arrow: GEMM1 -->
+<line x1="170" y1="60" x2="200" y2="60" stroke="#888" stroke-width="1.2" marker-end="url(#arr5)"/>
+<text x="185" y="52" class="label" font-size="9">GEMM</text>
+
+<!-- S matrix (N*N) -->
+<rect x="210" y="30" width="80" height="60" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="250" y="55" text-anchor="middle" class="code accent">S [N,N]</text>
+<text x="250" y="70" text-anchor="middle" class="label" font-size="9">write HBM!</text>
+
+<!-- Arrow: softmax -->
+<line x1="290" y1="60" x2="320" y2="60" stroke="#888" stroke-width="1.2" marker-end="url(#arr5)"/>
+<text x="305" y="52" class="label" font-size="9">softmax</text>
+
+<!-- P matrix (N*N) -->
+<rect x="330" y="30" width="80" height="60" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="370" y="55" text-anchor="middle" class="code accent">P [N,N]</text>
+<text x="370" y="70" text-anchor="middle" class="label" font-size="9">write HBM!</text>
+
+<!-- V matrix -->
+<rect x="430" y="35" width="70" height="50" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="465" y="64" text-anchor="middle" class="code blue">V [N,d]</text>
+
+<!-- Arrow: GEMM2 -->
+<line x1="410" y1="60" x2="430" y2="60" stroke="#888" stroke-width="1.2"/>
+
+<!-- O matrix -->
+<rect x="520" y="35" width="70" height="50" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="555" y="64" text-anchor="middle" class="code" fill="#16a34a">O [N,d]</text>
+
+<line x1="500" y1="60" x2="520" y2="60" stroke="#888" stroke-width="1.2" marker-end="url(#arr5)"/>
+<text x="510" y="52" class="label" font-size="9">GEMM</text>
+
+<!-- HBM traffic breakdown -->
+<rect x="20" y="110" width="660" height="150" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="132" text-anchor="middle" class="title">HBM Traffic Breakdown (N=4096, d=128, FP16)</text>
+
+<rect x="40" y="145" width="200" height="25" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="140" y="162" text-anchor="middle" class="code" font-size="10">Write S: N&#xb2;&#xd7;2 = 32 MB</text>
+
+<rect x="250" y="145" width="200" height="25" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="350" y="162" text-anchor="middle" class="code" font-size="10">Read S (softmax): 2&#xd7;N&#xb2;&#xd7;2 = 64 MB</text>
+
+<rect x="460" y="145" width="200" height="25" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="560" y="162" text-anchor="middle" class="code" font-size="10">Write P: N&#xb2;&#xd7;2 = 32 MB</text>
+
+<rect x="40" y="178" width="200" height="25" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="140" y="195" text-anchor="middle" class="code" font-size="10">Read P (GEMM2): N&#xb2;&#xd7;2 = 32 MB</text>
+
+<rect x="250" y="178" width="200" height="25" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="350" y="195" text-anchor="middle" class="code" font-size="10">Read Q,K,V: 3Nd&#xd7;2 = 3 MB</text>
+
+<rect x="460" y="178" width="200" height="25" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="560" y="195" text-anchor="middle" class="code" font-size="10">Write O: Nd&#xd7;2 = 1 MB</text>
+
+<text x="350" y="228" text-anchor="middle" class="title accent">Total: ~160 MB (dominated by N&#xb2; terms)</text>
+<text x="350" y="245" text-anchor="middle" class="title" fill="#16a34a">FlashAttention: ~4 MB (only Nd terms)</text>
+
+<defs><marker id="arr5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="275" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (N=4096, d=128, FP16, single head)</text>
+</svg>

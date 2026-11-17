@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 214" font-family="sans-serif">
+<text class="d-title" x="16" y="24">H100 每个 SM 每周期：Tensor Core 运算 vs MUFU 的 exp</text>
+<rect class="d-box green" x="16" y="44" width="528" height="34" rx="3"/>
+<text class="d-text" x="28" y="66">Tensor Core（dense FP16）：约 4096 次运算</text>
+<rect class="d-box accent" x="16" y="92" width="2.1" height="34" rx="0"/>
+<text class="d-text" x="28" y="114">MUFU：约 16 次 exp（按比例，条宽只有约 2 像素）</text>
+<text class="d-small" x="16" y="154">相差约 256 倍；head dim 为 128 时，exp 可占矩阵乘周期的一半。</text>
+<text class="d-label" x="16" y="178">Tensor Core：989.5 TFLOPS ÷ 132 SM ÷ 约 1.83 GHz</text>
+<text class="d-label" x="16" y="198">MUFU：FA3 论文给出的 3.9 TFLOPS，按同样方式折算</text>
+</svg>

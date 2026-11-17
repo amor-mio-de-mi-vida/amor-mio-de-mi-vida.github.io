@@ -1,0 +1,67 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="title">Hopper GEMM 数据通路</text>
+
+  <!-- HBM -->
+  <rect x="20" y="60" width="100" height="50" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="70" y="82" text-anchor="middle" class="label">HBM3</text>
+  <text x="70" y="97" text-anchor="middle" class="sublabel">A, B 矩阵</text>
+
+  <!-- TMA -->
+  <rect x="180" y="60" width="100" height="50" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="230" y="82" text-anchor="middle" class="label">TMA</text>
+  <text x="230" y="97" text-anchor="middle" class="sublabel">1 线程发射</text>
+
+  <!-- SMEM -->
+  <rect x="340" y="60" width="120" height="50" class="box" fill="#E8F5E9" stroke="#009E73"/>
+  <text x="400" y="82" text-anchor="middle" class="label">SMEM</text>
+  <text x="400" y="97" text-anchor="middle" class="sublabel">sA + sB (swizzled)</text>
+
+  <!-- WGMMA -->
+  <rect x="520" y="60" width="100" height="50" class="box" fill="#F3E5F5" stroke="#CC79A7"/>
+  <text x="570" y="82" text-anchor="middle" class="label">WGMMA</text>
+  <text x="570" y="97" text-anchor="middle" class="sublabel">warpgroup 发射</text>
+
+  <!-- Accumulator -->
+  <rect x="520" y="160" width="100" height="50" class="box" fill="#FCE4EC" stroke="#CC79A7"/>
+  <text x="570" y="182" text-anchor="middle" class="label">寄存器累加器</text>
+  <text x="570" y="197" text-anchor="middle" class="sublabel">FP32 acc[]</text>
+
+  <!-- C output -->
+  <rect x="340" y="220" width="120" height="45" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="400" y="245" text-anchor="middle" class="label">C (HBM)</text>
+
+  <!-- Arrows -->
+  <path d="M120,85 L175,85" class="arrow" stroke="#0072B2"/>
+  <text x="148" y="78" text-anchor="middle" class="sublabel">2D tile</text>
+
+  <path d="M280,85 L335,85" class="arrow" stroke="#D55E00"/>
+  <text x="308" y="78" text-anchor="middle" class="sublabel">auto swizzle</text>
+
+  <path d="M460,85 L515,85" class="arrow" stroke="#009E73"/>
+  <text x="488" y="78" text-anchor="middle" class="sublabel">A 从 SMEM</text>
+
+  <path d="M570,110 L570,155" class="arrow" stroke="#CC79A7"/>
+
+  <path d="M520,190 L462,232" class="arrow" stroke="#666"/>
+  <text x="498" y="218" text-anchor="middle" class="sublabel">epilogue</text>
+
+  <!-- Annotations -->
+  <rect x="20" y="140" width="260" height="80" rx="4" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
+  <text x="30" y="160" class="sublabel" fill="#333">对比 Ampere：</text>
+  <text x="30" y="176" class="sublabel" fill="#333">搬运：cp.async (整个 warp) → TMA (1 线程)</text>
+  <text x="30" y="192" class="sublabel" fill="#333">计算：mma.sync (1 warp) → wgmma (warpgroup)</text>
+  <text x="30" y="208" class="sublabel" fill="#333">swizzle：手动 XOR → TMA 描述符自动</text>
+</svg>

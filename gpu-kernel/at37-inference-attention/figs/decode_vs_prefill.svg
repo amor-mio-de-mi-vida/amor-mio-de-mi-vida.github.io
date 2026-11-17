@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Prefill vs Decode: Compute vs Memory Bound</text>
+
+<!-- Prefill -->
+<rect x="20" y="35" width="310" height="200" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="175" y="57" text-anchor="middle" class="title" fill="#16a34a">Prefill Phase</text>
+
+<text x="35" y="80" class="code">Q: [N, d]    K: [N, d]    V: [N, d]</text>
+<text x="35" y="100" class="label">GEMM: QK&#x1D40; = [N, d] &#xd7; [d, N] &#x2192; [N, N]</text>
+<text x="35" y="115" class="label">FLOP: 2N&#xb2;d     |   Bytes: ~4Nd</text>
+<text x="35" y="135" class="label">Arithmetic Intensity = 2N&#xb2;d / 4Nd = N/2</text>
+
+<rect x="35" y="148" width="280" height="30" rx="4" fill="#bbf7d0" stroke="#86efac"/>
+<text x="175" y="167" text-anchor="middle" class="title" fill="#16a34a">Compute-bound (N&#x226B;1)</text>
+
+<text x="35" y="195" class="label">N=4096, d=128:</text>
+<text x="35" y="210" class="code">I = 4096/2 = 2048 FLOP/B</text>
+<text x="35" y="225" class="label">&#x226B; A100 ridge (309 FLOP/B)</text>
+
+<!-- Decode -->
+<rect x="370" y="35" width="310" height="200" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="525" y="57" text-anchor="middle" class="title" fill="#dc2626">Decode Phase</text>
+
+<text x="385" y="80" class="code">q: [1, d]    K: [N, d]    V: [N, d]</text>
+<text x="385" y="100" class="label">GEMV: q&#xb7;K&#x1D40; = [1, d] &#xd7; [d, N] &#x2192; [1, N]</text>
+<text x="385" y="115" class="label">FLOP: 2Nd       |   Bytes: ~2Nd</text>
+<text x="385" y="135" class="label">Arithmetic Intensity = 2Nd / 2Nd = 1</text>
+
+<rect x="385" y="148" width="280" height="30" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="525" y="167" text-anchor="middle" class="title" fill="#dc2626">Memory-bound (GEMV)</text>
+
+<text x="385" y="195" class="label">N=4096, d=128:</text>
+<text x="385" y="210" class="code">I = 1 FLOP/B</text>
+<text x="385" y="225" class="label">&#x226A; A100 ridge (309 FLOP/B)</text>
+
+<text x="350" y="268" text-anchor="middle" class="label">Decode attention: &#x2248;300&#xd7; less compute-per-byte than prefill &#x2192; HBM bandwidth is the bottleneck</text>
+<text x="350" y="280" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed</text>
+</svg>

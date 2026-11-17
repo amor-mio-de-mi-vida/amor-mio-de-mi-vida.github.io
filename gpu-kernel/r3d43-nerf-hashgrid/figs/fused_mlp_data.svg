@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.3;marker-end:url(#ah3)}
+</style>
+<defs>
+  <marker id="ah3" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">Fully-Fused MLP: Data Residency</text>
+
+<!-- Memory hierarchy -->
+<rect x="20" y="35" width="200" height="260" rx="6" fill="#f0f9ff" stroke="#0ea5e9" stroke-width="1.2"/>
+<text x="120" y="55" text-anchor="middle" class="title" fill="#0ea5e9">Standard cuBLAS MLP</text>
+<rect x="35" y="65" width="170" height="25" rx="3" fill="#e0f2fe" stroke="#7dd3fc"/>
+<text x="120" y="82" text-anchor="middle" class="code" font-size="10">Layer 1: A = X @ W1</text>
+<text x="120" y="100" text-anchor="middle" class="label" font-size="10">&darr; write A to HBM</text>
+<rect x="35" y="108" width="170" height="25" rx="3" fill="#e0f2fe" stroke="#7dd3fc"/>
+<text x="120" y="125" text-anchor="middle" class="code" font-size="10">ReLU kernel: A = relu(A)</text>
+<text x="120" y="143" text-anchor="middle" class="label" font-size="10">&darr; write back to HBM</text>
+<rect x="35" y="152" width="170" height="25" rx="3" fill="#e0f2fe" stroke="#7dd3fc"/>
+<text x="120" y="169" text-anchor="middle" class="code" font-size="10">Layer 2: B = A @ W2</text>
+<text x="120" y="187" text-anchor="middle" class="label" font-size="10">&darr; write B to HBM</text>
+<rect x="35" y="196" width="170" height="25" rx="3" fill="#e0f2fe" stroke="#7dd3fc"/>
+<text x="120" y="213" text-anchor="middle" class="code" font-size="10">ReLU kernel: B = relu(B)</text>
+<text x="35" y="237" class="label" fill="#ef4444">4 kernel launches</text>
+<text x="35" y="253" class="label" fill="#ef4444">4&times; HBM round-trips</text>
+<text x="35" y="269" class="label" fill="#ef4444">Width=64 is too small for cuBLAS</text>
+<text x="35" y="285" class="label" fill="#ef4444">(low GPU utilization)</text>
+
+<!-- Fused -->
+<rect x="250" y="35" width="410" height="260" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+<text x="455" y="55" text-anchor="middle" class="title" fill="#22c55e">Fully-Fused MLP (tiny-cuda-nn, ONE kernel)</text>
+
+<!-- Smem box -->
+<rect x="270" y="68" width="170" height="90" rx="4" fill="#dcfce7" stroke="#86efac"/>
+<text x="355" y="88" text-anchor="middle" class="title" fill="#16a34a">Shared Memory</text>
+<text x="280" y="108" class="code" font-size="9">W0[64&times;64] = 8 KB (FP16)</text>
+<text x="280" y="125" class="code" font-size="9">W1[64&times;64] = 8 KB (FP16)</text>
+<text x="280" y="142" class="code" font-size="9">act[128&times;64] = 16 KB (FP16)</text>
+
+<!-- Register box -->
+<rect x="470" y="68" width="170" height="90" rx="4" fill="#fef9c3" stroke="#eab308"/>
+<text x="555" y="88" text-anchor="middle" class="title" fill="#854d0e">Registers</text>
+<text x="480" y="108" class="code" font-size="9">WMMA fragments</text>
+<text x="480" y="125" class="code" font-size="9">Intermediate activations</text>
+<text x="480" y="142" class="code" font-size="9">ReLU in-place</text>
+
+<!-- Flow -->
+<rect x="270" y="175" width="370" height="70" rx="4" fill="#f0fdf4" stroke="#22c55e"/>
+<text x="455" y="195" text-anchor="middle" class="title" fill="#22c55e">Execution Flow</text>
+<text x="280" y="215" class="code" font-size="10">1. Load W0, W1 to smem (once), load input batch to smem</text>
+<text x="280" y="232" class="code" font-size="10">2. WMMA matmul &rarr; ReLU in fragment &rarr; store to smem &rarr; repeat</text>
+
+<text x="270" y="268" class="label" fill="#22c55e">1 kernel launch, 0 HBM round-trips for intermediate activations</text>
+<text x="270" y="284" class="label" fill="#22c55e">Weights stay in smem for entire batch &rarr; amortized load cost</text>
+
+<text x="340" y="312" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after tiny-cuda-nn)</text>
+</svg>

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 440" font-family="sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" class="d-head"/></marker><marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" class="d-head accent"/></marker></defs>
+<text class="d-title" x="24" y="26">三级环形流水线：full/empty 屏障控制读写交替</text>
+
+<!-- Producer -->
+<rect class="d-box blue" x="24" y="46" width="200" height="36" rx="4"/>
+<text class="d-text" x="124" y="69" text-anchor="middle">生产者（TMA / 1 个线程）</text>
+
+<!-- Three SMEM stages -->
+<rect class="d-group" x="24" y="106" width="200" height="56" rx="4"/>
+<text class="d-mono" x="36" y="128">Stage 0</text>
+<text class="d-small" x="36" y="148">full[0] / empty[0]</text>
+
+<rect class="d-group" x="24" y="172" width="200" height="56" rx="4"/>
+<text class="d-mono" x="36" y="194">Stage 1</text>
+<text class="d-small" x="36" y="214">full[1] / empty[1]</text>
+
+<rect class="d-group" x="24" y="238" width="200" height="56" rx="4"/>
+<text class="d-mono" x="36" y="260">Stage 2</text>
+<text class="d-small" x="36" y="280">full[2] / empty[2]</text>
+
+<!-- Consumer -->
+<rect class="d-box green" x="24" y="318" width="200" height="36" rx="4"/>
+<text class="d-text" x="124" y="341" text-anchor="middle">消费者（计算 warps）</text>
+
+<!-- Arrows: producer → stages -->
+<path class="d-arrow" d="M124 82 V104" marker-end="url(#ah)"/>
+<!-- Arrows: stages → consumer -->
+<path class="d-arrow" d="M124 294 V316" marker-end="url(#ah)"/>
+
+<!-- Ring arrows on the left -->
+<path class="d-arrow accent" d="M18 136 C4 136, 4 200, 18 200" marker-end="url(#ahb)"/>
+<path class="d-arrow accent" d="M18 200 C4 200, 4 266, 18 266" marker-end="url(#ahb)"/>
+<path class="d-arrow accent" d="M18 266 C-10 266, -10 136, 18 136" marker-end="url(#ahb)"/>
+
+<!-- Timeline on the right -->
+<rect class="d-group" x="270" y="46" width="276" height="344" rx="6"/>
+<text class="d-title" x="286" y="72">时间线</text>
+
+<!-- t=0 -->
+<text class="d-mono" x="286" y="100">t=0</text>
+<rect class="d-box blue" x="326" y="86" width="100" height="22" rx="3"/>
+<text class="d-small" x="376" y="101" text-anchor="middle">fill s0</text>
+
+<!-- t=1 -->
+<text class="d-mono" x="286" y="138">t=1</text>
+<rect class="d-box blue" x="326" y="124" width="100" height="22" rx="3"/>
+<text class="d-small" x="376" y="139" text-anchor="middle">fill s1</text>
+<rect class="d-box green" x="432" y="124" width="100" height="22" rx="3"/>
+<text class="d-small" x="482" y="139" text-anchor="middle">use s0</text>
+
+<!-- t=2 -->
+<text class="d-mono" x="286" y="176">t=2</text>
+<rect class="d-box blue" x="326" y="162" width="100" height="22" rx="3"/>
+<text class="d-small" x="376" y="177" text-anchor="middle">fill s2</text>
+<rect class="d-box green" x="432" y="162" width="100" height="22" rx="3"/>
+<text class="d-small" x="482" y="177" text-anchor="middle">use s1</text>
+
+<!-- t=3 -->
+<text class="d-mono" x="286" y="214">t=3</text>
+<rect class="d-box blue" x="326" y="200" width="100" height="22" rx="3"/>
+<text class="d-small" x="376" y="215" text-anchor="middle">fill s0</text>
+<rect class="d-box green" x="432" y="200" width="100" height="22" rx="3"/>
+<text class="d-small" x="482" y="215" text-anchor="middle">use s2</text>
+
+<!-- t=4 -->
+<text class="d-mono" x="286" y="252">t=4</text>
+<rect class="d-box blue" x="326" y="238" width="100" height="22" rx="3"/>
+<text class="d-small" x="376" y="253" text-anchor="middle">fill s1</text>
+<rect class="d-box green" x="432" y="238" width="100" height="22" rx="3"/>
+<text class="d-small" x="482" y="253" text-anchor="middle">use s0</text>
+
+<!-- Steady state note -->
+<text class="d-small" x="286" y="290">t=1 起进入稳态：</text>
+<text class="d-small" x="286" y="308">每步同时填一个 stage、用一个 stage</text>
+<text class="d-small" x="286" y="332">fill 前 wait(empty[s])：确保消费完毕</text>
+<text class="d-small" x="286" y="350">use 前 wait(full[s])：确保数据到齐</text>
+<text class="d-small" x="286" y="374">stage 数 = smem / tile_bytes</text>
+</svg>

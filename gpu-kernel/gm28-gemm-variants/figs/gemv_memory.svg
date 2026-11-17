@@ -1,0 +1,55 @@
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah3); }
+  </style>
+  <defs>
+    <marker id="ah3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="title">GEMV 带宽瓶颈：每个输出读整行权重</text>
+
+  <!-- W matrix -->
+  <rect x="30" y="50" width="200" height="140" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="130" y="85" text-anchor="middle" class="label">W [N &times; K]</text>
+
+  <!-- Highlight row 0 -->
+  <rect x="35" y="95" width="190" height="16" rx="2" fill="#D55E00" opacity="0.3"/>
+  <text x="130" y="107" text-anchor="middle" class="sublabel" fill="#D55E00">row i &rarr; K 次读取</text>
+
+  <!-- Highlight row 1 -->
+  <rect x="35" y="115" width="190" height="16" rx="2" fill="#009E73" opacity="0.2"/>
+
+  <rect x="35" y="135" width="190" height="16" rx="2" fill="#CC79A7" opacity="0.2"/>
+
+  <!-- x vector -->
+  <rect x="260" y="50" width="30" height="140" class="box" fill="#E8F5E9" stroke="#009E73"/>
+  <text x="275" y="125" text-anchor="middle" class="label">x</text>
+  <text x="275" y="140" text-anchor="middle" class="sublabel">[K]</text>
+
+  <!-- Arrow -->
+  <path d="M300,120 L350,120" class="arrow" stroke="#666"/>
+
+  <!-- y vector -->
+  <rect x="360" y="85" width="30" height="70" class="box" fill="#FCE4EC" stroke="#CC79A7"/>
+  <text x="375" y="120" text-anchor="middle" class="label">y</text>
+  <text x="375" y="135" text-anchor="middle" class="sublabel">[N]</text>
+
+  <!-- Bandwidth annotation -->
+  <rect x="430" y="50" width="270" height="80" rx="4" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
+  <text x="440" y="70" class="sublabel" fill="#D55E00" font-weight="600">算术强度分析：</text>
+  <text x="440" y="86" class="sublabel">读取 = N &times; K &times; 2 bytes (FP16)</text>
+  <text x="440" y="102" class="sublabel">计算 = 2 &times; N &times; K FLOPs</text>
+  <text x="440" y="118" class="sublabel">强度 = 2 FLOP/byte &laquo; 93 (H100 FP16/BW)</text>
+
+  <!-- Optimization box -->
+  <rect x="430" y="145" width="270" height="55" rx="4" fill="#E8F5E9" stroke="#009E73" stroke-width="1"/>
+  <text x="440" y="163" class="sublabel" fill="#009E73" font-weight="600">优化方向：</text>
+  <text x="440" y="179" class="sublabel">向量化加载 (half2 / LDG.128)</text>
+  <text x="440" y="195" class="sublabel">warp shuffle 规约，不用 SMEM</text>
+</svg>

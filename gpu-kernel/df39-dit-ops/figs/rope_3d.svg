@@ -1,0 +1,73 @@
+<svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="13">
+  <text x="350" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">3D RoPE: Head Dimension 按轴拆分</text>
+
+  <!-- Video token grid -->
+  <text x="120" y="55" text-anchor="middle" font-size="12" fill="#666">视频 token 网格</text>
+  <!-- Frame 0 -->
+  <g transform="translate(30,65)">
+    <text x="90" y="-5" text-anchor="middle" font-size="11" fill="#888">t=0</text>
+    <rect x="0" y="0" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="45" y="0" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="90" y="0" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="135" y="0" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="0" y="35" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="45" y="35" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="90" y="35" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <rect x="135" y="35" width="40" height="30" fill="#dfe6e9" stroke="#636e72" stroke-width="1"/>
+    <text x="-8" y="20" text-anchor="end" font-size="10" fill="#888">h</text>
+    <text x="-8" y="55" text-anchor="end" font-size="10" fill="#888">h</text>
+    <text x="20" y="80" text-anchor="middle" font-size="10" fill="#888">w</text>
+  </g>
+  <!-- Frame 1 -->
+  <g transform="translate(230,65)">
+    <text x="65" y="-5" text-anchor="middle" font-size="11" fill="#888">t=1</text>
+    <rect x="0" y="0" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+    <rect x="45" y="0" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+    <rect x="90" y="0" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+    <rect x="0" y="35" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+    <rect x="45" y="35" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+    <rect x="90" y="35" width="40" height="30" fill="#b2bec3" stroke="#636e72" stroke-width="1"/>
+  </g>
+
+  <!-- Head dimension split -->
+  <text x="520" y="55" text-anchor="middle" font-size="12" fill="#666">head dim d 拆成三段</text>
+
+  <!-- d bar split into 3 -->
+  <rect x="400" y="70" width="80" height="36" rx="3" fill="#74b9ff" stroke="#0984e3" stroke-width="1.5"/>
+  <text x="440" y="92" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">d_h</text>
+  <text x="440" y="118" text-anchor="middle" font-size="10" fill="#0984e3">height 频率</text>
+
+  <rect x="485" y="70" width="80" height="36" rx="3" fill="#55efc4" stroke="#00b894" stroke-width="1.5"/>
+  <text x="525" y="92" text-anchor="middle" font-size="11" fill="#333" font-weight="bold">d_w</text>
+  <text x="525" y="118" text-anchor="middle" font-size="10" fill="#00b894">width 频率</text>
+
+  <rect x="570" y="70" width="80" height="36" rx="3" fill="#fd79a8" stroke="#e84393" stroke-width="1.5"/>
+  <text x="610" y="92" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">d_t</text>
+  <text x="610" y="118" text-anchor="middle" font-size="10" fill="#e84393">time 频率</text>
+
+  <!-- Formulas -->
+  <text x="350" y="165" text-anchor="middle" font-size="13" fill="#333">对每段独立应用 RoPE：</text>
+
+  <g transform="translate(60,180)">
+    <rect x="0" y="0" width="180" height="50" rx="4" fill="#74b9ff" fill-opacity="0.15" stroke="#0984e3" stroke-width="1"/>
+    <text x="90" y="20" text-anchor="middle" font-size="11" fill="#0984e3">q[0:d_h] 旋转</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#555">theta_h = 10000^(-2i/d_h)</text>
+    <text x="90" y="62" text-anchor="middle" font-size="10" fill="#888">角度 = pos_h * theta_h</text>
+  </g>
+
+  <g transform="translate(260,180)">
+    <rect x="0" y="0" width="180" height="50" rx="4" fill="#55efc4" fill-opacity="0.15" stroke="#00b894" stroke-width="1"/>
+    <text x="90" y="20" text-anchor="middle" font-size="11" fill="#00b894">q[d_h:d_h+d_w] 旋转</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#555">theta_w = 10000^(-2i/d_w)</text>
+    <text x="90" y="62" text-anchor="middle" font-size="10" fill="#888">角度 = pos_w * theta_w</text>
+  </g>
+
+  <g transform="translate(460,180)">
+    <rect x="0" y="0" width="180" height="50" rx="4" fill="#fd79a8" fill-opacity="0.15" stroke="#e84393" stroke-width="1"/>
+    <text x="90" y="20" text-anchor="middle" font-size="11" fill="#e84393">q[d_h+d_w:d] 旋转</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#555">theta_t = 10000^(-2i/d_t)</text>
+    <text x="90" y="62" text-anchor="middle" font-size="10" fill="#888">角度 = pos_t * theta_t</text>
+  </g>
+
+  <text x="350" y="280" text-anchor="middle" font-size="11" fill="#888">d = d_h + d_w + d_t，图像 token 只用前两段（d_t 部分置零或不旋转）</text>
+</svg>

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Custom Op Dispatch: Python &#x2192; C++ &#x2192; CUDA Kernel</text>
+
+<!-- Python layer -->
+<rect x="20" y="35" width="200" height="80" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="120" y="55" text-anchor="middle" class="title" fill="#2563eb">Python (User Code)</text>
+<text x="35" y="75" class="code" font-size="9.5">y = mylib.rms_norm(x, w)</text>
+<text x="35" y="93" class="label" font-size="9">torch.library.custom_op</text>
+<text x="35" y="106" class="label" font-size="9">dispatches via schema</text>
+
+<line x1="120" y1="115" x2="120" y2="140" stroke="#888" stroke-width="1.2" marker-end="url(#arr12)"/>
+
+<!-- Dispatch layer -->
+<rect x="20" y="140" width="200" height="50" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="120" y="160" text-anchor="middle" class="title" fill="#a16207">PyTorch Dispatcher</text>
+<text x="35" y="178" class="label" font-size="9">Routes: CUDA &#x2192; cuda impl</text>
+<text x="35" y="183" class="label" font-size="0"> </text>
+
+<line x1="120" y1="190" x2="120" y2="215" stroke="#888" stroke-width="1.2" marker-end="url(#arr12)"/>
+
+<!-- C++ binding -->
+<rect x="20" y="215" width="200" height="50" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="120" y="235" text-anchor="middle" class="title" fill="#16a34a">C++ Extension (.so)</text>
+<text x="35" y="255" class="label" font-size="9">PYBIND11 &#x2192; kernel launch</text>
+
+<!-- torch.compile path -->
+<rect x="280" y="35" width="200" height="80" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="380" y="55" text-anchor="middle" class="title" fill="#dc2626">torch.compile Path</text>
+<text x="295" y="75" class="code" font-size="9.5">@torch.compile</text>
+<text x="295" y="93" class="label" font-size="9">Traces graph with fake kernel</text>
+<text x="295" y="106" class="label" font-size="9">(meta tensor, no CUDA)</text>
+
+<line x1="380" y1="115" x2="380" y2="140" stroke="#888" stroke-width="1.2" marker-end="url(#arr12)"/>
+
+<rect x="280" y="140" width="200" height="50" class="box" fill="#e0e7ff" stroke="#818cf8"/>
+<text x="380" y="160" text-anchor="middle" class="title" fill="#6366f1">TorchInductor</text>
+<text x="295" y="178" class="label" font-size="9">custom_op = opaque node</text>
+
+<line x1="380" y1="190" x2="380" y2="215" stroke="#888" stroke-width="1.2" marker-end="url(#arr12)"/>
+
+<rect x="280" y="215" width="200" height="50" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="380" y="235" text-anchor="middle" class="title" fill="#16a34a">Compiled Graph</text>
+<text x="295" y="255" class="label" font-size="9">Fuses surrounding ops, calls kernel</text>
+
+<!-- Autograd path -->
+<rect x="540" y="35" width="140" height="230" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="610" y="55" text-anchor="middle" class="title">Autograd</text>
+<text x="555" y="80" class="label" font-size="9.5">register_autograd:</text>
+<text x="555" y="100" class="code" font-size="9">setup_context</text>
+<text x="555" y="118" class="label" font-size="9">saves (x, w, y)</text>
+<text x="555" y="140" class="label" font-size="9.5">backward:</text>
+<text x="555" y="158" class="code" font-size="9">grad_fn(ctx, dout)</text>
+<text x="555" y="178" class="label" font-size="9">&#x2192; dx, dw</text>
+<text x="555" y="205" class="label" font-size="9">Without this:</text>
+<text x="555" y="223" class="code" font-size="9" fill="#dc2626">loss.backward()</text>
+<text x="555" y="241" class="label" font-size="9" fill="#dc2626">&#x2192; RuntimeError</text>
+
+<defs><marker id="arr12" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="275" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (PyTorch custom op dispatch)</text>
+</svg>

@@ -1,0 +1,82 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <style>
+    .label { font-size: 13px; fill: #4a4a4a; }
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .stage-label { font-size: 12px; fill: #666; }
+    .load { fill: #56B4E9; rx: 3; }
+    .compute { fill: #009E73; rx: 3; }
+    .wait { fill: #E8E8E4; rx: 3; stroke: #bbb; stroke-width: 0.5; }
+    .sync-line { stroke: #D55E00; stroke-width: 1.5; stroke-dasharray: 4,3; }
+    .anno { font-size: 11px; fill: #D55E00; font-weight: 500; }
+  </style>
+
+  <text x="360" y="24" text-anchor="middle" class="title">cp.async 三级流水线时序</text>
+
+  <!-- Time axis -->
+  <line x1="100" y1="290" x2="690" y2="290" stroke="#999" stroke-width="1" marker-end="url(#arr)"/>
+  <text x="695" y="294" class="stage-label">时间</text>
+
+  <!-- Lane labels -->
+  <text x="10" y="78" class="label">Stage 0</text>
+  <text x="10" y="148" class="label">Stage 1</text>
+  <text x="10" y="218" class="label">Stage 2</text>
+  <text x="10" y="270" class="label">Compute</text>
+
+  <!-- Stage 0 -->
+  <rect class="load" x="100" y="55" width="80" height="30" rx="3"/>
+  <text x="140" y="75" text-anchor="middle" font-size="11" fill="#fff">cp.async A₀</text>
+  <rect class="load" x="310" y="55" width="80" height="30" rx="3"/>
+  <text x="350" y="75" text-anchor="middle" font-size="11" fill="#fff">cp.async A₃</text>
+  <rect class="load" x="520" y="55" width="80" height="30" rx="3"/>
+  <text x="560" y="75" text-anchor="middle" font-size="11" fill="#fff">cp.async A₆</text>
+
+  <!-- Stage 1 -->
+  <rect class="load" x="140" y="125" width="80" height="30" rx="3"/>
+  <text x="180" y="145" text-anchor="middle" font-size="11" fill="#fff">cp.async A₁</text>
+  <rect class="load" x="350" y="125" width="80" height="30" rx="3"/>
+  <text x="390" y="145" text-anchor="middle" font-size="11" fill="#fff">cp.async A₄</text>
+  <rect class="load" x="560" y="125" width="80" height="30" rx="3"/>
+  <text x="600" y="145" text-anchor="middle" font-size="11" fill="#fff">cp.async A₇</text>
+
+  <!-- Stage 2 -->
+  <rect class="load" x="180" y="195" width="80" height="30" rx="3"/>
+  <text x="220" y="215" text-anchor="middle" font-size="11" fill="#fff">cp.async A₂</text>
+  <rect class="load" x="390" y="195" width="80" height="30" rx="3"/>
+  <text x="430" y="215" text-anchor="middle" font-size="11" fill="#fff">cp.async A₅</text>
+
+  <!-- Compute -->
+  <rect class="wait" x="100" y="250" width="120" height="28"/>
+  <text x="160" y="268" text-anchor="middle" font-size="11" fill="#999">填充中</text>
+  <rect class="compute" x="228" y="250" width="70" height="28" rx="3"/>
+  <text x="263" y="268" text-anchor="middle" font-size="11" fill="#fff">MMA₀</text>
+  <rect class="compute" x="306" y="250" width="70" height="28" rx="3"/>
+  <text x="341" y="268" text-anchor="middle" font-size="11" fill="#fff">MMA₁</text>
+  <rect class="compute" x="384" y="250" width="70" height="28" rx="3"/>
+  <text x="419" y="268" text-anchor="middle" font-size="11" fill="#fff">MMA₂</text>
+  <rect class="compute" x="462" y="250" width="70" height="28" rx="3"/>
+  <text x="497" y="268" text-anchor="middle" font-size="11" fill="#fff">MMA₃</text>
+  <rect class="compute" x="540" y="250" width="70" height="28" rx="3"/>
+  <text x="575" y="268" text-anchor="middle" font-size="11" fill="#fff">MMA₄</text>
+
+  <!-- Sync lines: wait_prior(1) before each MMA -->
+  <line class="sync-line" x1="224" y1="45" x2="224" y2="282"/>
+  <text x="226" y="42" class="anno">wait_prior(1)</text>
+  <line class="sync-line" x1="302" y1="45" x2="302" y2="282"/>
+  <line class="sync-line" x1="380" y1="45" x2="380" y2="282"/>
+
+  <!-- Legend -->
+  <rect x="110" y="300" width="14" height="10" fill="#56B4E9" rx="2"/>
+  <text x="128" y="310" class="stage-label">GMEM→SMEM (cp.async)</text>
+  <rect x="300" y="300" width="14" height="10" fill="#009E73" rx="2"/>
+  <text x="318" y="310" class="stage-label">Tensor Core MMA</text>
+  <rect x="460" y="300" width="14" height="10" fill="#E8E8E4" rx="2" stroke="#bbb" stroke-width="0.5"/>
+  <text x="478" y="310" class="stage-label">等待填充</text>
+  <line x1="580" y1="305" x2="610" y2="305" class="sync-line"/>
+  <text x="615" y="310" class="stage-label">同步点</text>
+</svg>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">im2col Memory Cost: col is R&#xd7;S times the input</text>
+
+<!-- Input tensor -->
+<rect x="30" y="38" width="140" height="70" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="100" y="58" text-anchor="middle" class="title" fill="#2563eb">Input [C,H,W]</text>
+<text x="100" y="78" text-anchor="middle" class="code">64&#xd7;224&#xd7;224</text>
+<text x="100" y="95" text-anchor="middle" class="label">= 12.25 MB (FP16)</text>
+
+<!-- Arrow -->
+<text x="195" y="77" class="title" fill="#888">&#x2192; im2col</text>
+
+<!-- Col matrix -->
+<rect x="260" y="38" width="180" height="70" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="350" y="58" text-anchor="middle" class="title" fill="#dc2626">col [K, P]</text>
+<text x="350" y="78" text-anchor="middle" class="code">576 &#xd7; 50176</text>
+<text x="350" y="95" text-anchor="middle" class="label">= 110.25 MB (FP16)</text>
+
+<!-- Multiplier -->
+<rect x="470" y="45" width="60" height="30" rx="15" fill="#fde68a" stroke="#f59e0b"/>
+<text x="500" y="65" text-anchor="middle" class="title" fill="#a16207">9&#xd7;</text>
+
+<!-- Weight -->
+<rect x="550" y="38" width="130" height="70" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
+<text x="615" y="58" text-anchor="middle" class="title" fill="#16a34a">Weight [M, K]</text>
+<text x="615" y="78" text-anchor="middle" class="code">128 &#xd7; 576</text>
+<text x="615" y="95" text-anchor="middle" class="label">= 0.14 MB (FP16)</text>
+
+<!-- Table below -->
+<rect x="30" y="125" width="650" height="120" rx="5" fill="#f9fafb" stroke="#e5e7eb"/>
+<text x="355" y="145" text-anchor="middle" class="title">im2col Memory Overhead by Resolution</text>
+
+<text x="60" y="168" class="code">Resolution</text>
+<text x="180" y="168" class="code">Input</text>
+<text x="290" y="168" class="code">col (3&#xd7;3)</text>
+<text x="420" y="168" class="code">Ratio</text>
+<text x="530" y="168" class="code">col (5&#xd7;5)</text>
+
+<line x1="50" y1="173" x2="650" y2="173" stroke="#d1d5db"/>
+
+<text x="60" y="190" class="label">224&#xd7;224, C=64</text>
+<text x="180" y="190" class="label">12.25 MB</text>
+<text x="290" y="190" class="label" fill="#dc2626">110.25 MB</text>
+<text x="420" y="190" class="label">9&#xd7;</text>
+<text x="530" y="190" class="label" fill="#dc2626">306.25 MB</text>
+
+<text x="60" y="208" class="label">512&#xd7;512, C=128</text>
+<text x="180" y="208" class="label">128 MB</text>
+<text x="290" y="208" class="label" fill="#dc2626">1,152 MB</text>
+<text x="420" y="208" class="label">9&#xd7;</text>
+<text x="530" y="208" class="label" fill="#dc2626">3,200 MB</text>
+
+<text x="60" y="226" class="label">1024&#xd7;1024, C=128</text>
+<text x="180" y="226" class="label">512 MB</text>
+<text x="290" y="226" class="label" fill="#dc2626">4,608 MB</text>
+<text x="420" y="226" class="label">9&#xd7;</text>
+<text x="530" y="226" class="label" fill="#dc2626">12,800 MB</text>
+
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (K = C_in &#xb7; R &#xb7; S; P = H_out &#xb7; W_out; FP16 = 2 B/element)</text>
+</svg>

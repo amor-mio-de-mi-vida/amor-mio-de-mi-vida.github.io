@@ -1,0 +1,136 @@
+<svg viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif">
+  <defs>
+    <marker id="arr-numa" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#555" stroke-width="1.2"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="350" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">双路 CPU (Dual-Socket) NUMA 拓扑与 GPU 亲和性</text>
+
+  <!-- NUMA Node 0 -->
+  <rect x="20" y="45" width="320" height="350" rx="10" fill="#e8f0fe" stroke="#4285f4" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="180" y="68" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a73e8">NUMA Node 0 (Socket 0)</text>
+
+  <!-- CPU 0 -->
+  <rect x="40" y="82" width="120" height="36" rx="5" fill="#4285f4" stroke="#1a73e8" stroke-width="1"/>
+  <text x="100" y="105" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">CPU 0 (56 cores)</text>
+
+  <!-- DDR -->
+  <rect x="180" y="82" width="140" height="36" rx="5" fill="#a8d5ba" stroke="#34a853" stroke-width="1"/>
+  <text x="250" y="100" text-anchor="middle" font-size="10" fill="#1b5e20" font-weight="bold">DDR5 Local Memory</text>
+  <text x="250" y="113" text-anchor="middle" font-size="9" fill="#388e3c">~50 ns latency</text>
+
+  <!-- PCIe Root Complex 0 -->
+  <rect x="40" y="135" width="280" height="28" rx="4" fill="#fce4ec" stroke="#e57373" stroke-width="1"/>
+  <text x="180" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 0 (64 lanes Gen5)</text>
+
+  <!-- GPU 0-3 -->
+  <rect x="40" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="71" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 0</text>
+  <text x="71" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="112" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="143" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 1</text>
+  <text x="143" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="184" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="215" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 2</text>
+  <text x="215" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="256" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="287" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 3</text>
+  <text x="287" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <!-- NIC 0-3 -->
+  <rect x="40" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="71" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 0</text>
+  <text x="71" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="112" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="143" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 1</text>
+  <text x="143" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="184" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="215" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 2</text>
+  <text x="215" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="256" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="287" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 3</text>
+  <text x="287" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <!-- NUMA Node 1 -->
+  <rect x="360" y="45" width="320" height="350" rx="10" fill="#fef3e0" stroke="#ff9800" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="520" y="68" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">NUMA Node 1 (Socket 1)</text>
+
+  <!-- CPU 1 -->
+  <rect x="380" y="82" width="120" height="36" rx="5" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="440" y="105" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">CPU 1 (56 cores)</text>
+
+  <!-- DDR -->
+  <rect x="520" y="82" width="140" height="36" rx="5" fill="#a8d5ba" stroke="#34a853" stroke-width="1"/>
+  <text x="590" y="100" text-anchor="middle" font-size="10" fill="#1b5e20" font-weight="bold">DDR5 Local Memory</text>
+  <text x="590" y="113" text-anchor="middle" font-size="9" fill="#388e3c">~50 ns latency</text>
+
+  <!-- PCIe Root Complex 1 -->
+  <rect x="380" y="135" width="280" height="28" rx="4" fill="#fce4ec" stroke="#e57373" stroke-width="1"/>
+  <text x="520" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 1 (64 lanes Gen5)</text>
+
+  <!-- GPU 4-7 -->
+  <rect x="380" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="411" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 4</text>
+  <text x="411" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="452" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="483" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 5</text>
+  <text x="483" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="524" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="555" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 6</text>
+  <text x="555" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <rect x="596" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
+  <text x="627" y="200" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">GPU 7</text>
+  <text x="627" y="213" text-anchor="middle" font-size="8" fill="#fff">H100</text>
+
+  <!-- NIC 4-7 -->
+  <rect x="380" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="411" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 4</text>
+  <text x="411" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="452" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="483" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 5</text>
+  <text x="483" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="524" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="555" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 6</text>
+  <text x="555" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <rect x="596" y="250" width="62" height="35" rx="4" fill="#ff9800" stroke="#e65100" stroke-width="1"/>
+  <text x="627" y="268" text-anchor="middle" font-size="8" fill="#fff" font-weight="bold">NIC 7</text>
+  <text x="627" y="279" text-anchor="middle" font-size="7" fill="#fff">CX-7</text>
+
+  <!-- UPI/CXL interconnect -->
+  <line x1="160" y1="100" x2="380" y2="100" stroke="#d32f2f" stroke-width="3" stroke-dasharray="8,4"/>
+  <text x="270" y="50" text-anchor="middle" font-size="11" font-weight="bold" fill="#d32f2f">UPI / CXL Interconnect</text>
+  <text x="270" y="95" text-anchor="middle" font-size="9" fill="#d32f2f">~100+ ns cross-NUMA</text>
+
+  <!-- Cross-NUMA penalty annotation -->
+  <rect x="100" y="305" width="500" height="75" rx="6" fill="#fff3e0" stroke="#ff9800" stroke-width="1.2"/>
+  <text x="350" y="325" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Cross-NUMA 性能惩罚</text>
+  <text x="350" y="342" text-anchor="middle" font-size="10" fill="#555">GPU 0 → NIC 0 (同 NUMA): 1 跳 PCIe, ~2 μs, 带宽 = 64 GB/s</text>
+  <text x="350" y="357" text-anchor="middle" font-size="10" fill="#d32f2f">GPU 0 → NIC 4 (跨 NUMA): PCIe → UPI → PCIe, ~5-8 μs, 带宽 ≈ 40 GB/s</text>
+  <text x="350" y="372" text-anchor="middle" font-size="10" fill="#555">cudaHostAlloc 在错误 NUMA 节点: pinned memory 访问延迟翻倍</text>
+
+  <!-- Legend -->
+  <rect x="50" y="395" width="14" height="10" rx="2" fill="#76b900"/>
+  <text x="70" y="404" font-size="9" fill="#555">GPU</text>
+  <rect x="120" y="395" width="14" height="10" rx="2" fill="#ff9800"/>
+  <text x="140" y="404" font-size="9" fill="#555">NIC</text>
+  <rect x="190" y="395" width="14" height="10" rx="2" fill="#a8d5ba"/>
+  <text x="210" y="404" font-size="9" fill="#555">DDR5</text>
+  <rect x="270" y="395" width="14" height="10" rx="2" fill="#fce4ec"/>
+  <text x="290" y="404" font-size="9" fill="#555">PCIe RC</text>
+  <line x1="380" y1="400" x2="420" y2="400" stroke="#d32f2f" stroke-width="2" stroke-dasharray="6,3"/>
+  <text x="430" y="404" font-size="9" fill="#555">UPI/CXL</text>
+</svg>

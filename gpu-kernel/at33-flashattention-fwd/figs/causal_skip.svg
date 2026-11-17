@@ -1,0 +1,92 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .cell-full { fill: #E8F5E9; stroke: #388E3C; stroke-width: 0.5; }
+    .cell-partial { fill: #FFF3E0; stroke: #D55E00; stroke-width: 0.5; }
+    .cell-skip { fill: #F5F5F5; stroke: #ddd; stroke-width: 0.5; }
+    .cell-mask { fill: #FFCDD2; stroke: #C62828; stroke-width: 0.5; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Causal Mask 的块级跳过（Block-level Skip）</text>
+
+  <!-- Matrix grid -->
+  <text x="30" y="50" class="label">Q blocks ↓</text>
+  <text x="180" y="50" class="label">K blocks →</text>
+  <text x="180" y="65" class="sublabel">j=0</text>
+  <text x="230" y="65" class="sublabel">j=1</text>
+  <text x="280" y="65" class="sublabel">j=2</text>
+  <text x="330" y="65" class="sublabel">j=3</text>
+  <text x="380" y="65" class="sublabel">j=4</text>
+  <text x="430" y="65" class="sublabel">j=5</text>
+
+  <!-- Row i=0 -->
+  <text x="155" y="85" class="sublabel">i=0</text>
+  <rect x="175" y="72" width="45" height="22" class="cell-partial"/>
+  <rect x="225" y="72" width="45" height="22" class="cell-skip"/>
+  <rect x="275" y="72" width="45" height="22" class="cell-skip"/>
+  <rect x="325" y="72" width="45" height="22" class="cell-skip"/>
+  <rect x="375" y="72" width="45" height="22" class="cell-skip"/>
+  <rect x="425" y="72" width="45" height="22" class="cell-skip"/>
+
+  <!-- Row i=1 -->
+  <text x="155" y="107" class="sublabel">i=1</text>
+  <rect x="175" y="96" width="45" height="22" class="cell-full"/>
+  <rect x="225" y="96" width="45" height="22" class="cell-partial"/>
+  <rect x="275" y="96" width="45" height="22" class="cell-skip"/>
+  <rect x="325" y="96" width="45" height="22" class="cell-skip"/>
+  <rect x="375" y="96" width="45" height="22" class="cell-skip"/>
+  <rect x="425" y="96" width="45" height="22" class="cell-skip"/>
+
+  <!-- Row i=2 -->
+  <text x="155" y="131" class="sublabel">i=2</text>
+  <rect x="175" y="120" width="45" height="22" class="cell-full"/>
+  <rect x="225" y="120" width="45" height="22" class="cell-full"/>
+  <rect x="275" y="120" width="45" height="22" class="cell-partial"/>
+  <rect x="325" y="120" width="45" height="22" class="cell-skip"/>
+  <rect x="375" y="120" width="45" height="22" class="cell-skip"/>
+  <rect x="425" y="120" width="45" height="22" class="cell-skip"/>
+
+  <!-- Row i=3 -->
+  <text x="155" y="155" class="sublabel">i=3</text>
+  <rect x="175" y="144" width="45" height="22" class="cell-full"/>
+  <rect x="225" y="144" width="45" height="22" class="cell-full"/>
+  <rect x="275" y="144" width="45" height="22" class="cell-full"/>
+  <rect x="325" y="144" width="45" height="22" class="cell-partial"/>
+  <rect x="375" y="144" width="45" height="22" class="cell-skip"/>
+  <rect x="425" y="144" width="45" height="22" class="cell-skip"/>
+
+  <!-- Row i=4 -->
+  <text x="155" y="179" class="sublabel">i=4</text>
+  <rect x="175" y="168" width="45" height="22" class="cell-full"/>
+  <rect x="225" y="168" width="45" height="22" class="cell-full"/>
+  <rect x="275" y="168" width="45" height="22" class="cell-full"/>
+  <rect x="325" y="168" width="45" height="22" class="cell-full"/>
+  <rect x="375" y="168" width="45" height="22" class="cell-partial"/>
+  <rect x="425" y="168" width="45" height="22" class="cell-skip"/>
+
+  <!-- Row i=5 -->
+  <text x="155" y="203" class="sublabel">i=5</text>
+  <rect x="175" y="192" width="45" height="22" class="cell-full"/>
+  <rect x="225" y="192" width="45" height="22" class="cell-full"/>
+  <rect x="275" y="192" width="45" height="22" class="cell-full"/>
+  <rect x="325" y="192" width="45" height="22" class="cell-full"/>
+  <rect x="375" y="192" width="45" height="22" class="cell-full"/>
+  <rect x="425" y="192" width="45" height="22" class="cell-partial"/>
+
+  <!-- Legend -->
+  <rect x="510" y="72" width="16" height="16" class="cell-full"/>
+  <text x="532" y="85" class="sublabel">全计算（j &lt; i）</text>
+
+  <rect x="510" y="96" width="16" height="16" class="cell-partial"/>
+  <text x="532" y="109" class="sublabel">部分 mask（j = i，对角块）</text>
+
+  <rect x="510" y="120" width="16" height="16" class="cell-skip"/>
+  <text x="532" y="133" class="sublabel">整块跳过（j &gt; i）</text>
+
+  <!-- Bottom note -->
+  <rect x="20" y="228" width="685" height="45" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="248" class="sublabel" fill="#D55E00" font-weight="600">Causal mask 下 FA2 的内层循环只跑到 j &le; i（不是 j &lt; T_c）——平均省一半 FLOP。</text>
+  <text x="30" y="263" class="sublabel">对角块（j = i）需要在 S_ij 上施加 -inf mask：row q &gt; col k 的位置设为 -inf。其余块要么全算要么全跳。</text>
+</svg>

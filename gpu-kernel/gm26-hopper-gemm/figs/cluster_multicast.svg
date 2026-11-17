@@ -1,0 +1,78 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#arr2); }
+    .dashed { stroke-dasharray: 4,3; }
+  </style>
+  <defs>
+    <marker id="arr2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="title">1&times;2 Cluster + TMA Multicast</text>
+
+  <!-- HBM source -->
+  <rect x="20" y="50" width="80" height="70" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="60" y="75" text-anchor="middle" class="label">HBM</text>
+  <text x="60" y="90" text-anchor="middle" class="sublabel">A tile</text>
+  <text x="60" y="105" text-anchor="middle" class="sublabel">[m, k]</text>
+
+  <rect x="20" y="180" width="80" height="50" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="60" y="205" text-anchor="middle" class="label">HBM</text>
+  <text x="60" y="218" text-anchor="middle" class="sublabel">B tiles</text>
+
+  <!-- Cluster boundary -->
+  <rect x="160" y="40" width="540" height="260" rx="10" fill="none" stroke="#CC79A7" stroke-width="2" stroke-dasharray="8,4"/>
+  <text x="430" y="62" text-anchor="middle" class="label" fill="#CC79A7">Cluster (1&times;2)</text>
+
+  <!-- CTA 0 -->
+  <rect x="180" y="80" width="240" height="200" class="box" fill="#E8F5E9" stroke="#009E73"/>
+  <text x="300" y="104" text-anchor="middle" class="label" font-weight="600">CTA 0 (SM_x)</text>
+
+  <rect x="200" y="118" width="95" height="40" rx="4" fill="white" stroke="#009E73" stroke-width="1"/>
+  <text x="248" y="138" text-anchor="middle" class="sublabel">sA</text>
+  <text x="248" y="150" text-anchor="middle" class="sublabel" fill="#009E73">multicast</text>
+
+  <rect x="305" y="118" width="95" height="40" rx="4" fill="white" stroke="#009E73" stroke-width="1"/>
+  <text x="353" y="142" text-anchor="middle" class="sublabel">sB₀</text>
+
+  <rect x="200" y="175" width="200" height="35" rx="4" fill="#E8F4FD" stroke="#0072B2" stroke-width="1"/>
+  <text x="300" y="197" text-anchor="middle" class="sublabel">WGMMA: sA &times; sB₀ &rarr; acc₀</text>
+
+  <rect x="200" y="225" width="200" height="35" rx="4" fill="#FCE4EC" stroke="#CC79A7" stroke-width="1"/>
+  <text x="300" y="247" text-anchor="middle" class="sublabel">C₀ [m, n₀..n₀+BN]</text>
+
+  <!-- CTA 1 -->
+  <rect x="440" y="80" width="240" height="200" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="560" y="104" text-anchor="middle" class="label" font-weight="600">CTA 1 (SM_x+1)</text>
+
+  <rect x="460" y="118" width="95" height="40" rx="4" fill="white" stroke="#D55E00" stroke-width="1"/>
+  <text x="508" y="138" text-anchor="middle" class="sublabel">sA</text>
+  <text x="508" y="150" text-anchor="middle" class="sublabel" fill="#D55E00">multicast</text>
+
+  <rect x="565" y="118" width="95" height="40" rx="4" fill="white" stroke="#D55E00" stroke-width="1"/>
+  <text x="613" y="142" text-anchor="middle" class="sublabel">sB₁</text>
+
+  <rect x="460" y="175" width="200" height="35" rx="4" fill="#E8F4FD" stroke="#0072B2" stroke-width="1"/>
+  <text x="560" y="197" text-anchor="middle" class="sublabel">WGMMA: sA &times; sB₁ &rarr; acc₁</text>
+
+  <rect x="460" y="225" width="200" height="35" rx="4" fill="#FCE4EC" stroke="#CC79A7" stroke-width="1"/>
+  <text x="560" y="247" text-anchor="middle" class="sublabel">C₁ [m, n₁..n₁+BN]</text>
+
+  <!-- Arrows from HBM -->
+  <!-- A multicast arrow splits -->
+  <path d="M100,85 L195,130" class="arrow" stroke="#009E73" stroke-width="2"/>
+  <path d="M100,85 L455,130" class="arrow" stroke="#D55E00" stroke-width="2"/>
+  <text x="260" y="80" text-anchor="middle" class="label" fill="#D55E00">TMA multicast</text>
+  <text x="260" y="93" text-anchor="middle" class="sublabel">(A 带宽减半)</text>
+
+  <!-- B arrows -->
+  <path d="M100,200 L300,145" class="arrow" stroke="#009E73"/>
+  <path d="M100,210 L560,145" class="arrow" stroke="#D55E00"/>
+  <text x="140" y="168" class="sublabel">B₀</text>
+  <text x="140" y="228" class="sublabel">B₁</text>
+</svg>

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Per-Gaussian Data Layout &amp; Memory Budget</text>
+
+<!-- Position -->
+<rect x="20" y="35" width="90" height="55" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="65" y="53" text-anchor="middle" class="title" font-size="11" fill="#2563eb">Position &#x3bc;</text>
+<text x="65" y="70" text-anchor="middle" class="code" font-size="10">3 floats</text>
+<text x="65" y="84" text-anchor="middle" class="label" font-size="9">12 B</text>
+
+<!-- Covariance -->
+<rect x="120" y="35" width="110" height="55" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="175" y="53" text-anchor="middle" class="title" font-size="11" fill="#16a34a">Cov (q, s)</text>
+<text x="175" y="70" text-anchor="middle" class="code" font-size="10">4+3 floats</text>
+<text x="175" y="84" text-anchor="middle" class="label" font-size="9">28 B</text>
+
+<!-- Opacity -->
+<rect x="240" y="35" width="80" height="55" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="280" y="53" text-anchor="middle" class="title" font-size="11" fill="#a16207">Opacity</text>
+<text x="280" y="70" text-anchor="middle" class="code" font-size="10">1 float</text>
+<text x="280" y="84" text-anchor="middle" class="label" font-size="9">4 B</text>
+
+<!-- SH Coefficients -->
+<rect x="330" y="35" width="200" height="55" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="430" y="53" text-anchor="middle" class="title" font-size="11" fill="#dc2626">SH Coefficients (deg 3)</text>
+<text x="430" y="70" text-anchor="middle" class="code" font-size="10">16 basis &#xd7; 3 ch = 48 floats</text>
+<text x="430" y="84" text-anchor="middle" class="label" font-size="9">192 B (81% of total!)</text>
+
+<!-- Total bar -->
+<rect x="20" y="105" width="510" height="30" rx="4" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="275" y="124" text-anchor="middle" class="title">Total: ~236 B / Gaussian</text>
+
+<rect x="540" y="35" width="140" height="55" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="610" y="53" text-anchor="middle" class="title" font-size="11">2D Outputs</text>
+<text x="610" y="70" text-anchor="middle" class="code" font-size="10">mean2d+conic+depth</text>
+<text x="610" y="84" text-anchor="middle" class="label" font-size="9">~24 B</text>
+
+<!-- Scene budget -->
+<rect x="20" y="150" width="660" height="90" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="350" y="170" text-anchor="middle" class="title" fill="#2563eb">Memory Budget (P = 1M Gaussians)</text>
+
+<rect x="40" y="182" width="140" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="110" y="197" text-anchor="middle" class="code" font-size="10">Attrs: 236 MB</text>
+
+<rect x="190" y="182" width="140" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="260" y="197" text-anchor="middle" class="code" font-size="10">2D out: 24 MB</text>
+
+<rect x="340" y="182" width="140" height="22" rx="3" fill="#fef9c3" stroke="#fde68a"/>
+<text x="410" y="197" text-anchor="middle" class="code" font-size="10">Sort keys: 120 MB</text>
+
+<rect x="490" y="182" width="170" height="22" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="575" y="197" text-anchor="middle" class="code" font-size="10">Sort temp: 120 MB</text>
+
+<text x="350" y="230" text-anchor="middle" class="title">Total: ~500 MB &#x2192; fits in A100 80 GB</text>
+<text x="350" y="254" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (P=10&#x2076;, deg=3, 10 tiles/Gaussian avg)</text>
+</svg>

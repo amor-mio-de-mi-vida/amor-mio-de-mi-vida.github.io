@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">CUTLASS GEMM: Mainloop (Load &#x2192; MMA &#x2192; Epilogue) with Software Pipeline</text>
+
+<!-- Mainloop pipeline -->
+<rect x="20" y="35" width="660" height="110" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="350" y="55" text-anchor="middle" class="title" fill="#2563eb">CollectiveMainloop (K-loop with software pipeline)</text>
+
+<!-- Stage 0 -->
+<rect x="35" y="68" width="100" height="60" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="85" y="85" text-anchor="middle" class="code" font-size="9">Stage 0</text>
+<text x="85" y="100" text-anchor="middle" class="label" font-size="8">cp.async A&#x2080;,B&#x2080;</text>
+<text x="85" y="115" text-anchor="middle" class="label" font-size="8">&#x2192; SMEM buf[0]</text>
+
+<line x1="135" y1="98" x2="155" y2="98" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+
+<!-- Stage 1 -->
+<rect x="155" y="68" width="100" height="60" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="205" y="85" text-anchor="middle" class="code" font-size="9">Stage 1</text>
+<text x="205" y="100" text-anchor="middle" class="label" font-size="8">cp.async A&#x2081;,B&#x2081;</text>
+<text x="205" y="115" text-anchor="middle" class="label" font-size="8">MMA(A&#x2080;,B&#x2080;)</text>
+
+<line x1="255" y1="98" x2="275" y2="98" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+
+<!-- Stage 2 -->
+<rect x="275" y="68" width="100" height="60" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="325" y="85" text-anchor="middle" class="code" font-size="9">Stage 2</text>
+<text x="325" y="100" text-anchor="middle" class="label" font-size="8">cp.async A&#x2082;,B&#x2082;</text>
+<text x="325" y="115" text-anchor="middle" class="label" font-size="8">MMA(A&#x2081;,B&#x2081;)</text>
+
+<line x1="375" y1="98" x2="395" y2="98" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+
+<text x="420" y="93" class="code" font-size="14">&#x22ef;</text>
+
+<line x1="435" y1="98" x2="455" y2="98" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+
+<!-- Final stage -->
+<rect x="455" y="68" width="100" height="60" rx="3" fill="#fef9c3" stroke="#eab308"/>
+<text x="505" y="85" text-anchor="middle" class="code" font-size="9">Stage K/Bk</text>
+<text x="505" y="100" text-anchor="middle" class="label" font-size="8">(no more load)</text>
+<text x="505" y="115" text-anchor="middle" class="label" font-size="8">MMA(A_last,B_last)</text>
+
+<line x1="555" y1="98" x2="575" y2="98" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+
+<!-- Epilogue -->
+<rect x="575" y="68" width="95" height="60" rx="3" fill="#fef2f2" stroke="#ef4444"/>
+<text x="622" y="85" text-anchor="middle" class="code" font-size="9">Epilogue</text>
+<text x="622" y="100" text-anchor="middle" class="label" font-size="8">EVT visitors</text>
+<text x="622" y="115" text-anchor="middle" class="label" font-size="8">&#x2192; GMEM</text>
+
+<!-- Data flow -->
+<rect x="20" y="162" width="660" height="95" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="182" text-anchor="middle" class="title">Data Path at Each Stage</text>
+
+<rect x="45" y="195" width="100" height="25" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="95" y="212" text-anchor="middle" class="code" font-size="9">GMEM (A,B)</text>
+
+<line x1="145" y1="207" x2="180" y2="207" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+<text x="163" y="200" class="label" font-size="8">cp.async</text>
+
+<rect x="180" y="195" width="100" height="25" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="230" y="212" text-anchor="middle" class="code" font-size="9">SMEM tiles</text>
+
+<line x1="280" y1="207" x2="315" y2="207" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+<text x="298" y="200" class="label" font-size="8">ldmatrix</text>
+
+<rect x="315" y="195" width="100" height="25" rx="3" fill="#fef9c3" stroke="#eab308"/>
+<text x="365" y="212" text-anchor="middle" class="code" font-size="9">Registers</text>
+
+<line x1="415" y1="207" x2="450" y2="207" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+<text x="433" y="200" class="label" font-size="8">mma.sync</text>
+
+<rect x="450" y="195" width="100" height="25" rx="3" fill="#fef2f2" stroke="#ef4444"/>
+<text x="500" y="212" text-anchor="middle" class="code" font-size="9">Accum (FP32)</text>
+
+<line x1="550" y1="207" x2="585" y2="207" stroke="#888" stroke-width="1" marker-end="url(#arr11)"/>
+<text x="568" y="200" class="label" font-size="8">EVT</text>
+
+<rect x="585" y="195" width="80" height="25" rx="3" fill="#e0e7ff" stroke="#818cf8"/>
+<text x="625" y="212" text-anchor="middle" class="code" font-size="9">GMEM (D)</text>
+
+<text x="350" y="245" text-anchor="middle" class="label" font-size="10">Ampere: cp.async (128B/sector) | Hopper: TMA (bulk copy, addr in HW)</text>
+
+<defs><marker id="arr11" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="275" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (CUTLASS 3.x mainloop)</text>
+</svg>

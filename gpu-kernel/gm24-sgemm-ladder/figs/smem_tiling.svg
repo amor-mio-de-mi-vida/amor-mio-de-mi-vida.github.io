@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="sans-serif">
+<text class="d-title" x="28" y="28">共享内存分块：把 GMEM 搬运问题拆成小块</text>
+
+<!-- A matrix -->
+<rect class="d-box soft" x="28" y="60" width="200" height="140" rx="4"/>
+<text class="d-text" x="128" y="80" text-anchor="middle">A  (M × K)</text>
+<!-- highlight one BM×BK tile -->
+<rect class="d-box accent" x="78" y="90" width="30" height="80" rx="2"/>
+<text class="d-small" x="93" y="134" text-anchor="middle" fill="#D55E00">BM</text>
+<text class="d-small" x="93" y="180" text-anchor="middle" fill="#D55E00">×BK</text>
+<!-- K arrow -->
+<line x1="38" y1="205" x2="218" y2="205" stroke="#888" stroke-width="1" marker-end="url(#arr2)"/>
+<text class="d-small" x="128" y="220" text-anchor="middle">K</text>
+<!-- M arrow -->
+<line x1="20" y1="65" x2="20" y2="195" stroke="#888" stroke-width="1" marker-end="url(#arr2)"/>
+<text class="d-small" x="14" y="134" text-anchor="middle" transform="rotate(-90 14 134)">M</text>
+<defs><marker id="arr2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#888"/></marker></defs>
+
+<!-- B matrix -->
+<rect class="d-box soft" x="260" y="60" width="200" height="140" rx="4"/>
+<text class="d-text" x="360" y="80" text-anchor="middle">B  (K × N)</text>
+<!-- highlight one BK×BN tile -->
+<rect class="d-box accent" x="310" y="90" width="80" height="24" rx="2"/>
+<text class="d-small" x="350" y="107" text-anchor="middle" fill="#D55E00">BK×BN</text>
+<!-- N arrow -->
+<line x1="270" y1="205" x2="450" y2="205" stroke="#888" stroke-width="1" marker-end="url(#arr2)"/>
+<text class="d-small" x="360" y="220" text-anchor="middle">N</text>
+
+<!-- C partial -->
+<rect class="d-box green" x="500" y="90" width="80" height="80" rx="4"/>
+<text class="d-text" x="540" y="134" text-anchor="middle">C tile</text>
+<text class="d-small" x="540" y="152" text-anchor="middle">BM×BN</text>
+
+<!-- Flow arrows -->
+<g stroke="#0b5cad" stroke-width="1.5" fill="none">
+  <path d="M108,130 L108,250 L280,250 L280,270" marker-end="url(#arr3)"/>
+  <path d="M350,114 L350,250 L440,250 L440,270" marker-end="url(#arr3)"/>
+</g>
+<defs><marker id="arr3" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#0b5cad"/></marker></defs>
+
+<!-- SMEM box -->
+<rect class="d-box blue" x="250" y="270" width="220" height="50" rx="4"/>
+<text class="d-text" x="360" y="298" text-anchor="middle" fill="#0b5cad">Shared Memory</text>
+
+<!-- compute arrow -->
+<g stroke="#2a9d2a" stroke-width="1.5" fill="none">
+  <path d="M470,295 L530,295 L530,170" marker-end="url(#arr4)"/>
+</g>
+<defs><marker id="arr4" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#2a9d2a"/></marker></defs>
+<text class="d-small" x="532" y="240" fill="#2a9d2a">计算</text>
+
+<!-- plus sign for accumulation -->
+<text class="d-text" x="590" y="134" text-anchor="middle" font-size="24">+=</text>
+
+<!-- iteration label -->
+<text class="d-label" x="28" y="334">第 t 次迭代：搬 A[:,t:t+BK] 和 B[t:t+BK,:] 到 SMEM，累加 BM×BN 的部分积到寄存器</text>
+</svg>

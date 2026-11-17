@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">KV Cache Size: MHA vs GQA vs MQA vs MLA</text>
+
+<!-- Table header -->
+<rect x="20" y="32" width="660" height="25" rx="0" fill="#f3f4f6"/>
+<text x="90" y="49" text-anchor="middle" class="title">Method</text>
+<text x="220" y="49" text-anchor="middle" class="title">KV Heads</text>
+<text x="350" y="49" text-anchor="middle" class="title">Cache / token</text>
+<text x="490" y="49" text-anchor="middle" class="title">4K tokens</text>
+<text x="610" y="49" text-anchor="middle" class="title">Ratio</text>
+
+<!-- MHA row -->
+<rect x="20" y="57" width="660" height="28" rx="0" fill="#fef2f2"/>
+<text x="90" y="75" text-anchor="middle" class="code">MHA</text>
+<text x="220" y="75" text-anchor="middle" class="code">H=32</text>
+<text x="350" y="75" text-anchor="middle" class="code">2&#xd7;32&#xd7;128&#xd7;2 = 16 KB</text>
+<text x="490" y="75" text-anchor="middle" class="code">64 MB</text>
+<text x="610" y="75" text-anchor="middle" class="code">1&#xd7;</text>
+
+<!-- GQA row -->
+<rect x="20" y="85" width="660" height="28" rx="0" fill="#fef9c3"/>
+<text x="90" y="103" text-anchor="middle" class="code">GQA (G=8)</text>
+<text x="220" y="103" text-anchor="middle" class="code">8</text>
+<text x="350" y="103" text-anchor="middle" class="code">2&#xd7;8&#xd7;128&#xd7;2 = 4 KB</text>
+<text x="490" y="103" text-anchor="middle" class="code">16 MB</text>
+<text x="610" y="103" text-anchor="middle" class="code">0.25&#xd7;</text>
+
+<!-- MQA row -->
+<rect x="20" y="113" width="660" height="28" rx="0" fill="#dcfce7"/>
+<text x="90" y="131" text-anchor="middle" class="code">MQA (G=1)</text>
+<text x="220" y="131" text-anchor="middle" class="code">1</text>
+<text x="350" y="131" text-anchor="middle" class="code">2&#xd7;1&#xd7;128&#xd7;2 = 0.5 KB</text>
+<text x="490" y="131" text-anchor="middle" class="code">2 MB</text>
+<text x="610" y="131" text-anchor="middle" class="code">0.03&#xd7;</text>
+
+<!-- MLA row -->
+<rect x="20" y="141" width="660" height="28" rx="0" fill="#eff6ff"/>
+<text x="90" y="159" text-anchor="middle" class="code">MLA</text>
+<text x="220" y="159" text-anchor="middle" class="code">d_c=512</text>
+<text x="350" y="159" text-anchor="middle" class="code">512&#xd7;2 = 1 KB</text>
+<text x="490" y="159" text-anchor="middle" class="code">4 MB</text>
+<text x="610" y="159" text-anchor="middle" class="code">0.06&#xd7;</text>
+
+<!-- bar chart -->
+<text x="350" y="190" text-anchor="middle" class="label">Cache per token (d=128, H=32, FP16)</text>
+<rect x="40" y="198" width="600" height="14" rx="2" fill="#fca5a5" stroke="#ef4444"/>
+<text x="340" y="209" text-anchor="middle" class="code" fill="#fff" font-size="10">MHA: 16 KB</text>
+<rect x="40" y="215" width="150" height="14" rx="2" fill="#fde047" stroke="#eab308"/>
+<text x="115" y="226" text-anchor="middle" class="code" font-size="10">GQA: 4 KB</text>
+<rect x="40" y="232" width="19" height="14" rx="2" fill="#86efac" stroke="#22c55e"/>
+<text x="72" y="243" class="code" font-size="10">MQA: 0.5 KB</text>
+<rect x="40" y="249" width="38" height="14" rx="2" fill="#93c5fd" stroke="#3b82f6"/>
+<text x="92" y="260" class="code" font-size="10">MLA: 1 KB</text>
+</svg>

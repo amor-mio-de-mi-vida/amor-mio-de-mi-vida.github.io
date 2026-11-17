@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Standard vs Submanifold Sparse Convolution</text>
+
+<!-- Standard: Input -->
+<text x="115" y="42" text-anchor="middle" class="title" fill="#dc2626">Standard Sparse Conv</text>
+<g transform="translate(30,50)">
+  <text x="85" y="0" text-anchor="middle" class="label">Input (5 active)</text>
+  <!-- 6x6 grid -->
+  <rect x="10" y="8" width="150" height="90" fill="none" stroke="#d1d5db" stroke-width="0.5"/>
+  <!-- active voxels -->
+  <rect x="35" y="23" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="60" y="23" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="60" y="38" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="85" y="53" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="110" y="68" width="20" height="12" rx="2" fill="#3b82f6"/>
+</g>
+<text x="175" y="100" text-anchor="middle" class="code" font-size="16">&rarr;</text>
+<g transform="translate(190,50)">
+  <text x="85" y="0" text-anchor="middle" class="label" fill="#dc2626">Output (13 active!)</text>
+  <rect x="10" y="8" width="150" height="90" fill="none" stroke="#d1d5db" stroke-width="0.5"/>
+  <!-- expanded active voxels (3x3 kernel expands) -->
+  <rect x="10" y="8" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="35" y="8" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="60" y="8" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="85" y="8" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="10" y="23" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="35" y="23" width="20" height="12" rx="2" fill="#ef4444"/>
+  <rect x="60" y="23" width="20" height="12" rx="2" fill="#ef4444"/>
+  <rect x="85" y="23" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="35" y="38" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="60" y="38" width="20" height="12" rx="2" fill="#ef4444"/>
+  <rect x="85" y="38" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="60" y="53" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="85" y="53" width="20" height="12" rx="2" fill="#ef4444"/>
+  <rect x="110" y="53" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="85" y="68" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="110" y="68" width="20" height="12" rx="2" fill="#ef4444"/>
+  <rect x="135" y="68" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="110" y="83" width="20" height="12" rx="2" fill="#fca5a5"/>
+  <rect x="135" y="83" width="20" height="12" rx="2" fill="#fca5a5"/>
+</g>
+
+<!-- Submanifold: Input -->
+<text x="115" y="172" text-anchor="middle" class="title" fill="#16a34a">Submanifold Sparse Conv</text>
+<g transform="translate(30,180)">
+  <text x="85" y="0" text-anchor="middle" class="label">Input (5 active)</text>
+  <rect x="10" y="8" width="150" height="90" fill="none" stroke="#d1d5db" stroke-width="0.5"/>
+  <rect x="35" y="23" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="60" y="23" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="60" y="38" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="85" y="53" width="20" height="12" rx="2" fill="#3b82f6"/>
+  <rect x="110" y="68" width="20" height="12" rx="2" fill="#3b82f6"/>
+</g>
+<text x="175" y="230" text-anchor="middle" class="code" font-size="16">&rarr;</text>
+<g transform="translate(190,180)">
+  <text x="85" y="0" text-anchor="middle" class="label" fill="#16a34a">Output (5 active, same!)</text>
+  <rect x="10" y="8" width="150" height="90" fill="none" stroke="#d1d5db" stroke-width="0.5"/>
+  <rect x="35" y="23" width="20" height="12" rx="2" fill="#22c55e"/>
+  <rect x="60" y="23" width="20" height="12" rx="2" fill="#22c55e"/>
+  <rect x="60" y="38" width="20" height="12" rx="2" fill="#22c55e"/>
+  <rect x="85" y="53" width="20" height="12" rx="2" fill="#22c55e"/>
+  <rect x="110" y="68" width="20" height="12" rx="2" fill="#22c55e"/>
+</g>
+
+<!-- Comparison box -->
+<rect x="410" y="40" width="275" height="220" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="547" y="62" text-anchor="middle" class="title">Comparison</text>
+
+<text x="425" y="85" class="code" fill="#dc2626" font-size="10">Standard (3x3 kernel):</text>
+<text x="425" y="102" class="label" font-size="10">5 input &rarr; up to 5x9 = 45 outputs</text>
+<text x="425" y="119" class="label" font-size="10">After 3 layers: nearly dense</text>
+<text x="425" y="136" class="label" font-size="10">Sparsity advantage lost!</text>
+
+<line x1="425" y1="150" x2="670" y2="150" stroke="#d1d5db"/>
+
+<text x="425" y="170" class="code" fill="#16a34a" font-size="10">Submanifold:</text>
+<text x="425" y="187" class="label" font-size="10">5 input &rarr; 5 outputs (exact same)</text>
+<text x="425" y="204" class="label" font-size="10">Sparsity preserved across layers</text>
+<text x="425" y="221" class="label" font-size="10">Slower receptive field growth</text>
+<text x="425" y="245" class="code" font-size="9">Hybrid: submfd layers + stride-2 std</text>
+
+<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

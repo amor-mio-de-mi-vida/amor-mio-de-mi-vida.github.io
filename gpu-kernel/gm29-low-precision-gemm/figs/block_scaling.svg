@@ -1,0 +1,87 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .fill-blue  { fill: #56B4E9; opacity: 0.25; }
+    .fill-green { fill: #009E73; opacity: 0.25; }
+    .fill-acc   { fill: #D55E00; opacity: 0.3; }
+    .grid-line { stroke: var(--rule, #e4e4e0); stroke-width: 0.5; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="d-label">FP8 Block Scaling：每个块一个缩放因子</text>
+
+  <!-- Matrix A (per-token / 1×128) -->
+  <g transform="translate(30, 50)">
+    <text x="80" y="-6" text-anchor="middle" class="d-label" style="font-size:12px">A（FP8 激活）</text>
+    <text x="-6" y="50" text-anchor="end" class="d-note">M</text>
+    <text x="80" y="-20" text-anchor="middle" class="d-note">K</text>
+
+    <rect x="0" y="0" width="160" height="120" fill="none" stroke="var(--ink-3,#8a8a86)"/>
+    <!-- 1×128 blocks along K: each row gets its own scale -->
+    <line x1="80" y1="0" x2="80" y2="120" class="grid-line"/>
+    <line x1="0" y1="20" x2="160" y2="20" class="grid-line"/>
+    <line x1="0" y1="40" x2="160" y2="40" class="grid-line"/>
+    <line x1="0" y1="60" x2="160" y2="60" class="grid-line"/>
+    <line x1="0" y1="80" x2="160" y2="80" class="grid-line"/>
+    <line x1="0" y1="100" x2="160" y2="100" class="grid-line"/>
+
+    <!-- Color blocks with per-row scale markers -->
+    <rect x="1" y="1" width="78" height="18" class="fill-blue"/>
+    <rect x="81" y="1" width="78" height="18" style="fill:#56B4E9;opacity:0.15"/>
+    <rect x="1" y="21" width="78" height="18" style="fill:#009E73;opacity:0.2"/>
+    <rect x="81" y="21" width="78" height="18" style="fill:#009E73;opacity:0.12"/>
+
+    <!-- Scale factors -->
+    <text x="180" y="14" class="d-note" style="fill:#56B4E9;font-size:10px">s<tspan baseline-shift="sub" font-size="8">A0,0</tspan></text>
+    <text x="180" y="34" class="d-note" style="fill:#009E73;font-size:10px">s<tspan baseline-shift="sub" font-size="8">A1,0</tspan></text>
+    <text x="180" y="74" class="d-note">...</text>
+
+    <text x="80" y="138" text-anchor="middle" class="d-note">1×128 per-token scaling</text>
+  </g>
+
+  <!-- Matrix B (128×128 block scaling) -->
+  <g transform="translate(260, 50)">
+    <text x="80" y="-6" text-anchor="middle" class="d-label" style="font-size:12px">B（FP8 权重）</text>
+    <text x="-6" y="50" text-anchor="end" class="d-note">K</text>
+    <text x="80" y="-20" text-anchor="middle" class="d-note">N</text>
+
+    <rect x="0" y="0" width="160" height="120" fill="none" stroke="var(--ink-3,#8a8a86)"/>
+    <!-- 128×128 blocks -->
+    <line x1="80" y1="0" x2="80" y2="120" class="grid-line" stroke-width="1.5"/>
+    <line x1="0" y1="60" x2="160" y2="60" class="grid-line" stroke-width="1.5"/>
+
+    <rect x="1" y="1" width="78" height="58" class="fill-green"/>
+    <rect x="81" y="1" width="78" height="58" style="fill:#E69F00;opacity:0.2"/>
+    <rect x="1" y="61" width="78" height="58" style="fill:#CC79A7;opacity:0.2"/>
+    <rect x="81" y="61" width="78" height="58" style="fill:#56B4E9;opacity:0.15"/>
+
+    <text x="40" y="34" text-anchor="middle" class="d-note" style="font-size:10px">s<tspan baseline-shift="sub" font-size="8">B0,0</tspan></text>
+    <text x="120" y="34" text-anchor="middle" class="d-note" style="font-size:10px">s<tspan baseline-shift="sub" font-size="8">B0,1</tspan></text>
+    <text x="40" y="94" text-anchor="middle" class="d-note" style="font-size:10px">s<tspan baseline-shift="sub" font-size="8">B1,0</tspan></text>
+    <text x="120" y="94" text-anchor="middle" class="d-note" style="font-size:10px">s<tspan baseline-shift="sub" font-size="8">B1,1</tspan></text>
+
+    <text x="80" y="138" text-anchor="middle" class="d-note">128×128 block scaling</text>
+  </g>
+
+  <!-- Accumulation formula -->
+  <g transform="translate(470, 60)">
+    <text x="100" y="0" text-anchor="middle" class="d-label" style="font-size:12px">累加公式</text>
+
+    <rect x="10" y="14" width="200" height="80" rx="4" class="d-box" style="fill:#f8f8f5"/>
+    <text x="110" y="38" text-anchor="middle" class="d-note" style="font-size:11px;font-family:monospace">C[i][j] += </text>
+    <text x="110" y="56" text-anchor="middle" class="d-note" style="font-size:11px;font-family:monospace;fill:#D55E00">  s_A[i][kb] * s_B[kb][jb]</text>
+    <text x="110" y="74" text-anchor="middle" class="d-note" style="font-size:11px;font-family:monospace">  * mma(A_fp8, B_fp8)</text>
+
+    <text x="110" y="114" text-anchor="middle" class="d-note">kb = k / 128, jb = j / 128</text>
+    <text x="110" y="132" text-anchor="middle" class="d-note">MMA 在 FP8 精度完成</text>
+    <text x="110" y="148" text-anchor="middle" class="d-note" style="fill:#D55E00">缩放在 FP32 精度应用</text>
+  </g>
+
+  <!-- DeepSeek-V3 note -->
+  <text x="360" y="230" text-anchor="middle" class="d-note">DeepSeek-V3 方案：A 用 1×128 per-token，B 用 128×128 per-block</text>
+  <text x="360" y="248" text-anchor="middle" class="d-note">平衡精度（细粒度 scale）与开销（scale 读取次数）</text>
+
+  <text x="360" y="278" text-anchor="middle" class="d-note" style="fill:#D55E00">关键决策：缩放在 mainloop 的哪个位置应用？在 MMA 之前还是之后？</text>
+  <text x="360" y="294" text-anchor="middle" class="d-note">之前：精度更好但要转换 FP8→FP16；之后：直接用 FP8 MMA 但累加误差更大</text>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">NCHW vs NHWC Memory Layout</text>
+
+<!-- NCHW -->
+<rect x="20" y="32" width="310" height="105" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="175" y="50" text-anchor="middle" class="title" fill="#dc2626">NCHW (Channels First)</text>
+<text x="35" y="70" class="code">Memory: [c0h0w0, c0h0w1, c0h0w2, ...</text>
+<text x="35" y="85" class="code">         c0h1w0, c0h1w1, ...  </text>
+<text x="35" y="100" class="code">         c1h0w0, c1h0w1, ...]</text>
+<text x="35" y="120" class="label">Spatial (H&#xd7;W) contiguous per channel</text>
+<text x="35" y="132" class="label" fill="#dc2626">Conv im2col: stride access across C</text>
+
+<!-- NHWC -->
+<rect x="370" y="32" width="310" height="105" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
+<text x="525" y="50" text-anchor="middle" class="title" fill="#16a34a">NHWC (Channels Last)</text>
+<text x="385" y="70" class="code">Memory: [h0w0c0, h0w0c1, h0w0c2, ...</text>
+<text x="385" y="85" class="code">         h0w1c0, h0w1c1, ...  </text>
+<text x="385" y="100" class="code">         h1w0c0, h1w0c1, ...]</text>
+<text x="385" y="120" class="label">Channels (C) contiguous per pixel</text>
+<text x="385" y="132" class="label" fill="#16a34a">Conv im2col: coalesced C-dim read</text>
+
+<!-- Tensor Core mapping -->
+<rect x="20" y="152" width="660" height="80" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
+<text x="350" y="172" text-anchor="middle" class="title" fill="#2563eb">Implicit GEMM Mapping (3&#xd7;3 Conv)</text>
+<text x="35" y="192" class="code">Input patch (3&#xd7;3&#xd7;C_in) &#x2192; GEMM row (K = 9&#xd7;C_in)</text>
+<text x="35" y="207" class="code">Weight [C_out, 9&#xd7;C_in]  &#x2192; GEMM matrix B</text>
+<text x="35" y="222" class="code">Output pixel (C_out)     &#x2192; GEMM column (N = C_out)</text>
+
+<!-- Arrow -->
+<text x="350" y="248" text-anchor="middle" class="label">NHWC: warp reads contiguous K-dim &#x2192; Tensor Core MMA aligned</text>
+<text x="350" y="263" text-anchor="middle" class="label">NCHW: K-dim scattered &#x2192; needs transpose or non-coalesced access</text>
+<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

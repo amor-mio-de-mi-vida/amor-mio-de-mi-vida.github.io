@@ -1,0 +1,79 @@
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah); }
+    .cell { stroke-width: 0.5; }
+  </style>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">im2col：把卷积变成矩阵乘</text>
+
+  <!-- Input feature map -->
+  <text x="60" y="50" text-anchor="middle" class="label">Input [C_in, H, W]</text>
+  <rect x="10" y="58" width="100" height="100" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <!-- 3x3 sliding window -->
+  <rect x="30" y="70" width="36" height="36" rx="2" fill="none" stroke="#D55E00" stroke-width="2" stroke-dasharray="4,2"/>
+  <text x="48" y="92" text-anchor="middle" class="sublabel" fill="#D55E00">R&times;S</text>
+  <rect x="50" y="90" width="36" height="36" rx="2" fill="none" stroke="#D55E00" stroke-width="2" stroke-dasharray="4,2" opacity="0.5"/>
+
+  <!-- Arrow -->
+  <path d="M120,108 L170,108" class="arrow" stroke="#333"/>
+  <text x="145" y="100" text-anchor="middle" class="sublabel">展开</text>
+
+  <!-- Column matrix -->
+  <text x="260" y="50" text-anchor="middle" class="label">col [C_in&middot;R&middot;S, P]</text>
+  <rect x="180" y="58" width="160" height="100" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <!-- Column labels -->
+  <text x="195" y="75" class="sublabel" fill="#D55E00">patch₀</text>
+  <text x="245" y="75" class="sublabel" fill="#D55E00">patch₁</text>
+  <text x="300" y="75" class="sublabel" fill="#D55E00">&hellip;</text>
+  <!-- Row labels -->
+  <text x="186" y="98" class="sublabel">c₀r₀s₀</text>
+  <text x="186" y="113" class="sublabel">c₀r₀s₁</text>
+  <text x="186" y="128" class="sublabel">&hellip;</text>
+  <text x="186" y="148" class="sublabel">K rows</text>
+  <!-- Grid lines -->
+  <line x1="240" y1="58" x2="240" y2="158" stroke="#D55E00" stroke-width="0.5" opacity="0.3"/>
+  <line x1="290" y1="58" x2="290" y2="158" stroke="#D55E00" stroke-width="0.5" opacity="0.3"/>
+  <line x1="180" y1="85" x2="340" y2="85" stroke="#D55E00" stroke-width="0.5" opacity="0.3"/>
+
+  <!-- Times symbol -->
+  <text x="355" y="112" text-anchor="middle" class="title">&times;</text>
+
+  <!-- Weight matrix -->
+  <text x="440" y="50" text-anchor="middle" class="label">Weight [C_out, K]</text>
+  <rect x="380" y="58" width="120" height="100" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="440" y="100" text-anchor="middle" class="sublabel">K = C_in&middot;R&middot;S</text>
+  <text x="440" y="120" text-anchor="middle" class="sublabel">C_out rows</text>
+
+  <!-- Equals -->
+  <text x="520" y="112" text-anchor="middle" class="title">=</text>
+
+  <!-- Output -->
+  <text x="610" y="50" text-anchor="middle" class="label">Output [C_out, P]</text>
+  <rect x="545" y="58" width="130" height="100" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="610" y="100" text-anchor="middle" class="sublabel">P = H_out&middot;W_out</text>
+  <text x="610" y="120" text-anchor="middle" class="sublabel">reshape &rarr; [N,C_out,H_out,W_out]</text>
+
+  <!-- Key insight box -->
+  <rect x="30" y="190" width="660" height="60" rx="6" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
+  <text x="40" y="210" class="label" fill="#D55E00" font-weight="600">关键洞察</text>
+  <text x="40" y="228" class="sublabel">im2col 把每个滑动窗口拉成一列，卷积变成标准 GEMM &rarr; 直接复用高度优化的 GEMM kernel。</text>
+  <text x="40" y="242" class="sublabel">代价：col 矩阵占 C_in&middot;R&middot;S&middot;H_out&middot;W_out 个元素，对 3&times;3 conv 是输入的 9 倍。</text>
+
+  <!-- P annotation -->
+  <rect x="30" y="270" width="300" height="55" rx="6" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+  <text x="40" y="290" class="sublabel" fill="#1976D2" font-weight="600">输出尺寸公式：</text>
+  <text x="40" y="308" class="sublabel">H_out = (H + 2&middot;pad - dil&middot;(R-1) - 1) / stride + 1</text>
+
+  <rect x="370" y="270" width="320" height="55" rx="6" fill="#E8F5E9" stroke="#388E3C" stroke-width="1"/>
+  <text x="380" y="290" class="sublabel" fill="#388E3C" font-weight="600">GEMM 维度：</text>
+  <text x="380" y="308" class="sublabel">M = C_out,  N = P = H_out&middot;W_out,  K = C_in&middot;R&middot;S</text>
+</svg>

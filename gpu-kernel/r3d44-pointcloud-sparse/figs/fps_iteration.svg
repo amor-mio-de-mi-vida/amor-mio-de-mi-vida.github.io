@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .arrow{stroke:#23272f;stroke-width:1.3;marker-end:url(#ah2)}
+</style>
+<defs>
+  <marker id="ah2" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#23272f"/>
+  </marker>
+</defs>
+<text x="340" y="18" text-anchor="middle" class="title">Farthest Point Sampling (FPS): Iterative Argmax</text>
+
+<!-- Point cloud -->
+<g transform="translate(30,35)">
+  <rect width="280" height="180" rx="6" fill="#f0f9ff" stroke="#0ea5e9" stroke-width="1"/>
+  <text x="140" y="18" text-anchor="middle" class="title" fill="#0ea5e9">Point Cloud (N points)</text>
+
+  <!-- Points scattered -->
+  <circle cx="40" cy="60" r="5" fill="#94a3b8"/>
+  <circle cx="80" cy="45" r="5" fill="#94a3b8"/>
+  <circle cx="120" cy="100" r="5" fill="#94a3b8"/>
+  <circle cx="160" cy="70" r="5" fill="#94a3b8"/>
+  <circle cx="200" cy="130" r="5" fill="#94a3b8"/>
+  <circle cx="55" cy="140" r="5" fill="#94a3b8"/>
+  <circle cx="240" cy="55" r="5" fill="#94a3b8"/>
+  <circle cx="100" cy="160" r="5" fill="#94a3b8"/>
+
+  <!-- Selected points -->
+  <circle cx="40" cy="60" r="7" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <text x="40" y="48" text-anchor="middle" class="code" font-size="9" fill="#ef4444">p0</text>
+
+  <circle cx="240" cy="55" r="7" fill="none" stroke="#22c55e" stroke-width="2"/>
+  <text x="240" y="43" text-anchor="middle" class="code" font-size="9" fill="#22c55e">p1</text>
+
+  <circle cx="100" cy="160" r="7" fill="none" stroke="#3b82f6" stroke-width="2"/>
+  <text x="100" y="175" text-anchor="middle" class="code" font-size="9" fill="#3b82f6">p2</text>
+</g>
+
+<!-- Algorithm steps -->
+<g transform="translate(340,35)">
+  <rect width="310" height="180" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1"/>
+  <text x="155" y="18" text-anchor="middle" class="title" fill="#854d0e">FPS Algorithm (M iterations)</text>
+
+  <text x="10" y="42" class="code" font-size="10" fill="#ef4444">Iter 0: pick p0 (random seed)</text>
+  <text x="10" y="62" class="code" font-size="10">  update min_dist[i] = dist(i, p0)</text>
+
+  <text x="10" y="87" class="code" font-size="10" fill="#22c55e">Iter 1: p1 = argmax(min_dist)</text>
+  <text x="10" y="107" class="code" font-size="10">  min_dist[i] = min(old, dist(i, p1))</text>
+
+  <text x="10" y="132" class="code" font-size="10" fill="#3b82f6">Iter 2: p2 = argmax(min_dist)</text>
+  <text x="10" y="152" class="code" font-size="10">  min_dist[i] = min(old, dist(i, p2))</text>
+
+  <text x="10" y="172" class="label">... repeat M times total</text>
+</g>
+
+<!-- GPU notes -->
+<rect x="30" y="228" width="620" height="35" rx="4" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="340" y="242" text-anchor="middle" class="label">Each iteration: O(N) distance update (parallel) + O(N) argmax reduction (parallel)</text>
+<text x="340" y="256" text-anchor="middle" class="label">M iterations are sequential &mdash; inherently serial dependency limits GPU parallelism</text>
+
+<text x="340" y="278" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

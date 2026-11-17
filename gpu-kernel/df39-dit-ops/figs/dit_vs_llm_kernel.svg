@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">DiT Inference vs LLM Inference: Kernel Characteristics</text>
+
+<!-- LLM side -->
+<rect x="20" y="35" width="320" height="200" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="180" y="55" text-anchor="middle" class="title" fill="#2563eb">LLM Decode (e.g. Llama-70B)</text>
+
+<rect x="35" y="68" width="135" height="24" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="102" y="84" text-anchor="middle" class="code" font-size="10">Batch=256, Q=1 tok</text>
+<rect x="180" y="68" width="145" height="24" rx="3" fill="#93c5fd" stroke="#3b82f6"/>
+<text x="252" y="84" text-anchor="middle" class="code" font-size="10">KV cache &#x2192; GEMV</text>
+
+<text x="40" y="110" class="label">&#x2022; Compute-bound (large M from batch)</text>
+<text x="40" y="128" class="label">&#x2022; KV cache read dominates memory</text>
+<text x="40" y="146" class="label">&#x2022; Causal mask &#x2192; triangle skip</text>
+<text x="40" y="164" class="label">&#x2022; PagedAttention for cache mgmt</text>
+<text x="40" y="182" class="label">&#x2022; Optimize: throughput (tok/s/GPU)</text>
+
+<rect x="35" y="195" width="290" height="28" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="180" y="213" text-anchor="middle" class="code" font-size="10">GEMM shape: [256, 8192] &#xd7; [8192, 8192]</text>
+
+<!-- DiT side -->
+<rect x="370" y="35" width="310" height="200" rx="5" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#a16207">DiT Inference (e.g. Flux)</text>
+
+<rect x="385" y="68" width="135" height="24" rx="3" fill="#fef9c3" stroke="#fde047"/>
+<text x="452" y="84" text-anchor="middle" class="code" font-size="10">Batch=2, L=4K tok</text>
+<rect x="530" y="68" width="135" height="24" rx="3" fill="#fde047" stroke="#eab308"/>
+<text x="597" y="84" text-anchor="middle" class="code" font-size="10">No cache, full fwd</text>
+
+<text x="390" y="110" class="label">&#x2022; Memory-bound (tiny M=2)</text>
+<text x="390" y="128" class="label">&#x2022; Each denoise step = full forward</text>
+<text x="390" y="146" class="label">&#x2022; No causal mask (bidirectional)</text>
+<text x="390" y="164" class="label">&#x2022; No KV cache needed</text>
+<text x="390" y="182" class="label">&#x2022; Optimize: latency (ms/step)</text>
+
+<rect x="385" y="195" width="280" height="28" rx="3" fill="#fef9c3" stroke="#fde047"/>
+<text x="525" y="213" text-anchor="middle" class="code" font-size="10">GEMM shape: [2, 3072] &#xd7; [3072, 3072]</text>
+
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

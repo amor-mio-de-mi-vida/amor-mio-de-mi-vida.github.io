@@ -1,0 +1,41 @@
+<svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="13">
+  <text x="350" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">VAE Tiling 解码与 Blending</text>
+
+  <!-- Full video bar -->
+  <text x="350" y="50" text-anchor="middle" font-size="12" fill="#666">完整视频潜空间（时间轴）</text>
+  <rect x="40" y="58" width="620" height="30" rx="4" fill="#dfe6e9" stroke="#636e72"/>
+  <text x="350" y="78" text-anchor="middle" font-size="11" fill="#636e72">L 帧 latent （显存放不下完整 3D 卷积的中间特征）</text>
+
+  <!-- Arrow down -->
+  <text x="350" y="105" text-anchor="middle" font-size="12" fill="#888">↓ 切成重叠 tile</text>
+
+  <!-- Tiles with overlap -->
+  <g transform="translate(40,115)">
+    <!-- Tile 0 -->
+    <rect x="0" y="0" width="200" height="35" rx="4" fill="#74b9ff" stroke="#0984e3" stroke-width="1.5"/>
+    <text x="85" y="22" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">Tile 0</text>
+
+    <!-- Overlap 0-1 -->
+    <rect x="165" y="0" width="70" height="35" rx="0" fill="#ffeaa7" fill-opacity="0.6" stroke="#fdcb6e" stroke-width="1" stroke-dasharray="4,2"/>
+
+    <!-- Tile 1 -->
+    <rect x="165" y="0" width="200" height="35" rx="4" fill="#55efc4" fill-opacity="0.8" stroke="#00b894" stroke-width="1.5"/>
+    <text x="265" y="22" text-anchor="middle" font-size="11" fill="#333" font-weight="bold">Tile 1</text>
+
+    <!-- Overlap 1-2 -->
+    <rect x="330" y="0" width="70" height="35" rx="0" fill="#ffeaa7" fill-opacity="0.6" stroke="#fdcb6e" stroke-width="1" stroke-dasharray="4,2"/>
+
+    <!-- Tile 2 -->
+    <rect x="330" y="0" width="200" height="35" rx="4" fill="#a29bfe" fill-opacity="0.8" stroke="#6c5ce7" stroke-width="1.5"/>
+    <text x="430" y="22" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">Tile 2</text>
+  </g>
+
+  <!-- Overlap labels -->
+  <text x="237" y="170" text-anchor="middle" font-size="10" fill="#e17055">overlap</text>
+  <text x="402" y="170" text-anchor="middle" font-size="10" fill="#e17055">overlap</text>
+
+  <!-- Blending formula -->
+  <text x="350" y="195" text-anchor="middle" font-size="12" fill="#333">重叠区混合：out[t] = w(t) &times; tile_left[t] + (1 - w(t)) &times; tile_right[t]</text>
+  <text x="350" y="215" text-anchor="middle" font-size="11" fill="#888">w(t) 从 1 线性衰减到 0（左 tile 权重逐渐让位给右 tile）</text>
+  <text x="350" y="232" text-anchor="middle" font-size="11" fill="#888">每个 tile 独立过 VAE 3D 卷积解码器 → 显存峰值 = 单 tile 的中间特征</text>
+</svg>

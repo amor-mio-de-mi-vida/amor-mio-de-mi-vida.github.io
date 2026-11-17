@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">AOT vs JIT: Two Paths to Build C++/CUDA Extensions</text>
+
+<!-- AOT path -->
+<rect x="20" y="35" width="310" height="195" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="175" y="55" text-anchor="middle" class="title" fill="#16a34a">AOT (Ahead-of-Time)</text>
+
+<rect x="35" y="68" width="130" height="30" rx="3" fill="#d1fae5" stroke="#86efac"/>
+<text x="100" y="87" text-anchor="middle" class="code" font-size="9">setup.py</text>
+
+<line x1="165" y1="83" x2="195" y2="83" stroke="#888" stroke-width="1" marker-end="url(#arr13)"/>
+
+<rect x="195" y="68" width="120" height="30" rx="3" fill="#d1fae5" stroke="#86efac"/>
+<text x="255" y="87" text-anchor="middle" class="code" font-size="9">pip install .</text>
+
+<text x="35" y="118" class="label" font-size="10">CUDAExtension(</text>
+<text x="50" y="133" class="code" font-size="9">name='rms_norm_ext',</text>
+<text x="50" y="148" class="code" font-size="9">sources=['rms_norm.cu'],</text>
+<text x="35" y="163" class="label" font-size="10">)</text>
+
+<text x="35" y="185" class="label" font-size="10" fill="#16a34a">&#x2713; Pre-compiled .so in site-packages</text>
+<text x="35" y="200" class="label" font-size="10" fill="#16a34a">&#x2713; Fast import, no runtime compile</text>
+<text x="35" y="215" class="label" font-size="10" fill="#dc2626">&#x2717; Needs nvcc at build time</text>
+
+<!-- JIT path -->
+<rect x="370" y="35" width="310" height="195" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#2563eb">JIT (Just-in-Time)</text>
+
+<rect x="385" y="68" width="130" height="30" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="450" y="87" text-anchor="middle" class="code" font-size="9">import torch</text>
+
+<line x1="515" y1="83" x2="545" y2="83" stroke="#888" stroke-width="1" marker-end="url(#arr13)"/>
+
+<rect x="545" y="68" width="120" height="30" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="605" y="87" text-anchor="middle" class="code" font-size="9">load(sources=)</text>
+
+<text x="385" y="118" class="label" font-size="10">torch.utils.cpp_extension</text>
+<text x="400" y="133" class="code" font-size="9">.load(</text>
+<text x="410" y="148" class="code" font-size="9">name='rms_norm_ext',</text>
+<text x="410" y="163" class="code" font-size="9">sources=['rms_norm.cu'])</text>
+
+<text x="385" y="185" class="label" font-size="10" fill="#16a34a">&#x2713; No setup.py needed</text>
+<text x="385" y="200" class="label" font-size="10" fill="#16a34a">&#x2713; Auto-recompile on change</text>
+<text x="385" y="215" class="label" font-size="10" fill="#dc2626">&#x2717; First import: 10&#x2013;30s compile</text>
+
+<text x="350" y="250" text-anchor="middle" class="label" font-size="10.5">Both produce the same .so — choice is dev workflow vs deployment</text>
+
+<defs><marker id="arr13" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="258" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

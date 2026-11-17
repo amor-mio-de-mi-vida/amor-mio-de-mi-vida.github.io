@@ -250,10 +250,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-mufu_vs_tc" data-kind="diagram">
 <img aria-labelledby="fig-mufu_vs_tc-cap" src="figs/mufu_vs_tc.svg" alt="MUFU vs Tensor Core 吞吐"/>
-<figcaption id="fig-mufu_vs_tc-cap"><span class="fig-label">图 1</span><b>MUFU 和 Tensor Core 的吞吐差距。</b>H100 上 Tensor Core 的 FMA 吞吐约是 MUFU 的 16 倍。softmax 中的 exp 操作成为 FA2 的瓶颈——Tensor Core 在等 softmax 完成时完全闲置。</figcaption>
+<figcaption id="fig-mufu_vs_tc-cap"><span class="fig-label">图 1</span><b>MUFU 和 Tensor Core 的吞吐差距。</b>H100 上每个 SM 每周期，Tensor Core 的 FP16 运算吞吐约是 MUFU 做 exp 的 256 倍，按 FA3 论文给出的整卡吞吐（矩阵乘约 989 TFLOPS、特殊函数约 3.9 TFLOPS）折算 <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。softmax 的 exp 因此成为 FA2 的瓶颈：Tensor Core 在等 softmax 完成时闲置。按公式计算，非实测。</figcaption>
 </figure>
 
-<p>具体数字：H100 的每个 SM 有 4 个 sub-partition，每个 sub-partition 每周期约执行 8 个 MUFU 操作（exp、log、sin 等），所以每 SM 每周期约 256 个 exp。而 WGMMA 在 H100 上每 SM 每周期约 4096 个 FP16 FMA（一个 warpgroup 的 \(m64 \times n \times k16\) MMA，每周期完成 k=16 步）。差距约 16 倍。注意这里的 MUFU 吞吐是估算值——NVIDIA 未在公开文档中给出 SFU 的精确每周期操作数，但从 microbenchmark 结果可以推断出约 8 ops/clk/sub-partition 的量级。</p>
+<p>具体数字：FA3 论文给出 H100 SXM5 的 FP16 矩阵乘吞吐约 989 TFLOPS，而特殊函数（MUFU）只有约 3.9 TFLOPS <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。按 132 个 SM、约 1.83 GHz 折算，每个 SM 每周期 Tensor Core 能做约 4096 次 FP16 运算，MUFU 只能做约 16 次 exp，相差约 256 倍。head dim 为 128 时，每个分数元素对应 512 次矩阵运算和 1 次 exp，所以 exp 可以占到矩阵乘周期的一半 <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。这里 MUFU 的每周期次数是由论文给出的整卡吞吐反推的，只用于量级分析。</p>
 
 <p>这意味着在 FA2 的串行流水中，softmax 虽然只占总浮点运算的一小部分（约 \(O(N^2)\) vs GEMM 的 \(O(N^2 d)\)），但因为 Tensor Core 在 softmax 期间完全闲置，总利用率被拖到只有约 35%。FA3 的核心策略：用 Hopper 的异步硬件特性把 softmax 和 GEMM 在时间上重叠执行，让两种功能单元同时保持繁忙。</p>
 
@@ -276,11 +276,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>整个过程中，S 和 P 从未离开 SM——这正是 FlashAttention 系列省 HBM 流量的根本原因。FA3 在这个数据流上增加了异步和并行的调度。唯一写回 HBM 的中间结果是 LSE（log-sum-exp），用于反向传播时的 softmax 重计算——每行一个标量，总量 \(O(N)\)，相比 S 矩阵的 \(O(N^2)\) 可以忽略。</p>
 
-<p>值得注意的是 shared memory 容量的预算。H100 每 SM 有 256 KB 的可配置 L1/SMEM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>。FA3 需要双 stage buffer（2 份 K tile + 2 份 V tile）+ Q tile（常驻 SMEM 供 WGMMA 的 B 操作数读取）。对 Bc=64、d=128、FP16：每份 K 或 V tile = \(64 \times 128 \times 2 = 16\) KB，2 stages &times; 2 tiles = 64 KB。Q tile = \(64 \times 128 \times 2 = 16\) KB。总计约 80 KB——256 KB 完全够用。剩余空间可以给更大的 tile 或更深的流水线。在 A100 上（192 KB SMEM），同样的配置也可以，但余量更小——双 warpgroup 的调度空间受限，这也是 FA3 为 Hopper 专门设计的原因之一。</p>
+<p>值得注意的是 shared memory 容量的预算。H100 每 SM 有 256 KB 的可配置 L1/SMEM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>。FA3 需要双 stage buffer（2 份 K tile + 2 份 V tile）+ Q tile（常驻 SMEM 供 WGMMA 的 B 操作数读取）。对 Bc=64、d=128、FP16：每份 K 或 V tile = \(64 \times 128 \times 2 = 16\) KB，2 stages &times; 2 tiles = 64 KB。Q tile = \(64 \times 128 \times 2 = 16\) KB。总计约 80 KB——256 KB 完全够用。剩余空间可以给更大的 tile 或更深的流水线。在 A100 上（192 KB SMEM），同样的配置也可以，但余量更小——双 warpgroup 的调度空间受限，这也是 FA3 为 Hopper 专门设计的原因之一。</p>
 
 <h2 id="sec-warp-spec">Warp Specialization 与 Producer/Consumer</h2>
 
-<p>FA3 在一个 CTA 中使用两个 warpgroup（各 4 个 warp = 128 线程，共 256 线程）加一个 producer warp（32 线程），总计 288 线程<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>。分工明确：</p>
+<p>FA3 在一个 CTA 中使用两个 warpgroup（各 4 个 warp = 128 线程，共 256 线程）加一个 producer warp（32 线程），总计 288 线程<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。分工明确：</p>
 
 <ul>
 <li><b>Producer warp</b>：专门发 TMA 指令，把 K、V tile 从 HBM 异步搬到 shared memory。它不做任何计算——只管 <code>cp.async.bulk.tensor</code>（TMA load）和 <code>mbarrier</code> 的 arrive/wait。TMA 的优势是<b>完全硬件化</b>——地址计算、边界检查、swizzle 全部由 TMA unit 完成，producer warp 只需发一条指令<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA / WGMMA）。">4</a>]</span>。</li>
@@ -396,12 +396,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li><b>GEMM&#8320; 的 FLOP</b>：\(2 \times 64 \times 64 \times 128 = 1,048,576\) FMA。</li>
 <li><b>Softmax 的 exp 操作数</b>：\(64 \times 64 = 4096\) 个 exp。</li>
 <li><b>WGMMA 完成 GEMM&#8320; 需要的周期</b>：\(1,048,576 / 4096 \approx 256\) 周期（H100 每 SM 每周期 4096 次 dense FP16 运算）。</li>
-<li><b>MUFU 完成 exp 需要的周期</b>：\(4096 / 16 = 256\) 周期。FA3 论文给出 H100 SXM5 的特殊函数吞吐约 3.9 TFLOPS <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>，按 132 个 SM、约 1.83 GHz 折算，每 SM 每周期约 16 次。</li>
+<li><b>MUFU 完成 exp 需要的周期</b>：\(4096 / 16 = 256\) 周期。FA3 论文给出 H100 SXM5 的特殊函数吞吐约 3.9 TFLOPS <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>，按 132 个 SM、约 1.83 GHz 折算，每 SM 每周期约 16 次。</li>
 </ul>
 
-<p>exp 需要的周期和 GEMM&#8320; 一样多，相当于两次矩阵乘总时间的一半。FA3 论文对 head dim 128 给出的也是这个结论：矩阵乘的运算量是 exp 的 512 倍，但 exp 的吞吐低得多，它可以占到矩阵乘周期的 50% <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>。softmax 还有 row max（比较）、rescale（乘法）、row sum（累加）这些走 FP32 单元的运算，再加上调度开销和 barrier 同步，如果不把它们和矩阵乘重叠，Tensor Core 会有相当一部分时间在空等。</p>
+<p>exp 需要的周期和 GEMM&#8320; 一样多，相当于两次矩阵乘总时间的一半。FA3 论文对 head dim 128 给出的也是这个结论：矩阵乘的运算量是 exp 的 512 倍，但 exp 的吞吐低得多，它可以占到矩阵乘周期的 50% <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。softmax 还有 row max（比较）、rescale（乘法）、row sum（累加）这些走 FP32 单元的运算，再加上调度开销和 barrier 同步，如果不把它们和矩阵乘重叠，Tensor Core 会有相当一部分时间在空等。</p>
 
-<p>FA3 的两层重叠把这部分等待大部分藏了起来——利用率从 ~35% 提升到 ~75%<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>。剩余的 25% 损失来自几个方面：</p>
+<p>FA3 的两层重叠把这部分等待大部分藏了起来——利用率从 ~35% 提升到 ~75%<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。剩余的 25% 损失来自几个方面：</p>
 
 <ul>
 <li><b>Barrier 同步开销</b>：每次 inter-warpgroup 切换需要约 10&ndash;20 周期的 barrier 延迟——对于约 256 周期的 GEMM 迭代，这占 4&ndash;8%。</li>
@@ -433,7 +433,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   }</code></pre>
 <p class="src-note">伪代码：<code>code/at35-flashattention3/fa3_schedule_pseudo.cu</code> 第 45–55 行（不可编译，仅展示 producer 结构）</p>
 
-<p>在 causal 场景下，FA3 比 FA2 快约 1.5&ndash;1.7&times;<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>——这部分提升完全来自更好的负载均衡。对于非 causal 场景，各 Q block 的工作量相同，persistent kernel 的负载均衡优势不明显，但仍然省去了重复 launch 的开销。</p>
+<p>在 causal 场景下，FA3 比 FA2 快约 1.5&ndash;1.7&times;<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>——这部分提升完全来自更好的负载均衡。对于非 causal 场景，各 Q block 的工作量相同，persistent kernel 的负载均衡优势不明显，但仍然省去了重复 launch 的开销。</p>
 
 <p>Persistent kernel 还有一个次要优势：减少 kernel launch 开销。传统 grid launch 每次都要设置 grid dimension、分配 CTA——对短序列或小 batch，launch 开销占比不小。Persistent kernel 只 launch 一次，CTA 在主循环中处理所有 tile——适合 attention 这种&ldquo;工作总量大但单个 tile 计算量不大&rdquo;的模式。不过要注意，persistent kernel 需要仔细控制 occupancy——CTA 数量过多会导致 register 和 SMEM 不够用，过少则 SM 利用率下降。FA3 的典型配置是每 SM 1 个 CTA（占 288 个线程 / 2048 个最大线程 = ~14% occupancy），依靠 WGMMA 的异步执行来隐藏延迟而不是靠高 occupancy。</p>
 
@@ -446,7 +446,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <figcaption id="fig-fp8_quantization-cap"><span class="fig-label">图 5</span><b>FP8 block 量化 + incoherent processing 的流程。</b>Hadamard 旋转使元素幅度均匀化——消除极端值主导 scale 的问题。block 量化对每个 tile 独立计算 scale。</figcaption>
 </figure>
 
-<p>FA3 用两个技巧解决精度问题<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>。核心挑战在于：E4M3 只有 3 位尾数，精度相当于 \(2^{-3} = 12.5\%\) 的相对误差——而 attention 中 softmax 对输入的微小变化非常敏感（指数函数放大误差），因此需要在量化阶段就最大限度减少误差：</p>
+<p>FA3 用两个技巧解决精度问题<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。核心挑战在于：E4M3 只有 3 位尾数，精度相当于 \(2^{-3} = 12.5\%\) 的相对误差——而 attention 中 softmax 对输入的微小变化非常敏感（指数函数放大误差），因此需要在量化阶段就最大限度减少误差：</p>
 
 <p><b>Block 量化（Block Quantization）</b>：不是对整个 Q 或 K 矩阵用一个 scale，而是对每个 tile 独立计算 scale。每个 [Br, d] 或 [Bc, d] 的 tile 有自己的 \(\text{scale} = \max|X_{\text{tile}}| / 448\)。GEMM 的结果乘以 \(\text{scale}_Q \times \text{scale}_K\) 恢复真实值。粒度更细意味着 scale 更接近实际值的范围，量化误差更小。</p>
 
@@ -509,7 +509,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <tr><td>线程组织</td><td>1 个 warpgroup / CTA</td><td>2 个 consumer WG + 1 个 producer warp</td></tr>
 <tr><td>softmax 调度</td><td>串行在 GEMM&#8320; 和 GEMM&#8321; 之间</td><td>与 GEMM 重叠（inter + intra WG）</td></tr>
 <tr><td>数据精度</td><td>FP16 / BF16</td><td>FP16 / BF16 + FP8（E4M3）</td></tr>
-<tr><td>SM 利用率</td><td>~35% of peak<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">1</a>]</span></td><td>~75% of peak<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>（FP16）</td></tr>
+<tr><td>SM 利用率</td><td>~35% of peak<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">1</a>]</span></td><td>~75% of peak<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>（FP16）</td></tr>
 <tr><td>Causal 调度</td><td>Block-level skip（静态 grid）</td><td>Persistent kernel + tile scheduler</td></tr>
 <tr><td>关键限制</td><td><code>mma.sync</code> 同步阻塞 warp</td><td>MUFU 吞吐仍是上限</td></tr>
 </tbody>
@@ -522,7 +522,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <tbody>
 <tr><td>H100 WGMMA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">5</a>]</span></td><td>FA3 的核心——WGMMA 异步执行是 GEMM/softmax 重叠的前提。128 线程的 warpgroup 是 WGMMA 的调度单元。</td></tr>
 <tr><td>H100 TMA<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA / WGMMA）。">4</a>]</span></td><td>Producer warp 只发 TMA 指令——一条 <code>cp.async.bulk.tensor</code> 完成 2D tile 的搬运、边界检查和 swizzle。省去了手写地址计算（FA2 中的 <code>cp.async</code> 需要线程协作计算地址）。</td></tr>
-<tr><td>H100 256 KB L1<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span></td><td>双 warpgroup 需要同时缓存两组 tile 的 K/V（双 stage buffer）+ Q tile。256 KB 正好够：2 stages &times; 2 tiles(K+V) &times; Bc &times; d &times; 2 B + Q tile。A100 的 192 KB 更紧张。</td></tr>
+<tr><td>H100 256 KB L1<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span></td><td>双 warpgroup 需要同时缓存两组 tile 的 K/V（双 stage buffer）+ Q tile。256 KB 正好够：2 stages &times; 2 tiles(K+V) &times; Bc &times; d &times; 2 B + Q tile。A100 的 192 KB 更紧张。</td></tr>
 <tr><td>H100 <code>mbarrier</code><span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA / WGMMA）。">4</a>]</span></td><td>Producer/consumer 的同步走硬件 barrier——比 FA2 的 <code>__syncthreads()</code> 更细粒度（可以同步子集线程），延迟更低。</td></tr>
 <tr><td>Blackwell tcgen05</td><td>FA4 用新的 tcgen05 MMA 替代 WGMMA——结果直接写 TMEM（256 KB Tensor Memory），不占寄存器文件。下一篇详述。</td></tr>
 <tr><td>Blackwell TMEM</td><td>256 KB Tensor Memory 允许 S、P、acc_O 全部驻留——消除了 d &gt; 128 时的 register spill 问题。</td></tr>
@@ -537,7 +537,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <b>追问</b>：为什么 FA2 不做这种重叠？答：FA2 用 <code>mma.sync</code>——同步指令，发射后 warp stall 直到完成。没有异步窗口可以插入 softmax。WGMMA 的异步特性是 FA3 重叠的前提。</dd>
 
 <dt id="sec-q2">Q2：为什么 exp 会成为 attention 的瓶颈？</dt>
-<dd>exp 走 MUFU（SFU），H100 上每 SM 每周期约 256 ops。WGMMA 每周期约 4096 FMA——差 16 倍。在 FA2 的串行流水中，softmax 虽然 FLOP 少但独占时间片——Tensor Core 完全闲置。加上 softmax 的其他操作（max、rescale、sum），非矩阵 FLOP 约占 30% 的时间。FA3 把这些操作隐藏到 GEMM 的执行时间里。<br>
+<dd>exp 走 MUFU（SFU）。按 FA3 论文的数字折算，H100 上每 SM 每周期 MUFU 只能做约 16 次 exp，而 Tensor Core 能做约 4096 次 FP16 运算，相差约 256 倍 <span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。在 FA2 的串行流水中，softmax 虽然运算量少却独占时间片，Tensor Core 只能闲置；softmax 的其他操作（max、rescale、sum）也走 CUDA core，不重叠时这段等待相当可观。FA3 把这些操作隐藏到 GEMM 的执行时间里。<br>
 <b>追问</b>：能不能用 Tensor Core 来做 exp？答：不能——Tensor Core 只做矩阵乘加（FMA）。exp 是逐元素超越函数，只能用 SFU 或软件多项式逼近。FA4 在 Blackwell 上用软件 exp2 来绕过 MUFU 限制。</dd>
 
 <dt id="sec-q3">Q3：FP8 attention 的精度问题怎么解决？</dt>
@@ -567,7 +567,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>FA3 把 FlashAttention 从&ldquo;IO-aware&rdquo;升级到&ldquo;compute-aware&rdquo;——瓶颈从 HBM 带宽转移到 softmax 的 MUFU 吞吐。在数字上，FA3 的 FP16 前向在 H100 上达到约 740 TFLOPS（75% 利用率），远超 FA2 的约 350 TFLOPS。FP8 前向更高——在 E4M3 模式下接近 1.2 PFLOPS<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">3</a>]</span>。通过 Hopper 的三大特性——WGMMA 异步执行、TMA 硬件搬运、warp specialization——FA3 实现了两层重叠：inter-warpgroup ping-pong 让两个 warpgroup 在 Tensor Core 和 MUFU 上交替工作，intra-warpgroup 重叠让 softmax 隐藏在 WGMMA 的异步延迟内。利用率从 ~35% 提升到 ~75%。FP8 支持通过 block 量化和 Hadamard 旋转解决精度问题，softmax 仍保持 FP32。Persistent kernel + tile scheduler 进一步优化了 causal attention 的负载均衡。下一篇将讲 FA4：Blackwell 上的 tcgen05 MMA、TMEM、软件 exp2 与条件 rescale——当 MUFU 不再是瓶颈时，新的挑战在哪里？</p>
+<p>FA3 把 FlashAttention 从&ldquo;IO-aware&rdquo;升级到&ldquo;compute-aware&rdquo;——瓶颈从 HBM 带宽转移到 softmax 的 MUFU 吞吐。在数字上，FA3 的 FP16 前向在 H100 上达到约 740 TFLOPS（75% 利用率），远超 FA2 的约 350 TFLOPS。FP8 前向更高——在 E4M3 模式下接近 1.2 PFLOPS<span class="cite">[<a href="#ref-fa3" title="Shah, Dao, et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691。">2</a>]</span>。通过 Hopper 的三大特性——WGMMA 异步执行、TMA 硬件搬运、warp specialization——FA3 实现了两层重叠：inter-warpgroup ping-pong 让两个 warpgroup 在 Tensor Core 和 MUFU 上交替工作，intra-warpgroup 重叠让 softmax 隐藏在 WGMMA 的异步延迟内。利用率从 ~35% 提升到 ~75%。FP8 支持通过 block 量化和 Hadamard 旋转解决精度问题，softmax 仍保持 FP32。Persistent kernel + tile scheduler 进一步优化了 causal attention 的负载均衡。下一篇将讲 FA4：Blackwell 上的 tcgen05 MMA、TMEM、软件 exp2 与条件 rescale——当 MUFU 不再是瓶颈时，新的挑战在哪里？</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -582,8 +582,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
   <li id="ref-fa3">Shah, Dao, et al. (2024). <a href="https://arxiv.org/abs/2407.08691">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08691。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 256 KB L1、WGMMA 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
   <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16.19（TMA）、§9.7.17（MMA / WGMMA）。</li>
   <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
 </ol>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 280" font-family="sans-serif">
+<text class="d-title" x="28" y="28">双缓冲（double buffering）：搬运与计算重叠</text>
+<text class="d-label" x="28" y="50">两块 SMEM 缓冲区交替使用，消除搬运等待</text>
+
+<!-- lane labels -->
+<text class="d-text" x="28" y="98" fill="#0b5cad">搬运</text>
+<text class="d-text" x="28" y="158" fill="#2a9d2a">计算</text>
+
+<!-- timeline axis -->
+<line x1="80" y1="190" x2="700" y2="190" stroke="#888" stroke-width="1" marker-end="url(#arr5)"/>
+<defs><marker id="arr5" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#888"/></marker></defs>
+<text class="d-small" x="700" y="206" text-anchor="end">时间</text>
+
+<!-- No double buffer: sequential -->
+<text class="d-label" x="80" y="72">不用双缓冲</text>
+<!-- load 0 -->
+<rect x="80" y="80" width="80" height="24" rx="3" fill="#0b5cad" opacity="0.7"/>
+<text class="d-small" x="120" y="96" text-anchor="middle" fill="white">load k=0</text>
+<!-- compute 0 -->
+<rect x="160" y="140" width="80" height="24" rx="3" fill="#2a9d2a" opacity="0.7"/>
+<text class="d-small" x="200" y="156" text-anchor="middle" fill="white">comp k=0</text>
+<!-- load 1 -->
+<rect x="240" y="80" width="80" height="24" rx="3" fill="#0b5cad" opacity="0.7"/>
+<text class="d-small" x="280" y="96" text-anchor="middle" fill="white">load k=1</text>
+<!-- compute 1 -->
+<rect x="320" y="140" width="80" height="24" rx="3" fill="#2a9d2a" opacity="0.7"/>
+<text class="d-small" x="360" y="156" text-anchor="middle" fill="white">comp k=1</text>
+
+<!-- wait gaps -->
+<rect x="160" y="80" width="80" height="24" rx="3" fill="#eee" stroke="#ccc" stroke-dasharray="3 2"/>
+<text class="d-small" x="200" y="96" text-anchor="middle" fill="#aaa">idle</text>
+<rect x="80" y="140" width="80" height="24" rx="3" fill="#eee" stroke="#ccc" stroke-dasharray="3 2"/>
+<text class="d-small" x="120" y="156" text-anchor="middle" fill="#aaa">wait</text>
+<rect x="240" y="140" width="80" height="24" rx="3" fill="#eee" stroke="#ccc" stroke-dasharray="3 2"/>
+<text class="d-small" x="280" y="156" text-anchor="middle" fill="#aaa">wait</text>
+
+<!-- Double buffer: overlapped -->
+<text class="d-label" x="430" y="72" fill="#D55E00">双缓冲</text>
+<!-- load 0 into buf0 -->
+<rect x="430" y="80" width="70" height="24" rx="3" fill="#0b5cad" opacity="0.8"/>
+<text class="d-small" x="465" y="96" text-anchor="middle" fill="white">ld buf0</text>
+<!-- compute buf0, load buf1 overlapped -->
+<rect x="500" y="140" width="70" height="24" rx="3" fill="#2a9d2a" opacity="0.8"/>
+<text class="d-small" x="535" y="156" text-anchor="middle" fill="white">comp 0</text>
+<rect x="500" y="80" width="70" height="24" rx="3" fill="#0b5cad" opacity="0.8"/>
+<text class="d-small" x="535" y="96" text-anchor="middle" fill="white">ld buf1</text>
+<!-- compute buf1, load buf0 -->
+<rect x="570" y="140" width="70" height="24" rx="3" fill="#2a9d2a" opacity="0.8"/>
+<text class="d-small" x="605" y="156" text-anchor="middle" fill="white">comp 1</text>
+<rect x="570" y="80" width="70" height="24" rx="3" fill="#0b5cad" opacity="0.8"/>
+<text class="d-small" x="605" y="96" text-anchor="middle" fill="white">ld buf0</text>
+<!-- compute buf0 -->
+<rect x="640" y="140" width="60" height="24" rx="3" fill="#2a9d2a" opacity="0.8"/>
+<text class="d-small" x="670" y="156" text-anchor="middle" fill="white">comp 2</text>
+
+<!-- highlight overlap -->
+<rect x="498" y="76" width="144" height="92" rx="5" fill="none" stroke="#D55E00" stroke-width="1.5" stroke-dasharray="5 3"/>
+<text class="d-small" x="570" y="182" text-anchor="middle" fill="#D55E00">搬运与计算重叠</text>
+
+<!-- buffer labels -->
+<text class="d-label" x="80" y="218">buf0 / buf1 交替：一块正在被计算读取，另一块正在被新数据写入</text>
+<text class="d-label" x="80" y="238">前提：不同 K-tile 的搬运和计算访问不同 SMEM 区域，不需要 __syncthreads 隔开</text>
+</svg>

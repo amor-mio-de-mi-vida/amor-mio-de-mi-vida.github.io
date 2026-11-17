@@ -1,0 +1,75 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah7); }
+    .math { font-size: 11px; font-style: italic; fill: #1a1a1a; }
+  </style>
+  <defs>
+    <marker id="ah7" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">FlashAttention 反向：数据依赖与重计算</text>
+
+  <!-- Inputs from forward -->
+  <rect x="20" y="45" width="130" height="90" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="85" y="65" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">前向保存</text>
+  <text x="30" y="85" class="sublabel">Q, K, V [N, d]</text>
+  <text x="30" y="100" class="sublabel">O [N, d]</text>
+  <text x="30" y="115" class="sublabel">LSE [N]</text>
+  <text x="30" y="128" class="sublabel" fill="#D55E00">不存 S, P（N&times;N）</text>
+
+  <!-- dO input -->
+  <rect x="20" y="155" width="130" height="35" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="85" y="177" text-anchor="middle" class="sublabel" fill="#7B1FA2">dO [N, d]（上游梯度）</text>
+
+  <!-- D precompute -->
+  <path d="M155,170 L185,170" class="arrow" stroke="#D55E00"/>
+  <rect x="190" y="155" width="140" height="35" class="box" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="260" y="172" text-anchor="middle" class="math">D = rowsum(dO &odot; O)</text>
+  <text x="260" y="186" text-anchor="middle" class="sublabel">[N] 预计算一次</text>
+
+  <!-- Recompute S -->
+  <path d="M155,90 L185,90" class="arrow" stroke="#D55E00"/>
+  <rect x="190" y="45" width="140" height="90" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="260" y="65" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">重计算</text>
+  <text x="200" y="85" class="math">S_ij = Q_i K_j&hairsp;&#x1D40; / &radic;d</text>
+  <text x="200" y="102" class="math">P_ij = exp(S_ij - LSE_i)</text>
+  <text x="200" y="122" class="sublabel" fill="#D55E00">每个 KV block 重计算一次</text>
+  <text x="200" y="132" class="sublabel" fill="#D55E00">不从 HBM 读 S/P</text>
+
+  <!-- Gradient computation -->
+  <path d="M335,90 L365,120" class="arrow" stroke="#D55E00"/>
+  <path d="M335,172 L365,145" class="arrow" stroke="#D55E00"/>
+
+  <rect x="370" y="45" width="160" height="160" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="450" y="65" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">梯度计算</text>
+  <text x="380" y="88" class="math">dV += P&hairsp;&#x1D40; &middot; dO</text>
+  <text x="380" y="108" class="math">dP = dO &middot; V&hairsp;&#x1D40;</text>
+  <text x="380" y="128" class="math">dS = P &odot; (dP - D)</text>
+  <text x="380" y="148" class="math">dQ += dS &middot; K</text>
+  <text x="380" y="168" class="math">dK += dS&hairsp;&#x1D40; &middot; Q</text>
+  <text x="380" y="195" class="sublabel" fill="#D55E00">5 个 GEMM + element-wise</text>
+
+  <!-- Output gradients -->
+  <path d="M535,120 L565,120" class="arrow" stroke="#388E3C"/>
+  <rect x="570" y="45" width="130" height="160" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="635" y="65" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">输出梯度</text>
+  <text x="580" y="88" class="sublabel">dQ [N, d]</text>
+  <text x="580" y="108" class="sublabel">dK [N, d]</text>
+  <text x="580" y="128" class="sublabel">dV [N, d]</text>
+  <text x="580" y="155" class="sublabel" fill="#D55E00">dQ 需要跨 block</text>
+  <text x="580" y="170" class="sublabel" fill="#D55E00">累加（atomic 或</text>
+  <text x="580" y="185" class="sublabel" fill="#D55E00">分离 kernel）</text>
+
+  <!-- FLOP note -->
+  <rect x="20" y="215" width="685" height="75" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="30" y="235" class="label" fill="#D55E00" font-weight="600">为什么反向比前向慢约 2.5&times;？</text>
+  <text x="30" y="255" class="sublabel">前向：2 个 GEMM（QK&#x1D40; 和 PV）+ softmax。反向：5 个 GEMM（dV, dP, dS&middot;K, dS&#x1D40;&middot;Q, 加上重计算 QK&#x1D40;）+ softmax + 逐元素。</text>
+  <text x="30" y="270" class="sublabel">FLOP 约 2.5&times; 前向。加上 dQ 的跨 block 累加开销和 causal 下的负载不均衡，实际差距通常是 2&ndash;3&times;。</text>
+  <text x="30" y="285" class="sublabel" fill="#388E3C">好处：不存 N&times;N 矩阵——显存仍然是 O(N)，和前向一样。</text>
+</svg>

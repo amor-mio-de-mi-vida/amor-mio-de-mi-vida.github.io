@@ -1,0 +1,107 @@
+<svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .d-arrow { stroke: var(--ink-3, #8a8a86); stroke-width: 1.2; fill: none; marker-end: url(#ah); }
+    .fill-blue  { fill: #56B4E9; opacity: 0.7; }
+    .fill-green { fill: #009E73; opacity: 0.7; }
+    .fill-acc   { fill: #D55E00; opacity: 0.7; }
+    .fill-gray  { fill: #e4e4e0; }
+    .stroke-acc { stroke: #D55E00; stroke-width: 1.5; }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 8 6" refX="8" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-3, #8a8a86)"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="360" y="24" text-anchor="middle" class="d-label" style="font-size:14px">Warp Specialization：Producer / Consumer 流水线</text>
+
+  <!-- Swim lane labels -->
+  <text x="16" y="75" class="d-label">Producer</text>
+  <text x="16" y="68" class="d-note">(1 warp, 40 regs)</text>
+  <text x="16" y="165" class="d-label">Consumer 0</text>
+  <text x="16" y="158" class="d-note">(4 warps, 232 regs)</text>
+  <text x="16" y="255" class="d-label">Consumer 1</text>
+  <text x="16" y="248" class="d-note">(4 warps, 232 regs)</text>
+
+  <!-- Lane separators -->
+  <line x1="110" y1="42" x2="710" y2="42" stroke="var(--rule, #e4e4e0)" stroke-width="0.5"/>
+  <line x1="110" y1="112" x2="710" y2="112" stroke="var(--rule, #e4e4e0)" stroke-width="0.5"/>
+  <line x1="110" y1="202" x2="710" y2="202" stroke="var(--rule, #e4e4e0)" stroke-width="0.5"/>
+  <line x1="110" y1="292" x2="710" y2="292" stroke="var(--rule, #e4e4e0)" stroke-width="0.5"/>
+
+  <!-- Stage labels -->
+  <text x="165" y="38" class="d-note" text-anchor="middle">S0</text>
+  <text x="270" y="38" class="d-note" text-anchor="middle">S1</text>
+  <text x="375" y="38" class="d-note" text-anchor="middle">S2</text>
+  <text x="480" y="38" class="d-note" text-anchor="middle">S3</text>
+  <text x="585" y="38" class="d-note" text-anchor="middle">S0'</text>
+
+  <!-- Producer: TMA loads (blue) -->
+  <rect x="120" y="52" width="90" height="30" rx="3" class="fill-blue"/>
+  <text x="165" y="72" text-anchor="middle" class="d-note" style="fill:white">TMA load</text>
+
+  <rect x="225" y="52" width="90" height="30" rx="3" class="fill-blue"/>
+  <text x="270" y="72" text-anchor="middle" class="d-note" style="fill:white">TMA load</text>
+
+  <rect x="330" y="52" width="90" height="30" rx="3" class="fill-blue"/>
+  <text x="375" y="72" text-anchor="middle" class="d-note" style="fill:white">TMA load</text>
+
+  <rect x="435" y="52" width="90" height="30" rx="3" class="fill-blue"/>
+  <text x="480" y="72" text-anchor="middle" class="d-note" style="fill:white">TMA load</text>
+
+  <rect x="540" y="52" width="90" height="30" rx="3" class="fill-blue"/>
+  <text x="585" y="72" text-anchor="middle" class="d-note" style="fill:white">TMA load</text>
+
+  <!-- Full barriers (vermillion diamonds) -->
+  <polygon points="210,97 218,90 226,97 218,104" class="fill-acc"/>
+  <polygon points="315,97 323,90 331,97 323,104" class="fill-acc"/>
+  <polygon points="420,97 428,90 436,97 428,104" class="fill-acc"/>
+  <polygon points="525,97 533,90 541,97 533,104" class="fill-acc"/>
+
+  <!-- Consumer 0: WGMMA (green), staggered -->
+  <rect x="225" y="122" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="270" y="147" text-anchor="middle" class="d-note" style="fill:white">WGMMA S0</text>
+
+  <rect x="435" y="122" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="480" y="147" text-anchor="middle" class="d-note" style="fill:white">WGMMA S2</text>
+
+  <rect x="645" y="122" width="60" height="40" rx="3" class="fill-green"/>
+  <text x="675" y="147" text-anchor="middle" class="d-note" style="fill:white">S0'</text>
+
+  <!-- Consumer 1: WGMMA (green), offset -->
+  <rect x="330" y="212" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="375" y="237" text-anchor="middle" class="d-note" style="fill:white">WGMMA S1</text>
+
+  <rect x="540" y="212" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="585" y="237" text-anchor="middle" class="d-note" style="fill:white">WGMMA S3</text>
+
+  <!-- Empty barriers (gray diamonds) -->
+  <polygon points="315,190 323,183 331,190 323,197" class="fill-gray"/>
+  <polygon points="525,190 533,183 541,190 533,197" class="fill-gray"/>
+  <polygon points="420,280 428,273 436,280 428,287" class="fill-gray"/>
+  <polygon points="630,280 638,273 646,280 638,287" class="fill-gray"/>
+
+  <!-- Arrows from full barriers to consumers -->
+  <path d="M218,104 L218,122" class="d-arrow" style="stroke:#D55E00"/>
+  <path d="M323,104 L323,212" class="d-arrow" style="stroke:#D55E00"/>
+  <path d="M428,104 L428,122" class="d-arrow" style="stroke:#D55E00"/>
+  <path d="M533,104 L533,212" class="d-arrow" style="stroke:#D55E00"/>
+
+  <!-- Legend -->
+  <rect x="120" y="310" width="40" height="14" rx="2" class="fill-blue"/>
+  <text x="168" y="322" class="d-note">TMA 加载</text>
+  <rect x="240" y="310" width="40" height="14" rx="2" class="fill-green"/>
+  <text x="288" y="322" class="d-note">WGMMA 计算</text>
+  <polygon points="380,317 388,310 396,317 388,324" class="fill-acc"/>
+  <text x="404" y="322" class="d-note">full barrier</text>
+  <polygon points="510,317 518,310 526,317 518,324" class="fill-gray"/>
+  <text x="534" y="322" class="d-note">empty barrier</text>
+
+  <!-- Time arrow -->
+  <line x1="120" y1="350" x2="700" y2="350" class="d-arrow"/>
+  <text x="710" y="354" class="d-note">time</text>
+</svg>

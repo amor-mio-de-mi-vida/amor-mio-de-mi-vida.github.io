@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">CUTLASS Abstraction Layers (Bottom-Up)</text>
+
+<!-- Layer 1: Atom -->
+<rect x="190" y="260" width="300" height="40" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="340" y="278" text-anchor="middle" class="title" fill="#ef4444">Atom</text>
+<text x="340" y="293" text-anchor="middle" class="code" font-size="9">MMA_Atom / Copy_Atom (single HW instruction)</text>
+
+<!-- Layer 2: TiledMMA / TiledCopy -->
+<rect x="140" y="205" width="400" height="40" rx="5" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+<text x="340" y="223" text-anchor="middle" class="title" fill="#854d0e">TiledMMA / TiledCopy</text>
+<text x="340" y="238" text-anchor="middle" class="code" font-size="9">Atoms tiled across warps within a thread block</text>
+
+<!-- Layer 3: Collective -->
+<rect x="90" y="150" width="500" height="40" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="340" y="168" text-anchor="middle" class="title" fill="#3b82f6">CollectiveMainloop / CollectiveEpilogue</text>
+<text x="340" y="183" text-anchor="middle" class="code" font-size="9">Block-level mainloop: load → compute → pipeline → epilogue</text>
+
+<!-- Layer 4: Kernel -->
+<rect x="40" y="95" width="600" height="40" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
+<text x="340" y="113" text-anchor="middle" class="title" fill="#22c55e">Kernel (GemmUniversal)</text>
+<text x="340" y="128" text-anchor="middle" class="code" font-size="9">Grid launch, tile scheduler, problem shape, output store</text>
+
+<!-- Layer 5: Device API -->
+<rect x="20" y="40" width="640" height="40" rx="5" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+<text x="340" y="58" text-anchor="middle" class="title" fill="#166534">Device API (CollectiveBuilder)</text>
+<text x="340" y="73" text-anchor="middle" class="code" font-size="9">User-facing: pick arch + dtype + tile → auto-selects all layers</text>
+
+<!-- Arrows -->
+<line x1="340" y1="260" x2="340" y2="248" stroke="#aaa" stroke-width="1" marker-end="url(#ah46)"/>
+<line x1="340" y1="205" x2="340" y2="193" stroke="#aaa" stroke-width="1" marker-end="url(#ah46)"/>
+<line x1="340" y1="150" x2="340" y2="138" stroke="#aaa" stroke-width="1" marker-end="url(#ah46)"/>
+<line x1="340" y1="95" x2="340" y2="83" stroke="#aaa" stroke-width="1" marker-end="url(#ah46)"/>
+
+<defs>
+  <marker id="ah46" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+    <path d="M0,0 L7,2.5 L0,5z" fill="#aaa"/>
+  </marker>
+</defs>
+
+<text x="340" y="315" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after CUTLASS 3.x docs)</text>
+</svg>

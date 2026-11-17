@@ -1,0 +1,70 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah3); }
+    .cell { rx: 2; ry: 2; stroke-width: 0.5; }
+  </style>
+  <defs>
+    <marker id="ah3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="title">MXFP4：FP4 E2M1 + E8M0 Microscale（每 32 个值一个）</text>
+
+  <!-- FP4 values row -->
+  <text x="30" y="56" class="label">FP4 E2M1 values (4 bit each):</text>
+
+  <!-- 32 cells -->
+  <rect x="30" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="50" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="70" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="90" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="110" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="130" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="150" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="170" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <text x="100" y="80" text-anchor="middle" class="sublabel" fill="white" style="font-size:8px">&hellip; 32 values &hellip;</text>
+
+  <rect x="200" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="220" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="240" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+  <rect x="260" y="64" width="18" height="22" class="cell" fill="#56B4E9" stroke="#0072B2"/>
+
+  <!-- Bracket -->
+  <line x1="30" y1="90" x2="280" y2="90" stroke="#0072B2" stroke-width="1"/>
+  <line x1="30" y1="87" x2="30" y2="93" stroke="#0072B2" stroke-width="1"/>
+  <line x1="280" y1="87" x2="280" y2="93" stroke="#0072B2" stroke-width="1"/>
+
+  <!-- Microscale -->
+  <path d="M155,93 L155,108" class="arrow" stroke="#D55E00"/>
+  <rect x="120" y="110" width="70" height="28" rx="4" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="155" y="128" text-anchor="middle" class="label" fill="#D55E00">E8M0</text>
+  <text x="155" y="150" text-anchor="middle" class="sublabel" fill="#D55E00">microscale = 2<tspan baseline-shift="super" style="font-size:7px">e-127</tspan></text>
+
+  <!-- Next group -->
+  <rect x="310" y="64" width="18" height="22" class="cell" fill="#009E73" stroke="#005F48"/>
+  <rect x="330" y="64" width="18" height="22" class="cell" fill="#009E73" stroke="#005F48"/>
+  <rect x="350" y="64" width="18" height="22" class="cell" fill="#009E73" stroke="#005F48"/>
+  <text x="380" y="80" text-anchor="middle" class="sublabel">&hellip;</text>
+
+  <line x1="310" y1="90" x2="380" y2="90" stroke="#009E73" stroke-width="1"/>
+  <path d="M345,93 L345,108" class="arrow" stroke="#D55E00"/>
+  <rect x="310" y="110" width="70" height="28" rx="4" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="345" y="128" text-anchor="middle" class="label" fill="#D55E00">E8M0</text>
+
+  <!-- Dequant formula -->
+  <rect x="30" y="170" width="370" height="70" rx="6" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
+  <text x="40" y="190" class="label" fill="#D55E00">解量化：</text>
+  <text x="40" y="208" class="sublabel">value = dequant_fp4(nibble) &times; microscale</text>
+  <text x="40" y="224" class="sublabel">FP4 E2M1: {0, &plusmn;0.5, &plusmn;1, &plusmn;1.5, &plusmn;2, &plusmn;3, &plusmn;4, &plusmn;6}</text>
+
+  <!-- Comparison box -->
+  <rect x="430" y="170" width="270" height="70" rx="6" fill="#E8F5E9" stroke="#009E73" stroke-width="1"/>
+  <text x="440" y="190" class="sublabel" fill="#009E73" font-weight="600">对比 FP8 block scaling：</text>
+  <text x="440" y="208" class="sublabel">FP8: 128-element block &rarr; 1 scale</text>
+  <text x="440" y="224" class="sublabel">FP4:  32-element group &rarr; 1 microscale (4&times; 更细)</text>
+</svg>

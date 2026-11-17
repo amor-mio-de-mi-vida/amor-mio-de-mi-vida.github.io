@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 240">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Transmittance Recovery: T&#x1D62; = T&#x1D62;&#x208A;&#x2081; / (1 - &#x3b1;&#x1D62;)</text>
+
+<!-- Forward pass stored values -->
+<rect x="20" y="35" width="310" height="80" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="175" y="55" text-anchor="middle" class="title" fill="#16a34a">Forward Pass (stored)</text>
+<text x="35" y="75" class="code" font-size="10.5">T_final = T&#x2099;&#x208A;&#x2081;</text>
+<text x="35" y="95" class="code" font-size="10.5">&#x3b1;&#x1D62; for each Gaussian (per-pixel)</text>
+<text x="35" y="108" class="label" font-size="9.5">contributor count saved to last_contributor[]</text>
+
+<!-- Arrow -->
+<line x1="175" y1="115" x2="175" y2="135" stroke="#888" stroke-width="1.2" marker-end="url(#arr8)"/>
+
+<!-- Recovery steps -->
+<rect x="20" y="135" width="660" height="90" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="350" y="155" text-anchor="middle" class="title" fill="#2563eb">Backward: Recover T step by step (back-to-front)</text>
+
+<rect x="35" y="165" width="140" height="45" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="105" y="183" text-anchor="middle" class="code" font-size="10">T&#x2099; = T&#x2099;&#x208A;&#x2081;/(1-&#x3b1;&#x2099;)</text>
+<text x="105" y="200" text-anchor="middle" class="label" font-size="9">last Gaussian</text>
+
+<line x1="175" y1="188" x2="195" y2="188" stroke="#888" stroke-width="1" marker-end="url(#arr8)"/>
+
+<rect x="195" y="165" width="140" height="45" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="265" y="183" text-anchor="middle" class="code" font-size="10">T&#x2099;&#x208B;&#x2081; = T&#x2099;/(1-&#x3b1;&#x2099;&#x208B;&#x2081;)</text>
+<text x="265" y="200" text-anchor="middle" class="label" font-size="9">second to last</text>
+
+<line x1="335" y1="188" x2="355" y2="188" stroke="#888" stroke-width="1" marker-end="url(#arr8)"/>
+
+<text x="372" y="190" text-anchor="middle" class="code">...</text>
+
+<line x1="388" y1="188" x2="408" y2="188" stroke="#888" stroke-width="1" marker-end="url(#arr8)"/>
+
+<rect x="408" y="165" width="130" height="45" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="473" y="183" text-anchor="middle" class="code" font-size="10">T&#x2081; = T&#x2082;/(1-&#x3b1;&#x2081;)</text>
+<text x="473" y="200" text-anchor="middle" class="label" font-size="9">first Gaussian</text>
+
+<!-- Danger -->
+<rect x="350" y="35" width="330" height="80" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="515" y="55" text-anchor="middle" class="title" fill="#dc2626">Numerical Risk</text>
+<text x="365" y="75" class="code" font-size="10.5" fill="#dc2626">if &#x3b1;&#x1D62; &#x2248; 1.0: division by ~0!</text>
+<text x="365" y="95" class="code" font-size="10.5">Mitigation: clamp &#x3b1; &#x2264; 0.99</text>
+<text x="365" y="108" class="label" font-size="9.5">Same clamp used in forward pass</text>
+
+<rect x="558" y="165" width="110" height="45" rx="4" fill="#fef9c3" stroke="#eab308"/>
+<text x="613" y="183" text-anchor="middle" class="code" font-size="10" fill="#a16207">Verify:</text>
+<text x="613" y="200" text-anchor="middle" class="code" font-size="10" fill="#a16207">T&#x2081; &#x2248; 1.0</text>
+
+<defs><marker id="arr8" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+<text x="350" y="237" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

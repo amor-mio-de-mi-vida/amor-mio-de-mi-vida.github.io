@@ -1,0 +1,94 @@
+<svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .node-box { fill: var(--bg-2, #f5f5f2); stroke: var(--ink-3, #8a8a86); stroke-width: 1; rx: 6; }
+    .gpu-fill { fill: #009E73; opacity: 0.15; }
+    .nic-fill { fill: #0072B2; opacity: 0.15; }
+    .cpu-fill { fill: #E69F00; opacity: 0.15; }
+    .fast-path { stroke: #009E73; stroke-width: 2.5; fill: none; marker-end: url(#ga); }
+    .slow-path { stroke: #E69F00; stroke-width: 1.5; fill: none; stroke-dasharray: 6,3; marker-end: url(#ga2); }
+    .net-link  { stroke: #0072B2; stroke-width: 2; fill: none; marker-end: url(#ga3); }
+  </style>
+
+  <defs>
+    <marker id="ga" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#009E73"/>
+    </marker>
+    <marker id="ga2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#E69F00"/>
+    </marker>
+    <marker id="ga3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#0072B2"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">GPUDirect RDMA vs 传统路径</text>
+
+  <!-- Node A -->
+  <rect x="30" y="45" width="300" height="220" class="node-box"/>
+  <text x="180" y="66" text-anchor="middle" class="d-label" style="font-size:12px">节点 A</text>
+
+  <!-- GPU A -->
+  <rect x="55" y="80" width="100" height="50" class="gpu-fill" stroke="#009E73" stroke-width="1.5" rx="4"/>
+  <text x="105" y="110" text-anchor="middle" class="d-label" style="font-size:11px">GPU 显存</text>
+
+  <!-- CPU A -->
+  <rect x="55" y="170" width="100" height="40" class="cpu-fill" stroke="#E69F00" stroke-width="1.5" rx="4"/>
+  <text x="105" y="195" text-anchor="middle" class="d-label" style="font-size:11px">CPU 内存</text>
+
+  <!-- NIC A -->
+  <rect x="200" y="110" width="100" height="40" class="nic-fill" stroke="#0072B2" stroke-width="1.5" rx="4"/>
+  <text x="250" y="135" text-anchor="middle" class="d-label" style="font-size:11px">RDMA NIC</text>
+
+  <!-- Node B -->
+  <rect x="390" y="45" width="300" height="220" class="node-box"/>
+  <text x="540" y="66" text-anchor="middle" class="d-label" style="font-size:12px">节点 B</text>
+
+  <!-- GPU B -->
+  <rect x="555" y="80" width="100" height="50" class="gpu-fill" stroke="#009E73" stroke-width="1.5" rx="4"/>
+  <text x="605" y="110" text-anchor="middle" class="d-label" style="font-size:11px">GPU 显存</text>
+
+  <!-- CPU B -->
+  <rect x="555" y="170" width="100" height="40" class="cpu-fill" stroke="#E69F00" stroke-width="1.5" rx="4"/>
+  <text x="605" y="195" text-anchor="middle" class="d-label" style="font-size:11px">CPU 内存</text>
+
+  <!-- NIC B -->
+  <rect x="410" y="110" width="100" height="40" class="nic-fill" stroke="#0072B2" stroke-width="1.5" rx="4"/>
+  <text x="460" y="135" text-anchor="middle" class="d-label" style="font-size:11px">RDMA NIC</text>
+
+  <!-- Network between NICs -->
+  <path d="M300,130 L410,130" class="net-link"/>
+  <text x="355" y="122" text-anchor="middle" class="d-note" style="font-size:10px;fill:#0072B2">InfiniBand</text>
+
+  <!-- Traditional path (slow): GPU→CPU→NIC→NIC→CPU→GPU -->
+  <path d="M105,130 L105,170" class="slow-path"/>
+  <path d="M155,190 L200,140" class="slow-path"/>
+  <text x="60" y="155" class="d-note" style="font-size:9px;fill:#E69F00">D2H</text>
+
+  <path d="M510,140 L555,190" class="slow-path"/>
+  <path d="M605,170 L605,130" class="slow-path"/>
+  <text x="620" y="155" class="d-note" style="font-size:9px;fill:#E69F00">H2D</text>
+
+  <!-- GDR path (fast): GPU→NIC direct via PCIe BAR -->
+  <path d="M155,95 C190,80 210,95 210,110" class="fast-path"/>
+  <path d="M500,110 C500,95 520,80 555,95" class="fast-path"/>
+
+  <!-- Labels for paths -->
+  <text x="180" y="78" text-anchor="middle" class="d-note" style="font-size:9px;fill:#009E73">GDR 直通</text>
+  <text x="540" y="78" text-anchor="middle" class="d-note" style="font-size:9px;fill:#009E73">GDR 直通</text>
+
+  <!-- Comparison box -->
+  <rect x="40" y="285" width="300" height="75" fill="none" stroke="#E69F00" stroke-width="1" rx="4" stroke-dasharray="4,2"/>
+  <text x="50" y="305" class="d-label" style="font-size:11px;fill:#E69F00">传统路径（无 GDR）</text>
+  <text x="50" y="322" class="d-note" style="font-size:10px">GPU → cudaMemcpy → CPU → RDMA send</text>
+  <text x="50" y="338" class="d-note" style="font-size:10px">→ NIC → 网络 → NIC → CPU → GPU</text>
+  <text x="50" y="354" class="d-note" style="font-size:10px">额外 2 次 PCIe 拷贝 + CPU 参与</text>
+
+  <rect x="380" y="285" width="300" height="75" fill="none" stroke="#009E73" stroke-width="1.5" rx="4"/>
+  <text x="390" y="305" class="d-label" style="font-size:11px;fill:#009E73">GPUDirect RDMA</text>
+  <text x="390" y="322" class="d-note" style="font-size:10px">GPU → PCIe BAR → NIC → 网络</text>
+  <text x="390" y="338" class="d-note" style="font-size:10px">→ NIC → PCIe BAR → GPU</text>
+  <text x="390" y="354" class="d-note" style="font-size:10px;fill:#009E73;font-weight:600">零拷贝，CPU 不参与数据路径</text>
+</svg>

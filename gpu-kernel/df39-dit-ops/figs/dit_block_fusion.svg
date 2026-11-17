@@ -1,0 +1,67 @@
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="13">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6Z" fill="#555"/>
+    </marker>
+  </defs>
+  <!-- Title -->
+  <text x="360" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">DiT Block: 融合前 vs 融合后</text>
+
+  <!-- Left: Unfused -->
+  <text x="175" y="52" text-anchor="middle" font-size="13" fill="#666">融合前（7 个 kernel launch）</text>
+
+  <rect x="60" y="65" width="230" height="28" rx="4" fill="#ffeaa7"/>
+  <text x="175" y="83" text-anchor="middle" font-size="12">LayerNorm</text>
+
+  <line x1="175" y1="93" x2="175" y2="103" stroke="#555" marker-end="url(#ah)"/>
+  <rect x="60" y="105" width="230" height="28" rx="4" fill="#ffeaa7"/>
+  <text x="175" y="123" text-anchor="middle" font-size="12">Linear(6D) → shift, scale, gate</text>
+
+  <line x1="175" y1="133" x2="175" y2="143" stroke="#555" marker-end="url(#ah)"/>
+  <rect x="60" y="145" width="230" height="28" rx="4" fill="#ffeaa7"/>
+  <text x="175" y="163" text-anchor="middle" font-size="12">x = x * (1+scale) + shift</text>
+
+  <line x1="175" y1="173" x2="175" y2="183" stroke="#555" marker-end="url(#ah)"/>
+  <rect x="60" y="185" width="230" height="28" rx="4" fill="#81ecec"/>
+  <text x="175" y="203" text-anchor="middle" font-size="12">Attention / FFN</text>
+
+  <line x1="175" y1="213" x2="175" y2="223" stroke="#555" marker-end="url(#ah)"/>
+  <rect x="60" y="225" width="230" height="28" rx="4" fill="#ffeaa7"/>
+  <text x="175" y="243" text-anchor="middle" font-size="12">x = x * gate</text>
+
+  <line x1="175" y1="253" x2="175" y2="263" stroke="#555" marker-end="url(#ah)"/>
+  <rect x="60" y="265" width="230" height="28" rx="4" fill="#ffeaa7"/>
+  <text x="175" y="283" text-anchor="middle" font-size="12">residual = residual + x</text>
+
+  <!-- Legend -->
+  <rect x="80" y="305" width="14" height="14" rx="2" fill="#ffeaa7"/>
+  <text x="100" y="317" font-size="11" fill="#666">memory-bound</text>
+  <rect x="190" y="305" width="14" height="14" rx="2" fill="#81ecec"/>
+  <text x="210" y="317" font-size="11" fill="#666">compute-bound</text>
+
+  <!-- Right: Fused -->
+  <text x="540" y="52" text-anchor="middle" font-size="13" fill="#666">融合后（3 个 kernel launch）</text>
+
+  <!-- Fused kernel 1 -->
+  <rect x="415" y="65" width="250" height="68" rx="6" stroke="#e17055" stroke-width="2" fill="#ffeaa7" fill-opacity="0.3"/>
+  <text x="540" y="82" text-anchor="middle" font-size="11" fill="#e17055" font-weight="bold">fused adaLN-Zero</text>
+  <text x="540" y="100" text-anchor="middle" font-size="11">LayerNorm + Linear + modulate</text>
+  <text x="540" y="118" text-anchor="middle" font-size="11" fill="#888">1 kernel, 1 次读写</text>
+
+  <line x1="540" y1="133" x2="540" y2="183" stroke="#555" marker-end="url(#ah)"/>
+
+  <!-- Attention (unchanged) -->
+  <rect x="415" y="185" width="250" height="28" rx="4" fill="#81ecec"/>
+  <text x="540" y="203" text-anchor="middle" font-size="12">Attention / FFN</text>
+
+  <line x1="540" y1="213" x2="540" y2="223" stroke="#555" marker-end="url(#ah)"/>
+
+  <!-- Fused kernel 2 -->
+  <rect x="415" y="225" width="250" height="48" rx="6" stroke="#e17055" stroke-width="2" fill="#ffeaa7" fill-opacity="0.3"/>
+  <text x="540" y="245" text-anchor="middle" font-size="11" fill="#e17055" font-weight="bold">fused gate + residual</text>
+  <text x="540" y="262" text-anchor="middle" font-size="11">x * gate + residual → 1 kernel</text>
+
+  <!-- Arrow between panels -->
+  <path d="M310,180 L400,180" stroke="#e17055" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#ah)"/>
+  <text x="355" y="172" text-anchor="middle" font-size="11" fill="#e17055">融合</text>
+</svg>

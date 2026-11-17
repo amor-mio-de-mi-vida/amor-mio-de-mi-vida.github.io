@@ -1,0 +1,83 @@
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah9); }
+  </style>
+  <defs>
+    <marker id="ah9" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">FA4 Warp 角色划分（Blackwell CTA 内）</text>
+
+  <!-- Load warp -->
+  <rect x="20" y="50" width="140" height="100" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="90" y="72" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">Load Warp</text>
+  <text x="30" y="92" class="sublabel">TMA 加载 K, V tile</text>
+  <text x="30" y="107" class="sublabel">到 shared memory</text>
+  <text x="30" y="127" class="sublabel">管理 pipeline stages</text>
+  <text x="30" y="142" class="sublabel">barrier arrive/wait</text>
+
+  <!-- MMA warps -->
+  <rect x="190" y="50" width="160" height="100" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="270" y="72" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">MMA Warps</text>
+  <text x="200" y="92" class="sublabel">tcgen05.mma 执行</text>
+  <text x="200" y="107" class="sublabel">GEMM₀ (QKᵀ) → TMEM</text>
+  <text x="200" y="122" class="sublabel">GEMM₁ (PV) → TMEM</text>
+  <text x="200" y="142" class="sublabel">结果在 TMEM 中复用</text>
+
+  <!-- Softmax warp -->
+  <rect x="380" y="50" width="160" height="100" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="460" y="72" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">Softmax Warp</text>
+  <text x="390" y="92" class="sublabel">从 TMEM 读 S 行</text>
+  <text x="390" y="107" class="sublabel">软件 exp2（多项式）</text>
+  <text x="390" y="122" class="sublabel">online max/sum 更新</text>
+  <text x="390" y="142" class="sublabel">写回 P 到 TMEM</text>
+
+  <!-- Correction + Epilogue warp -->
+  <rect x="570" y="50" width="130" height="100" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="635" y="72" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">Correction Warp</text>
+  <text x="580" y="92" class="sublabel">条件 rescale</text>
+  <text x="580" y="107" class="sublabel">（max 变化 &gt; 阈值时）</text>
+  <text x="580" y="122" class="sublabel">最终 O = acc / l</text>
+  <text x="580" y="142" class="sublabel">写回 HBM</text>
+
+  <!-- Arrows -->
+  <path d="M165,100 L185,100" class="arrow" stroke="#333"/>
+  <path d="M355,100 L375,100" class="arrow" stroke="#333"/>
+  <path d="M545,100 L565,100" class="arrow" stroke="#333"/>
+
+  <!-- TMEM box in center -->
+  <rect x="190" y="180" width="350" height="45" class="box" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="365" y="200" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">Tensor Memory (TMEM) — 256 KB / SM</text>
+  <text x="365" y="218" text-anchor="middle" class="sublabel">S、P、acc_O 驻留在 TMEM 中，各 warp 通过 TMEM 通信，避免 register spill</text>
+
+  <!-- TMEM connections -->
+  <line x1="270" y1="155" x2="270" y2="175" stroke="#388E3C" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="460" y1="155" x2="460" y2="175" stroke="#D55E00" stroke-width="1.5" stroke-dasharray="4"/>
+
+  <!-- Pipeline timeline -->
+  <rect x="20" y="250" width="680" height="95" rx="6" fill="#f8f8f8" stroke="#ddd"/>
+  <text x="30" y="272" class="label" font-weight="600">Pipeline 时间线（一个 tile）</text>
+
+  <rect x="40" y="285" width="80" height="22" rx="3" fill="#1976D2" opacity="0.85"/>
+  <text x="80" y="300" text-anchor="middle" class="sublabel" fill="white">TMA load</text>
+
+  <rect x="125" y="285" width="100" height="22" rx="3" fill="#388E3C" opacity="0.85"/>
+  <text x="175" y="300" text-anchor="middle" class="sublabel" fill="white">GEMM₀ (tcgen05)</text>
+
+  <rect x="230" y="285" width="70" height="22" rx="3" fill="#D55E00" opacity="0.85"/>
+  <text x="265" y="300" text-anchor="middle" class="sublabel" fill="white">softmax</text>
+
+  <rect x="305" y="285" width="100" height="22" rx="3" fill="#388E3C" opacity="0.85"/>
+  <text x="355" y="300" text-anchor="middle" class="sublabel" fill="white">GEMM₁ (tcgen05)</text>
+
+  <rect x="410" y="285" width="80" height="22" rx="3" fill="#7B1FA2" opacity="0.6"/>
+  <text x="450" y="300" text-anchor="middle" class="sublabel" fill="white">rescale?</text>
+
+  <text x="40" y="330" class="sublabel" fill="#D55E00">softmax 用软件 exp2（多项式逼近），分担 MUFU 压力。条件 rescale 仅在 max 变化超过阈值时执行。</text>
+</svg>

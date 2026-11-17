@@ -1,0 +1,62 @@
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah2); }
+  </style>
+  <defs>
+    <marker id="ah2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="title">W4A16 解量化流水线</text>
+
+  <!-- INT4 weights in HBM -->
+  <rect x="20" y="50" width="100" height="60" class="box" fill="#E8F5E9" stroke="#009E73"/>
+  <text x="70" y="75" text-anchor="middle" class="label">INT4 权重</text>
+  <text x="70" y="90" text-anchor="middle" class="sublabel">packed (2/byte)</text>
+
+  <!-- Arrow to SMEM -->
+  <path d="M125,80 L175,80" class="arrow" stroke="#009E73"/>
+  <text x="150" y="72" text-anchor="middle" class="sublabel">TMA</text>
+
+  <!-- SMEM -->
+  <rect x="180" y="50" width="80" height="60" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="220" y="75" text-anchor="middle" class="label">SMEM</text>
+  <text x="220" y="90" text-anchor="middle" class="sublabel">INT4 raw</text>
+
+  <!-- Arrow to registers -->
+  <path d="M265,80 L315,80" class="arrow" stroke="#D55E00"/>
+
+  <!-- Dequant in registers -->
+  <rect x="320" y="40" width="120" height="80" class="box" fill="#FCE4EC" stroke="#CC79A7"/>
+  <text x="380" y="62" text-anchor="middle" class="label">寄存器</text>
+  <text x="380" y="80" text-anchor="middle" class="sublabel">nibble &rarr; FP16</text>
+  <text x="380" y="96" text-anchor="middle" class="sublabel">val &times; scale - zero</text>
+  <text x="380" y="112" text-anchor="middle" class="sublabel" fill="#CC79A7">per-group scale</text>
+
+  <!-- FP16 activation -->
+  <rect x="20" y="140" width="100" height="50" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="70" y="162" text-anchor="middle" class="label">FP16 激活</text>
+  <text x="70" y="177" text-anchor="middle" class="sublabel">A [M &times; K]</text>
+
+  <!-- Arrow activation to FMA -->
+  <path d="M125,165 L480,130" class="arrow" stroke="#0072B2"/>
+
+  <!-- Arrow dequant to FMA -->
+  <path d="M445,80 L480,100" class="arrow" stroke="#CC79A7"/>
+
+  <!-- FMA -->
+  <rect x="485" y="60" width="100" height="80" class="box" fill="#F3E5F5" stroke="#CC79A7"/>
+  <text x="535" y="90" text-anchor="middle" class="label">FP16 FMA</text>
+  <text x="535" y="108" text-anchor="middle" class="sublabel">Tensor Core</text>
+  <text x="535" y="124" text-anchor="middle" class="sublabel">FP32 累加</text>
+
+  <!-- Arrow to C -->
+  <path d="M590,100 L640,100" class="arrow" stroke="#666"/>
+  <rect x="645" y="75" width="55" height="50" class="box" fill="#E8F4FD" stroke="#0072B2"/>
+  <text x="672" y="104" text-anchor="middle" class="label">C</text>
+</svg>

@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 350">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Parallel Prefix Sum: Up-Sweep + Down-Sweep</text>
+
+<!-- Input array -->
+<text x="30" y="50" class="title">Input:</text>
+<g transform="translate(80,35)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10">1</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10">7</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10">0</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10">1</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10">6</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#dbeafe" stroke="#93c5fd"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+</g>
+
+<!-- UP-SWEEP -->
+<rect x="420" y="70" width="120" height="22" rx="4" fill="#dcfce7" stroke="#22c55e"/>
+<text x="480" y="85" text-anchor="middle" class="title" fill="#16a34a">Up-Sweep</text>
+
+<!-- Step 1: stride=1 -->
+<text x="30" y="95" class="label" font-size="10">stride=1</text>
+<g transform="translate(80,80)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#bbf7d0" stroke="#22c55e"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">4</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10">7</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#bbf7d0" stroke="#22c55e"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">7</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#bbf7d0" stroke="#22c55e"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">5</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10">6</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#bbf7d0" stroke="#22c55e"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">9</text>
+</g>
+
+<!-- Step 2: stride=2 -->
+<text x="30" y="140" class="label" font-size="10">stride=2</text>
+<g transform="translate(80,125)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10">7</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#fef9c3" stroke="#eab308"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10" fill="#a16207">11</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10">5</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10">6</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#fef9c3" stroke="#eab308"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10" fill="#a16207">14</text>
+</g>
+
+<!-- Step 3: stride=4 -->
+<text x="30" y="185" class="label" font-size="10">stride=4</text>
+<g transform="translate(80,170)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10">7</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10">11</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10">5</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10">6</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#fee2e2" stroke="#ef4444"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10" fill="#dc2626">25</text>
+</g>
+
+<!-- DOWN-SWEEP -->
+<rect x="420" y="210" width="120" height="22" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="480" y="225" text-anchor="middle" class="title" fill="#2563eb">Down-Sweep</text>
+
+<!-- Down step: set last to 0, propagate -->
+<text x="30" y="240" class="label" font-size="10">set 0</text>
+<g transform="translate(80,225)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10">3</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10">7</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#e0e7ff" stroke="#818cf8"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10" fill="#4f46e5">11</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10">4</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10">5</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#f3f4f6" stroke="#d1d5db"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10">6</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#e0e7ff" stroke="#818cf8"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10" fill="#4f46e5">0</text>
+</g>
+
+<!-- Output (exclusive prefix sum) -->
+<text x="30" y="290" class="title">Output:</text>
+<g transform="translate(80,275)">
+  <rect x="0" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="20" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">0</text>
+  <rect x="44" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="64" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">3</text>
+  <rect x="88" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="108" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">4</text>
+  <rect x="132" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="152" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">11</text>
+  <rect x="176" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="196" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">11</text>
+  <rect x="220" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="240" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">15</text>
+  <rect x="264" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="284" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">16</text>
+  <rect x="308" y="0" width="40" height="24" rx="2" fill="#dcfce7" stroke="#22c55e"/><text x="328" y="16" text-anchor="middle" class="code" font-size="10" fill="#16a34a">22</text>
+</g>
+
+<!-- Complexity note -->
+<rect x="430" y="265" width="250" height="45" rx="4" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="555" y="283" text-anchor="middle" class="code" font-size="10">Work: O(n)</text>
+<text x="555" y="300" text-anchor="middle" class="code" font-size="10">Span: O(log n) steps</text>
+
+<text x="350" y="345" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (Blelloch scan algorithm)</text>
+</svg>

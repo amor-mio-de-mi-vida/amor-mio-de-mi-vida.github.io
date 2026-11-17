@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Transpose Convolution: Two Equivalent Implementations</text>
+
+<!-- Method 1: Insert zeros -->
+<rect x="20" y="35" width="320" height="190" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="180" y="55" text-anchor="middle" class="title" fill="#dc2626">Method 1: Insert Zeros + Standard Conv</text>
+
+<!-- Input 2x2 -->
+<rect x="40" y="70" width="50" height="50" rx="3" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="65" y="100" text-anchor="middle" class="code" font-size="10">2&#xd7;2</text>
+<text x="65" y="132" text-anchor="middle" class="label">input</text>
+
+<text x="105" y="98" class="title" fill="#888">&#x2192;</text>
+
+<!-- Upsampled 5x5 with zeros -->
+<rect x="120" y="60" width="70" height="70" rx="3" fill="#fee2e2" stroke="#ef4444"/>
+<text x="155" y="90" text-anchor="middle" class="code" font-size="9">5&#xd7;5</text>
+<text x="155" y="103" text-anchor="middle" class="label" font-size="9">zeros inserted</text>
+<text x="155" y="142" text-anchor="middle" class="label">upsample</text>
+
+<text x="205" y="98" class="title" fill="#888">*</text>
+
+<!-- Filter -->
+<rect x="220" y="75" width="40" height="40" rx="3" fill="#fde68a" stroke="#f59e0b"/>
+<text x="240" y="100" text-anchor="middle" class="code" font-size="9">3&#xd7;3</text>
+
+<text x="275" y="98" class="title" fill="#888">=</text>
+
+<!-- Output -->
+<rect x="290" y="70" width="40" height="50" rx="3" fill="#dcfce7" stroke="#22c55e"/>
+<text x="310" y="100" text-anchor="middle" class="code" font-size="9">4&#xd7;4</text>
+
+<text x="40" y="165" class="label" fill="#dc2626">75% of multiplies are with zeros</text>
+<text x="40" y="180" class="label" fill="#dc2626">Wastes bandwidth reading zeros</text>
+<text x="40" y="195" class="label">Simple concept, inefficient GPU use</text>
+
+<!-- Method 2: dgrad GEMM -->
+<rect x="370" y="35" width="310" height="190" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="525" y="55" text-anchor="middle" class="title" fill="#16a34a">Method 2: dgrad GEMM (CUTLASS)</text>
+
+<!-- Input 2x2 -->
+<rect x="390" y="70" width="50" height="50" rx="3" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="415" y="100" text-anchor="middle" class="code" font-size="10">2&#xd7;2</text>
+<text x="415" y="132" text-anchor="middle" class="label">input</text>
+
+<text x="455" y="98" class="title" fill="#888">&#x2192;</text>
+
+<!-- Scatter -->
+<rect x="470" y="60" width="100" height="80" rx="5" fill="#bbf7d0" stroke="#86efac"/>
+<text x="520" y="85" text-anchor="middle" class="code" font-size="10">dgrad GEMM</text>
+<text x="520" y="102" text-anchor="middle" class="label" font-size="10">each pixel scatters</text>
+<text x="520" y="116" text-anchor="middle" class="label" font-size="10">to R&#xd7;S region</text>
+
+<text x="585" y="98" class="title" fill="#888">=</text>
+
+<!-- Output -->
+<rect x="600" y="70" width="40" height="50" rx="3" fill="#dcfce7" stroke="#22c55e"/>
+<text x="620" y="100" text-anchor="middle" class="code" font-size="9">4&#xd7;4</text>
+
+<text x="390" y="165" class="label" fill="#16a34a">No wasted computation on zeros</text>
+<text x="390" y="180" class="label" fill="#16a34a">Reuses implicit GEMM conv (dgrad)</text>
+<text x="390" y="195" class="label">CUTLASS deconv = dgrad kernel</text>
+
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (stride=2, 3&#xd7;3 filter, 2&#xd7;2&#x2192;4&#xd7;4)</text>
+</svg>

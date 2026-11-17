@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">Block Reduce: Warp Shuffle + Shared Memory</text>
+
+<!-- Warp 0 -->
+<rect x="30" y="35" width="280" height="30" rx="3" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
+<text x="170" y="54" text-anchor="middle" class="code">Warp 0: threads 0-31 shuffle reduce</text>
+
+<!-- Warp 1 -->
+<rect x="30" y="70" width="280" height="30" rx="3" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
+<text x="170" y="89" text-anchor="middle" class="code">Warp 1: threads 32-63 shuffle reduce</text>
+
+<!-- More warps -->
+<text x="170" y="115" text-anchor="middle" class="label">... (each warp reduces to lane 0)</text>
+
+<!-- Shared memory stage -->
+<rect x="350" y="35" width="300" height="60" rx="3" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="500" y="55" text-anchor="middle" class="title" fill="#3b82f6">sdata[32]</text>
+<text x="500" y="75" text-anchor="middle" class="code">lane0 of each warp writes here</text>
+
+<!-- Arrow -->
+<line x1="310" y1="65" x2="350" y2="65" stroke="#888" stroke-width="1.2" marker-end="url(#arr4)"/>
+
+<!-- Final warp reduce -->
+<rect x="350" y="110" width="300" height="30" rx="3" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+<text x="500" y="129" text-anchor="middle" class="code">Warp 0 reduces sdata[0..31]</text>
+
+<line x1="500" y1="95" x2="500" y2="110" stroke="#888" stroke-width="1.2" marker-end="url(#arr4)"/>
+
+<!-- Final result -->
+<rect x="430" y="155" width="140" height="30" rx="3" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="500" y="174" text-anchor="middle" class="title" fill="#ef4444">Final sum</text>
+
+<line x1="500" y1="140" x2="500" y2="155" stroke="#888" stroke-width="1.2" marker-end="url(#arr4)"/>
+
+<!-- Key insight -->
+<rect x="30" y="155" width="280" height="45" rx="5" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="40" y="173" class="title">Key: Two-level reduce</text>
+<text x="40" y="190" class="label">Intra-warp: __shfl_xor (no smem)</text>
+
+<defs><marker id="arr4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+
+<text x="340" y="218" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

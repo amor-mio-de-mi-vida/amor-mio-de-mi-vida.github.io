@@ -1,0 +1,68 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah2); }
+  </style>
+  <defs>
+    <marker id="ah2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#D55E00" stroke-width="0.8" opacity="0.3"/>
+    </pattern>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Direct Conv Shared Memory Tiling：输出 tile + Halo 区域</text>
+
+  <!-- Input feature map region -->
+  <text x="150" y="50" text-anchor="middle" class="label">Input（单通道 slice）</text>
+
+  <!-- Halo region (larger) -->
+  <rect x="30" y="60" width="240" height="180" rx="4" fill="url(#hatch)" stroke="#D55E00" stroke-width="1.5"/>
+  <text x="42" y="78" class="sublabel" fill="#D55E00">halo</text>
+
+  <!-- Output tile maps to interior -->
+  <rect x="60" y="80" width="180" height="140" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+  <text x="150" y="158" text-anchor="middle" class="label" fill="#1976D2">输出 tile BH&times;BW</text>
+
+  <!-- Halo dimensions -->
+  <line x1="30" y1="250" x2="270" y2="250" stroke="#D55E00" stroke-width="1"/>
+  <line x1="30" y1="247" x2="30" y2="253" stroke="#D55E00" stroke-width="1"/>
+  <line x1="270" y1="247" x2="270" y2="253" stroke="#D55E00" stroke-width="1"/>
+  <text x="150" y="268" text-anchor="middle" class="sublabel" fill="#D55E00">smem tile = (BH + R - 1) &times; (BW + S - 1)</text>
+
+  <!-- Padding annotation -->
+  <text x="36" y="130" class="sublabel" fill="#D55E00" writing-mode="tb">pad</text>
+
+  <!-- Arrow to shared memory -->
+  <path d="M280,140 L340,140" class="arrow" stroke="#333"/>
+  <text x="310" y="132" text-anchor="middle" class="sublabel">load</text>
+
+  <!-- Shared memory block -->
+  <rect x="350" y="60" width="160" height="180" rx="6" fill="#FFF3E0" stroke="#D55E00" stroke-width="1.5"/>
+  <text x="430" y="84" text-anchor="middle" class="label" fill="#D55E00">Shared Memory</text>
+
+  <!-- Interior tile in smem -->
+  <rect x="375" y="100" width="110" height="110" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+  <text x="430" y="160" text-anchor="middle" class="sublabel" fill="#1976D2">output tile</text>
+
+  <!-- Halo bands in smem -->
+  <rect x="360" y="90" width="140" height="8" rx="1" fill="#D55E00" opacity="0.2"/>
+  <rect x="360" y="212" width="140" height="8" rx="1" fill="#D55E00" opacity="0.2"/>
+  <rect x="362" y="90" width="8" height="132" rx="1" fill="#D55E00" opacity="0.2"/>
+  <rect x="490" y="90" width="8" height="132" rx="1" fill="#D55E00" opacity="0.2"/>
+
+  <!-- Computation -->
+  <path d="M520,140 L570,140" class="arrow" stroke="#333"/>
+  <text x="545" y="132" text-anchor="middle" class="sublabel">R&times;S</text>
+
+  <!-- Output tile -->
+  <rect x="580" y="90" width="110" height="110" rx="6" fill="#E8F5E9" stroke="#388E3C" stroke-width="1.5"/>
+  <text x="635" y="150" text-anchor="middle" class="label" fill="#388E3C">Output tile</text>
+
+  <!-- Sync annotation -->
+  <rect x="350" y="245" width="330" height="26" rx="4" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="515" y="262" text-anchor="middle" class="sublabel">每个输入通道：load smem &rarr; __syncthreads &rarr; 累加 &rarr; __syncthreads</text>
+</svg>

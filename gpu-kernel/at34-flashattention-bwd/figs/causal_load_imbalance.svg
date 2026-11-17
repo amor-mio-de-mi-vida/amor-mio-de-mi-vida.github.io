@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 310">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Causal Backward: Load Imbalance across KV Blocks</text>
+
+<!-- Grid showing which Q blocks access which KV blocks -->
+<text x="45" y="42" class="label">KV block j &#x2192;</text>
+<text x="25" y="75" class="label" transform="rotate(-90,25,100)">Q block i &#x2192;</text>
+
+<!-- Column headers -->
+<text x="125" y="45" text-anchor="middle" class="code">j=0</text>
+<text x="175" y="45" text-anchor="middle" class="code">j=1</text>
+<text x="225" y="45" text-anchor="middle" class="code">j=2</text>
+<text x="275" y="45" text-anchor="middle" class="code">j=3</text>
+<text x="325" y="45" text-anchor="middle" class="code">j=4</text>
+<text x="375" y="45" text-anchor="middle" class="code">j=5</text>
+<text x="425" y="45" text-anchor="middle" class="code">j=6</text>
+<text x="475" y="45" text-anchor="middle" class="code">j=7</text>
+
+<!-- Row headers -->
+<text x="85" y="68" text-anchor="end" class="code">i=0</text>
+<text x="85" y="93" text-anchor="end" class="code">i=1</text>
+<text x="85" y="118" text-anchor="end" class="code">i=2</text>
+<text x="85" y="143" text-anchor="end" class="code">i=3</text>
+<text x="85" y="168" text-anchor="end" class="code">i=4</text>
+<text x="85" y="193" text-anchor="end" class="code">i=5</text>
+<text x="85" y="218" text-anchor="end" class="code">i=6</text>
+<text x="85" y="243" text-anchor="end" class="code">i=7</text>
+
+<!-- Causal mask grid: green = compute, grey = skip, orange = diagonal -->
+<!-- i=0: only j=0 (diagonal) -->
+<rect x="100" y="55" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="150" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="200" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="250" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="300" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="350" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="400" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="55" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=1 -->
+<rect x="100" y="80" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="80" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="200" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="250" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="300" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="350" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="400" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="80" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=2 -->
+<rect x="100" y="105" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="105" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="105" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="250" y="105" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="300" y="105" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="350" y="105" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="400" y="105" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="105" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=3 -->
+<rect x="100" y="130" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="130" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="130" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="250" y="130" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="300" y="130" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="350" y="130" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="400" y="130" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="130" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=4 -->
+<rect x="100" y="155" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="155" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="155" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="250" y="155" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="300" y="155" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="350" y="155" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="400" y="155" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="155" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=5 -->
+<rect x="100" y="180" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="180" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="180" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="250" y="180" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="300" y="180" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="350" y="180" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="400" y="180" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<rect x="450" y="180" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=6 -->
+<rect x="100" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="250" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="300" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="350" y="205" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="400" y="205" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<rect x="450" y="205" width="50" height="22" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+
+<!-- i=7 -->
+<rect x="100" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="150" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="200" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="250" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="300" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="350" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="400" y="230" width="50" height="22" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<rect x="450" y="230" width="50" height="22" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+
+<!-- Work per KV block annotation -->
+<text x="125" y="268" text-anchor="middle" class="code" fill="#dc2626">8</text>
+<text x="175" y="268" text-anchor="middle" class="code" fill="#dc2626">7</text>
+<text x="225" y="268" text-anchor="middle" class="code" fill="#dc2626">6</text>
+<text x="275" y="268" text-anchor="middle" class="code" fill="#dc2626">5</text>
+<text x="325" y="268" text-anchor="middle" class="code" fill="#dc2626">4</text>
+<text x="375" y="268" text-anchor="middle" class="code" fill="#dc2626">3</text>
+<text x="425" y="268" text-anchor="middle" class="code" fill="#dc2626">2</text>
+<text x="475" y="268" text-anchor="middle" class="code" fill="#dc2626">1</text>
+<text x="300" y="285" text-anchor="middle" class="label">&#x2191; Q blocks per KV block CTA (work units)</text>
+
+<!-- Legend -->
+<rect x="520" y="60" width="16" height="12" rx="2" fill="#dcfce7" stroke="#86efac"/>
+<text x="542" y="70" class="label">Full compute</text>
+<rect x="520" y="80" width="16" height="12" rx="2" fill="#fde68a" stroke="#f59e0b"/>
+<text x="542" y="90" class="label">Diagonal (partial)</text>
+<rect x="520" y="100" width="16" height="12" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="542" y="110" class="label">Skipped (masked)</text>
+
+<text x="560" y="145" text-anchor="middle" class="title" fill="#dc2626">8&#xd7; imbalance!</text>
+<text x="560" y="162" class="label">CTA j=0: 8 Q blocks</text>
+<text x="560" y="177" class="label">CTA j=7: 1 Q block</text>
+
+<text x="350" y="308" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

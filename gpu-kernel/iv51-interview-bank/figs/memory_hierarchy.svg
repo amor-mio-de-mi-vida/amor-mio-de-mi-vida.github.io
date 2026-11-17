@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">GPU Memory Hierarchy: Bandwidth &amp; Latency</text>
+
+<!-- Register -->
+<rect x="240" y="35" width="220" height="42" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="350" y="53" text-anchor="middle" class="title" fill="#16a34a">Registers</text>
+<text x="350" y="68" text-anchor="middle" class="code" font-size="10">~0 cycle | ~20 TB/s | 256 KB/SM</text>
+
+<!-- Arrow -->
+<line x1="350" y1="77" x2="350" y2="95" stroke="#888" stroke-width="1"/>
+<polygon points="347,92 353,92 350,98" fill="#888"/>
+
+<!-- SMEM/L1 -->
+<rect x="200" y="98" width="300" height="42" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="350" y="116" text-anchor="middle" class="title" fill="#2563eb">Shared Memory / L1</text>
+<text x="350" y="131" text-anchor="middle" class="code" font-size="10">~20-30 cycles | ~19 TB/s | 192 KB/SM (A100)</text>
+
+<line x1="350" y1="140" x2="350" y2="158" stroke="#888" stroke-width="1"/>
+<polygon points="347,155 353,155 350,161" fill="#888"/>
+
+<!-- L2 -->
+<rect x="160" y="161" width="380" height="42" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="350" y="179" text-anchor="middle" class="title" fill="#a16207">L2 Cache</text>
+<text x="350" y="194" text-anchor="middle" class="code" font-size="10">~200 cycles | ~5 TB/s | 40 MB (A100)</text>
+
+<line x1="350" y1="203" x2="350" y2="221" stroke="#888" stroke-width="1"/>
+<polygon points="347,218 353,218 350,224" fill="#888"/>
+
+<!-- HBM -->
+<rect x="120" y="224" width="460" height="42" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="350" y="242" text-anchor="middle" class="title" fill="#dc2626">HBM (Global Memory)</text>
+<text x="350" y="257" text-anchor="middle" class="code" font-size="10">~400-600 cycles | 2.0 TB/s (A100) / 3.35 TB/s (H100) | 80 GB</text>
+
+<!-- Side annotations -->
+<text x="40" y="60" class="label" font-size="10">fastest</text>
+<text x="40" y="75" class="label" font-size="10">smallest</text>
+<line x1="70" y1="55" x2="70" y2="250" stroke="#d1d5db" stroke-width="1" stroke-dasharray="4"/>
+<text x="40" y="240" class="label" font-size="10">slowest</text>
+<text x="40" y="255" class="label" font-size="10">largest</text>
+
+<!-- Optimization arrows -->
+<rect x="80" y="280" width="540" height="30" rx="4" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="350" y="299" text-anchor="middle" class="code" font-size="10">Optimization goal: keep data as high as possible (register &gt; smem &gt; L2 &gt; HBM)</text>
+
+<text x="350" y="318" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: hw-facts.md (A100/H100 specs)</text>
+</svg>

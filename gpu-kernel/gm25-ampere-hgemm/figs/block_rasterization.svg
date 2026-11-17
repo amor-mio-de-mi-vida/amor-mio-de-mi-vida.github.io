@@ -1,0 +1,149 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .sub { font-size: 13px; font-weight: 600; fill: #4a4a4a; }
+    .cell { stroke: #ccc; stroke-width: 0.5; }
+    .active { fill: #56B4E9; opacity: 0.3; }
+    .l2hit { fill: #56B4E9; opacity: 0.6; }
+    .miss { fill: #fff; }
+    .num { font-size: 10px; fill: #333; text-anchor: middle; dominant-baseline: central; }
+    .label { font-size: 11px; fill: #4a4a4a; }
+    .arrow { stroke: #D55E00; stroke-width: 1.5; fill: none; marker-end: url(#rarr); }
+  </style>
+  <defs>
+    <marker id="rarr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#D55E00"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Threadblock 遍历顺序与 L2 复用</text>
+
+  <!-- (a) Row-major -->
+  <text x="155" y="50" text-anchor="middle" class="sub">(a) 行优先遍历</text>
+  <text x="155" y="66" text-anchor="middle" font-size="11" fill="#999">B 的列不复用</text>
+
+  <g transform="translate(40, 76)">
+    <!-- Axis labels -->
+    <text x="110" y="-6" text-anchor="middle" class="label">N (B 的列)</text>
+    <text x="-18" y="85" text-anchor="middle" class="label" transform="rotate(-90,-18,85)">M (A 的行)</text>
+
+    <!-- Grid 6 cols x 5 rows -->
+    <!-- Row 0 -->
+    <rect class="cell active" x="0" y="0" width="36" height="28"/>
+    <text class="num" x="18" y="14">0</text>
+    <rect class="cell active" x="36" y="0" width="36" height="28"/>
+    <text class="num" x="54" y="14">1</text>
+    <rect class="cell active" x="72" y="0" width="36" height="28"/>
+    <text class="num" x="90" y="14">2</text>
+    <rect class="cell active" x="108" y="0" width="36" height="28"/>
+    <text class="num" x="126" y="14">3</text>
+    <rect class="cell active" x="144" y="0" width="36" height="28"/>
+    <text class="num" x="162" y="14">4</text>
+    <rect class="cell active" x="180" y="0" width="36" height="28"/>
+    <text class="num" x="198" y="14">5</text>
+
+    <!-- Row 1 -->
+    <rect class="cell miss" x="0" y="28" width="36" height="28"/>
+    <text class="num" x="18" y="42">6</text>
+    <rect class="cell miss" x="36" y="28" width="36" height="28"/>
+    <text class="num" x="54" y="42">7</text>
+    <rect class="cell miss" x="72" y="28" width="36" height="28"/>
+    <text class="num" x="90" y="42">8</text>
+    <rect class="cell miss" x="108" y="28" width="36" height="28"/>
+    <text class="num" x="126" y="42">9</text>
+    <rect class="cell miss" x="144" y="28" width="36" height="28"/>
+    <text class="num" x="162" y="42">10</text>
+    <rect class="cell miss" x="180" y="28" width="36" height="28"/>
+    <text class="num" x="198" y="42">11</text>
+
+    <!-- Rows 2-4 empty -->
+    <rect class="cell miss" x="0" y="56" width="216" height="28"/>
+    <rect class="cell miss" x="0" y="84" width="216" height="28"/>
+    <rect class="cell miss" x="0" y="112" width="216" height="28"/>
+
+    <!-- Arrow showing traversal: 0→1→2→...→5 then 6→7... -->
+    <path class="arrow" d="M18,22 L198,22"/>
+    <path class="arrow" d="M198,25 L198,38 L18,38"/>
+  </g>
+
+  <!-- L2 illustration for (a) -->
+  <g transform="translate(40, 232)">
+    <text x="110" y="0" text-anchor="middle" class="label">L2: CTA 0 加载 B 的第 0 列块</text>
+    <text x="110" y="16" text-anchor="middle" class="label">CTA 5 已把第 0 列块逐出</text>
+    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#D55E00" font-weight="600">CTA 6 重新加载 → L2 miss</text>
+  </g>
+
+  <!-- (b) Swizzled -->
+  <text x="530" y="50" text-anchor="middle" class="sub">(b) 条带交错遍历</text>
+  <text x="530" y="66" text-anchor="middle" font-size="11" fill="#999">B 列在条带内复用</text>
+
+  <g transform="translate(415, 76)">
+    <text x="110" y="-6" text-anchor="middle" class="label">N</text>
+    <text x="-18" y="85" text-anchor="middle" class="label" transform="rotate(-90,-18,85)">M</text>
+
+    <!-- Grid with swizzled numbering (STRIP=4, 6 cols) -->
+    <!-- Strip 0: cols 0, rows 0-3 -->
+    <rect class="cell l2hit" x="0" y="0" width="36" height="28"/>
+    <text class="num" x="18" y="14">0</text>
+    <rect class="cell l2hit" x="0" y="28" width="36" height="28"/>
+    <text class="num" x="18" y="42">1</text>
+    <rect class="cell l2hit" x="0" y="56" width="36" height="28"/>
+    <text class="num" x="18" y="70">2</text>
+    <rect class="cell l2hit" x="0" y="84" width="36" height="28"/>
+    <text class="num" x="18" y="98">3</text>
+
+    <rect class="cell l2hit" x="36" y="0" width="36" height="28"/>
+    <text class="num" x="54" y="14">4</text>
+    <rect class="cell l2hit" x="36" y="28" width="36" height="28"/>
+    <text class="num" x="54" y="42">5</text>
+    <rect class="cell l2hit" x="36" y="56" width="36" height="28"/>
+    <text class="num" x="54" y="70">6</text>
+    <rect class="cell l2hit" x="36" y="84" width="36" height="28"/>
+    <text class="num" x="54" y="98">7</text>
+
+    <!-- Remaining cols (not in first strip) -->
+    <rect class="cell miss" x="72" y="0" width="36" height="28"/>
+    <text class="num" x="90" y="14">8</text>
+    <rect class="cell miss" x="72" y="28" width="36" height="28"/>
+    <text class="num" x="90" y="42">9</text>
+    <rect class="cell miss" x="72" y="56" width="36" height="28"/>
+    <text class="num" x="90" y="70">10</text>
+    <rect class="cell miss" x="72" y="84" width="36" height="28"/>
+    <text class="num" x="90" y="98">11</text>
+
+    <rect class="cell miss" x="108" y="0" width="36" height="28"/>
+    <rect class="cell miss" x="108" y="28" width="36" height="28"/>
+    <rect class="cell miss" x="108" y="56" width="36" height="28"/>
+    <rect class="cell miss" x="108" y="84" width="36" height="28"/>
+    <rect class="cell miss" x="144" y="0" width="36" height="28"/>
+    <rect class="cell miss" x="144" y="28" width="36" height="28"/>
+    <rect class="cell miss" x="144" y="56" width="36" height="28"/>
+    <rect class="cell miss" x="144" y="84" width="36" height="28"/>
+    <rect class="cell miss" x="180" y="0" width="36" height="28"/>
+    <rect class="cell miss" x="180" y="28" width="36" height="28"/>
+    <rect class="cell miss" x="180" y="56" width="36" height="28"/>
+    <rect class="cell miss" x="180" y="84" width="36" height="28"/>
+
+    <rect class="cell miss" x="0" y="112" width="216" height="28"/>
+
+    <!-- Arrow: 0→1→2→3→4→5→6→7 (column-first within strip) -->
+    <path class="arrow" d="M18,22 L18,98"/>
+    <path class="arrow" d="M22,98 L50,22"/>
+    <path class="arrow" d="M54,22 L54,98"/>
+  </g>
+
+  <!-- L2 illustration for (b) -->
+  <g transform="translate(415, 232)">
+    <text x="110" y="0" text-anchor="middle" class="label">L2: CTA 0–3 共享 B 的同一列块</text>
+    <text x="110" y="16" text-anchor="middle" class="label">条带宽度 = 4 行，足够复用</text>
+    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#009E73" font-weight="600">CTA 1–3 命中 L2 → 3/4 hit rate</text>
+  </g>
+
+  <!-- Legend -->
+  <rect x="160" y="290" width="14" height="12" rx="2" fill="#56B4E9" opacity="0.6"/>
+  <text x="180" y="301" font-size="12" fill="#4a4a4a">L2 cache 命中</text>
+  <rect x="320" y="290" width="14" height="12" rx="2" fill="#56B4E9" opacity="0.3"/>
+  <text x="340" y="301" font-size="12" fill="#4a4a4a">当前 wave</text>
+  <rect x="460" y="290" width="14" height="12" rx="2" fill="#fff" stroke="#ccc"/>
+  <text x="480" y="301" font-size="12" fill="#4a4a4a">未执行</text>
+</svg>

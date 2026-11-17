@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="sans-serif">
+<text class="d-title" x="28" y="28">GEMM 分块层次：grid → block → warp → thread → register</text>
+<text class="d-label" x="28" y="50">每级分块都在减少访存、增加寄存器复用</text>
+
+<!-- C matrix (grid level) -->
+<rect class="d-box soft" x="28" y="70" width="200" height="160" rx="4"/>
+<text class="d-text" x="128" y="90" text-anchor="middle">C  (M × N)</text>
+<!-- block tile highlight -->
+<rect class="d-box accent" x="38" y="100" width="80" height="60" rx="3"/>
+<text class="d-small" x="78" y="130" text-anchor="middle" fill="#D55E00">BM×BN</text>
+<text class="d-label" x="128" y="248">grid tile = 整个 C 矩阵</text>
+
+<!-- zoom arrow -->
+<line x1="125" y1="130" x2="265" y2="130" stroke="#888" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#888"/></marker></defs>
+
+<!-- block tile (BM×BN) -->
+<rect class="d-box soft" x="270" y="70" width="180" height="160" rx="4"/>
+<text class="d-text" x="360" y="90" text-anchor="middle">block tile (BM×BN)</text>
+<!-- warp tiles inside -->
+<rect class="d-box blue" x="280" y="100" width="76" height="56" rx="3"/>
+<text class="d-small" x="318" y="130" text-anchor="middle" fill="#0b5cad">WM×WN</text>
+<rect class="d-box" x="362" y="100" width="76" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="280" y="162" width="76" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="362" y="162" width="76" height="56" rx="3" fill="#e8e8e4"/>
+<text class="d-label" x="360" y="248" text-anchor="middle">4 个 warp tile</text>
+
+<!-- zoom arrow 2 -->
+<line x1="360" y1="128" x2="490" y2="128" stroke="#888" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+<!-- warp tile detail -->
+<rect class="d-box soft" x="495" y="70" width="200" height="160" rx="4"/>
+<text class="d-text" x="595" y="90" text-anchor="middle">warp tile (WM×WN)</text>
+<!-- thread tiles inside -->
+<g>
+  <rect class="d-box green" x="505" y="100" width="36" height="36" rx="2"/>
+  <rect class="d-box" x="545" y="100" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="585" y="100" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="625" y="100" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="505" y="140" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="545" y="140" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="585" y="140" width="36" height="36" rx="2" fill="#e8e8e4"/>
+  <rect class="d-box" x="625" y="140" width="36" height="36" rx="2" fill="#e8e8e4"/>
+</g>
+<text class="d-small" x="523" y="122" text-anchor="middle" fill="#2a9d2a">TM×TN</text>
+<text class="d-label" x="595" y="248" text-anchor="middle">每线程 TM×TN 累加器</text>
+
+<!-- A and B shared memory tiles at bottom -->
+<rect class="d-box blue" x="28" y="280" width="120" height="80" rx="4"/>
+<text class="d-text" x="88" y="302" text-anchor="middle">A tile</text>
+<text class="d-small" x="88" y="322" text-anchor="middle">BM × BK</text>
+<text class="d-small" x="88" y="342" text-anchor="middle">→ SMEM</text>
+
+<rect class="d-box blue" x="170" y="280" width="120" height="80" rx="4"/>
+<text class="d-text" x="230" y="302" text-anchor="middle">B tile</text>
+<text class="d-small" x="230" y="322" text-anchor="middle">BK × BN</text>
+<text class="d-small" x="230" y="342" text-anchor="middle">→ SMEM</text>
+
+<!-- outer product diagram -->
+<rect class="d-box accent" x="360" y="280" width="16" height="80" rx="2"/>
+<text class="d-small" x="368" y="274" text-anchor="middle">a_reg</text>
+<text class="d-small" x="368" y="376" text-anchor="middle">TM</text>
+
+<rect class="d-box accent" x="400" y="270" width="80" height="16" rx="2"/>
+<text class="d-small" x="440" y="266" text-anchor="middle">b_reg (TN)</text>
+
+<rect class="d-box green" x="400" y="290" width="80" height="70" rx="3"/>
+<text class="d-text" x="440" y="330" text-anchor="middle">outer</text>
+<text class="d-text" x="440" y="346" text-anchor="middle">product</text>
+
+<text class="d-small" x="500" y="330" text-anchor="start">→ TM × TN 次 FMA</text>
+<text class="d-small" x="500" y="350" text-anchor="start">  全在寄存器里</text>
+
+<!-- legend -->
+<text class="d-label" x="28" y="400">K 维分成 ⌈K/BK⌉ 个 tile，每次搬一对 (A tile, B tile) 到 SMEM，累加到寄存器里的 C tile</text>
+</svg>

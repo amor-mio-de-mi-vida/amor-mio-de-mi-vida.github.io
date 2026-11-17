@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">NCCL 运行时 Enqueue 流程</text>
+
+<!-- Step 1: API call -->
+<rect x="20" y="35" width="130" height="50" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="85" y="55" text-anchor="middle" class="code" fill="#2563eb">ncclAllReduce()</text>
+<text x="85" y="72" text-anchor="middle" class="label">用户 API 调用</text>
+
+<!-- Arrow -->
+<line x1="150" y1="60" x2="182" y2="60" stroke="#6b7280" stroke-width="1.2" marker-end="url(#a1)"/>
+
+<!-- Step 2: Enqueue -->
+<rect x="185" y="35" width="130" height="50" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.2"/>
+<text x="250" y="55" text-anchor="middle" class="code" fill="#a16207">ncclEnqueueCheck</text>
+<text x="250" y="72" text-anchor="middle" class="label">参数检查 + 入队</text>
+
+<!-- Arrow -->
+<line x1="315" y1="60" x2="347" y2="60" stroke="#6b7280" stroke-width="1.2" marker-end="url(#a1)"/>
+
+<!-- Step 3: Algo/Proto select -->
+<rect x="350" y="35" width="145" height="50" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
+<text x="422" y="55" text-anchor="middle" class="code" fill="#16a34a">ncclInfoSetDerived</text>
+<text x="422" y="72" text-anchor="middle" class="label">选择 algo + proto</text>
+
+<!-- Arrow -->
+<line x1="495" y1="60" x2="527" y2="60" stroke="#6b7280" stroke-width="1.2" marker-end="url(#a1)"/>
+
+<!-- Step 4: Kernel launch -->
+<rect x="530" y="35" width="150" height="50" rx="6" fill="#fce7f3" stroke="#ec4899" stroke-width="1.2"/>
+<text x="605" y="55" text-anchor="middle" class="code" fill="#be185d">ncclKernel&lt;&gt;</text>
+<text x="605" y="72" text-anchor="middle" class="label">GPU kernel 启动</text>
+
+<!-- Detail boxes below -->
+<!-- Algo selection details -->
+<rect x="20" y="110" width="320" height="90" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="180" y="130" text-anchor="middle" class="title">算法选择逻辑</text>
+<text x="30" y="150" class="label">1. 查 topo + channel + 消息大小</text>
+<text x="30" y="168" class="label">2. 对 Ring / Tree / CollnetDirect 计算 alpha-beta 时间</text>
+<text x="30" y="186" class="label">3. 选时间最小的 algo; 小消息偏好 Tree, 大消息偏好 Ring</text>
+
+<!-- Proto selection details -->
+<rect x="360" y="110" width="320" height="90" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="520" y="130" text-anchor="middle" class="title">协议选择逻辑</text>
+<text x="370" y="150" class="label">msg &lt; 8 KB       → LL  (flag inline, 最低延迟)</text>
+<text x="370" y="168" class="label">8 KB ≤ msg &lt; 256 KB → LL128 (NVLink 128B 原子)</text>
+<text x="370" y="186" class="label">msg ≥ 256 KB      → Simple (大块 DMA, 最高 BW)</text>
+
+<!-- Kernel template -->
+<rect x="20" y="220" width="660" height="85" rx="5" fill="#fef2f2" stroke="#ef4444"/>
+<text x="350" y="240" text-anchor="middle" class="title" fill="#dc2626">ncclKernel 模板实例化</text>
+<text x="30" y="262" class="code" fill="#dc2626">ncclKernel&lt;FUNC, T, ALGO, PROTO, NCHANNELS&gt;</text>
+<text x="30" y="280" class="label">FUNC = AllReduce/AllGather/...  T = float/half/bf16  ALGO = Ring/Tree</text>
+<text x="30" y="296" class="label">PROTO = Simple/LL/LL128  → 编译期确定的模板组合, 避免运行时分支</text>
+
+<defs><marker id="a1" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#6b7280"/></marker></defs>
+<text x="350" y="318" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

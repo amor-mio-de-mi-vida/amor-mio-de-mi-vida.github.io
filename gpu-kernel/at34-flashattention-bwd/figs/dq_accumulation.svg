@@ -1,0 +1,37 @@
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">dQ 跨 block 累加：两种方案</text>
+
+  <!-- Atomic approach -->
+  <rect x="20" y="40" width="330" height="185" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="185" y="62" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">方案 A：atomicAdd</text>
+
+  <text x="30" y="85" class="sublabel">外层循环遍历 KV block j：</text>
+  <text x="30" y="105" class="sublabel">&emsp;CTA_j 计算 dS_ij &middot; K_j → dQ_i 的局部贡献</text>
+  <text x="30" y="120" class="sublabel">&emsp;atomicAdd(dQ[i], local_dq)</text>
+  <text x="30" y="145" class="sublabel" fill="#388E3C">优点：一个 kernel 完成</text>
+  <text x="30" y="160" class="sublabel" fill="#388E3C">优点：不需要额外显存</text>
+  <text x="30" y="180" class="sublabel" fill="#D55E00">缺点：FP32 atomicAdd 的争用</text>
+  <text x="30" y="195" class="sublabel" fill="#D55E00">缺点：浮点原子加不结合 → 非确定性</text>
+  <text x="30" y="215" class="sublabel" fill="#D55E00">缺点：FP16 atomicAdd 精度不够</text>
+
+  <!-- Separate kernel approach -->
+  <rect x="370" y="40" width="330" height="185" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="535" y="62" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">方案 B：workspace + 第二 kernel</text>
+
+  <text x="380" y="85" class="sublabel">第一 kernel：每个 KV block j 写</text>
+  <text x="380" y="100" class="sublabel">&emsp;dQ_partial[j, i, :] 到 workspace</text>
+  <text x="380" y="120" class="sublabel">第二 kernel：对每个 Q row i，</text>
+  <text x="380" y="135" class="sublabel">&emsp;把所有 j 的 partial dQ 求和</text>
+  <text x="380" y="160" class="sublabel" fill="#388E3C">优点：确定性（无浮点原子）</text>
+  <text x="380" y="175" class="sublabel" fill="#388E3C">优点：FP16 精度可控</text>
+  <text x="380" y="195" class="sublabel" fill="#D55E00">缺点：workspace 显存 O(N&middot;d&middot;T_c)</text>
+  <text x="380" y="210" class="sublabel" fill="#D55E00">缺点：第二 kernel 的 launch 开销</text>
+  <text x="380" y="225" class="sublabel" fill="#388E3C">FA2 默认用此方案（确定性模式）</text>
+</svg>

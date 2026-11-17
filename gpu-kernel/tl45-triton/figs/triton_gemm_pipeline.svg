@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 260">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">Triton GEMM: num_stages Controls Software Pipeline Depth</text>
+
+<!-- num_stages=1 -->
+<rect x="20" y="35" width="200" height="95" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="120" y="55" text-anchor="middle" class="title" fill="#dc2626">num_stages = 1</text>
+<rect x="35" y="65" width="80" height="22" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="75" y="80" text-anchor="middle" class="code" font-size="9">Load K0</text>
+<rect x="35" y="92" width="80" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="75" y="107" text-anchor="middle" class="code" font-size="9">MMA K0</text>
+<text x="170" y="80" class="label" font-size="9">Serial:</text>
+<text x="170" y="95" class="label" font-size="9">load waits</text>
+<text x="170" y="110" class="label" font-size="9">for MMA</text>
+
+<!-- num_stages=2 -->
+<rect x="250" y="35" width="200" height="95" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="350" y="55" text-anchor="middle" class="title" fill="#2563eb">num_stages = 2</text>
+<rect x="265" y="65" width="55" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="292" y="80" text-anchor="middle" class="code" font-size="9">Ld K0</text>
+<rect x="325" y="65" width="55" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="352" y="80" text-anchor="middle" class="code" font-size="9">Ld K1</text>
+<rect x="265" y="92" width="55" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="292" y="107" text-anchor="middle" class="code" font-size="9">MMA0</text>
+<rect x="325" y="92" width="55" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="352" y="107" text-anchor="middle" class="code" font-size="9">MMA1</text>
+<text x="400" y="87" class="label" font-size="9">Double</text>
+<text x="400" y="102" class="label" font-size="9">buffer</text>
+
+<!-- num_stages=4 -->
+<rect x="480" y="35" width="200" height="95" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="580" y="55" text-anchor="middle" class="title" fill="#16a34a">num_stages = 4</text>
+<rect x="492" y="65" width="40" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="512" y="80" text-anchor="middle" class="code" font-size="8">Ld0</text>
+<rect x="535" y="65" width="40" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="555" y="80" text-anchor="middle" class="code" font-size="8">Ld1</text>
+<rect x="578" y="65" width="40" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="598" y="80" text-anchor="middle" class="code" font-size="8">Ld2</text>
+<rect x="621" y="65" width="40" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="641" y="80" text-anchor="middle" class="code" font-size="8">Ld3</text>
+
+<rect x="492" y="92" width="40" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="512" y="107" text-anchor="middle" class="code" font-size="8">M0</text>
+<rect x="535" y="92" width="40" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="555" y="107" text-anchor="middle" class="code" font-size="8">M1</text>
+<rect x="578" y="92" width="40" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="598" y="107" text-anchor="middle" class="code" font-size="8">M2</text>
+<rect x="621" y="92" width="40" height="22" rx="3" fill="#dcfce7" stroke="#86efac"/>
+<text x="641" y="107" text-anchor="middle" class="code" font-size="8">M3</text>
+
+<!-- SMEM cost -->
+<rect x="100" y="150" width="500" height="85" class="box" fill="#f9fafb" stroke="#d1d5db"/>
+<text x="350" y="172" text-anchor="middle" class="title">SMEM Cost per Stage (BLOCK_M=128, BLOCK_K=32, FP16)</text>
+<text x="120" y="195" class="code" font-size="10">A tile: 128&#xd7;32&#xd7;2B = 8 KB</text>
+<text x="350" y="195" class="code" font-size="10">B tile: 32&#xd7;128&#xd7;2B = 8 KB</text>
+<text x="120" y="215" class="code" font-size="10">1 stage = 16 KB</text>
+<text x="350" y="215" class="code" font-size="10">4 stages = 64 KB (A100: 192 KB avail)</text>
+<text x="120" y="230" class="label" font-size="10">More stages = better latency hiding but more SMEM &#x2192; lower occupancy</text>
+
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (BLOCK_M=128, BLOCK_N=128, BLOCK_K=32, FP16)</text>
+</svg>

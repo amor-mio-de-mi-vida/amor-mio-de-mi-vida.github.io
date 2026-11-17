@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">FP8 Block Quantization + Incoherent Processing</text>
+
+<!-- Step 1: Original Q/K -->
+<rect x="20" y="35" width="200" height="90" rx="5" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="120" y="55" text-anchor="middle" class="title" fill="#2563eb">Step 1: Original FP16</text>
+<text x="35" y="78" class="code">Q tile [Br, d]  FP16</text>
+<text x="35" y="95" class="code">K tile [Bc, d]  FP16</text>
+<text x="35" y="112" class="label">Dynamic range: [-65504, 65504]</text>
+
+<!-- Arrow -->
+<line x1="220" y1="80" x2="250" y2="80" stroke="#888" stroke-width="1.2" marker-end="url(#arr)"/>
+
+<!-- Step 2: Hadamard rotation -->
+<rect x="250" y="35" width="200" height="90" rx="5" fill="#dcfce7" stroke="#22c55e"/>
+<text x="350" y="55" text-anchor="middle" class="title" fill="#16a34a">Step 2: Hadamard Rotation</text>
+<text x="265" y="78" class="code">Q' = Q &#xb7; H / &#x221A;d</text>
+<text x="265" y="95" class="code">K' = K &#xb7; H / &#x221A;d</text>
+<text x="265" y="112" class="label">Smooths outliers (incoherent)</text>
+
+<!-- Arrow -->
+<line x1="450" y1="80" x2="480" y2="80" stroke="#888" stroke-width="1.2" marker-end="url(#arr)"/>
+
+<!-- Step 3: Block quantize -->
+<rect x="480" y="35" width="200" height="90" rx="5" fill="#fef2f2" stroke="#ef4444"/>
+<text x="580" y="55" text-anchor="middle" class="title" fill="#dc2626">Step 3: Block Quantize</text>
+<text x="495" y="78" class="code">scale_q = max|Q'| / 448</text>
+<text x="495" y="95" class="code">Q_fp8 = round(Q' / scale_q)</text>
+<text x="495" y="112" class="label">E4M3: range [-448, 448]</text>
+
+<!-- Why Hadamard? -->
+<rect x="20" y="145" width="310" height="120" rx="5" fill="#fef9c3" stroke="#eab308"/>
+<text x="175" y="165" text-anchor="middle" class="title" fill="#a16207">Problem: Outlier-Dominated Scale</text>
+
+<text x="35" y="188" class="code">Before rotation:</text>
+<text x="35" y="205" class="code">  Q = [0.1, 0.2, 100, 0.3, ...]</text>
+<text x="35" y="222" class="label">scale = 100/448 = 0.223</text>
+<text x="35" y="238" class="label">Small values → 0.1/0.223 = 0.45 → rounds to 0</text>
+<text x="35" y="253" class="label" fill="#dc2626">&#x2717; Massive precision loss on small values!</text>
+
+<rect x="370" y="145" width="310" height="120" rx="5" fill="#dcfce7" stroke="#22c55e"/>
+<text x="525" y="165" text-anchor="middle" class="title" fill="#16a34a">Solution: After Hadamard</text>
+
+<text x="385" y="188" class="code">After rotation:</text>
+<text x="385" y="205" class="code">  Q' = [25.1, 24.9, 25.3, 25.0, ...]</text>
+<text x="385" y="222" class="label">scale = 25.3/448 = 0.056</text>
+<text x="385" y="238" class="label">All values &#x2248; 25 → good precision for all</text>
+<text x="385" y="253" class="label" fill="#16a34a">&#x2713; Uniform magnitude → better quantization</text>
+
+<defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#888"/></marker></defs>
+<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative — values are conceptual</text>
+</svg>

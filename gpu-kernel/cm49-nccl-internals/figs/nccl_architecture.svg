@@ -1,0 +1,117 @@
+<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .phase-box { fill: var(--bg-2, #f5f5f2); stroke: var(--ink-3, #8a8a86); stroke-width: 1; rx: 5; }
+    .step-box  { rx: 4; stroke-width: 1.5; }
+    .arrow-h   { stroke: var(--ink-3, #8a8a86); stroke-width: 1.5; fill: none; marker-end: url(#na); }
+    .arrow-v   { stroke: #D55E00; stroke-width: 1.5; fill: none; marker-end: url(#na2); }
+  </style>
+
+  <defs>
+    <marker id="na" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="var(--ink-3,#8a8a86)"/>
+    </marker>
+    <marker id="na2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#D55E00"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">NCCL 初始化与执行流水线</text>
+
+  <!-- Phase 1: Bootstrap -->
+  <rect x="30" y="45" width="130" height="80" class="phase-box"/>
+  <rect x="30" y="45" width="130" height="24" fill="#E69F00" opacity="0.2" rx="5"/>
+  <text x="95" y="62" text-anchor="middle" class="d-label" style="font-size:11px">1. Bootstrap</text>
+  <text x="95" y="82" text-anchor="middle" class="d-note" style="font-size:10px">建立 rank 间</text>
+  <text x="95" y="96" text-anchor="middle" class="d-note" style="font-size:10px">TCP 控制连接</text>
+  <text x="95" y="110" text-anchor="middle" class="d-note" style="font-size:9px;fill:#E69F00">ncclUniqueId</text>
+
+  <path d="M160,85 L195,85" class="arrow-h"/>
+
+  <!-- Phase 2: Topology Detection -->
+  <rect x="200" y="45" width="130" height="80" class="phase-box"/>
+  <rect x="200" y="45" width="130" height="24" fill="#56B4E9" opacity="0.2" rx="5"/>
+  <text x="265" y="62" text-anchor="middle" class="d-label" style="font-size:11px">2. 拓扑检测</text>
+  <text x="265" y="82" text-anchor="middle" class="d-note" style="font-size:10px">解析 /sys 和</text>
+  <text x="265" y="96" text-anchor="middle" class="d-note" style="font-size:10px">nvidia-smi topo</text>
+  <text x="265" y="110" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">NVLink/PCIe/NET</text>
+
+  <path d="M330,85 L365,85" class="arrow-h"/>
+
+  <!-- Phase 3: Graph Search -->
+  <rect x="370" y="45" width="130" height="80" class="phase-box"/>
+  <rect x="370" y="45" width="130" height="24" fill="#009E73" opacity="0.2" rx="5"/>
+  <text x="435" y="62" text-anchor="middle" class="d-label" style="font-size:11px">3. 图搜索</text>
+  <text x="435" y="82" text-anchor="middle" class="d-note" style="font-size:10px">在拓扑上搜索</text>
+  <text x="435" y="96" text-anchor="middle" class="d-note" style="font-size:10px">最优 ring / tree</text>
+  <text x="435" y="110" text-anchor="middle" class="d-note" style="font-size:9px;fill:#009E73">ncclTopoCompute</text>
+
+  <path d="M500,85 L535,85" class="arrow-h"/>
+
+  <!-- Phase 4: Channel Setup -->
+  <rect x="540" y="45" width="140" height="80" class="phase-box"/>
+  <rect x="540" y="45" width="140" height="24" fill="#CC79A7" opacity="0.2" rx="5"/>
+  <text x="610" y="62" text-anchor="middle" class="d-label" style="font-size:11px">4. Channel 建立</text>
+  <text x="610" y="82" text-anchor="middle" class="d-note" style="font-size:10px">分配 ring/tree</text>
+  <text x="610" y="96" text-anchor="middle" class="d-note" style="font-size:10px">连接 + 缓冲区</text>
+  <text x="610" y="110" text-anchor="middle" class="d-note" style="font-size:9px;fill:#CC79A7">setupChannel</text>
+
+  <!-- Down arrow to runtime -->
+  <path d="M360,125 L360,155" class="arrow-v"/>
+  <text x="375" y="145" class="d-note" style="font-size:10px;fill:#D55E00">ncclCommInitRank 完成</text>
+
+  <!-- Runtime pipeline -->
+  <rect x="30" y="160" width="660" height="270" fill="none" stroke="#D55E00" stroke-width="1.5" rx="6" stroke-dasharray="0"/>
+  <text x="360" y="180" text-anchor="middle" class="d-label" style="font-size:12px;fill:#D55E00">运行时（每次集合操作调用）</text>
+
+  <!-- ncclAllReduce call -->
+  <rect x="50" y="195" width="140" height="55" class="step-box" fill="#D55E00" opacity="0.1" stroke="#D55E00"/>
+  <text x="120" y="215" text-anchor="middle" class="d-label" style="font-size:11px">ncclAllReduce()</text>
+  <text x="120" y="232" text-anchor="middle" class="d-note" style="font-size:10px">enqueue 到</text>
+  <text x="120" y="245" text-anchor="middle" class="d-note" style="font-size:10px">plan 队列</text>
+
+  <path d="M190,222 L225,222" class="arrow-h"/>
+
+  <!-- Algo + Protocol selection -->
+  <rect x="230" y="195" width="140" height="55" class="step-box" fill="#56B4E9" opacity="0.1" stroke="#56B4E9"/>
+  <text x="300" y="212" text-anchor="middle" class="d-label" style="font-size:11px">算法选择</text>
+  <text x="300" y="228" text-anchor="middle" class="d-note" style="font-size:10px">Ring / Tree</text>
+  <text x="300" y="242" text-anchor="middle" class="d-note" style="font-size:10px">+ 协议选择</text>
+
+  <path d="M370,222 L405,222" class="arrow-h"/>
+
+  <!-- Kernel launch -->
+  <rect x="410" y="195" width="130" height="55" class="step-box" fill="#009E73" opacity="0.1" stroke="#009E73"/>
+  <text x="475" y="215" text-anchor="middle" class="d-label" style="font-size:11px">Kernel 启动</text>
+  <text x="475" y="232" text-anchor="middle" class="d-note" style="font-size:10px">ncclKernel 到</text>
+  <text x="475" y="245" text-anchor="middle" class="d-note" style="font-size:10px">用户 stream</text>
+
+  <path d="M540,222 L565,222" class="arrow-h"/>
+
+  <!-- Proxy thread -->
+  <rect x="570" y="195" width="105" height="55" class="step-box" fill="#CC79A7" opacity="0.1" stroke="#CC79A7"/>
+  <text x="622" y="215" text-anchor="middle" class="d-label" style="font-size:11px">Proxy</text>
+  <text x="622" y="232" text-anchor="middle" class="d-note" style="font-size:10px">CPU 线程</text>
+  <text x="622" y="245" text-anchor="middle" class="d-note" style="font-size:10px">IB send/recv</text>
+
+  <!-- Bottom detail: kernel internals -->
+  <g transform="translate(50, 270)">
+    <text x="0" y="15" class="d-label" style="font-size:11px">ncclKernel 内部</text>
+
+    <rect x="0" y="25" width="180" height="45" fill="#009E73" opacity="0.08" stroke="#009E73" stroke-width="1" rx="3"/>
+    <text x="90" y="42" text-anchor="middle" class="d-note" style="font-size:10px">GPU 线程执行 ring/tree 步骤</text>
+    <text x="90" y="58" text-anchor="middle" class="d-note" style="font-size:10px">read peer → reduce → write next</text>
+
+    <rect x="200" y="25" width="160" height="45" fill="#CC79A7" opacity="0.08" stroke="#CC79A7" stroke-width="1" rx="3"/>
+    <text x="280" y="42" text-anchor="middle" class="d-note" style="font-size:10px">NVLink: GPU 直接 load/store</text>
+    <text x="280" y="58" text-anchor="middle" class="d-note" style="font-size:10px">IB: 写入 FIFO → proxy 发送</text>
+
+    <rect x="380" y="25" width="170" height="45" fill="#56B4E9" opacity="0.08" stroke="#56B4E9" stroke-width="1" rx="3"/>
+    <text x="465" y="42" text-anchor="middle" class="d-note" style="font-size:10px">协议: Simple / LL / LL128</text>
+    <text x="465" y="58" text-anchor="middle" class="d-note" style="font-size:10px">按消息大小自动选择</text>
+  </g>
+
+  <!-- Group API note -->
+  <text x="360" y="420" text-anchor="middle" class="d-note" style="font-size:10px">ncclGroupStart/End 合并多个操作为一次 kernel launch，减少启动开销</text>
+</svg>

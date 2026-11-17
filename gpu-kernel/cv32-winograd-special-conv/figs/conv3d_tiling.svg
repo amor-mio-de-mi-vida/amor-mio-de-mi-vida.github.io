@@ -1,0 +1,63 @@
+<svg viewBox="0 0 720 290" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">特殊卷积形式一览</text>
+
+  <!-- Transposed conv -->
+  <rect x="20" y="40" width="220" height="120" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="130" y="62" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">转置卷积（Deconv）</text>
+  <text x="30" y="82" class="sublabel">上采样：每个输入像素&ldquo;散射&rdquo;出</text>
+  <text x="30" y="96" class="sublabel">一个 R&times;S 的区域（stride 间隔）</text>
+  <text x="30" y="116" class="sublabel" fill="#1976D2">实现 1：输入插零 → 标准 conv</text>
+  <text x="30" y="130" class="sublabel" fill="#1976D2">实现 2：直接 GEMM（dgrad 形式）</text>
+  <text x="30" y="148" class="sublabel" fill="#D55E00">checkerboard artifact 是已知问题</text>
+
+  <!-- 3D conv -->
+  <rect x="255" y="40" width="215" height="120" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="362" y="62" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">3D 卷积</text>
+  <text x="265" y="82" class="sublabel">视频 / 医学 CT / 点云体素</text>
+  <text x="265" y="96" class="sublabel">Filter: [C_out, C_in, T, R, S]</text>
+  <text x="265" y="116" class="sublabel" fill="#388E3C">GEMM-K = C_in&middot;T&middot;R&middot;S</text>
+  <text x="265" y="130" class="sublabel" fill="#388E3C">GEMM-N = N&middot;D&middot;P&middot;Q</text>
+  <text x="265" y="148" class="sublabel" fill="#D55E00">内存更大 → tiling 更关键</text>
+
+  <!-- Causal conv1d -->
+  <rect x="485" y="40" width="215" height="120" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="592" y="62" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">因果 Conv1D</text>
+  <text x="495" y="82" class="sublabel">Mamba / 状态空间模型的组件</text>
+  <text x="495" y="96" class="sublabel">短 kernel（k=4）、长序列（L=128K）</text>
+  <text x="495" y="116" class="sublabel" fill="#7B1FA2">Depthwise: 每通道独立卷积</text>
+  <text x="495" y="130" class="sublabel" fill="#7B1FA2">左 padding = k-1 → 因果</text>
+  <text x="495" y="148" class="sublabel" fill="#D55E00">带宽受限：全序列扫一遍</text>
+
+  <!-- Large kernel depthwise -->
+  <rect x="20" y="175" width="220" height="105" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="130" y="197" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">大 Kernel Depthwise Conv</text>
+  <text x="30" y="217" class="sublabel">RepLKNet / ConvNeXt V2: 31&times;31</text>
+  <text x="30" y="231" class="sublabel">直接 conv 需 961 次乘/像素</text>
+  <text x="30" y="251" class="sublabel" fill="#D55E00">优化 1：tile 的 halo 很大</text>
+  <text x="30" y="265" class="sublabel" fill="#D55E00">优化 2：im2col 仍可行（depthwise）</text>
+
+  <!-- FFT conv -->
+  <rect x="255" y="175" width="215" height="105" class="box" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="362" y="197" text-anchor="middle" class="label" fill="#333" font-weight="600">FFT 卷积</text>
+  <text x="265" y="217" class="sublabel">大 kernel (&ge;7) 时有优势</text>
+  <text x="265" y="231" class="sublabel">O(N log N) vs O(N&middot;K)</text>
+  <text x="265" y="251" class="sublabel" fill="#333">流程：FFT(x) &odot; FFT(w) → IFFT</text>
+  <text x="265" y="265" class="sublabel" fill="#D55E00">实际很少用：cuDNN 的 FFT</text>
+  <text x="265" y="278" class="sublabel" fill="#D55E00">conv 在 K&lt;11 时不如 implicit GEMM</text>
+
+  <!-- Deformable conv summary -->
+  <rect x="485" y="175" width="215" height="105" class="box" fill="#FCE4EC" stroke="#C62828"/>
+  <text x="592" y="197" text-anchor="middle" class="label" fill="#C62828" font-weight="600">可变形卷积 (DCN)</text>
+  <text x="495" y="217" class="sublabel">采样位置由网络学习</text>
+  <text x="495" y="231" class="sublabel">偏移 &Delta;p ∈ R &times; S &times; 2 通道</text>
+  <text x="495" y="251" class="sublabel" fill="#C62828">需要双线性插值前向</text>
+  <text x="495" y="265" class="sublabel" fill="#C62828">反向 atomicAdd → 非确定性</text>
+  <text x="495" y="278" class="sublabel" fill="#D55E00">DCNv2 加 modulation mask</text>
+</svg>

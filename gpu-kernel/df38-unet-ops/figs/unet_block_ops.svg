@@ -1,0 +1,109 @@
+<svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah1); }
+  </style>
+  <defs>
+    <marker id="ah1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">UNet ResBlock 算子图（memory/compute-bound 标注）</text>
+
+  <!-- Legend -->
+  <rect x="30" y="35" width="14" height="14" rx="3" fill="#1976D2" opacity="0.85"/>
+  <text x="50" y="47" class="sublabel">Compute-bound</text>
+  <rect x="160" y="35" width="14" height="14" rx="3" fill="#D55E00" opacity="0.85"/>
+  <text x="180" y="47" class="sublabel">Memory-bound</text>
+
+  <!-- Main path: input → Conv3×3 → GN → SiLU → Conv3×3 → Add → output -->
+  <!-- Input -->
+  <rect x="20" y="80" width="70" height="36" class="box" fill="#f0f0f0" stroke="#999"/>
+  <text x="55" y="103" text-anchor="middle" class="label">Input x</text>
+
+  <!-- Conv3x3 #1 -->
+  <rect x="120" y="80" width="90" height="36" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="165" y="98" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">Conv 3&times;3</text>
+  <text x="165" y="112" text-anchor="middle" class="sublabel" fill="#1976D2">compute</text>
+
+  <!-- GroupNorm -->
+  <rect x="240" y="80" width="90" height="36" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="285" y="98" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">GroupNorm</text>
+  <text x="285" y="112" text-anchor="middle" class="sublabel" fill="#D55E00">memory</text>
+
+  <!-- SiLU -->
+  <rect x="360" y="80" width="70" height="36" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="395" y="98" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">SiLU</text>
+  <text x="395" y="112" text-anchor="middle" class="sublabel" fill="#D55E00">memory</text>
+
+  <!-- Conv3x3 #2 -->
+  <rect x="460" y="80" width="90" height="36" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="505" y="98" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">Conv 3&times;3</text>
+  <text x="505" y="112" text-anchor="middle" class="sublabel" fill="#1976D2">compute</text>
+
+  <!-- Add -->
+  <circle cx="590" cy="98" r="18" fill="#f0f0f0" stroke="#999" stroke-width="1.5"/>
+  <text x="590" y="103" text-anchor="middle" class="label" font-weight="600">+</text>
+
+  <!-- Output -->
+  <rect x="630" y="80" width="70" height="36" class="box" fill="#f0f0f0" stroke="#999"/>
+  <text x="665" y="103" text-anchor="middle" class="label">Output</text>
+
+  <!-- Arrows main path -->
+  <path d="M95,98 L115,98" class="arrow" stroke="#333"/>
+  <path d="M215,98 L235,98" class="arrow" stroke="#333"/>
+  <path d="M335,98 L355,98" class="arrow" stroke="#333"/>
+  <path d="M435,98 L455,98" class="arrow" stroke="#333"/>
+  <path d="M555,98 L570,98" class="arrow" stroke="#333"/>
+  <path d="M610,98 L625,98" class="arrow" stroke="#333"/>
+
+  <!-- Residual skip connection -->
+  <path d="M55,120 L55,150 L590,150 L590,120" stroke="#999" stroke-width="1" fill="none" stroke-dasharray="5,3"/>
+  <text x="320" y="163" text-anchor="middle" class="sublabel">skip connection (+ optional 1&times;1 conv)</text>
+
+  <!-- Time embedding branch -->
+  <text x="360" y="200" text-anchor="middle" class="label" font-weight="600">Time Embedding (t_emb)</text>
+
+  <rect x="130" y="215" width="80" height="32" class="box" fill="#D55E00" opacity="0.15" stroke="#D55E00"/>
+  <text x="170" y="236" text-anchor="middle" class="label" fill="#D55E00">Linear</text>
+
+  <rect x="240" y="215" width="70" height="32" class="box" fill="#D55E00" opacity="0.15" stroke="#D55E00"/>
+  <text x="275" y="236" text-anchor="middle" class="label" fill="#D55E00">SiLU</text>
+
+  <rect x="340" y="215" width="80" height="32" class="box" fill="#D55E00" opacity="0.15" stroke="#D55E00"/>
+  <text x="380" y="236" text-anchor="middle" class="label" fill="#D55E00">Linear</text>
+
+  <path d="M215,231 L235,231" class="arrow" stroke="#D55E00"/>
+  <path d="M315,231 L335,231" class="arrow" stroke="#D55E00"/>
+
+  <!-- Arrow from t_emb to add between GN+SiLU and Conv#2 -->
+  <path d="M425,231 L445,231 L445,116" class="arrow" stroke="#D55E00"/>
+  <text x="460" y="148" class="sublabel" fill="#D55E00">add/FiLM</text>
+
+  <!-- Fused kernel annotations -->
+  <rect x="232" y="72" width="208" height="52" rx="8" fill="none" stroke="#E53935" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="336" y="68" text-anchor="middle" class="sublabel" fill="#E53935" font-weight="600">Fuse: GN + SiLU + t_emb add</text>
+
+  <!-- CFG section -->
+  <text x="360" y="290" text-anchor="middle" class="label" font-weight="600">CFG（Classifier-Free Guidance）</text>
+
+  <rect x="80" y="305" width="120" height="32" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="140" y="325" text-anchor="middle" class="label">UNet(x, c_text)</text>
+
+  <rect x="230" y="305" width="120" height="32" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="290" y="325" text-anchor="middle" class="label">UNet(x, &empty;)</text>
+
+  <rect x="420" y="305" width="180" height="32" class="box" fill="#FFF3E0" stroke="#D55E00"/>
+  <text x="510" y="325" text-anchor="middle" class="label" fill="#D55E00">CFG combine (elem.)</text>
+
+  <path d="M205,321 L225,321" class="arrow" stroke="#333"/>
+  <path d="M355,321 L415,321" class="arrow" stroke="#333"/>
+
+  <text x="290" y="358" text-anchor="middle" class="sublabel">拼 batch 一次前向 → guidance 合并是纯 elementwise</text>
+
+  <text x="510" y="358" text-anchor="middle" class="sublabel" fill="#D55E00">out = uncond + s &middot; (cond &minus; uncond)</text>
+</svg>

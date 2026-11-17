@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">CUDA Thread-Level vs Triton Block-Level Programming</text>
+
+<!-- CUDA side -->
+<rect x="20" y="30" width="310" height="265" rx="6" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
+<text x="175" y="50" text-anchor="middle" class="title" fill="#ef4444">CUDA (Thread-Level)</text>
+
+<text x="35" y="72" class="code" font-size="10">// programmer manages:</text>
+<rect x="35" y="80" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="94" class="code" font-size="9">threadIdx, blockIdx, warp shuffle</text>
+<rect x="35" y="105" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="119" class="code" font-size="9">__shared__ memory allocation &amp; bank conflicts</text>
+<rect x="35" y="130" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="144" class="code" font-size="9">coalesced memory access patterns</text>
+<rect x="35" y="155" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="169" class="code" font-size="9">software pipelining (cp.async, smem stages)</text>
+<rect x="35" y="180" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="194" class="code" font-size="9">WMMA / MMA intrinsics for Tensor Core</text>
+<rect x="35" y="205" width="280" height="20" rx="3" fill="#fecaca"/>
+<text x="45" y="219" class="code" font-size="9">swizzle patterns for smem layout</text>
+
+<text x="35" y="250" class="label" fill="#ef4444">Full control, full responsibility</text>
+<text x="35" y="268" class="label" fill="#ef4444">~500 lines for optimized GEMM</text>
+<text x="35" y="284" class="label" fill="#ef4444">Expert-level debugging (bank conflicts, occupancy)</text>
+
+<!-- Triton side -->
+<rect x="350" y="30" width="310" height="265" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
+<text x="505" y="50" text-anchor="middle" class="title" fill="#22c55e">Triton (Block-Level)</text>
+
+<text x="365" y="72" class="code" font-size="10">// programmer writes:</text>
+<rect x="365" y="80" width="280" height="20" rx="3" fill="#dcfce7"/>
+<text x="375" y="94" class="code" font-size="9">tl.program_id(0) &mdash; block index</text>
+<rect x="365" y="105" width="280" height="20" rx="3" fill="#dcfce7"/>
+<text x="375" y="119" class="code" font-size="9">tl.load / tl.store + mask</text>
+<rect x="365" y="130" width="280" height="20" rx="3" fill="#dcfce7"/>
+<text x="375" y="144" class="code" font-size="9">tl.dot(a, b) &mdash; tile-level matmul</text>
+<rect x="365" y="155" width="280" height="20" rx="3" fill="#dcfce7"/>
+<text x="375" y="169" class="code" font-size="9">tl.sum / tl.max &mdash; tile reductions</text>
+
+<text x="365" y="200" class="code" font-size="10">// compiler handles:</text>
+<rect x="365" y="208" width="280" height="20" rx="3" fill="#bbf7d0"/>
+<text x="375" y="222" class="code" font-size="9">smem allocation, coalescing, swizzle</text>
+<rect x="365" y="233" width="280" height="20" rx="3" fill="#bbf7d0"/>
+<text x="375" y="247" class="code" font-size="9">software pipelining, Tensor Core selection</text>
+
+<text x="365" y="275" class="label" fill="#22c55e">~50 lines for competitive GEMM</text>
+<text x="365" y="290" class="label" fill="#22c55e">autotune over num_warps, num_stages, tile sizes</text>
+
+<text x="340" y="315" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after Triton documentation)</text>
+</svg>

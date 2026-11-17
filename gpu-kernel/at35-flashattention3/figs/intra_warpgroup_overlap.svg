@@ -1,0 +1,60 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="title">Intra-Warpgroup 重叠：GEMM₀ 与 Softmax 的流水</text>
+
+  <!-- Before: sequential -->
+  <text x="30" y="55" class="label" font-weight="600" fill="#D55E00">FA2（串行）</text>
+
+  <rect x="130" y="40" width="120" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="190" y="60" text-anchor="middle" class="sublabel" fill="white">GEMM₀ (QKᵀ)</text>
+
+  <rect x="255" y="40" width="80" height="30" class="box" fill="#D55E00" opacity="0.85"/>
+  <text x="295" y="60" text-anchor="middle" class="sublabel" fill="white">softmax</text>
+
+  <rect x="340" y="40" width="120" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="400" y="60" text-anchor="middle" class="sublabel" fill="white">GEMM₁ (PV)</text>
+
+  <rect x="465" y="40" width="120" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="525" y="60" text-anchor="middle" class="sublabel" fill="white">GEMM₀ (next)</text>
+
+  <rect x="590" y="40" width="80" height="30" class="box" fill="#D55E00" opacity="0.85"/>
+  <text x="630" y="60" text-anchor="middle" class="sublabel" fill="white">softmax</text>
+
+  <!-- After: overlapped -->
+  <text x="30" y="120" class="label" font-weight="600" fill="#388E3C">FA3（重叠）</text>
+
+  <rect x="130" y="105" width="120" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="190" y="125" text-anchor="middle" class="sublabel" fill="white">GEMM₁ (PV)</text>
+
+  <!-- Softmax overlaps with next GEMM0 -->
+  <rect x="255" y="105" width="170" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="340" y="125" text-anchor="middle" class="sublabel" fill="white">GEMM₀ (next QKᵀ)</text>
+
+  <rect x="255" y="140" width="80" height="25" class="box" fill="#D55E00" opacity="0.85"/>
+  <text x="295" y="157" text-anchor="middle" class="sublabel" fill="white">softmax</text>
+
+  <rect x="430" y="105" width="120" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="490" y="125" text-anchor="middle" class="sublabel" fill="white">GEMM₁ (PV)</text>
+
+  <rect x="555" y="105" width="140" height="30" class="box" fill="#1976D2" opacity="0.85"/>
+  <text x="625" y="125" text-anchor="middle" class="sublabel" fill="white">GEMM₀ (next)</text>
+
+  <rect x="555" y="140" width="80" height="25" class="box" fill="#D55E00" opacity="0.85"/>
+  <text x="595" y="157" text-anchor="middle" class="sublabel" fill="white">softmax</text>
+
+  <!-- Annotation lines -->
+  <line x1="255" y1="170" x2="335" y2="170" stroke="#388E3C" stroke-width="2"/>
+  <text x="295" y="185" text-anchor="middle" class="sublabel" fill="#388E3C">WGMMA 是异步的</text>
+  <text x="295" y="198" text-anchor="middle" class="sublabel" fill="#388E3C">softmax 可与下一个 GEMM₀ 重叠</text>
+
+  <!-- MUFU bottleneck explanation -->
+  <rect x="90" y="215" width="580" height="35" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
+  <text x="100" y="232" class="sublabel" fill="#D55E00" font-weight="600">为什么需要重叠？</text>
+  <text x="100" y="245" class="sublabel">softmax 的 exp 用 MUFU 单元，吞吐远低于 Tensor Core。FA2 中 softmax 占总时间 ~30%；FA3 通过重叠几乎隐藏这部分延迟。</text>
+</svg>

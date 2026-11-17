@@ -1,0 +1,68 @@
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .fill-reg  { fill: #E69F00; opacity: 0.3; }
+    .fill-smem { fill: #56B4E9; opacity: 0.25; }
+    .fill-l2   { fill: #009E73; opacity: 0.25; }
+    .fill-hbm  { fill: #D55E00; opacity: 0.25; }
+    .fill-nvl  { fill: #CC79A7; opacity: 0.25; }
+    .fill-ib   { fill: #0072B2; opacity: 0.25; }
+  </style>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">GPU 存储-通信层次：从寄存器到跨节点网络</text>
+
+  <!-- Pyramid layers (bottom-up: bigger, slower) -->
+  <!-- Layer 1: Registers (top, smallest, fastest) -->
+  <polygon points="310,55 410,55 430,95 290,95" class="fill-reg" stroke="#E69F00" stroke-width="1.5"/>
+  <text x="360" y="80" text-anchor="middle" class="d-label" style="font-size:12px">寄存器</text>
+
+  <!-- Layer 2: Shared Memory / L1 -->
+  <polygon points="280,100 440,100 470,140 250,140" class="fill-smem" stroke="#56B4E9" stroke-width="1.5"/>
+  <text x="360" y="125" text-anchor="middle" class="d-label" style="font-size:12px">Shared Memory / L1</text>
+
+  <!-- Layer 3: L2 Cache -->
+  <polygon points="240,145 480,145 520,185 200,185" class="fill-l2" stroke="#009E73" stroke-width="1.5"/>
+  <text x="360" y="170" text-anchor="middle" class="d-label" style="font-size:12px">L2 Cache</text>
+
+  <!-- Layer 4: HBM (Device Memory) -->
+  <polygon points="190,190 530,190 570,230 150,230" class="fill-hbm" stroke="#D55E00" stroke-width="1.5"/>
+  <text x="360" y="215" text-anchor="middle" class="d-label" style="font-size:12px">HBM (显存)</text>
+
+  <!-- Layer 5: NVLink (Peer GPU Memory) -->
+  <polygon points="140,240 580,240 620,280 100,280" class="fill-nvl" stroke="#CC79A7" stroke-width="1.5"/>
+  <text x="360" y="265" text-anchor="middle" class="d-label" style="font-size:12px">NVLink (对等 GPU 显存)</text>
+
+  <!-- Layer 6: InfiniBand / Network (Remote) -->
+  <polygon points="90,290 630,290 670,330 50,330" class="fill-ib" stroke="#0072B2" stroke-width="1.5"/>
+  <text x="360" y="315" text-anchor="middle" class="d-label" style="font-size:12px">InfiniBand / RoCE (远程节点)</text>
+
+  <!-- Bandwidth annotations (right side) -->
+  <text x="690" y="80" text-anchor="end" class="d-note" style="fill:#E69F00">~80 TB/s</text>
+  <text x="690" y="125" text-anchor="end" class="d-note" style="fill:#56B4E9">~30 TB/s</text>
+  <text x="690" y="170" text-anchor="end" class="d-note" style="fill:#009E73">~12 TB/s</text>
+  <text x="690" y="215" text-anchor="end" class="d-note" style="fill:#D55E00">3.35 TB/s</text>
+  <text x="690" y="265" text-anchor="end" class="d-note" style="fill:#CC79A7">900 GB/s</text>
+  <text x="690" y="315" text-anchor="end" class="d-note" style="fill:#0072B2">400 Gb/s</text>
+
+  <!-- Latency annotations (left side) -->
+  <text x="30" y="80" text-anchor="start" class="d-note" style="fill:#E69F00">~1 ns</text>
+  <text x="30" y="125" text-anchor="start" class="d-note" style="fill:#56B4E9">~30 ns</text>
+  <text x="30" y="170" text-anchor="start" class="d-note" style="fill:#009E73">~200 ns</text>
+  <text x="30" y="215" text-anchor="start" class="d-note" style="fill:#D55E00">~400 ns</text>
+  <text x="30" y="265" text-anchor="start" class="d-note" style="fill:#CC79A7">~1 μs</text>
+  <text x="30" y="315" text-anchor="start" class="d-note" style="fill:#0072B2">~1–5 μs</text>
+
+  <!-- Axis labels -->
+  <text x="30" y="45" text-anchor="start" class="d-label" style="font-size:11px">延迟</text>
+  <text x="690" y="45" text-anchor="end" class="d-label" style="font-size:11px">带宽</text>
+
+  <!-- Divider: intra-GPU vs inter-GPU -->
+  <line x1="50" y1="235" x2="670" y2="235" stroke="var(--ink-3,#8a8a86)" stroke-width="1" stroke-dasharray="6,3"/>
+  <text x="360" y="355" text-anchor="middle" class="d-note">↑ GPU 内部 ｜ GPU 之间 ↓</text>
+
+  <!-- H100 SXM note -->
+  <text x="360" y="390" text-anchor="middle" class="d-note" style="font-size:10px">以 H100 SXM 为例；带宽为双向峰值；延迟为典型值</text>
+  <text x="360" y="406" text-anchor="middle" class="d-note" style="font-size:10px">InfiniBand 400 Gb/s = NDR (ConnectX-7)；NVLink 4.0 = 18 links × 50 GB/s</text>
+</svg>

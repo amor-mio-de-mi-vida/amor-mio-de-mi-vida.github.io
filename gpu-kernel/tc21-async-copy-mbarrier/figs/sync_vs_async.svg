@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 300" font-family="sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" class="d-head"/></marker></defs>
+<text class="d-title" x="24" y="26">同步搬运 vs cp.async：线程不用再等数据落地</text>
+
+<!-- time arrow -->
+<path class="d-arrow muted" d="M90 48 H536" marker-end="url(#ah)"/>
+<text class="d-label" x="540" y="44">时间</text>
+
+<!-- Row 1: synchronous -->
+<text class="d-label" x="24" y="76">同步加载</text>
+<rect class="d-box blue" x="92" y="84" width="100" height="32" rx="4"/>
+<text class="d-mono" x="142" y="105" text-anchor="middle">LDG → Reg</text>
+<rect class="d-box soft" x="192" y="84" width="40" height="32" rx="4"/>
+<text class="d-small" x="212" y="105" text-anchor="middle">stall</text>
+<rect class="d-box blue" x="232" y="84" width="64" height="32" rx="4"/>
+<text class="d-mono" x="264" y="105" text-anchor="middle">STS</text>
+<rect class="d-box accent" x="296" y="84" width="48" height="32" rx="4"/>
+<text class="d-mono" x="320" y="105" text-anchor="middle">sync</text>
+<rect class="d-box green" x="344" y="84" width="100" height="32" rx="4"/>
+<text class="d-mono" x="394" y="105" text-anchor="middle">计算</text>
+
+<text class="d-small" x="92" y="134">数据从 GMEM 到寄存器，再写 SMEM，线程全程阻塞</text>
+
+<!-- Row 2: cp.async -->
+<text class="d-label" x="24" y="174">cp.async</text>
+<rect class="d-box blue" x="92" y="182" width="40" height="32" rx="4"/>
+<text class="d-mono" x="112" y="203" text-anchor="middle">发射</text>
+<rect class="d-box green" x="136" y="182" width="140" height="32" rx="4"/>
+<text class="d-mono" x="206" y="203" text-anchor="middle">计算上一轮</text>
+<rect class="d-box accent" x="280" y="182" width="64" height="32" rx="4"/>
+<text class="d-mono" x="312" y="203" text-anchor="middle">wait</text>
+<rect class="d-box green" x="348" y="182" width="100" height="32" rx="4"/>
+<text class="d-mono" x="398" y="203" text-anchor="middle">计算本轮</text>
+
+<!-- async hardware bar below -->
+<rect fill="#3B82F6" fill-opacity="0.25" x="92" y="222" width="188" height="18" rx="3"/>
+<text class="d-small" x="186" y="235" text-anchor="middle">硬件异步搬运 GMEM→SMEM</text>
+
+<text class="d-small" x="92" y="264">线程只负责发射；搬运在后台完成，wait 才同步</text>
+<text class="d-small" x="92" y="282">不经过寄存器中转：cp.async 直通 GMEM→SMEM</text>
+</svg>

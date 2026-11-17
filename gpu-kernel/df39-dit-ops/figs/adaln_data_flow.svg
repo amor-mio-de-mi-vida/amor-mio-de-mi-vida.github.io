@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">adaLN-Zero: Two-Pass Fused Kernel Data Flow</text>
+
+<!-- Input -->
+<rect x="30" y="38" width="80" height="40" rx="4" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="70" y="62" text-anchor="middle" class="code">x [D]</text>
+
+<!-- Pass 1 -->
+<rect x="145" y="30" width="185" height="56" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="237" y="48" text-anchor="middle" class="title" fill="#16a34a">Pass 1: Reduce</text>
+<text x="155" y="68" class="code" font-size="10">mean = warp_sum(x) / D</text>
+<text x="155" y="80" class="code" font-size="10">var = warp_sum(x&#xb2;) / D - mean&#xb2;</text>
+
+<line x1="110" y1="58" x2="145" y2="58" stroke="#888" stroke-width="1" marker-end="url(#a1)"/>
+
+<!-- Pass 2 -->
+<rect x="365" y="30" width="200" height="56" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="465" y="48" text-anchor="middle" class="title" fill="#a16207">Pass 2: Normalize + Modulate</text>
+<text x="375" y="68" class="code" font-size="10">norm = (x - mean) * rsqrt(var+&#x3b5;)</text>
+<text x="375" y="80" class="code" font-size="10">out = norm * (1+scale) + shift</text>
+
+<line x1="330" y1="58" x2="365" y2="58" stroke="#888" stroke-width="1" marker-end="url(#a1)"/>
+
+<!-- Output -->
+<rect x="600" y="38" width="80" height="40" rx="4" fill="#fef2f2" stroke="#ef4444"/>
+<text x="640" y="62" text-anchor="middle" class="code">out [D]</text>
+
+<line x1="565" y1="58" x2="600" y2="58" stroke="#888" stroke-width="1" marker-end="url(#a1)"/>
+
+<!-- Condition inputs -->
+<rect x="365" y="105" width="80" height="30" rx="4" fill="#e0e7ff" stroke="#818cf8"/>
+<text x="405" y="124" text-anchor="middle" class="code">scale</text>
+<rect x="465" y="105" width="80" height="30" rx="4" fill="#e0e7ff" stroke="#818cf8"/>
+<text x="505" y="124" text-anchor="middle" class="code">shift</text>
+<line x1="405" y1="105" x2="430" y2="86" stroke="#818cf8" stroke-width="1" marker-end="url(#a2)"/>
+<line x1="505" y1="105" x2="500" y2="86" stroke="#818cf8" stroke-width="1" marker-end="url(#a2)"/>
+
+<!-- Timestep MLP -->
+<rect x="390" y="148" width="130" height="30" rx="4" fill="#faf5ff" stroke="#a855f7"/>
+<text x="455" y="167" text-anchor="middle" class="code">t_emb MLP</text>
+<line x1="455" y1="148" x2="455" y2="135" stroke="#a855f7" stroke-width="1" marker-end="url(#a2)"/>
+
+<!-- HBM traffic comparison -->
+<rect x="30" y="195" width="310" height="95" class="box" fill="#fef2f2" stroke="#fca5a5"/>
+<text x="185" y="215" text-anchor="middle" class="title" fill="#dc2626">Unfused: 5 HBM round-trips</text>
+<text x="45" y="235" class="code" font-size="10">1. Read x &#x2192; Write mean,var (LayerNorm pass1)</text>
+<text x="45" y="250" class="code" font-size="10">2. Read x,mean,var &#x2192; Write norm (LN pass2)</text>
+<text x="45" y="265" class="code" font-size="10">3. Read norm,scale &#x2192; Write scaled (multiply)</text>
+<text x="45" y="280" class="code" font-size="10">4. Read scaled,shift &#x2192; Write out (add)</text>
+
+<rect x="370" y="195" width="310" height="95" class="box" fill="#dcfce7" stroke="#86efac"/>
+<text x="525" y="215" text-anchor="middle" class="title" fill="#16a34a">Fused: 2 HBM round-trips</text>
+<text x="385" y="235" class="code" font-size="10">1. Read x &#x2192; warp reduce (pass 1, smem only)</text>
+<text x="385" y="250" class="code" font-size="10">2. Read x,scale,shift &#x2192; Write out (pass 2)</text>
+<text x="385" y="270" class="label">Saves ~60% HBM traffic</text>
+<text x="385" y="283" class="label">D=1024: 4 KB read + 4 KB write per token</text>
+
+<defs>
+<marker id="a1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#888"/></marker>
+<marker id="a2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#818cf8"/></marker>
+</defs>
+<text x="350" y="298" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

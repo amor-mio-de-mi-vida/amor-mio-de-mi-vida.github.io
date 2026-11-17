@@ -1,0 +1,93 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-box   { stroke: var(--rule, #e4e4e0); stroke-width: 1; }
+    .fill-acc { fill: #D55E00; opacity: 0.3; }
+    .d-arrow { stroke: var(--ink-3, #8a8a86); stroke-width: 1.2; fill: none; marker-end: url(#ah7); }
+  </style>
+  <defs>
+    <marker id="ah7" viewBox="0 0 8 6" refX="8" refY="3" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-3, #8a8a86)"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="d-label">W4A16：寄存器内反量化流水线</text>
+
+  <!-- Packed uint32 -->
+  <g transform="translate(40, 50)">
+    <text x="160" y="-6" text-anchor="middle" class="d-label" style="font-size:12px">从 GMEM 读入的 uint32（8 个 INT4 packed）</text>
+
+    <rect x="0" y="6" width="320" height="36" rx="3" class="d-box" style="fill:#f8f8f5"/>
+    <!-- 8 nibbles -->
+    <rect x="1" y="7" width="39" height="34" style="fill:#56B4E9;opacity:0.3"/>
+    <rect x="41" y="7" width="39" height="34" style="fill:#009E73;opacity:0.3"/>
+    <rect x="81" y="7" width="39" height="34" style="fill:#56B4E9;opacity:0.3"/>
+    <rect x="121" y="7" width="39" height="34" style="fill:#009E73;opacity:0.3"/>
+    <rect x="161" y="7" width="39" height="34" style="fill:#56B4E9;opacity:0.3"/>
+    <rect x="201" y="7" width="39" height="34" style="fill:#009E73;opacity:0.3"/>
+    <rect x="241" y="7" width="39" height="34" style="fill:#56B4E9;opacity:0.3"/>
+    <rect x="281" y="7" width="38" height="34" style="fill:#009E73;opacity:0.3"/>
+
+    <text x="20" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₀</text>
+    <text x="60" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₁</text>
+    <text x="100" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₂</text>
+    <text x="140" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₃</text>
+    <text x="180" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₄</text>
+    <text x="220" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₅</text>
+    <text x="260" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₆</text>
+    <text x="300" y="30" text-anchor="middle" class="d-note" style="font-size:10px">w₇</text>
+
+    <text x="340" y="30" class="d-note" style="font-size:10px">4-bit 每个</text>
+  </g>
+
+  <!-- Arrow down -->
+  <path d="M200,98 L200,118" class="d-arrow" style="stroke:#D55E00"/>
+  <text x="280" y="112" class="d-note" style="fill:#D55E00;font-weight:600">解包 + 反量化（在寄存器中）</text>
+
+  <!-- Dequantization step -->
+  <g transform="translate(40, 128)">
+    <rect x="0" y="0" width="400" height="40" rx="3" class="d-box" style="fill:#FFF5F0"/>
+    <text x="200" y="16" text-anchor="middle" class="d-note" style="font-family:monospace;font-size:11px">nibble = (packed >> (4*i)) &amp; 0xF</text>
+    <text x="200" y="32" text-anchor="middle" class="d-note" style="font-family:monospace;font-size:11px;fill:#D55E00">half_val = scale * (float)nibble - zero</text>
+  </g>
+
+  <!-- Arrow down -->
+  <path d="M200,178 L200,198" class="d-arrow" style="stroke:#009E73"/>
+
+  <!-- Output FP16 values -->
+  <g transform="translate(40, 200)">
+    <text x="200" y="-6" text-anchor="middle" class="d-label" style="font-size:12px">8 个 FP16 值（准备进入 MMA）</text>
+
+    <rect x="0" y="6" width="400" height="30" rx="3" class="d-box" style="fill:#f8f8f5"/>
+    <rect x="1" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="51" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="101" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="151" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="201" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="251" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="301" y="7" width="49" height="28" style="fill:#009E73;opacity:0.2"/>
+    <rect x="351" y="7" width="48" height="28" style="fill:#009E73;opacity:0.2"/>
+
+    <text x="25" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₀</text>
+    <text x="75" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₁</text>
+    <text x="125" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₂</text>
+    <text x="175" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₃</text>
+    <text x="225" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₄</text>
+    <text x="275" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₅</text>
+    <text x="325" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₆</text>
+    <text x="375" y="26" text-anchor="middle" class="d-note" style="font-size:10px">h₇</text>
+
+    <text x="420" y="26" class="d-note" style="font-size:10px">FP16</text>
+  </g>
+
+  <!-- Side note -->
+  <g transform="translate(490, 60)">
+    <rect x="0" y="0" width="200" height="100" rx="4" class="d-box" style="fill:#f8f8f5"/>
+    <text x="100" y="20" text-anchor="middle" class="d-note" style="font-weight:600">Marlin 的关键思路</text>
+    <text x="100" y="38" text-anchor="middle" class="d-note" style="font-size:10px">离线重排权重布局</text>
+    <text x="100" y="52" text-anchor="middle" class="d-note" style="font-size:10px">使得解包恰好对齐</text>
+    <text x="100" y="66" text-anchor="middle" class="d-note" style="font-size:10px">寄存器中的 MMA 输入</text>
+    <text x="100" y="84" text-anchor="middle" class="d-note" style="font-size:10px;fill:#D55E00">0 额外 smem、0 额外 shuffle</text>
+  </g>
+</svg>

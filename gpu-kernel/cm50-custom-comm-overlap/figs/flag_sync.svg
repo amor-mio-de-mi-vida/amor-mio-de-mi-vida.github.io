@@ -1,0 +1,75 @@
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .gpu-zone { fill: var(--bg-2, #f5f5f2); stroke: var(--ink-3, #8a8a86); stroke-width: 1; rx: 6; }
+    .mem-box { rx: 3; stroke-width: 1; }
+    .write-arr { stroke: #D55E00; stroke-width: 2; fill: none; marker-end: url(#fa); }
+    .read-arr  { stroke: #009E73; stroke-width: 2; fill: none; marker-end: url(#fa2); }
+    .spin-arr  { stroke: #56B4E9; stroke-width: 1.5; fill: none; stroke-dasharray: 3,3; }
+  </style>
+
+  <defs>
+    <marker id="fa" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#D55E00"/>
+    </marker>
+    <marker id="fa2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#009E73"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">Flag 同步机制：跨 GPU 数据就绪通知</text>
+
+  <!-- GPU A (producer) -->
+  <rect x="30" y="50" width="280" height="200" class="gpu-zone"/>
+  <text x="170" y="72" text-anchor="middle" class="d-label" style="font-size:11px">GPU A（Producer）</text>
+
+  <!-- Data buffer -->
+  <rect x="50" y="90" width="200" height="35" fill="#009E73" opacity="0.15" stroke="#009E73" class="mem-box"/>
+  <text x="150" y="112" text-anchor="middle" class="d-note" style="font-size:10px">data_buf[tile_id]（IPC 共享）</text>
+
+  <!-- Flag -->
+  <rect x="50" y="145" width="80" height="30" fill="#D55E00" opacity="0.2" stroke="#D55E00" class="mem-box"/>
+  <text x="90" y="165" text-anchor="middle" class="d-note" style="font-size:10px">flag = 0</text>
+
+  <!-- Steps -->
+  <text x="50" y="200" class="d-note" style="font-size:10px">1. 写入 data_buf</text>
+  <text x="50" y="216" class="d-note" style="font-size:10px">2. __threadfence_system()</text>
+  <text x="50" y="232" class="d-note" style="font-size:10px;fill:#D55E00;font-weight:600">3. st.release.sys flag = 1</text>
+
+  <!-- GPU B (consumer) -->
+  <rect x="400" y="50" width="290" height="200" class="gpu-zone"/>
+  <text x="545" y="72" text-anchor="middle" class="d-label" style="font-size:11px">GPU B（Consumer）</text>
+
+  <!-- Read flag -->
+  <rect x="420" y="145" width="80" height="30" fill="#56B4E9" opacity="0.2" stroke="#56B4E9" class="mem-box"/>
+  <text x="460" y="165" text-anchor="middle" class="d-note" style="font-size:10px">flag?</text>
+
+  <!-- Read data -->
+  <rect x="420" y="90" width="200" height="35" fill="#009E73" opacity="0.15" stroke="#009E73" class="mem-box"/>
+  <text x="520" y="112" text-anchor="middle" class="d-note" style="font-size:10px">data_buf[tile_id]（读取）</text>
+
+  <!-- Steps -->
+  <text x="420" y="200" class="d-note" style="font-size:10px;fill:#56B4E9;font-weight:600">1. ld.acquire.sys spin(flag)</text>
+  <text x="420" y="216" class="d-note" style="font-size:10px">2. flag == 1 → 数据已就绪</text>
+  <text x="420" y="232" class="d-note" style="font-size:10px">3. 安全读取 data_buf</text>
+
+  <!-- Write flag arrow -->
+  <path d="M130,160 L420,160" class="write-arr"/>
+  <text x="275" y="152" text-anchor="middle" class="d-note" style="font-size:10px;fill:#D55E00">NVLink 写入 flag</text>
+
+  <!-- Spin wait -->
+  <ellipse cx="460" cy="160" rx="25" ry="12" fill="none" class="spin-arr"/>
+
+  <!-- Read data arrow -->
+  <path d="M420,107 L250,107" class="read-arr"/>
+  <text x="335" y="100" text-anchor="middle" class="d-note" style="font-size:10px;fill:#009E73">NVLink 读取数据</text>
+
+  <!-- Memory ordering explanation -->
+  <g transform="translate(50, 270)">
+    <text x="0" y="0" class="d-label" style="font-size:11px">内存序保证</text>
+    <text x="0" y="18" class="d-note" style="font-size:10px">st.release.sys：确保 flag 写入前的所有 store 对其他 GPU 可见</text>
+    <text x="0" y="34" class="d-note" style="font-size:10px">ld.acquire.sys：确保 flag 读到 1 后，后续 load 看到最新数据</text>
+    <text x="0" y="50" class="d-note" style="font-size:10px;fill:#D55E00">⚠ 没有 release/acquire 语义，consumer 可能读到 stale data（NVLink 不保证 store 顺序）</text>
+  </g>
+</svg>

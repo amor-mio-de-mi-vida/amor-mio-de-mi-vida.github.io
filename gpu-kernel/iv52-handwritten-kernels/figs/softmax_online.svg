@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 220">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">Online Softmax: Single-Pass max + sum</text>
+
+<!-- Traditional 3-pass -->
+<rect x="20" y="35" width="300" height="80" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="170" y="55" text-anchor="middle" class="title" fill="#ef4444">Traditional: 3 passes</text>
+<text x="35" y="75" class="code">Pass 1: m = max(x[j])</text>
+<text x="35" y="92" class="code">Pass 2: s = &Sigma;exp(x[j]-m)</text>
+<text x="35" y="109" class="code">Pass 3: y[j] = exp(x[j]-m)/s</text>
+
+<!-- Online 2-pass -->
+<rect x="360" y="35" width="300" height="80" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="510" y="55" text-anchor="middle" class="title" fill="#166534">Online: 2 passes</text>
+<text x="375" y="75" class="code">Pass 1: m,s updated together</text>
+<text x="375" y="92" class="code">  s = s*exp(old_m-m)+exp(v-m)</text>
+<text x="375" y="109" class="code">Pass 2: y[j] = exp(x[j]-m)/s</text>
+
+<!-- Benefit -->
+<rect x="20" y="130" width="640" height="60" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="340" y="150" text-anchor="middle" class="title">Online advantage: fuse max + sum into one pass</text>
+<text x="35" y="170" class="label">Key identity: when max updates from m to m', scale old sum by exp(m - m') to stay correct.</text>
+<text x="35" y="185" class="label">Saves one full pass over the data &rarr; 33% less memory traffic for the max+sum phase.</text>
+
+<text x="340" y="215" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

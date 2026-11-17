@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">FA3 Data Flow: HBM → SMEM → RF → TMEM (Hopper)</text>
+
+<!-- HBM -->
+<rect x="20" y="40" width="140" height="130" rx="6" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+<text x="90" y="60" text-anchor="middle" class="title" fill="#dc2626">HBM</text>
+<rect x="35" y="72" width="110" height="22" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="90" y="87" text-anchor="middle" class="code">Q [N, d]</text>
+<rect x="35" y="100" width="110" height="22" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="90" y="115" text-anchor="middle" class="code">K [N, d]</text>
+<rect x="35" y="128" width="110" height="22" rx="3" fill="#fee2e2" stroke="#fca5a5"/>
+<text x="90" y="143" text-anchor="middle" class="code">V [N, d]</text>
+
+<!-- TMA arrow -->
+<line x1="160" y1="105" x2="210" y2="105" stroke="#3b82f6" stroke-width="2" marker-end="url(#arr)"/>
+<text x="185" y="95" text-anchor="middle" class="code" fill="#3b82f6" font-size="10">TMA</text>
+
+<!-- SMEM -->
+<rect x="210" y="40" width="150" height="130" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+<text x="285" y="60" text-anchor="middle" class="title" fill="#2563eb">Shared Memory</text>
+<text x="285" y="75" text-anchor="middle" class="label">256 KB (H100)</text>
+<rect x="225" y="85" width="120" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="285" y="100" text-anchor="middle" class="code">K tile [Bc,d]</text>
+<rect x="225" y="113" width="120" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd"/>
+<text x="285" y="128" text-anchor="middle" class="code">V tile [Bc,d]</text>
+<text x="285" y="155" text-anchor="middle" class="label">&#xd7;2 stages (double-buf)</text>
+
+<!-- WGMMA arrow -->
+<line x1="360" y1="105" x2="410" y2="105" stroke="#16a34a" stroke-width="2" marker-end="url(#arr2)"/>
+<text x="385" y="95" text-anchor="middle" class="code" fill="#16a34a" font-size="10">WGMMA</text>
+
+<!-- Register File -->
+<rect x="410" y="40" width="150" height="130" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+<text x="485" y="60" text-anchor="middle" class="title" fill="#16a34a">Register File</text>
+<text x="485" y="75" text-anchor="middle" class="label">256 KB / SM</text>
+<rect x="425" y="85" width="120" height="22" rx="3" fill="#bbf7d0" stroke="#86efac"/>
+<text x="485" y="100" text-anchor="middle" class="code">Q tile (A operand)</text>
+<rect x="425" y="113" width="120" height="22" rx="3" fill="#bbf7d0" stroke="#86efac"/>
+<text x="485" y="128" text-anchor="middle" class="code">S tile (accum)</text>
+<rect x="425" y="141" width="120" height="22" rx="3" fill="#bbf7d0" stroke="#86efac"/>
+<text x="485" y="156" text-anchor="middle" class="code">acc_O (accum)</text>
+
+<!-- Softmax in RF -->
+<rect x="410" y="185" width="150" height="40" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
+<text x="485" y="200" text-anchor="middle" class="code" fill="#a16207">softmax (MUFU)</text>
+<text x="485" y="215" text-anchor="middle" class="label">exp / max / sum</text>
+
+<line x1="485" y1="163" x2="485" y2="185" stroke="#888" stroke-width="1" marker-end="url(#arr)"/>
+
+<!-- Output to HBM -->
+<rect x="590" y="80" width="90" height="50" rx="6" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+<text x="635" y="100" text-anchor="middle" class="code">O [N, d]</text>
+<text x="635" y="115" text-anchor="middle" class="label">→ HBM</text>
+<line x1="560" y1="105" x2="590" y2="105" stroke="#ef4444" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+<!-- Key insight box -->
+<rect x="20" y="245" width="660" height="60" rx="6" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="350" y="265" text-anchor="middle" class="title">Key insight: S, P never leave SM — only O and LSE write back to HBM</text>
+<text x="35" y="285" class="label">Producer warp: TMA load only. Consumer WG0/WG1: WGMMA + softmax alternating (ping-pong).</text>
+<text x="35" y="298" class="label">WGMMA reads K/V from SMEM, Q from RF. Softmax in RF uses MUFU (SFU). No register spill if d &#x2264; 128.</text>
+
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#3b82f6"/></marker>
+  <marker id="arr2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#16a34a"/></marker>
+  <marker id="arr3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#ef4444"/></marker>
+</defs>
+<text x="350" y="318" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

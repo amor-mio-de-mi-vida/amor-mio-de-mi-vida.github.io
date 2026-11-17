@@ -1,0 +1,95 @@
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .d-code  { font: 400 11px "SF Mono", "Fira Code", monospace; fill: var(--ink, #1a1a1a); }
+    .box     { rx: 5; ry: 5; stroke-width: 1.2; }
+  </style>
+
+  <text x="360" y="20" text-anchor="middle" class="d-label">FP8 两级累加：局部 + 全局 FP32 累加器</text>
+
+  <!-- K axis -->
+  <text x="360" y="46" text-anchor="middle" class="d-note">K 维度 tile 序列（BK=64, K=8192, 共 128 个 tile）</text>
+
+  <!-- Tile blocks row -->
+  <g transform="translate(30, 58)">
+    <!-- Group 1: tiles 0-4, local acc -->
+    <rect x="0" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+    <text x="60" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 0–4 → local_acc</text>
+
+    <!-- Promote arrow -->
+    <line x1="120" y1="16" x2="136" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
+    <text x="128" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
+
+    <!-- Group 2 -->
+    <rect x="138" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+    <text x="198" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 5–9 → local_acc</text>
+
+    <line x1="258" y1="16" x2="274" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
+    <text x="266" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
+
+    <!-- Group 3 -->
+    <rect x="276" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+    <text x="336" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 10–14 → local</text>
+
+    <line x1="396" y1="16" x2="412" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
+    <text x="404" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
+
+    <!-- dots -->
+    <text x="430" y="20" text-anchor="middle" class="d-note">···</text>
+
+    <!-- Group N -->
+    <rect x="454" y="0" width="140" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+    <text x="524" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 125–127 → local</text>
+
+    <line x1="594" y1="16" x2="610" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
+    <text x="602" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
+
+    <!-- P = promote (local → global) -->
+    <text x="660" y="20" text-anchor="middle" class="d-note" style="fill:#dc2626">P = promote</text>
+  </g>
+
+  <!-- Two-level detail box -->
+  <rect x="30" y="108" width="310" height="210" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
+  <text x="185" y="128" text-anchor="middle" class="d-label" style="fill:#2563eb">局部累加器 (local_acc)</text>
+
+  <text x="45" y="150" class="d-note">每 WGMMA 输出：FP8×FP8 → FP32</text>
+  <text x="45" y="168" class="d-note">连续累加 PROMOTION_INTERVAL=5 次</text>
+  <text x="45" y="186" class="d-note">最大值 ≈ 5 × 64 × 448² ≈ 6.4×10⁷</text>
+  <text x="45" y="204" class="d-note">FP32 精确表示范围内 ✓</text>
+
+  <rect x="50" y="215" width="270" height="36" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="185" y="230" text-anchor="middle" class="d-code">for k in 0..4:</text>
+  <text x="185" y="245" text-anchor="middle" class="d-code">  local_acc += wgmma(A[k], B[k])</text>
+
+  <rect x="50" y="260" width="270" height="24" rx="4" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="185" y="276" text-anchor="middle" class="d-code" style="fill:#dc2626">global_acc += local_acc; local=0</text>
+
+  <!-- Global accumulator box -->
+  <rect x="380" y="108" width="310" height="210" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
+  <text x="535" y="128" text-anchor="middle" class="d-label" style="fill:#16a34a">全局累加器 (global_acc)</text>
+
+  <text x="395" y="150" class="d-note">每次 promote 收到一个精确的 FP32 值</text>
+  <text x="395" y="168" class="d-note">总共 promote ⌈128/5⌉ = 26 次</text>
+  <text x="395" y="186" class="d-note">每次加法：大数 + 小数，FP32 精度足够</text>
+  <text x="395" y="204" class="d-note">最终结果精度 ≈ 直接 FP32 累加</text>
+
+  <rect x="400" y="218" width="270" height="48" rx="4" fill="#bbf7d0" stroke="#86efac"/>
+  <text x="535" y="234" text-anchor="middle" class="d-code">if (k % 5 == 4):</text>
+  <text x="535" y="248" text-anchor="middle" class="d-code">  global_acc += local_acc</text>
+  <text x="535" y="262" text-anchor="middle" class="d-code">  local_acc = 0</text>
+
+  <text x="535" y="290" text-anchor="middle" class="d-note">寄存器成本：2 组 FP32 acc = 2×(M_tile×N_tile) regs</text>
+  <text x="535" y="305" text-anchor="middle" class="d-note">128×256 tile → 2×256 = 512 个 FP32 寄存器</text>
+
+  <!-- Arrow between boxes -->
+  <line x1="340" y1="275" x2="380" y2="245" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
+
+  <text x="360" y="335" text-anchor="middle" class="d-note" style="font-style:italic;fill:#aaa">data-source: illustrative (DeepGEMM strategy)</text>
+
+  <defs>
+    <marker id="arr-r" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5" fill="#dc2626"/>
+    </marker>
+  </defs>
+</svg>

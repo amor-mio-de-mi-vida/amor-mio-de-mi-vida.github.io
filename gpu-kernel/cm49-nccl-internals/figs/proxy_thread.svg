@@ -1,0 +1,110 @@
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+  <style>
+    .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
+    .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
+    .gpu-zone { fill: #009E73; opacity: 0.06; stroke: #009E73; stroke-width: 1; rx: 6; }
+    .cpu-zone { fill: #E69F00; opacity: 0.06; stroke: #E69F00; stroke-width: 1; rx: 6; }
+    .net-zone { fill: #0072B2; opacity: 0.06; stroke: #0072B2; stroke-width: 1; rx: 6; }
+    .comp-box { rx: 4; stroke-width: 1.5; }
+    .flow-arr { stroke: var(--ink-3, #8a8a86); stroke-width: 1.5; fill: none; marker-end: url(#pa); }
+    .data-arr { stroke: #009E73; stroke-width: 2; fill: none; marker-end: url(#pa2); }
+    .ctrl-arr { stroke: #D55E00; stroke-width: 1.5; fill: none; marker-end: url(#pa3); stroke-dasharray: 5,3; }
+  </style>
+
+  <defs>
+    <marker id="pa" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="var(--ink-3,#8a8a86)"/>
+    </marker>
+    <marker id="pa2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#009E73"/>
+    </marker>
+    <marker id="pa3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#D55E00"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="24" text-anchor="middle" class="d-label">NCCL Proxy 线程模型</text>
+
+  <!-- GPU zone -->
+  <rect x="30" y="45" width="250" height="260" class="gpu-zone"/>
+  <text x="155" y="66" text-anchor="middle" class="d-label" style="font-size:11px;fill:#009E73">GPU 端</text>
+
+  <!-- CPU zone -->
+  <rect x="310" y="45" width="170" height="260" class="cpu-zone"/>
+  <text x="395" y="66" text-anchor="middle" class="d-label" style="font-size:11px;fill:#E69F00">CPU 端</text>
+
+  <!-- Network zone -->
+  <rect x="510" y="45" width="180" height="260" class="net-zone"/>
+  <text x="600" y="66" text-anchor="middle" class="d-label" style="font-size:11px;fill:#0072B2">网络</text>
+
+  <!-- GPU: ncclKernel -->
+  <rect x="50" y="85" width="130" height="40" fill="#009E73" opacity="0.15" stroke="#009E73" class="comp-box"/>
+  <text x="115" y="108" text-anchor="middle" class="d-label" style="font-size:10px">ncclKernel</text>
+
+  <!-- GPU: FIFO -->
+  <rect x="50" y="155" width="130" height="35" fill="#56B4E9" opacity="0.15" stroke="#56B4E9" class="comp-box"/>
+  <text x="115" y="177" text-anchor="middle" class="d-note" style="font-size:10px">FIFO（GPU→CPU）</text>
+
+  <!-- GPU: Bounce Buffer -->
+  <rect x="50" y="220" width="130" height="35" fill="#CC79A7" opacity="0.15" stroke="#CC79A7" class="comp-box"/>
+  <text x="115" y="242" text-anchor="middle" class="d-note" style="font-size:10px">Bounce Buffer</text>
+
+  <!-- GPU NVLink path (direct) -->
+  <rect x="200" y="120" width="70" height="50" fill="#009E73" opacity="0.2" stroke="#009E73" class="comp-box"/>
+  <text x="235" y="142" text-anchor="middle" class="d-note" style="font-size:9px">NVLink</text>
+  <text x="235" y="155" text-anchor="middle" class="d-note" style="font-size:9px">直接读写</text>
+
+  <!-- CPU: Proxy Thread -->
+  <rect x="325" y="140" width="140" height="70" fill="#E69F00" opacity="0.15" stroke="#E69F00" class="comp-box"/>
+  <text x="395" y="162" text-anchor="middle" class="d-label" style="font-size:11px">Proxy Thread</text>
+  <text x="395" y="178" text-anchor="middle" class="d-note" style="font-size:10px">轮询 FIFO</text>
+  <text x="395" y="194" text-anchor="middle" class="d-note" style="font-size:10px">ibv_post_send/recv</text>
+
+  <!-- CPU: Completion Queue -->
+  <rect x="325" y="235" width="140" height="35" fill="#E69F00" opacity="0.1" stroke="#E69F00" class="comp-box"/>
+  <text x="395" y="257" text-anchor="middle" class="d-note" style="font-size:10px">ibv_poll_cq</text>
+
+  <!-- Network: RDMA NIC -->
+  <rect x="530" y="120" width="140" height="55" fill="#0072B2" opacity="0.15" stroke="#0072B2" class="comp-box"/>
+  <text x="600" y="145" text-anchor="middle" class="d-label" style="font-size:11px">RDMA NIC</text>
+  <text x="600" y="162" text-anchor="middle" class="d-note" style="font-size:10px">ConnectX-7</text>
+
+  <!-- Network: Remote -->
+  <rect x="530" y="210" width="140" height="40" fill="#0072B2" opacity="0.1" stroke="#0072B2" class="comp-box"/>
+  <text x="600" y="235" text-anchor="middle" class="d-note" style="font-size:10px">→ 远端节点 →</text>
+
+  <!-- Arrows: data flow -->
+  <path d="M115,125 L115,155" class="data-arr"/>
+  <text x="130" y="145" class="d-note" style="font-size:8px;fill:#009E73">写 FIFO</text>
+
+  <path d="M115,190 L115,220" class="data-arr"/>
+  <text x="135" y="210" class="d-note" style="font-size:8px;fill:#009E73">DMA</text>
+
+  <!-- FIFO to proxy -->
+  <path d="M180,172 L325,172" class="ctrl-arr"/>
+  <text x="252" y="165" text-anchor="middle" class="d-note" style="font-size:8px;fill:#D55E00">proxy 读 FIFO</text>
+
+  <!-- Proxy to NIC -->
+  <path d="M465,160 L530,148" class="flow-arr"/>
+  <text x="497" y="146" text-anchor="middle" class="d-note" style="font-size:8px">post_send</text>
+
+  <!-- Bounce buf to NIC (GDR) -->
+  <path d="M180,237 C260,237 520,200 530,155" class="data-arr" style="stroke-dasharray:4,2"/>
+  <text x="360" y="228" text-anchor="middle" class="d-note" style="font-size:8px;fill:#009E73">GDR: NIC 直接读 GPU 内存</text>
+
+  <!-- NIC to remote -->
+  <path d="M600,175 L600,210" class="flow-arr"/>
+
+  <!-- CQ feedback -->
+  <path d="M530,180 L465,240" class="ctrl-arr"/>
+  <text x="490" y="220" class="d-note" style="font-size:8px;fill:#D55E00">完成通知</text>
+
+  <!-- Legend -->
+  <g transform="translate(50, 315)">
+    <line x1="0" y1="0" x2="20" y2="0" class="data-arr"/>
+    <text x="26" y="4" class="d-note" style="font-size:9px">数据路径</text>
+    <line x1="130" y1="0" x2="150" y2="0" class="ctrl-arr"/>
+    <text x="156" y="4" class="d-note" style="font-size:9px">控制路径</text>
+    <text x="300" y="4" class="d-note" style="font-size:9px">NVLink 路径不经过 proxy（GPU 直接 load/store 对端显存）</text>
+  </g>
+</svg>

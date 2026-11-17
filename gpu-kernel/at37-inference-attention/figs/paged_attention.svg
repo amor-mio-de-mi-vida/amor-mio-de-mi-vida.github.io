@@ -1,0 +1,70 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 4; ry: 4; stroke-width: 1; }
+  </style>
+  <defs>
+    <marker id="ah12" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">PagedAttention：Block Table 与非连续 KV Cache</text>
+
+  <!-- Block table -->
+  <rect x="20" y="45" width="200" height="130" class="box" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="120" y="65" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">Block Table (per request)</text>
+
+  <rect x="35" y="78" width="170" height="20" rx="2" fill="white" stroke="#1976D2"/>
+  <text x="120" y="92" text-anchor="middle" class="sublabel">slot 0 → physical block 7</text>
+  <rect x="35" y="102" width="170" height="20" rx="2" fill="white" stroke="#1976D2"/>
+  <text x="120" y="116" text-anchor="middle" class="sublabel">slot 1 → physical block 2</text>
+  <rect x="35" y="126" width="170" height="20" rx="2" fill="white" stroke="#1976D2"/>
+  <text x="120" y="140" text-anchor="middle" class="sublabel">slot 2 → physical block 15</text>
+  <rect x="35" y="150" width="170" height="20" rx="2" fill="white" stroke="#1976D2"/>
+  <text x="120" y="164" text-anchor="middle" class="sublabel">slot 3 → physical block 9</text>
+
+  <!-- Physical KV cache -->
+  <rect x="300" y="45" width="400" height="130" class="box" fill="#f8f8f8" stroke="#999" stroke-width="1.5"/>
+  <text x="500" y="65" text-anchor="middle" class="label" font-weight="600">Physical KV Cache（GPU 显存池）</text>
+
+  <!-- Physical blocks (scattered) -->
+  <rect x="315" y="80" width="50" height="35" rx="3" fill="#ddd" stroke="#999"/>
+  <text x="340" y="102" text-anchor="middle" class="sublabel">blk 0</text>
+
+  <rect x="375" y="80" width="50" height="35" rx="3" fill="#ddd" stroke="#999"/>
+  <text x="400" y="102" text-anchor="middle" class="sublabel">blk 1</text>
+
+  <rect x="435" y="80" width="50" height="35" rx="3" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="460" y="102" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">blk 2</text>
+
+  <rect x="495" y="80" width="50" height="35" rx="3" fill="#ddd" stroke="#999"/>
+  <text x="520" y="102" text-anchor="middle" class="sublabel">blk 3</text>
+
+  <rect x="555" y="80" width="50" height="35" rx="3" fill="#ddd" stroke="#999"/>
+  <text x="580" y="102" text-anchor="middle" class="sublabel">&hellip;</text>
+
+  <rect x="615" y="80" width="50" height="35" rx="3" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="640" y="102" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">blk 7</text>
+
+  <rect x="435" y="125" width="50" height="35" rx="3" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="460" y="147" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">blk 9</text>
+
+  <rect x="555" y="125" width="50" height="35" rx="3" fill="#E3F2FD" stroke="#1976D2" stroke-width="1.5"/>
+  <text x="580" y="147" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">blk 15</text>
+
+  <!-- Arrows from block table to physical -->
+  <path d="M225,88 L433,95" class="arrow" stroke="#1976D2" stroke-dasharray="4"/>
+  <path d="M225,112 L613,95" class="arrow" stroke="#1976D2" stroke-dasharray="4"/>
+  <path d="M225,136 L553,140" class="arrow" stroke="#1976D2" stroke-dasharray="4"/>
+  <path d="M225,160 L433,142" class="arrow" stroke="#1976D2" stroke-dasharray="4"/>
+
+  <!-- Benefits -->
+  <rect x="20" y="195" width="680" height="75" rx="6" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="30" y="215" class="label" fill="#388E3C" font-weight="600">PagedAttention 的优势</text>
+  <text x="30" y="235" class="sublabel">消除碎片：KV cache 不需要连续显存——不同请求可以共享物理 block（prefix caching、beam search）。</text>
+  <text x="30" y="250" class="sublabel">动态分配：生成每个新 token 时按需分配一个 block，不用预留最大长度的连续空间。</text>
+  <text x="30" y="265" class="sublabel" fill="#D55E00">代价：kernel 中要做间接寻址（block table lookup），增加少量延迟。vLLM 的核心机制。</text>
+</svg>

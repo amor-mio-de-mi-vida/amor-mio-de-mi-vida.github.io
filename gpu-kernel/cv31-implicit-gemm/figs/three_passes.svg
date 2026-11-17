@@ -1,0 +1,92 @@
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="Inter, 'Helvetica Neue', sans-serif">
+  <style>
+    .title { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    .label { font-size: 12px; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #666; }
+    .box { rx: 6; ry: 6; stroke-width: 1.5; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#ah4); }
+  </style>
+  <defs>
+    <marker id="ah4" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" class="title">卷积三个 pass 的 GEMM 视角：fprop / dgrad / wgrad</text>
+
+  <!-- fprop -->
+  <rect x="20" y="40" width="210" height="230" class="box" fill="#E8F5E9" stroke="#388E3C"/>
+  <text x="125" y="62" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">fprop（前向）</text>
+
+  <rect x="35" y="75" width="60" height="40" rx="3" fill="#C8E6C9" stroke="#388E3C"/>
+  <text x="65" y="99" text-anchor="middle" class="sublabel">Weight</text>
+  <text x="35" y="125" class="sublabel">[C_out, K]</text>
+
+  <text x="100" y="99" text-anchor="middle" class="sublabel">&times;</text>
+
+  <rect x="110" y="75" width="60" height="40" rx="3" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="140" y="99" text-anchor="middle" class="sublabel">Input</text>
+  <text x="110" y="125" class="sublabel">[K, N&middot;P]</text>
+
+  <text x="175" y="99" class="sublabel">=</text>
+
+  <rect x="35" y="135" width="60" height="30" rx="3" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="65" y="155" text-anchor="middle" class="sublabel">Output</text>
+  <text x="35" y="175" class="sublabel">[C_out, N&middot;P]</text>
+
+  <text x="35" y="200" class="sublabel" fill="#388E3C">K = C_in&middot;R&middot;S</text>
+  <text x="35" y="215" class="sublabel" fill="#388E3C">标准 GEMM</text>
+  <text x="35" y="230" class="sublabel" fill="#388E3C">B 侧做 implicit col</text>
+  <text x="35" y="255" class="sublabel" fill="#388E3C">Tensor Core 友好</text>
+
+  <!-- dgrad -->
+  <rect x="255" y="40" width="210" height="230" class="box" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="360" y="62" text-anchor="middle" class="label" fill="#1976D2" font-weight="600">dgrad（输入梯度）</text>
+
+  <rect x="270" y="75" width="60" height="40" rx="3" fill="#C8E6C9" stroke="#388E3C"/>
+  <text x="300" y="99" text-anchor="middle" class="sublabel">W<tspan baseline-shift="super" style="font-size:7px">T</tspan></text>
+  <text x="270" y="125" class="sublabel">[C_in, C_out]</text>
+
+  <text x="335" y="99" text-anchor="middle" class="sublabel">&times;</text>
+
+  <rect x="345" y="75" width="60" height="40" rx="3" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="375" y="99" text-anchor="middle" class="sublabel">dOut</text>
+  <text x="345" y="125" class="sublabel">[C_out, N&middot;P]</text>
+
+  <text x="410" y="99" class="sublabel">=</text>
+
+  <rect x="270" y="135" width="60" height="30" rx="3" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="300" y="155" text-anchor="middle" class="sublabel">dInput</text>
+  <text x="270" y="175" class="sublabel">[C_in, N&middot;H&middot;W]</text>
+
+  <text x="270" y="200" class="sublabel" fill="#1976D2">K = C_out</text>
+  <text x="270" y="215" class="sublabel" fill="#1976D2">stride &gt; 1 时</text>
+  <text x="270" y="230" class="sublabel" fill="#1976D2">需要&ldquo;散射&rdquo;写</text>
+  <text x="270" y="245" class="sublabel" fill="#1976D2">或转置卷积处理</text>
+  <text x="270" y="260" class="sublabel" fill="#D55E00">较难优化</text>
+
+  <!-- wgrad -->
+  <rect x="490" y="40" width="210" height="230" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="595" y="62" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">wgrad（权重梯度）</text>
+
+  <rect x="505" y="75" width="60" height="40" rx="3" fill="#F3E5F5" stroke="#7B1FA2"/>
+  <text x="535" y="99" text-anchor="middle" class="sublabel">dOut</text>
+  <text x="505" y="125" class="sublabel">[C_out, N&middot;P]</text>
+
+  <text x="570" y="99" text-anchor="middle" class="sublabel">&times;</text>
+
+  <rect x="580" y="75" width="60" height="40" rx="3" fill="#E3F2FD" stroke="#1976D2"/>
+  <text x="610" y="99" text-anchor="middle" class="sublabel">Input<tspan baseline-shift="super" style="font-size:7px">T</tspan></text>
+  <text x="580" y="125" class="sublabel">[N&middot;P, K]</text>
+
+  <text x="645" y="99" class="sublabel">=</text>
+
+  <rect x="505" y="135" width="60" height="30" rx="3" fill="#C8E6C9" stroke="#388E3C"/>
+  <text x="535" y="155" text-anchor="middle" class="sublabel">dWeight</text>
+  <text x="505" y="175" class="sublabel">[C_out, K]</text>
+
+  <text x="505" y="200" class="sublabel" fill="#7B1FA2">K_gemm = N&middot;P（很大）</text>
+  <text x="505" y="215" class="sublabel" fill="#7B1FA2">M, N 小 (C_out, C_in&middot;R&middot;S)</text>
+  <text x="505" y="230" class="sublabel" fill="#D55E00">Split-K 必需</text>
+  <text x="505" y="245" class="sublabel" fill="#7B1FA2">（见第 28 篇）</text>
+</svg>

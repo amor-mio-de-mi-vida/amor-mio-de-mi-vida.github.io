@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 280">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:11.5px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="340" y="18" text-anchor="middle" class="title">System Design Answer Template (Kernel-Level)</text>
+
+<!-- 5 steps -->
+<rect x="20" y="35" width="130" height="70" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="85" y="55" text-anchor="middle" class="title" fill="#166534">1. Clarify</text>
+<text x="85" y="72" text-anchor="middle" class="label">GPU model?</text>
+<text x="85" y="87" text-anchor="middle" class="label">Shape / dtype?</text>
+<text x="85" y="99" text-anchor="middle" class="label">Latency or thpt?</text>
+
+<line x1="150" y1="70" x2="165" y2="70" stroke="#888" stroke-width="1"/>
+
+<rect x="165" y="35" width="120" height="70" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="225" y="55" text-anchor="middle" class="title" fill="#3b82f6">2. Estimate</text>
+<text x="225" y="72" text-anchor="middle" class="label">FLOPs, bytes</text>
+<text x="225" y="87" text-anchor="middle" class="label">AI, roofline</text>
+<text x="225" y="99" text-anchor="middle" class="label">Bound type</text>
+
+<line x1="285" y1="70" x2="300" y2="70" stroke="#888" stroke-width="1"/>
+
+<rect x="300" y="35" width="120" height="70" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="360" y="55" text-anchor="middle" class="title" fill="#854d0e">3. Design</text>
+<text x="360" y="72" text-anchor="middle" class="label">Parallelism</text>
+<text x="360" y="87" text-anchor="middle" class="label">Memory layout</text>
+<text x="360" y="99" text-anchor="middle" class="label">Tiling strategy</text>
+
+<line x1="420" y1="70" x2="435" y2="70" stroke="#888" stroke-width="1"/>
+
+<rect x="435" y="35" width="110" height="70" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="490" y="55" text-anchor="middle" class="title" fill="#ef4444">4. Optimize</text>
+<text x="490" y="72" text-anchor="middle" class="label">Coalescing</text>
+<text x="490" y="87" text-anchor="middle" class="label">smem / bank</text>
+<text x="490" y="99" text-anchor="middle" class="label">Warp tricks</text>
+
+<line x1="545" y1="70" x2="560" y2="70" stroke="#888" stroke-width="1"/>
+
+<rect x="560" y="35" width="100" height="70" class="box" fill="#ede9fe" stroke="#8b5cf6"/>
+<text x="610" y="55" text-anchor="middle" class="title" fill="#8b5cf6">5. Verify</text>
+<text x="610" y="72" text-anchor="middle" class="label">Profile check</text>
+<text x="610" y="87" text-anchor="middle" class="label">Roofline gap</text>
+<text x="610" y="99" text-anchor="middle" class="label">Next steps</text>
+
+<!-- Detail area -->
+<rect x="20" y="120" width="640" height="130" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
+<text x="340" y="140" text-anchor="middle" class="title">Example: &ldquo;Design a decode attention kernel for H100&rdquo;</text>
+<text x="35" y="160" class="label">1. Clarify: single-query decode, FP16, seq_len up to 128K, latency-sensitive (TTFT)</text>
+<text x="35" y="178" class="label">2. Estimate: GEMV-like, AI = 0.5 &rarr; memory-bound, KV bytes dominate</text>
+<text x="35" y="196" class="label">3. Design: PagedAttention (page table indirection), split KV across blocks, partial softmax per block</text>
+<text x="35" y="214" class="label">4. Optimize: float4 vectorized loads, warp shuffle for local reduction, online softmax (no two-pass)</text>
+<text x="35" y="232" class="label">5. Verify: expected ~3.35 TB/s utilization on H100, cross-block reduction via atomics or two-pass</text>
+
+<text x="340" y="275" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
+</svg>

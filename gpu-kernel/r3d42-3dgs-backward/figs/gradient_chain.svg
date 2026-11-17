@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 270">
+<style>
+  text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
+  .title{font-size:12px;font-weight:700}
+  .label{font-size:11px;fill:#6b7280}
+  .code{font-family:ui-monospace,monospace;font-size:10.5px}
+  .box{rx:5;ry:5;stroke-width:1.2}
+</style>
+<text x="350" y="18" text-anchor="middle" class="title">3DGS Backward: Full Gradient Chain Rule Path</text>
+
+<!-- Loss -->
+<rect x="290" y="30" width="120" height="36" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="350" y="52" text-anchor="middle" class="title" fill="#dc2626">dL/dC (pixel)</text>
+
+<!-- Arrow down -->
+<line x1="350" y1="66" x2="350" y2="82" stroke="#888" stroke-width="1.2" marker-end="url(#arr7)"/>
+
+<!-- Rasterize backward -->
+<rect x="180" y="82" width="340" height="50" class="box" fill="#fef9c3" stroke="#eab308"/>
+<text x="350" y="100" text-anchor="middle" class="title" fill="#a16207">Rasterize Backward (per-pixel)</text>
+<text x="350" y="120" text-anchor="middle" class="code" font-size="10">back-to-front replay, T recovery</text>
+
+<!-- 6 gradient outputs -->
+<line x1="200" y1="132" x2="200" y2="148" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="280" y1="132" x2="280" y2="148" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="350" y1="132" x2="350" y2="148" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="420" y1="132" x2="420" y2="148" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="500" y1="132" x2="500" y2="148" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+
+<rect x="160" y="148" width="78" height="32" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="199" y="168" text-anchor="middle" class="code" font-size="9.5">dL/d&#x3bc;'</text>
+
+<rect x="244" y="148" width="68" height="32" class="box" fill="#dbeafe" stroke="#3b82f6"/>
+<text x="278" y="168" text-anchor="middle" class="code" font-size="9.5">dL/dconic</text>
+
+<rect x="318" y="148" width="65" height="32" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="350" y="168" text-anchor="middle" class="code" font-size="9.5">dL/dcolor</text>
+
+<rect x="389" y="148" width="65" height="32" class="box" fill="#dcfce7" stroke="#22c55e"/>
+<text x="421" y="168" text-anchor="middle" class="code" font-size="9.5">dL/d&#x3b1;</text>
+
+<rect x="462" y="148" width="78" height="32" class="box" fill="#f3e8ff" stroke="#9333ea"/>
+<text x="501" y="168" text-anchor="middle" class="code" font-size="9.5">atomicAdd</text>
+
+<!-- Arrow down to preprocess backward -->
+<line x1="240" y1="180" x2="240" y2="198" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="280" y1="180" x2="280" y2="198" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+
+<rect x="130" y="198" width="340" height="50" class="box" fill="#eff6ff" stroke="#3b82f6"/>
+<text x="300" y="216" text-anchor="middle" class="title" fill="#2563eb">Preprocess Backward (per-Gaussian)</text>
+<text x="300" y="236" text-anchor="middle" class="code" font-size="10">chain rule: 2D &#x2192; 3D via Jacobian&#x1D40;</text>
+
+<!-- Final outputs -->
+<line x1="180" y1="248" x2="180" y2="262" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="250" y1="248" x2="250" y2="262" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="320" y1="248" x2="320" y2="262" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+<line x1="390" y1="248" x2="390" y2="262" stroke="#888" stroke-width="1" marker-end="url(#arr7)"/>
+
+<text x="180" y="268" text-anchor="middle" class="code" font-size="9" fill="#2563eb">dL/d&#x3bc;</text>
+<text x="250" y="268" text-anchor="middle" class="code" font-size="9" fill="#2563eb">dL/dq</text>
+<text x="320" y="268" text-anchor="middle" class="code" font-size="9" fill="#2563eb">dL/ds</text>
+<text x="390" y="268" text-anchor="middle" class="code" font-size="9" fill="#2563eb">dL/dSH</text>
+
+<!-- Right side: contention note -->
+<rect x="510" y="148" width="170" height="100" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="595" y="168" text-anchor="middle" class="title" fill="#dc2626" font-size="11">Contention Hot Spot</text>
+<text x="525" y="188" class="label" font-size="10">Each pixel writes grads</text>
+<text x="525" y="204" class="label" font-size="10">to its contributing</text>
+<text x="525" y="220" class="label" font-size="10">Gaussians via atomicAdd</text>
+<text x="525" y="238" class="code" font-size="10" fill="#dc2626">~256 writers/Gaussian</text>
+
+<defs><marker id="arr7" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+  <path d="M0,0 L8,3 L0,6" fill="#888"/>
+</marker></defs>
+</svg>
