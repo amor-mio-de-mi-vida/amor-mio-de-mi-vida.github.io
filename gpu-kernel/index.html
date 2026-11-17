@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>从零精通 GPU Kernel · 系列目录</title>
+<meta name="description" content="54 篇文章从 GPU 硬件讲到 GEMM、Attention、Diffusion、3D 与多卡通信的 kernel 优化，附知识地图、阅读路径、297 道面试题索引和术语索引。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1a1a1a; --ink-2: #4a4a4a; --ink-3: #767676; --rule: #e4e4e0;
+  --bg: #ffffff; --bg-soft: #f7f7f4; --link: #0b5cad;
+  --c-blue: #0072B2; --c-verm: #D55E00; --c-green: #009E73; --c-gray: #8c8c8c;
+  --l0: #8c8c8c; --l0-bg: #f2f2ef; --l1: #0072B2; --l1-bg: #e8f1f8; --l2: #56B4E9; --l2-bg: #ecf6fc;
+  --l3: #009E73; --l3-bg: #e6f4ef; --l4: #E69F00; --l4-bg: #fdf5e4; --l5: #CC79A7; --l5-bg: #f9eef5;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, "PingFang SC", monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--serif); font-size: 17px; line-height: 1.7; text-rendering: optimizeLegibility; }
+.col { max-width: 792px; margin: 0 auto; padding: 0 16px; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+p { margin: 0 0 1em; }
+code { font-family: var(--mono); font-size: .88em; }
+
+/* header */
+.crumbs { font: 13.5px/1.5 var(--sans); color: var(--ink-3); padding-top: 22px; }
+.crumbs a { color: var(--ink-2); text-decoration: none; }
+.crumbs a:hover { color: var(--link); text-decoration: underline; }
+.crumbs .sep { padding: 0 .45em; }
+header.top { padding: 34px 0 22px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 12px; }
+h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; }
+.lead { font-size: 19px; line-height: 1.6; color: var(--ink-2); margin: 0 0 14px; }
+.facts { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; }
+.jump { font: 14px/1.6 var(--sans); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 10px 0; margin: 22px 0 0; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.jump a { color: var(--ink-2); text-decoration: none; }
+.jump a:hover { color: var(--link); text-decoration: underline; }
+
+/* sections */
+section { padding-top: 12px; }
+h2 { font: 650 24px/1.3 var(--sans); letter-spacing: -.01em; margin: 1.9em 0 .5em; scroll-margin-top: 16px; }
+h3 { font: 600 17px/1.4 var(--sans); margin: 1.9em 0 .45em; scroll-margin-top: 16px; }
+.hint { font: 14.5px/1.65 var(--sans); color: var(--ink-2); margin: 0 0 1.1em; }
+.vol { font-size: 16px; line-height: 1.65; color: var(--ink-2); margin: 0 0 1em; }
+
+/* start cards */
+.cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.cards li { min-width: 0; }
+.card { display: block; height: 100%; border: 1px solid var(--rule); border-radius: 8px; padding: 16px 16px 14px; color: inherit; text-decoration: none; background: var(--bg); }
+.card:hover { border-color: var(--ink-3); }
+.card .when { font: 600 12.5px/1.4 var(--sans); letter-spacing: .04em; color: var(--c-verm); margin-bottom: 6px; }
+.card .ttl { font: 600 17px/1.4 var(--sans); color: var(--ink); margin-bottom: 6px; }
+.card:hover .ttl { color: var(--link); }
+.card .why { font-size: 15px; line-height: 1.6; color: var(--ink-2); margin: 0 0 8px; }
+.card .min { font: 13px/1.4 var(--sans); color: var(--ink-3); }
+.after-cards { font: 14.5px/1.65 var(--sans); color: var(--ink-2); margin: 14px 0 0; }
+
+/* full list */
+ol.posts { list-style: none; margin: 0; padding: 0; border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); }
+ol.posts > li { display: grid; grid-template-columns: 6.4em minmax(0, 1fr); gap: 0 14px; padding: 14px 0 13px; border-bottom: 1px solid var(--rule); scroll-margin-top: 16px; }
+ol.posts > li:last-child { border-bottom: 0; }
+.no { font: 600 13.5px/1.75 var(--sans); color: var(--ink-3); white-space: nowrap; padding-top: 1px; }
+.no code { display: block; font: 500 12.5px/1.5 var(--mono); color: var(--ink-3); }
+.posts .ttl { font: 600 17px/1.45 var(--sans); }
+.posts .ttl a { color: var(--ink); text-decoration: none; }
+.posts .ttl a:hover { color: var(--link); text-decoration: underline; }
+.posts .sum { font-size: 15.5px; line-height: 1.6; color: var(--ink-2); margin: 3px 0 5px; }
+.meta { font: 13px/1.5 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: center; }
+.meta a { color: var(--ink-2); }
+.layer { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.layer::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c-gray); flex: none; }
+
+/* paths */
+dl.paths { margin: 0; border-top: 1px solid var(--rule); }
+dl.paths > div { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 0 14px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+dl.paths dt { font: 600 14.5px/1.7 var(--sans); color: var(--ink); }
+dl.paths dd { margin: 0; }
+.route { font: 15px/1.7 var(--sans); display: flex; flex-wrap: wrap; align-items: baseline; }
+.route a { white-space: nowrap; }
+.route .arr { color: var(--ink-3); padding: 0 .15em; }
+.route .t { color: var(--ink-3); font-size: 13px; white-space: nowrap; margin-left: .5em; }
+.note { font-size: 15px; line-height: 1.6; color: var(--ink-2); margin: 2px 0 0; }
+
+/* questions */
+ol.qs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+ol.qs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 14px; padding: 9px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.qs .q { font: 500 15.5px/1.6 var(--sans); }
+.qs .q a { color: var(--ink); text-decoration: none; }
+.qs .q a:hover { color: var(--link); text-decoration: underline; }
+.qs .go { font: 14px/1.6 var(--sans); color: var(--ink-3); white-space: nowrap; }
+
+/* terms */
+dl.terms { margin: 0; columns: 2; column-gap: 32px; border-top: 1px solid var(--rule); }
+dl.terms > div { break-inside: avoid; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+dl.terms dt { font: 500 14.5px/1.5 var(--sans); color: var(--ink); min-width: 0; }
+dl.terms dd { margin: 0; font: 14px/1.5 var(--sans); color: var(--ink-3); white-space: nowrap; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 3.2em; padding: 18px 0 56px; font: 13.5px/1.65 var(--sans); color: var(--ink-3); }
+footer p { margin: 0 0 .7em; }
+footer code, .hint code { font-size: .9em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+
+@media (max-width: 720px) {
+  header.top { padding-top: 24px; }
+  h1 { font-size: 30px; }
+  .lead { font-size: 17.5px; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  ol.posts > li { grid-template-columns: minmax(0, 1fr); }
+  .no { padding-top: 0; }
+  .no code { display: inline; margin-left: .6em; }
+  dl.paths > div { grid-template-columns: minmax(0, 1fr); }
+  ol.qs li { grid-template-columns: minmax(0, 1fr); }
+  dl.terms { columns: 1; }
+}
+
+/* search */
+.search { margin: 20px 0 0; display: flex; align-items: center; gap: 12px; }
+.search input { flex: 1; min-width: 0; font: 15px/1.4 var(--sans); padding: 9px 12px; border: 1px solid #cfcfc8; border-radius: 6px; background: var(--bg); color: var(--ink); }
+.search input:focus { outline: 2px solid var(--link); outline-offset: 0; border-color: transparent; }
+.qn { font: 13px/1.4 var(--sans); color: var(--ink-3); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* knowledge map */
+.kmap-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg-soft); width: min(1000px, calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+table.kmap { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 760px; font: 13px/1.4 var(--sans); }
+.kmap th, .kmap td { padding: 6px 5px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.kmap thead th { font: 600 12.5px/1.3 var(--sans); text-align: left; color: var(--ink); background: var(--bg); position: sticky; top: 0; border-bottom: 2px solid var(--rule); white-space: nowrap; }
+.kmap thead th.l1 { border-bottom-color: var(--l1); } .kmap thead th.l2 { border-bottom-color: var(--l2); }
+.kmap thead th.l3 { border-bottom-color: var(--l3); } .kmap thead th.l4 { border-bottom-color: var(--l4); }
+.kmap thead th.l5 { border-bottom-color: var(--l5); }
+.kmap tbody th { font: 600 12.5px/1.35 var(--sans); text-align: left; color: var(--ink-2); white-space: nowrap; padding-left: 10px; }
+.kmap tbody tr:last-child th, .kmap tbody tr:last-child td { border-bottom: 0; }
+.kmap td { min-width: 86px; }
+.chip { display: block; padding: 3px 6px; margin: 0 0 4px; border-radius: 4px; border: 1px solid; color: var(--ink); text-decoration: none; white-space: nowrap; font-size: 12.5px; }
+.chip b { font: 600 11.5px/1.4 var(--mono); margin-right: .4em; color: var(--ink-3); }
+.chip:hover { border-color: var(--ink-2); text-decoration: none; }
+.chip.l0, .chip.lt { background: var(--l0-bg); border-color: #d4d4cf; }
+.chip.l1 { background: var(--l1-bg); border-color: #b7d3e8; } .chip.l2 { background: var(--l2-bg); border-color: #bfe0f3; }
+.chip.l3 { background: var(--l3-bg); border-color: #b0dccd; } .chip.l4 { background: var(--l4-bg); border-color: #f0d79e; }
+.chip.l5 { background: var(--l5-bg); border-color: #e6c3d8; }
+
+/* ledger dots in the list */
+.layer.l0::before, .layer.lt::before { background: var(--l0); }
+.layer.l1::before { background: var(--l1); } .layer.l2::before { background: var(--l2); }
+.layer.l3::before { background: var(--l3); } .layer.l4::before { background: var(--l4); }
+.layer.l5::before { background: var(--l5); }
+.pmin { font: 400 13px/1.4 var(--sans); color: var(--ink-3); margin-left: .8em; }
+ol.posts > li .no { font-family: var(--mono); }
+
+/* question groups */
+details.qgroup { border-top: 1px solid var(--rule); }
+details.qgroup:last-of-type { border-bottom: 1px solid var(--rule); }
+details.qgroup summary { cursor: pointer; font: 600 15.5px/1.5 var(--sans); padding: 10px 0; list-style-position: inside; }
+details.qgroup summary:hover { color: var(--link); }
+details.qgroup ol.qs { border-top: 0; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="col">
+
+<nav class="crumbs" aria-label="所在位置">
+  <a href="https://blog.hesenyang-ethan.com/">Ethan Yang's Blog</a><span class="sep">/</span>从零精通 GPU Kernel
+</nav>
+
+<header class="top">
+  <div class="kicker">从零精通 GPU Kernel · 系列目录</div>
+  <h1>从零精通 GPU Kernel</h1>
+  <p class="lead">从 GPU 的硬件结构讲起，一路写到 GEMM、Attention、Diffusion、3D 和多卡通信里的高性能 kernel。全系列用同一条主线分析优化：先算出最快能多快，再看时间多花在字节、带宽、算力、等待、整卡哪一笔账上。</p>
+  <ul class="facts">
+    <li>54 篇：导读、主线篇与 52 篇正文</li>
+    <li>全部读完约 19 小时</li>
+    <li>硬件从 A100 讲到 H100、B200</li>
+    <li>代码只经 clang 语法检查，未在 GPU 上运行</li>
+  </ul>
+  <div class="search"><input id="q" type="search" placeholder="搜索篇目、面试题或术语，例如 TMA、softmax、bank conflict" aria-label="搜索篇目、面试题或术语"><span id="qn" class="qn"></span></div>
+  <nav class="jump" aria-label="页内导航">
+    <a href="#start">从哪里开始</a><a href="#map">知识地图</a><a href="#all">全部篇目</a><a href="#paths">阅读路径</a><a href="#questions">按问题查</a><a href="#terms">术语索引</a>
+  </nav>
+</header>
+
+<section id="start">
+  <h2>从哪里开始</h2>
+  <ul class="cards">
+    <li><a class="card" href="p00-overview/p00-overview.html"><div class="when">第一次来</div><div class="ttl">导读：知识地图与阅读方法</div><p class="why">52 篇怎么排、各讲什么、按什么顺序读，以及面试的四类题型。</p><div class="min">约 17 分钟</div></a></li>
+    <li><a class="card" href="p01-optimization-mainline/p01-optimization-mainline.html"><div class="when">想先抓住方法</div><div class="ttl">主线：一个下界，五笔账</div><p class="why">把全系列的优化手段收成一条分析顺序，并附全系列知识地图。</p><div class="min">约 23 分钟</div></a></li>
+    <li><a class="card" href="hw01-gpu-architecture/hw01-gpu-architecture.html"><div class="when">从零开始学</div><div class="ttl">第 1 篇：GPU 架构全景</div><p class="why">不假设任何 GPU 知识，从 SM 和内存层次讲起。</p><div class="min">约 24 分钟</div></a></li>
+    <li><a class="card" href="iv51-interview-bank/iv51-interview-bank.html"><div class="when">准备面试</div><div class="ttl">第 51 篇：面试题库</div><p class="why">概念、估算、系统设计题，每题标出对应篇目。</p><div class="min">约 21 分钟</div></a></li>
+  </ul>
+  <p class="after-cards">每篇开头都有一个&ldquo;主线定位&rdquo;框，说明它在主线的哪一笔账上；文末有&ldquo;面试怎么问&rdquo;和&ldquo;局限与未覆盖&rdquo;。</p>
+</section>
+<section id="map">
+  <h2>知识地图</h2>
+  <p class="hint">纵向是学习路径，横向是<a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-ledger">主线</a>的一个下界与五笔账。每个方块是一篇，落在它主要还的那一笔或几笔账下面；一篇可以出现在几列里。点方块直接打开那一篇。</p>
+  <div class="kmap-wrap"><table class="kmap"><thead><tr><th></th><th class="l0">⓪ 下界</th><th class="l1">① 字节账</th><th class="l2">② 带宽账</th><th class="l3">③ 算力账</th><th class="l4">④ 等待账</th><th class="l5">⑤ 整卡账</th><th class="lt">工具 · 全线</th></tr></thead><tbody>
+    <tr><th scope="row">硬件与性能模型</th><td><a class="chip l0" href="hw01-gpu-architecture/hw01-gpu-architecture.html" title="GPU 用面积换吞吐：SM、内存层次，以及 Hopper 与 Blackwell 加了什么"><b>01</b>SM 架构</a><a class="chip l0" href="hw03-performance-model/hw03-performance-model.html" title="先算上限，再谈优化：Roofline、算术强度与优化阶梯"><b>03</b>Roofline</a></td><td></td><td></td><td></td><td><a class="chip l4" href="hw02-execution-model/hw02-execution-model.html" title="一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏"><b>02</b>SIMT</a></td><td></td><td></td></tr>
+    <tr><th scope="row">CUDA 基础</th><td><a class="chip l0" href="cu04-first-kernel/cu04-first-kernel.html" title="写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么"><b>04</b>首个 kernel</a></td><td><a class="chip l1" href="cu05-memory-coalescing/cu05-memory-coalescing.html" title="一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐"><b>05</b>访存合并</a><a class="chip l1" href="cu06-shared-memory/cu06-shared-memory.html" title="32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle"><b>06</b>共享内存</a></td><td><a class="chip l2" href="cu05-memory-coalescing/cu05-memory-coalescing.html" title="一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐"><b>05</b>访存合并</a></td><td><a class="chip l3" href="cu06-shared-memory/cu06-shared-memory.html" title="32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle"><b>06</b>共享内存</a></td><td><a class="chip l4" href="cu07-occupancy-registers/cu07-occupancy-registers.html" title="Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp"><b>07</b>占用率</a><a class="chip l4" href="cu08-sync-atomics/cu08-sync-atomics.html" title="线程之间怎么说话：同步、原子操作与 GPU 内存模型"><b>08</b>同步原子</a></td><td><a class="chip l5" href="cu04-first-kernel/cu04-first-kernel.html" title="写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么"><b>04</b>首个 kernel</a><a class="chip l5" href="cu09-streams-host/cu09-streams-host.html" title="别让 GPU 等主机：pinned 内存、stream、CUDA Graph 与 PDL"><b>09</b>Stream</a></td><td></td></tr>
+    <tr><th scope="row">并行原语</th><td></td><td><a class="chip l1" href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle"><b>10</b>归约</a><a class="chip l1" href="pp12-scan/pp12-scan.html" title="前缀和是 GPU 上的分配器：从 Hillis–Steele、Blelloch 到单遍 decoupled look-back"><b>12</b>Scan</a><a class="chip l1" href="pp13-sort-topk/pp13-sort-topk.html" title="GPU 上很少真的排序：基数排序、bitonic 网络、Top-K 与采样算子"><b>13</b>排序 TopK</a></td><td><a class="chip l2" href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle"><b>10</b>归约</a></td><td></td><td><a class="chip l4" href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle"><b>10</b>归约</a><a class="chip l4" href="pp11-warp-primitives/pp11-warp-primitives.html" title="一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups"><b>11</b>Warp 原语</a><a class="chip l4" href="pp12-scan/pp12-scan.html" title="前缀和是 GPU 上的分配器：从 Hillis–Steele、Blelloch 到单遍 decoupled look-back"><b>12</b>Scan</a></td><td><a class="chip l5" href="pp13-sort-topk/pp13-sort-topk.html" title="GPU 上很少真的排序：基数排序、bitonic 网络、Top-K 与采样算子"><b>13</b>排序 TopK</a></td><td></td></tr>
+    <tr><th scope="row">方法论</th><td></td><td></td><td></td><td><a class="chip l3" href="mt15-debugging-sass/mt15-debugging-sass.html" title="结果偶尔错、kernel 挂住不动：GPU 调试工具箱与读懂 SASS"><b>15</b>SASS</a></td><td></td><td></td><td><a class="chip lt" href="mt14-profiling/mt14-profiling.html" title="先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute"><b>14</b>Profiling</a><a class="chip lt" href="mt15-debugging-sass/mt15-debugging-sass.html" title="结果偶尔错、kernel 挂住不动：GPU 调试工具箱与读懂 SASS"><b>15</b>SASS</a></td></tr>
+    <tr><th scope="row">常用算子</th><td></td><td><a class="chip l1" href="op16-elementwise-fusion/op16-elementwise-fusion.html" title="逐元素算子只比谁搬得少：向量化、广播与算子融合"><b>16</b>融合</a><a class="chip l1" href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描"><b>17</b>Softmax</a><a class="chip l1" href="op18-quant-gather/op18-quant-gather.html" title="位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter"><b>18</b>量化</a></td><td><a class="chip l2" href="op18-quant-gather/op18-quant-gather.html" title="位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter"><b>18</b>量化</a></td><td></td><td></td><td></td><td></td></tr>
+    <tr><th scope="row">Tensor Core</th><td></td><td><a class="chip l1" href="tc22-hopper/tc22-hopper.html" title="一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster"><b>22</b>Hopper</a><a class="chip l1" href="tc23-blackwell/tc23-blackwell.html" title="一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC"><b>23</b>Blackwell</a></td><td><a class="chip l2" href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier"><b>21</b>TMA</a></td><td><a class="chip l3" href="tc19-tensor-core-basics/tc19-tensor-core-basics.html" title="一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix"><b>19</b>TC 入门</a><a class="chip l3" href="tc20-layout-algebra/tc20-layout-algebra.html" title="布局就是一个函数：shape/stride、布局代数与 CuTe 的语言"><b>20</b>Layout</a><a class="chip l3" href="tc22-hopper/tc22-hopper.html" title="一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster"><b>22</b>Hopper</a><a class="chip l3" href="tc23-blackwell/tc23-blackwell.html" title="一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC"><b>23</b>Blackwell</a></td><td><a class="chip l4" href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier"><b>21</b>TMA</a><a class="chip l4" href="tc22-hopper/tc22-hopper.html" title="一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster"><b>22</b>Hopper</a></td><td><a class="chip l5" href="tc23-blackwell/tc23-blackwell.html" title="一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC"><b>23</b>Blackwell</a></td><td></td></tr>
+    <tr><th scope="row">GEMM</th><td><a class="chip l0" href="gm28-gemm-variants/gm28-gemm-variants.html" title="GEMM 变种：Split-K、Grouped GEMM 与 GEMV"><b>28</b>Split-K</a></td><td><a class="chip l1" href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%"><b>24</b>SGEMM</a><a class="chip l1" href="gm27-blackwell-gemm/gm27-blackwell-gemm.html" title="Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作"><b>27</b>B200 GEMM</a><a class="chip l1" href="gm29-low-precision-gemm/gm29-low-precision-gemm.html" title="低精度 GEMM：FP8、W4A16与 MXFP4"><b>29</b>FP8 GEMM</a></td><td><a class="chip l2" href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization"><b>26</b>H100 GEMM</a></td><td><a class="chip l3" href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%"><b>24</b>SGEMM</a><a class="chip l3" href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线"><b>25</b>HGEMM</a><a class="chip l3" href="gm27-blackwell-gemm/gm27-blackwell-gemm.html" title="Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作"><b>27</b>B200 GEMM</a><a class="chip l3" href="gm29-low-precision-gemm/gm29-low-precision-gemm.html" title="低精度 GEMM：FP8、W4A16与 MXFP4"><b>29</b>FP8 GEMM</a></td><td><a class="chip l4" href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%"><b>24</b>SGEMM</a><a class="chip l4" href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线"><b>25</b>HGEMM</a><a class="chip l4" href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization"><b>26</b>H100 GEMM</a></td><td><a class="chip l5" href="gm27-blackwell-gemm/gm27-blackwell-gemm.html" title="Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作"><b>27</b>B200 GEMM</a><a class="chip l5" href="gm28-gemm-variants/gm28-gemm-variants.html" title="GEMM 变种：Split-K、Grouped GEMM 与 GEMV"><b>28</b>Split-K</a></td><td></td></tr>
+    <tr><th scope="row">卷积</th><td></td><td><a class="chip l1" href="cv30-conv-basics/cv30-conv-basics.html" title="卷积基础：direct conv、im2col 与 NHWC 布局"><b>30</b>im2col</a><a class="chip l1" href="cv31-implicit-gemm/cv31-implicit-gemm.html" title="Implicit GEMM：不物化 col 矩阵的卷积"><b>31</b>隐式 GEMM</a></td><td></td><td><a class="chip l3" href="cv32-winograd-special-conv/cv32-winograd-special-conv.html" title="Winograd、FFT与特殊卷积"><b>32</b>Winograd</a></td><td></td><td></td><td></td></tr>
+    <tr><th scope="row">Attention</th><td><a class="chip l0" href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长"><b>37</b>Decode</a></td><td><a class="chip l1" href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向"><b>33</b>FA 前向</a><a class="chip l1" href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长"><b>37</b>Decode</a></td><td></td><td><a class="chip l3" href="at34-flashattention-bwd/at34-flashattention-bwd.html" title="FlashAttention 反向：重计算与 dQ 累加"><b>34</b>FA 反向</a><a class="chip l3" href="at35-flashattention3/at35-flashattention3.html" title="FlashAttention-3：Hopper 上的异步与 FP8"><b>35</b>FA3</a><a class="chip l3" href="at36-flashattention4/at36-flashattention4.html" title="FlashAttention-4：Blackwell 上的 attention"><b>36</b>FA4</a></td><td><a class="chip l4" href="at34-flashattention-bwd/at34-flashattention-bwd.html" title="FlashAttention 反向：重计算与 dQ 累加"><b>34</b>FA 反向</a><a class="chip l4" href="at35-flashattention3/at35-flashattention3.html" title="FlashAttention-3：Hopper 上的异步与 FP8"><b>35</b>FA3</a><a class="chip l4" href="at36-flashattention4/at36-flashattention4.html" title="FlashAttention-4：Blackwell 上的 attention"><b>36</b>FA4</a></td><td><a class="chip l5" href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长"><b>37</b>Decode</a></td><td></td></tr>
+    <tr><th scope="row">Diffusion</th><td></td><td><a class="chip l1" href="df38-unet-ops/df38-unet-ops.html" title="Diffusion（一）：UNet 算子GroupNorm、卷积与融合"><b>38</b>UNet</a><a class="chip l1" href="df39-dit-ops/df39-dit-ops.html" title="Diffusion（二）：DiT 算子adaLN、RoPE 与长序列"><b>39</b>DiT</a></td><td></td><td><a class="chip l3" href="df40-video-diffusion-accel/df40-video-diffusion-accel.html" title="Diffusion（三）：视频生成与加速 kernel"><b>40</b>视频生成</a></td><td></td><td><a class="chip l5" href="df40-video-diffusion-accel/df40-video-diffusion-accel.html" title="Diffusion（三）：视频生成与加速 kernel"><b>40</b>视频生成</a></td><td></td></tr>
+    <tr><th scope="row">3D</th><td></td><td><a class="chip l1" href="r3d41-3dgs-forward/r3d41-3dgs-forward.html" title="3D Gaussian Splatting（一）光栅化前向"><b>41</b>3DGS 前向</a><a class="chip l1" href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html" title="NeRF 加速体渲染与哈希编码"><b>43</b>NeRF</a></td><td><a class="chip l2" href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html" title="点云与稀疏 3D体素化与稀疏卷积"><b>44</b>点云</a></td><td></td><td><a class="chip l4" href="r3d42-3dgs-backward/r3d42-3dgs-backward.html" title="3D Gaussian Splatting（二）反向传播"><b>42</b>3DGS 反向</a></td><td><a class="chip l5" href="r3d41-3dgs-forward/r3d41-3dgs-forward.html" title="3D Gaussian Splatting（一）光栅化前向"><b>41</b>3DGS 前向</a><a class="chip l5" href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html" title="点云与稀疏 3D体素化与稀疏卷积"><b>44</b>点云</a></td><td></td></tr>
+    <tr><th scope="row">工具链</th><td></td><td></td><td></td><td></td><td></td><td><a class="chip l5" href="tl47-pytorch-integration/tl47-pytorch-integration.html" title="PyTorch 扩展与 Custom Op从 Kernel 到工程落地"><b>47</b>PyTorch</a></td><td><a class="chip lt" href="tl45-triton/tl45-triton.html" title="Triton块级编程与编译器驱动优化"><b>45</b>Triton</a><a class="chip lt" href="tl46-cutlass-cute/tl46-cutlass-cute.html" title="CUTLASS 与 CuTeLayout 代数与可组合 GEMM"><b>46</b>CuTe</a></td></tr>
+    <tr><th scope="row">通信</th><td><a class="chip l0" href="cm48-interconnect-collectives/cm48-interconnect-collectives.html" title="GPU 互联硬件与集合通信：从 NVLink 到 MNNVL"><b>48</b>互联</a></td><td></td><td><a class="chip l2" href="cm49-nccl-internals/cm49-nccl-internals.html" title="NCCL 内部机制深度剖析：从初始化到 Kernel"><b>49</b>NCCL</a></td><td></td><td><a class="chip l4" href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html" title="自定义通信算子与计算-通信重叠"><b>50</b>通信重叠</a></td><td><a class="chip l5" href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html" title="自定义通信算子与计算-通信重叠"><b>50</b>通信重叠</a></td><td></td></tr>
+    <tr><th scope="row">面试</th><td></td><td></td><td></td><td></td><td></td><td></td><td><a class="chip lt" href="iv51-interview-bank/iv51-interview-bank.html" title="GPU Kernel 面试题库概念 · 估算 · 系统设计 · STAR"><b>51</b>题库</a><a class="chip lt" href="iv52-handwritten-kernels/iv52-handwritten-kernels.html" title="手写 Kernel：13 个白板面试模板"><b>52</b>手撕</a></td></tr>
+  </tbody></table></div>
+</section>
+<section id="all">
+  <h2>全部篇目</h2>
+  <p class="hint">共 54 篇，全部读完约 19 小时。圆点是这篇主要还的账，颜色与知识地图一致。</p>
+  <h3 id="part-0">开篇<span class="pmin">2 篇 · 约 40 分钟</span></h3>
+  <p class="vol">先读这两篇：知识地图与阅读方法，以及贯穿全系列的分析主线。</p>
+  <ol class="posts">
+    <li id="p-p00" data-search="导读 GPU Kernel 工程师的知识地图 为什么 kernel 决定端到端性能，快的三个来源，数据布局 / 异步搬运 / 异步协调三条硬件演进线与“一个下界 + 五笔账”的分析主线，52 篇知识地图与最短路径，面试四类题型。"><div class="no">导读</div><div><div class="ttl"><a href="p00-overview/p00-overview.html">GPU Kernel 工程师的知识地图</a></div><p class="sum">为什么 kernel 决定端到端性能，快的三个来源，数据布局 / 异步搬运 / 异步协调三条硬件演进线与“一个下界 + 五笔账”的分析主线，52 篇知识地图与最短路径，面试四类题型。</p><div class="meta"><span>约 17 分钟</span><a href="p00-overview/p00-overview.html#sec-interview">面试题 4 道</a></div></div></li>
+    <li id="p-p01" data-search="主线 一个下界，五笔账：GPU Kernel 优化的一条主线 用“下界 + 字节账、带宽账、算力账、等待账、整卡账”统一分析 kernel 优化，并用它复盘 softmax、GEMM 阶梯与 FlashAttention 一族。"><div class="no">主线</div><div><div class="ttl"><a href="p01-optimization-mainline/p01-optimization-mainline.html">一个下界，五笔账：GPU Kernel 优化的一条主线</a></div><p class="sum">用“下界 + 字节账、带宽账、算力账、等待账、整卡账”统一分析 kernel 优化，并用它复盘 softmax、GEMM 阶梯与 FlashAttention 一族。</p><div class="meta"><span>约 23 分钟</span><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-1">一、GPU 硬件与性能模型<span class="pmin">3 篇 · 约 74 分钟</span></h3>
+  <p class="vol">GPU 由什么组成、怎样执行，以及一个 kernel 最快能多快。</p>
+  <ol class="posts">
+    <li id="p-hw01" data-search="01 GPU 用面积换吞吐：SM、内存层次，以及 Hopper 与 Blackwell 加了什么 GPU 的设计取舍、SM 内部结构、存储层次、五款数据中心 GPU 参数，以及 Hopper 与 Blackwell 新硬件对应的 kernel 优化。"><div class="no">01</div><div><div class="ttl"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html">GPU 用面积换吞吐：SM、内存层次，以及 Hopper 与 Blackwell 加了什么</a></div><p class="sum">GPU 的设计取舍、SM 内部结构、存储层次、五款数据中心 GPU 参数，以及 Hopper 与 Blackwell 新硬件对应的 kernel 优化。</p><div class="meta"><span>约 24 分钟</span><span class="layer l0">⓪ 下界</span><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-hw02" data-search="02 一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏 线程层次与硬件映射、SIMT 与分支发散、独立线程调度、warp 调度与 Little 定律、TLP 与 ILP，以及 Hopper/Blackwell 的执行模型变化。"><div class="no">02</div><div><div class="ttl"><a href="hw02-execution-model/hw02-execution-model.html">一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏</a></div><p class="sum">线程层次与硬件映射、SIMT 与分支发散、独立线程调度、warp 调度与 Little 定律、TLP 与 ILP，以及 Hopper/Blackwell 的执行模型变化。</p><div class="meta"><span>约 25 分钟</span><span class="layer l4">④ 等待账</span><a href="hw02-execution-model/hw02-execution-model.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-hw03" data-search="03 先算上限，再谈优化：Roofline、算术强度与优化阶梯 算术强度、roofline 模型、六类算子的强度推导、GEMM 优化阶梯，以及 Hopper/Blackwell 上拐点右移与 SFU 瓶颈。"><div class="no">03</div><div><div class="ttl"><a href="hw03-performance-model/hw03-performance-model.html">先算上限，再谈优化：Roofline、算术强度与优化阶梯</a></div><p class="sum">算术强度、roofline 模型、六类算子的强度推导、GEMM 优化阶梯，以及 Hopper/Blackwell 上拐点右移与 SFU 瓶颈。</p><div class="meta"><span>约 25 分钟</span><span class="layer l0">⓪ 下界</span><a href="hw03-performance-model/hw03-performance-model.html#sec-interview">面试题 6 道</a></div></div></li>
+  </ol>
+  <h3 id="part-2">二、CUDA 编程基础<span class="pmin">6 篇 · 约 122 分钟</span></h3>
+  <p class="vol">从第一个 kernel 到访存、共享内存、occupancy、同步和 host 侧。</p>
+  <ol class="posts">
+    <li id="p-cu04" data-search="04 写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么 CUDA 编程模型、线程索引、grid-stride loop、错误检查、本系列测试框架、nvcc 编译链与 sm_90a/sm_100f 编译目标。"><div class="no">04</div><div><div class="ttl"><a href="cu04-first-kernel/cu04-first-kernel.html">写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么</a></div><p class="sum">CUDA 编程模型、线程索引、grid-stride loop、错误检查、本系列测试框架、nvcc 编译链与 sm_90a/sm_100f 编译目标。</p><div class="meta"><span>约 20 分钟</span><span class="layer l0">⓪ 下界</span><span class="layer l5">⑤ 整卡账</span><a href="cu04-first-kernel/cu04-first-kernel.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-cu05" data-search="05 一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐 sector 与访存合并规则、步长与错位的代价、AoS 与 SoA、float4 向量化与对齐、cache hint 与 L2 持久化、有效带宽、矩阵转置，以及 Hopper TMA 带来的变化。"><div class="no">05</div><div><div class="ttl"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html">一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐</a></div><p class="sum">sector 与访存合并规则、步长与错位的代价、AoS 与 SoA、float4 向量化与对齐、cache hint 与 L2 持久化、有效带宽、矩阵转置，以及 Hopper TMA 带来的变化。</p><div class="meta"><span>约 20 分钟</span><span class="layer l1">① 字节账</span><span class="layer l2">② 带宽账</span><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-interview">面试题 7 道</a></div></div></li>
+    <li id="p-cu06" data-search="06 32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle 共享内存的用途与分配、bank 冲突的判定、padding 与 XOR swizzle、转置阶梯、__syncthreads 的规则，以及 TMA/WGMMA/tcgen05 的 swizzle 模式。"><div class="no">06</div><div><div class="ttl"><a href="cu06-shared-memory/cu06-shared-memory.html">32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle</a></div><p class="sum">共享内存的用途与分配、bank 冲突的判定、padding 与 XOR swizzle、转置阶梯、__syncthreads 的规则，以及 TMA/WGMMA/tcgen05 的 swizzle 模式。</p><div class="meta"><span>约 17 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><a href="cu06-shared-memory/cu06-shared-memory.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-cu07" data-search="07 Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp occupancy 的四个上限与计算规则、寄存器悬崖、launch bounds 与寄存器溢出、低 occupancy 也能快的原因、wave quantization，以及 Hopper/Blackwell 的寄存器重分配。"><div class="no">07</div><div><div class="ttl"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html">Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp</a></div><p class="sum">occupancy 的四个上限与计算规则、寄存器悬崖、launch bounds 与寄存器溢出、低 occupancy 也能快的原因、wave quantization，以及 Hopper/Blackwell 的寄存器重分配。</p><div class="meta"><span>约 20 分钟</span><span class="layer l4">④ 等待账</span><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-cu08" data-search="08 线程之间怎么说话：同步、原子操作与 GPU 内存模型 同步层次、命名屏障、原子操作与 CAS、浮点原子的非确定性、原子争用优化、CUDA 内存模型（fence、volatile、release/acquire、作用域）、跨 block 同步与 grid.sync，以及 Hopper/Blackwell 的异步同步机制。"><div class="no">08</div><div><div class="ttl"><a href="cu08-sync-atomics/cu08-sync-atomics.html">线程之间怎么说话：同步、原子操作与 GPU 内存模型</a></div><p class="sum">同步层次、命名屏障、原子操作与 CAS、浮点原子的非确定性、原子争用优化、CUDA 内存模型（fence、volatile、release/acquire、作用域）、跨 block 同步与 grid.sync，以及 Hopper/Blackwell 的异步同步机制。</p><div class="meta"><span>约 23 分钟</span><span class="layer l4">④ 等待账</span><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-interview">面试题 7 道</a></div></div></li>
+    <li id="p-cu09" data-search="09 别让 GPU 等主机：pinned 内存、stream、CUDA Graph 与 PDL pageable 与 pinned 内存、stream 与 event、默认流陷阱、拷贝计算重叠、CUDA Graph、统一内存与 P2P，以及 Hopper 起的 PDL。"><div class="no">09</div><div><div class="ttl"><a href="cu09-streams-host/cu09-streams-host.html">别让 GPU 等主机：pinned 内存、stream、CUDA Graph 与 PDL</a></div><p class="sum">pageable 与 pinned 内存、stream 与 event、默认流陷阱、拷贝计算重叠、CUDA Graph、统一内存与 P2P，以及 Hopper 起的 PDL。</p><div class="meta"><span>约 22 分钟</span><span class="layer l5">⑤ 整卡账</span><a href="cu09-streams-host/cu09-streams-host.html#sec-interview">面试题 7 道</a></div></div></li>
+  </ol>
+  <h3 id="part-3">三、并行原语<span class="pmin">4 篇 · 约 88 分钟</span></h3>
+  <p class="vol">归约、warp 原语、前缀和与排序：后面所有算子的积木。</p>
+  <ol class="posts">
+    <li id="p-pp10" data-search="10 把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle 归约树、Harris 七步优化、warp shuffle 的 block 归约、跨 block 合并、CUB、浮点误差与确定性、argmax，以及 Hopper/Blackwell 上的新工具。"><div class="no">10</div><div><div class="ttl"><a href="pp10-reduction/pp10-reduction.html">把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle</a></div><p class="sum">归约树、Harris 七步优化、warp shuffle 的 block 归约、跨 block 合并、CUB、浮点误差与确定性、argmax，以及 Hopper/Blackwell 上的新工具。</p><div class="meta"><span>约 19 分钟</span><span class="layer l1">① 字节账</span><span class="layer l2">② 带宽账</span><span class="layer l4">④ 等待账</span><a href="pp10-reduction/pp10-reduction.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-pp11" data-search="11 一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups warp shuffle、vote、match、reduce 原语的精确语义与 mask 契约，蝶形归约、argmax、warp 内流压缩、按 key 聚合原子，Cooperative Groups，以及 Hopper 的 elect.sync 和 Blackwell 的浮点 redux。"><div class="no">11</div><div><div class="ttl"><a href="pp11-warp-primitives/pp11-warp-primitives.html">一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups</a></div><p class="sum">warp shuffle、vote、match、reduce 原语的精确语义与 mask 契约，蝶形归约、argmax、warp 内流压缩、按 key 聚合原子，Cooperative Groups，以及 Hopper 的 elect.sync 和 Blackwell 的浮点 redux。</p><div class="meta"><span>约 20 分钟</span><span class="layer l4">④ 等待账</span><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-interview">面试题 7 道</a></div></div></li>
+    <li id="p-pp12" data-search="12 前缀和是 GPU 上的分配器：从 Hillis–Steele、Blelloch 到单遍 decoupled look-back inclusive/exclusive scan、Hillis–Steele 与 Blelloch、bank 冲突与 padding、warp/block 级 scan、三种全局策略的访存、单遍 decoupled look-back 与前向进度、流压缩与分段 scan，以及 CCCL 在 Blackwell 上的 warp 特化 scan。"><div class="no">12</div><div><div class="ttl"><a href="pp12-scan/pp12-scan.html">前缀和是 GPU 上的分配器：从 Hillis–Steele、Blelloch 到单遍 decoupled look-back</a></div><p class="sum">inclusive/exclusive scan、Hillis–Steele 与 Blelloch、bank 冲突与 padding、warp/block 级 scan、三种全局策略的访存、单遍 decoupled look-back 与前向进度、流压缩与分段 scan，以及 CCCL 在 Blackwell 上的 warp 特化 scan。</p><div class="meta"><span>约 23 分钟</span><span class="layer l1">① 字节账</span><span class="layer l4">④ 等待账</span><a href="pp12-scan/pp12-scan.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-pp13" data-search="13 GPU 上很少真的排序：基数排序、bitonic 网络、Top-K 与采样算子 bitonic 排序网络、LSD 基数排序与 Onesweep、浮点 key 与 3DGS 的 64 位 key、Top-K 的三种做法、MoE 路由，以及 top-k/top-p/min-p 采样怎样避免全排序。"><div class="no">13</div><div><div class="ttl"><a href="pp13-sort-topk/pp13-sort-topk.html">GPU 上很少真的排序：基数排序、bitonic 网络、Top-K 与采样算子</a></div><p class="sum">bitonic 排序网络、LSD 基数排序与 Onesweep、浮点 key 与 3DGS 的 64 位 key、Top-K 的三种做法、MoE 路由，以及 top-k/top-p/min-p 采样怎样避免全排序。</p><div class="meta"><span>约 26 分钟</span><span class="layer l1">① 字节账</span><span class="layer l5">⑤ 整卡账</span><a href="pp13-sort-topk/pp13-sort-topk.html#sec-interview">面试题 6 道</a></div></div></li>
+  </ol>
+  <h3 id="part-4">四、方法论<span class="pmin">2 篇 · 约 49 分钟</span></h3>
+  <p class="vol">怎样测准、怎样读 Nsight 报告、怎样调试和读 SASS。</p>
+  <ol class="posts">
+    <li id="p-mt14" data-search="14 先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute 可信计时的六个条件、吞吐换算约定、Nsight Systems 时间线诊断、Nsight Compute 的 replay/section/指标与读报告决策树，以及 Hopper/Blackwell warp 特化 kernel 的分析要点。"><div class="no">14</div><div><div class="ttl"><a href="mt14-profiling/mt14-profiling.html">先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute</a></div><p class="sum">可信计时的六个条件、吞吐换算约定、Nsight Systems 时间线诊断、Nsight Compute 的 replay/section/指标与读报告决策树，以及 Hopper/Blackwell warp 特化 kernel 的分析要点。</p><div class="meta"><span>约 25 分钟</span><span class="layer lt">测量与工具</span><a href="mt14-profiling/mt14-profiling.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-mt15" data-search="15 结果偶尔错、kernel 挂住不动：GPU 调试工具箱与读懂 SASS 按症状选调试工具、compute-sanitizer 四个工具、八个典型 bug、cuda-gdb 与 printf、warp 特化 kernel 的死锁排查、读 PTX/SASS，以及 Hopper/Blackwell 上的新检查。"><div class="no">15</div><div><div class="ttl"><a href="mt15-debugging-sass/mt15-debugging-sass.html">结果偶尔错、kernel 挂住不动：GPU 调试工具箱与读懂 SASS</a></div><p class="sum">按症状选调试工具、compute-sanitizer 四个工具、八个典型 bug、cuda-gdb 与 printf、warp 特化 kernel 的死锁排查、读 PTX/SASS，以及 Hopper/Blackwell 上的新检查。</p><div class="meta"><span>约 24 分钟</span><span class="layer lt">测量与工具</span><span class="layer l3">③ 算力账</span><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-5">五、深度学习常用算子<span class="pmin">3 篇 · 约 64 分钟</span></h3>
+  <p class="vol">逐元素、softmax 与 Norm、量化与 gather：带宽决定一切的那一类。</p>
+  <ol class="posts">
+    <li id="p-op16" data-search="16 逐元素算子只比谁搬得少：向量化、广播与算子融合 逐元素算子的带宽下界、向量化模板、广播与快速整数除法、激活函数精度、算子融合的成本模型、计数器式 dropout 与 permute。"><div class="no">16</div><div><div class="ttl"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html">逐元素算子只比谁搬得少：向量化、广播与算子融合</a></div><p class="sum">逐元素算子的带宽下界、向量化模板、广播与快速整数除法、激活函数精度、算子融合的成本模型、计数器式 dropout 与 permute。</p><div class="meta"><span>约 20 分钟</span><span class="layer l1">① 字节账</span><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-op17" data-search="17 数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描 safe/online softmax、按行长选择并行方式、Welford LayerNorm、RMSNorm、反向传播与融合。"><div class="no">17</div><div><div class="ttl"><a href="op17-softmax-norm/op17-softmax-norm.html">数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描</a></div><p class="sum">safe/online softmax、按行长选择并行方式、Welford LayerNorm、RMSNorm、反向传播与融合。</p><div class="meta"><span>约 23 分钟</span><span class="layer l1">① 字节账</span><a href="op17-softmax-norm/op17-softmax-norm.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-op18" data-search="18 位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter INT8/INT4/FP8/FP6/FP4 的位布局与缩放粒度、动态量化 kernel、INT4 快速反量化、gather/scatter、MoE permute/unpermute、分页 KV cache 写入，以及 Blackwell 的块缩放 MMA。"><div class="no">18</div><div><div class="ttl"><a href="op18-quant-gather/op18-quant-gather.html">位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter</a></div><p class="sum">INT8/INT4/FP8/FP6/FP4 的位布局与缩放粒度、动态量化 kernel、INT4 快速反量化、gather/scatter、MoE permute/unpermute、分页 KV cache 写入，以及 Blackwell 的块缩放 MMA。</p><div class="meta"><span>约 21 分钟</span><span class="layer l1">① 字节账</span><span class="layer l2">② 带宽账</span><a href="op18-quant-gather/op18-quant-gather.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-6">六、Tensor Core 与异步硬件<span class="pmin">5 篇 · 约 92 分钟</span></h3>
+  <p class="vol">从 mma.sync 到 WGMMA 再到 tcgen05，以及 TMA、mbarrier、TMEM。</p>
+  <ol class="posts">
+    <li id="p-tc19" data-search="19 一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix Tensor Core 的吞吐来源、WMMA API、mma.sync m16n8k16 的片段布局、ldmatrix 与 bank 冲突、精度组合，以及 Hopper/Blackwell 的变化。"><div class="no">19</div><div><div class="ttl"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html">一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix</a></div><p class="sum">Tensor Core 的吞吐来源、WMMA API、mma.sync m16n8k16 的片段布局、ldmatrix 与 bank 冲突、精度组合，以及 Hopper/Blackwell 的变化。</p><div class="meta"><span>约 18 分钟</span><span class="layer l3">③ 算力账</span><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-tc20" data-search="20 布局就是一个函数：shape/stride、布局代数与 CuTe 的语言 shape-stride 模型、层次化 layout、CuTe 布局代数（复合、补集、切块、复制）、swizzle、TV layout，以及 Hopper/Blackwell 为何离不开它。"><div class="no">20</div><div><div class="ttl"><a href="tc20-layout-algebra/tc20-layout-algebra.html">布局就是一个函数：shape/stride、布局代数与 CuTe 的语言</a></div><p class="sum">shape-stride 模型、层次化 layout、CuTe 布局代数（复合、补集、切块、复制）、swizzle、TV layout，以及 Hopper/Blackwell 为何离不开它。</p><div class="meta"><span>约 21 分钟</span><span class="layer l3">③ 算力账</span><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-interview">面试题 4 道</a></div></div></li>
+    <li id="p-tc21" data-search="21 异步搬运与协调：cp.async、TMA 与 mbarrier Ampere cp.async 的 commit/wait 流水线、Hopper TMA 的 tensor map 与一线程描述一块 tile、mbarrier 的 phase、tx-count 与环形多 stage 流水线。"><div class="no">21</div><div><div class="ttl"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">异步搬运与协调：cp.async、TMA 与 mbarrier</a></div><p class="sum">Ampere cp.async 的 commit/wait 流水线、Hopper TMA 的 tensor map 与一线程描述一块 tile、mbarrier 的 phase、tx-count 与环形多 stage 流水线。</p><div class="meta"><span>约 17 分钟</span><span class="layer l2">② 带宽账</span><span class="layer l4">④ 等待账</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-tc22" data-search="22 一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster WGMMA 的形状与异步语义、64 位共享内存矩阵描述符逐位拆解、warp 特化与 setmaxnreg、thread block cluster 与 TMA multicast。"><div class="no">22</div><div><div class="ttl"><a href="tc22-hopper/tc22-hopper.html">一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster</a></div><p class="sum">WGMMA 的形状与异步语义、64 位共享内存矩阵描述符逐位拆解、warp 特化与 setmaxnreg、thread block cluster 与 TMA multicast。</p><div class="meta"><span>约 18 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="tc22-hopper/tc22-hopper.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-tc23" data-search="23 一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC tcgen05.mma 的单线程发射、Tensor Memory 的分配与 lane 窗口、CTA pair 上的双 SM MMA、块缩放的缩放因子路径，以及 Cluster Launch Control。"><div class="no">23</div><div><div class="ttl"><a href="tc23-blackwell/tc23-blackwell.html">一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC</a></div><p class="sum">tcgen05.mma 的单线程发射、Tensor Memory 的分配与 lane 窗口、CTA pair 上的双 SM MMA、块缩放的缩放因子路径，以及 Cluster Launch Control。</p><div class="meta"><span>约 18 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><span class="layer l5">⑤ 整卡账</span><a href="tc23-blackwell/tc23-blackwell.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-7">七、GEMM 实战<span class="pmin">6 篇 · 约 126 分钟</span></h3>
+  <p class="vol">同一个矩阵乘在 CUDA core、Ampere、Hopper、Blackwell 上各走一遍阶梯。</p>
+  <ol class="posts">
+    <li id="p-gm24" data-search="24 GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90% SGEMM 九步优化阶梯——从 naive 到共享内存分块、寄存器分块（outer product）、向量化加载、warp tiling、双缓冲、自动调参，以及 tile 参数的约束方程。"><div class="no">24</div><div><div class="ttl"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html">GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%</a></div><p class="sum">SGEMM 九步优化阶梯——从 naive 到共享内存分块、寄存器分块（outer product）、向量化加载、warp tiling、双缓冲、自动调参，以及 tile 参数的约束方程。</p><div class="meta"><span>约 21 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-gm25" data-search="25 Tensor Core 进场：mma.sync、swizzle与三级流水线 从 WMMA 到 mma.sync + ldmatrix + XOR swizzle，cp.async 三级流水线，寄存器双缓冲，threadblock swizzle 与 epilogue。"><div class="no">25</div><div><div class="ttl"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html">Tensor Core 进场：mma.sync、swizzle与三级流水线</a></div><p class="sum">从 WMMA 到 mma.sync + ldmatrix + XOR swizzle，cp.async 三级流水线，寄存器双缓冲，threadblock swizzle 与 epilogue。</p><div class="meta"><span>约 20 分钟</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-gm26" data-search="26 Hopper GEMM：TMA、WGMMA与 Warp Specialization Hopper GEMM 从 TMA + WGMMA 基础到 persistent kernel、warp specialization、多级流水线、cluster multicast，以及 FP8 两级累加。"><div class="no">26</div><div><div class="ttl"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html">Hopper GEMM：TMA、WGMMA与 Warp Specialization</a></div><p class="sum">Hopper GEMM 从 TMA + WGMMA 基础到 persistent kernel、warp specialization、多级流水线、cluster multicast，以及 FP8 两级累加。</p><div class="meta"><span>约 21 分钟</span><span class="layer l2">② 带宽账</span><span class="layer l4">④ 等待账</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-gm27" data-search="27 Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作 Blackwell GEMM 从 tcgen05.mma 单 tile 到 TMEM 双缓冲、persistent + CLC、2-CTA warp specialization，MLC Step 1–9 全复盘。"><div class="no">27</div><div><div class="ttl"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html">Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作</a></div><p class="sum">Blackwell GEMM 从 tcgen05.mma 单 tile 到 TMEM 双缓冲、persistent + CLC、2-CTA warp specialization，MLC Step 1–9 全复盘。</p><div class="meta"><span>约 21 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><span class="layer l5">⑤ 整卡账</span><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-gm28" data-search="28 GEMM 变种：Split-K、Grouped GEMM 与 GEMV Split-K 与 Stream-K 拆分 K 维度、Grouped GEMM 服务 MoE、GEMV/skinny GEMM 的带宽优化、epilogue fusion 与 L2 tile 遍历顺序。"><div class="no">28</div><div><div class="ttl"><a href="gm28-gemm-variants/gm28-gemm-variants.html">GEMM 变种：Split-K、Grouped GEMM 与 GEMV</a></div><p class="sum">Split-K 与 Stream-K 拆分 K 维度、Grouped GEMM 服务 MoE、GEMV/skinny GEMM 的带宽优化、epilogue fusion 与 L2 tile 遍历顺序。</p><div class="meta"><span>约 22 分钟</span><span class="layer l0">⓪ 下界</span><span class="layer l5">⑤ 整卡账</span><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-gm29" data-search="29 低精度 GEMM：FP8、W4A16与 MXFP4 FP8 E4M3 block scaling 与两级累加、W4A16 权重解量化策略（Marlin 思路）、W8A8 per-channel 量化、MXFP4/NVFP4 的 microscale 机制。"><div class="no">29</div><div><div class="ttl"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html">低精度 GEMM：FP8、W4A16与 MXFP4</a></div><p class="sum">FP8 E4M3 block scaling 与两级累加、W4A16 权重解量化策略（Marlin 思路）、W8A8 per-channel 量化、MXFP4/NVFP4 的 microscale 机制。</p><div class="meta"><span>约 21 分钟</span><span class="layer l1">① 字节账</span><span class="layer l3">③ 算力账</span><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-8">八、卷积<span class="pmin">3 篇 · 约 64 分钟</span></h3>
+  <p class="vol">im2col、implicit GEMM 与 Winograd。</p>
+  <ol class="posts">
+    <li id="p-cv30" data-search="30 卷积基础：direct conv、im2col 与 NHWC 布局 卷积参数与输出尺寸、直接卷积的 shared memory halo tiling、im2col + GEMM、NCHW vs NHWC 布局选择、depthwise 卷积的带宽瓶颈。"><div class="no">30</div><div><div class="ttl"><a href="cv30-conv-basics/cv30-conv-basics.html">卷积基础：direct conv、im2col 与 NHWC 布局</a></div><p class="sum">卷积参数与输出尺寸、直接卷积的 shared memory halo tiling、im2col + GEMM、NCHW vs NHWC 布局选择、depthwise 卷积的带宽瓶颈。</p><div class="meta"><span>约 22 分钟</span><span class="layer l1">① 字节账</span><a href="cv30-conv-basics/cv30-conv-basics.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-cv31" data-search="31 Implicit GEMM：不物化 col 矩阵的卷积 Implicit GEMM 的维度映射与地址计算、增量迭代器与偏移表、CUTLASS conv2d 架构、dgrad 转置卷积与 wgrad Split-K、Hopper TMA 对卷积的加速。"><div class="no">31</div><div><div class="ttl"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html">Implicit GEMM：不物化 col 矩阵的卷积</a></div><p class="sum">Implicit GEMM 的维度映射与地址计算、增量迭代器与偏移表、CUTLASS conv2d 架构、dgrad 转置卷积与 wgrad Split-K、Hopper TMA 对卷积的加速。</p><div class="meta"><span>约 22 分钟</span><span class="layer l1">① 字节账</span><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-cv32" data-search="32 Winograd、FFT与特殊卷积 Winograd F(2,3) 变换与数值稳定性、FFT 卷积适用场景、转置卷积实现、3D 卷积与因果 conv1d、大 kernel depthwise、可变形卷积的双线性插值与 atomicAdd。"><div class="no">32</div><div><div class="ttl"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html">Winograd、FFT与特殊卷积</a></div><p class="sum">Winograd F(2,3) 变换与数值稳定性、FFT 卷积适用场景、转置卷积实现、3D 卷积与因果 conv1d、大 kernel depthwise、可变形卷积的双线性插值与 atomicAdd。</p><div class="meta"><span>约 20 分钟</span><span class="layer l3">③ 算力账</span><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-9">九、Attention<span class="pmin">5 篇 · 约 119 分钟</span></h3>
+  <p class="vol">FlashAttention 前向、反向、FA3、FA4 与推理 attention。</p>
+  <ol class="posts">
+    <li id="p-at33" data-search="33 Attention 基础与FlashAttention 前向 标准 attention 的 HBM 流量分析、FlashAttention 的 tiling 与 online softmax、FA1 vs FA2 循环顺序、causal mask 块级跳过、Tensor Core 实现要点、Hopper/Blackwell 上的变化。"><div class="no">33</div><div><div class="ttl"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html">Attention 基础与FlashAttention 前向</a></div><p class="sum">标准 attention 的 HBM 流量分析、FlashAttention 的 tiling 与 online softmax、FA1 vs FA2 循环顺序、causal mask 块级跳过、Tensor Core 实现要点、Hopper/Blackwell 上的变化。</p><div class="meta"><span>约 24 分钟</span><span class="layer l1">① 字节账</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-at34" data-search="34 FlashAttention 反向：重计算与 dQ 累加 FlashAttention 反向公式推导、S/P 重计算策略、dQ 跨 block 累加（atomicAdd vs workspace）、确定性模式、反向 FLOP 分析、causal 负载不均衡、Hopper/Blackwell 上的变化。"><div class="no">34</div><div><div class="ttl"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html">FlashAttention 反向：重计算与 dQ 累加</a></div><p class="sum">FlashAttention 反向公式推导、S/P 重计算策略、dQ 跨 block 累加（atomicAdd vs workspace）、确定性模式、反向 FLOP 分析、causal 负载不均衡、Hopper/Blackwell 上的变化。</p><div class="meta"><span>约 23 分钟</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-at35" data-search="35 FlashAttention-3：Hopper 上的异步与 FP8 FA3 的 inter-warpgroup ping-pong、intra-warpgroup GEMM/softmax 重叠、MUFU exp 瓶颈、FP8 attention 的 block 量化与 incoherent processing、与 FA2 的结构对比、Hopper/Blackwell 上的变化。"><div class="no">35</div><div><div class="ttl"><a href="at35-flashattention3/at35-flashattention3.html">FlashAttention-3：Hopper 上的异步与 FP8</a></div><p class="sum">FA3 的 inter-warpgroup ping-pong、intra-warpgroup GEMM/softmax 重叠、MUFU exp 瓶颈、FP8 attention 的 block 量化与 incoherent processing、与 FA2 的结构对比、Hopper/Blackwell 上的变化。</p><div class="meta"><span>约 24 分钟</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="at35-flashattention3/at35-flashattention3.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-at36" data-search="36 FlashAttention-4：Blackwell 上的 attention FA4 的 tcgen05 MMA 与 TMEM 布局、warp 角色划分、barrier 协议、软件 exp2 多项式逼近、条件 rescale、causal/GQA 支持与 LPT 调度、与 FA3 的对比。"><div class="no">36</div><div><div class="ttl"><a href="at36-flashattention4/at36-flashattention4.html">FlashAttention-4：Blackwell 上的 attention</a></div><p class="sum">FA4 的 tcgen05 MMA 与 TMEM 布局、warp 角色划分、barrier 协议、软件 exp2 多项式逼近、条件 rescale、causal/GQA 支持与 LPT 调度、与 FA3 的对比。</p><div class="meta"><span>约 23 分钟</span><span class="layer l3">③ 算力账</span><span class="layer l4">④ 等待账</span><a href="at36-flashattention4/at36-flashattention4.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-at37" data-search="37 推理 Attention：Decode、Paged、GQA/MLA 与变长 FlashDecoding 的 split-KV 与 LSE 合并、PagedAttention 的 block table 与间接寻址、GQA/MQA/MLA 对 kernel 和 cache 的影响、变长 batch (cu_seqlens)、KV cache 量化、sliding window 与 tree attention。"><div class="no">37</div><div><div class="ttl"><a href="at37-inference-attention/at37-inference-attention.html">推理 Attention：Decode、Paged、GQA/MLA 与变长</a></div><p class="sum">FlashDecoding 的 split-KV 与 LSE 合并、PagedAttention 的 block table 与间接寻址、GQA/MQA/MLA 对 kernel 和 cache 的影响、变长 batch (cu_seqlens)、KV cache 量化、sliding window 与 tree attention。</p><div class="meta"><span>约 25 分钟</span><span class="layer l0">⓪ 下界</span><span class="layer l1">① 字节账</span><span class="layer l5">⑤ 整卡账</span><a href="at37-inference-attention/at37-inference-attention.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-10">十、Diffusion<span class="pmin">3 篇 · 约 71 分钟</span></h3>
+  <p class="vol">UNet、DiT 与视频生成里的关键 kernel。</p>
+  <ol class="posts">
+    <li id="p-df38" data-search="38 Diffusion（一）：UNet 算子GroupNorm、卷积与融合 Diffusion UNet 去噪步的 kernel 构成分析、GroupNorm + SiLU 融合 kernel（两遍法）、NHWC channels-last 卷积与 Tensor Core、时间步嵌入与 FiLM 调制、上下采样融合、cross-attention 特点、CFG 合并策略、Hopper/Blackwell 上的变化。"><div class="no">38</div><div><div class="ttl"><a href="df38-unet-ops/df38-unet-ops.html">Diffusion（一）：UNet 算子GroupNorm、卷积与融合</a></div><p class="sum">Diffusion UNet 去噪步的 kernel 构成分析、GroupNorm + SiLU 融合 kernel（两遍法）、NHWC channels-last 卷积与 Tensor Core、时间步嵌入与 FiLM 调制、上下采样融合、cross-attention 特点、CFG 合并策略、Hopper/Blackwell 上的变化。</p><div class="meta"><span>约 25 分钟</span><span class="layer l1">① 字节账</span><a href="df38-unet-ops/df38-unet-ops.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-df39" data-search="39 Diffusion（二）：DiT 算子adaLN、RoPE 与长序列 DiT/MMDiT 结构、adaLN-Zero 融合 kernel、QK-Norm、2D/3D RoPE、长序列 attention、与 LLM 推理 kernel 的差异、Hopper/Blackwell 优化。"><div class="no">39</div><div><div class="ttl"><a href="df39-dit-ops/df39-dit-ops.html">Diffusion（二）：DiT 算子adaLN、RoPE 与长序列</a></div><p class="sum">DiT/MMDiT 结构、adaLN-Zero 融合 kernel、QK-Norm、2D/3D RoPE、长序列 attention、与 LLM 推理 kernel 的差异、Hopper/Blackwell 优化。</p><div class="meta"><span>约 24 分钟</span><span class="layer l1">① 字节账</span><a href="df39-dit-ops/df39-dit-ops.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-df40" data-search="40 Diffusion（三）：视频生成与加速 kernel 视频 DiT 的 3D attention 成本、块稀疏 FlashAttention、量化 attention（SageAttention INT8/FP8）、VAE tiling 解码、步间缓存、采样器融合、序列并行。"><div class="no">40</div><div><div class="ttl"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html">Diffusion（三）：视频生成与加速 kernel</a></div><p class="sum">视频 DiT 的 3D attention 成本、块稀疏 FlashAttention、量化 attention（SageAttention INT8/FP8）、VAE tiling 解码、步间缓存、采样器融合、序列并行。</p><div class="meta"><span>约 22 分钟</span><span class="layer l3">③ 算力账</span><span class="layer l5">⑤ 整卡账</span><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+  <h3 id="part-11">十一、3D<span class="pmin">4 篇 · 约 82 分钟</span></h3>
+  <p class="vol">Gaussian Splatting、NeRF 与点云。</p>
+  <ol class="posts">
+    <li id="p-r3d41" data-search="41 3D Gaussian Splatting（一）光栅化前向 3DGS 前向渲染流水线（预处理、排序、光栅化）、EWA 协方差投影、球谐求值、tile 分配与 radix sort、shared memory 分批 α-blending 与提前终止、SFU 瓶颈分析、Hopper/Blackwell 上的变化。"><div class="no">41</div><div><div class="ttl"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html">3D Gaussian Splatting（一）光栅化前向</a></div><p class="sum">3DGS 前向渲染流水线（预处理、排序、光栅化）、EWA 协方差投影、球谐求值、tile 分配与 radix sort、shared memory 分批 α-blending 与提前终止、SFU 瓶颈分析、Hopper/Blackwell 上的变化。</p><div class="meta"><span>约 22 分钟</span><span class="layer l1">① 字节账</span><span class="layer l5">⑤ 整卡账</span><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-r3d42" data-search="42 3D Gaussian Splatting（二）反向传播 3DGS 反向传播——光栅化反向的 back-to-front 重放与透射率恢复、atomicAdd 争用分析与 warp 归约优化、per-pixel vs per-splat 并行策略、预处理反向的 2D→3D 链式法则、densification 统计与 Adam 融合更新、确定性问题。"><div class="no">42</div><div><div class="ttl"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html">3D Gaussian Splatting（二）反向传播</a></div><p class="sum">3DGS 反向传播——光栅化反向的 back-to-front 重放与透射率恢复、atomicAdd 争用分析与 warp 归约优化、per-pixel vs per-splat 并行策略、预处理反向的 2D→3D 链式法则、densification 统计与 Adam 融合更新、确定性问题。</p><div class="meta"><span>约 21 分钟</span><span class="layer l4">④ 等待账</span><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-r3d43" data-search="43 NeRF 加速体渲染与哈希编码 NeRF 体渲染离散化、射线行进与占用网格、多分辨率哈希编码前向/反向、tiny-cuda-nn 全融合 MLP（smem 权重 + WMMA）、packed rays 变长射线打包、端到端性能分析。"><div class="no">43</div><div><div class="ttl"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html">NeRF 加速体渲染与哈希编码</a></div><p class="sum">NeRF 体渲染离散化、射线行进与占用网格、多分辨率哈希编码前向/反向、tiny-cuda-nn 全融合 MLP（smem 权重 + WMMA）、packed rays 变长射线打包、端到端性能分析。</p><div class="meta"><span>约 19 分钟</span><span class="layer l1">① 字节账</span><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-r3d44" data-search="44 点云与稀疏 3D体素化与稀疏卷积 GPU 哈希表开放寻址体素化、FPS 迭代 argmax、暴力 kNN smem tiling、稀疏卷积 kernel map + gather-GEMM-scatter vs implicit GEMM、子流形卷积、BEV 池化。"><div class="no">44</div><div><div class="ttl"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html">点云与稀疏 3D体素化与稀疏卷积</a></div><p class="sum">GPU 哈希表开放寻址体素化、FPS 迭代 argmax、暴力 kNN smem tiling、稀疏卷积 kernel map + gather-GEMM-scatter vs implicit GEMM、子流形卷积、BEV 池化。</p><div class="meta"><span>约 20 分钟</span><span class="layer l2">② 带宽账</span><span class="layer l5">⑤ 整卡账</span><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-interview">面试题 6 道</a></div></div></li>
+  </ol>
+  <h3 id="part-12">十二、工具链<span class="pmin">3 篇 · 约 59 分钟</span></h3>
+  <p class="vol">Triton、CUTLASS/CuTe 与 PyTorch 集成。</p>
+  <ol class="posts">
+    <li id="p-tl45" data-search="45 Triton块级编程与编译器驱动优化 Triton 块级编程模型、fused softmax/GEMM/LayerNorm 实战、autotune 机制、编译流程四阶段、Triton 与 CUDA 的性能-开发效率取舍。"><div class="no">45</div><div><div class="ttl"><a href="tl45-triton/tl45-triton.html">Triton块级编程与编译器驱动优化</a></div><p class="sum">Triton 块级编程模型、fused softmax/GEMM/LayerNorm 实战、autotune 机制、编译流程四阶段、Triton 与 CUDA 的性能-开发效率取舍。</p><div class="meta"><span>约 20 分钟</span><span class="layer lt">测量与工具</span><a href="tl45-triton/tl45-triton.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-tl46" data-search="46 CUTLASS 与 CuTeLayout 代数与可组合 GEMM CUTLASS 五层抽象与 CuTe Layout 代数、EVT 可组合 epilogue、GPU kernel DSL 横向对比。"><div class="no">46</div><div><div class="ttl"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html">CUTLASS 与 CuTeLayout 代数与可组合 GEMM</a></div><p class="sum">CUTLASS 五层抽象与 CuTe Layout 代数、EVT 可组合 epilogue、GPU kernel DSL 横向对比。</p><div class="meta"><span>约 20 分钟</span><span class="layer lt">测量与工具</span><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-interview">面试题 6 道</a></div></div></li>
+    <li id="p-tl47" data-search="47 PyTorch 扩展与 Custom Op从 Kernel 到工程落地 如何把 CUDA kernel 打包成 PyTorch 可调用的 custom op，支持 torch.compile 和自动微分，并编写正确性测试和性能基准。"><div class="no">47</div><div><div class="ttl"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html">PyTorch 扩展与 Custom Op从 Kernel 到工程落地</a></div><p class="sum">如何把 CUDA kernel 打包成 PyTorch 可调用的 custom op，支持 torch.compile 和自动微分，并编写正确性测试和性能基准。</p><div class="meta"><span>约 19 分钟</span><span class="layer l5">⑤ 整卡账</span><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-interview">面试题 6 道</a></div></div></li>
+  </ol>
+  <h3 id="part-13">十三、多卡通信<span class="pmin">3 篇 · 约 62 分钟</span></h3>
+  <p class="vol">NVLink 与集合通信、NCCL 内部、计算通信重叠。</p>
+  <ol class="posts">
+    <li id="p-cm48" data-search="48 GPU 互联硬件与集合通信：从 NVLink 到 MNNVL GPU 互联硬件与集合通信——NVLink 1.0-5.0、NVSwitch、InfiniBand RDMA、DGX 拓扑、五大集合算子、Ring/Tree 算法、GPUDirect 技术族、EGM 与 MNNVL。"><div class="no">48</div><div><div class="ttl"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html">GPU 互联硬件与集合通信：从 NVLink 到 MNNVL</a></div><p class="sum">GPU 互联硬件与集合通信——NVLink 1.0-5.0、NVSwitch、InfiniBand RDMA、DGX 拓扑、五大集合算子、Ring/Tree 算法、GPUDirect 技术族、EGM 与 MNNVL。</p><div class="meta"><span>约 21 分钟</span><span class="layer l0">⓪ 下界</span><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-interview">面试题 5 道</a></div></div></li>
+    <li id="p-cm49" data-search="49 NCCL 内部机制深度剖析：从初始化到 Kernel NCCL 内部机制——初始化流水线、Channel 与多 Ring 并行、Simple/LL/LL128 协议对比、Proxy 线程模型、Group API、关键调优参数。"><div class="no">49</div><div><div class="ttl"><a href="cm49-nccl-internals/cm49-nccl-internals.html">NCCL 内部机制深度剖析：从初始化到 Kernel</a></div><p class="sum">NCCL 内部机制——初始化流水线、Channel 与多 Ring 并行、Simple/LL/LL128 协议对比、Proxy 线程模型、Group API、关键调优参数。</p><div class="meta"><span>约 20 分钟</span><span class="layer l2">② 带宽账</span><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-interview">面试题 4 道</a></div></div></li>
+    <li id="p-cm50" data-search="50 自定义通信算子与计算-通信重叠 自定义通信——IPC 共享内存 AllReduce、release/acquire 内存序、NVSHMEM put/get、Flux 式计算-通信重叠、TP/SP/EP/CP/PP 通信模式。"><div class="no">50</div><div><div class="ttl"><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html">自定义通信算子与计算-通信重叠</a></div><p class="sum">自定义通信——IPC 共享内存 AllReduce、release/acquire 内存序、NVSHMEM put/get、Flux 式计算-通信重叠、TP/SP/EP/CP/PP 通信模式。</p><div class="meta"><span>约 21 分钟</span><span class="layer l4">④ 等待账</span><span class="layer l5">⑤ 整卡账</span><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-interview">面试题 4 道</a></div></div></li>
+  </ol>
+  <h3 id="part-14">十四、面试冲刺<span class="pmin">2 篇 · 约 40 分钟</span></h3>
+  <p class="vol">题库与手撕模板。</p>
+  <ol class="posts">
+    <li id="p-iv51" data-search="51 GPU Kernel 面试题库概念 · 估算 · 系统设计 · STAR GPU kernel 方向面试题库——按 14 个主题组织概念题，roofline 估算训练，系统设计五步框架，行为面试 STAR 模板。"><div class="no">51</div><div><div class="ttl"><a href="iv51-interview-bank/iv51-interview-bank.html">GPU Kernel 面试题库概念 · 估算 · 系统设计 · STAR</a></div><p class="sum">GPU kernel 方向面试题库——按 14 个主题组织概念题，roofline 估算训练，系统设计五步框架，行为面试 STAR 模板。</p><div class="meta"><span>约 21 分钟</span><span class="layer lt">全线</span><a href="iv51-interview-bank/iv51-interview-bank.html#sec-interview">面试题 7 道</a></div></div></li>
+    <li id="p-iv52" data-search="52 手写 Kernel：13 个白板面试模板 整理 13 个高频白板 CUDA Kernel 模板，涵盖 grid-stride loop、warp shuffle reduce、online softmax、tiled SGEMM、prefix sum、histogram privatization、CAS atomic 等核心模式，每个附完整代码与面试技巧。"><div class="no">52</div><div><div class="ttl"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html">手写 Kernel：13 个白板面试模板</a></div><p class="sum">整理 13 个高频白板 CUDA Kernel 模板，涵盖 grid-stride loop、warp shuffle reduce、online softmax、tiled SGEMM、prefix sum、histogram privatization、CAS atomic 等核心模式，每个附完整代码与面试技巧。</p><div class="meta"><span>约 19 分钟</span><span class="layer lt">全线</span><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-interview">面试题 5 道</a></div></div></li>
+  </ol>
+</section>
+<section id="paths">
+  <h2>阅读路径</h2>
+  <p class="hint">时间不够读完全部时，按目标挑一条。路径里的篇目按推荐顺序排列，时间是这些篇目的阅读时长之和。</p>
+  <h3>按难度</h3>
+  <dl class="paths">
+    <div><dt>最短路径</dt><dd><div class="route"><a href="p00-overview/p00-overview.html" title="GPU Kernel 工程师的知识地图">导读</a><span class="arr">→</span><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="hw01-gpu-architecture/hw01-gpu-architecture.html" title="GPU 用面积换吞吐：SM、内存层次，以及 Hopper 与 Blackwell 加了什么">01</a><span class="arr">→</span><a href="hw02-execution-model/hw02-execution-model.html" title="一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏">02</a><span class="arr">→</span><a href="hw03-performance-model/hw03-performance-model.html" title="先算上限，再谈优化：Roofline、算术强度与优化阶梯">03</a><span class="arr">→</span><a href="cu04-first-kernel/cu04-first-kernel.html" title="写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么">04</a><span class="arr">→</span><a href="cu05-memory-coalescing/cu05-memory-coalescing.html" title="一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐">05</a><span class="arr">→</span><a href="cu06-shared-memory/cu06-shared-memory.html" title="32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle">06</a><span class="arr">→</span><a href="cu07-occupancy-registers/cu07-occupancy-registers.html" title="Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp">07</a><span class="arr">→</span><a href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle">10</a><span class="arr">→</span><a href="pp11-warp-primitives/pp11-warp-primitives.html" title="一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups">11</a><span class="arr">→</span><a href="mt14-profiling/mt14-profiling.html" title="先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute">14</a><span class="arr">→</span><a href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描">17</a><span class="arr">→</span><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html" title="一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix">19</a><span class="arr">→</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%">24</a><span class="arr">→</span><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线">25</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="arr">→</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向">33</a><span class="arr">→</span><a href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长">37</a><span class="arr">→</span><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html" title="GPU 互联硬件与集合通信：从 NVLink 到 MNNVL">48</a><span class="arr">→</span><a href="iv51-interview-bank/iv51-interview-bank.html" title="GPU Kernel 面试题库概念 · 估算 · 系统设计 · STAR">51</a><span class="arr">→</span><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html" title="手写 Kernel：13 个白板面试模板">52</a><span class="t">23 篇 · 约 8.1 小时</span></div><p class="note">覆盖面试最常考的内容；读完再按方向补一个应用专题（Diffusion 的 38/39，或 3D 的 41）。</p></dd></div>
+    <div><dt>先打地基</dt><dd><div class="route"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html" title="GPU 用面积换吞吐：SM、内存层次，以及 Hopper 与 Blackwell 加了什么">01</a><span class="arr">→</span><a href="hw02-execution-model/hw02-execution-model.html" title="一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏">02</a><span class="arr">→</span><a href="hw03-performance-model/hw03-performance-model.html" title="先算上限，再谈优化：Roofline、算术强度与优化阶梯">03</a><span class="arr">→</span><a href="cu04-first-kernel/cu04-first-kernel.html" title="写下第一个 kernel：线程索引、错误检查，以及 nvcc 把它变成了什么">04</a><span class="arr">→</span><a href="cu05-memory-coalescing/cu05-memory-coalescing.html" title="一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐">05</a><span class="arr">→</span><a href="cu06-shared-memory/cu06-shared-memory.html" title="32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle">06</a><span class="arr">→</span><a href="cu07-occupancy-registers/cu07-occupancy-registers.html" title="Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp">07</a><span class="arr">→</span><a href="cu08-sync-atomics/cu08-sync-atomics.html" title="线程之间怎么说话：同步、原子操作与 GPU 内存模型">08</a><span class="arr">→</span><a href="cu09-streams-host/cu09-streams-host.html" title="别让 GPU 等主机：pinned 内存、stream、CUDA Graph 与 PDL">09</a><span class="arr">→</span><a href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle">10</a><span class="arr">→</span><a href="pp11-warp-primitives/pp11-warp-primitives.html" title="一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups">11</a><span class="arr">→</span><a href="mt14-profiling/mt14-profiling.html" title="先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute">14</a><span class="t">12 篇 · 约 4.3 小时</span></div><p class="note">没写过 CUDA 时从这里开始：硬件、编程模型、并行原语和测量。</p></dd></div>
+    <div><dt>核心三算子</dt><dd><div class="route"><a href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描">17</a><span class="arr">→</span><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html" title="一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix">19</a><span class="arr">→</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%">24</a><span class="arr">→</span><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线">25</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="arr">→</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向">33</a><span class="arr">→</span><a href="at34-flashattention-bwd/at34-flashattention-bwd.html" title="FlashAttention 反向：重计算与 dQ 累加">34</a><span class="arr">→</span><a href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长">37</a><span class="t">9 篇 · 约 3.2 小时</span></div><p class="note">GEMM、softmax 与 attention：面试和工作里出现最多的三类 kernel。</p></dd></div>
+  </dl>
+  <h3>按主线的五笔账</h3>
+  <dl class="paths">
+    <div><dt>① 字节账</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="cu06-shared-memory/cu06-shared-memory.html" title="32 个 bank 的排队问题：Shared memory、bank 冲突与 swizzle">06</a><span class="arr">→</span><a href="op16-elementwise-fusion/op16-elementwise-fusion.html" title="逐元素算子只比谁搬得少：向量化、广播与算子融合">16</a><span class="arr">→</span><a href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描">17</a><span class="arr">→</span><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html" title="GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%">24</a><span class="arr">→</span><a href="cv31-implicit-gemm/cv31-implicit-gemm.html" title="Implicit GEMM：不物化 col 矩阵的卷积">31</a><span class="arr">→</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向">33</a><span class="arr">→</span><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html" title="NeRF 加速体渲染与哈希编码">43</a><span class="t">8 篇 · 约 2.8 小时</span></div><p class="note">删掉多余的字节：融合、分块复用、不物化中间结果。</p></dd></div>
+    <div><dt>② 带宽账</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="hw02-execution-model/hw02-execution-model.html" title="一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏">02</a><span class="arr">→</span><a href="cu05-memory-coalescing/cu05-memory-coalescing.html" title="一个 warp 读 128 字节，凭什么搬了 1 KB：访存合并、向量化与对齐">05</a><span class="arr">→</span><a href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle">10</a><span class="arr">→</span><a href="op18-quant-gather/op18-quant-gather.html" title="位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter">18</a><span class="arr">→</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="t">7 篇 · 约 2.4 小时</span></div><p class="note">把该搬的字节搬快：合并、在途请求、异步搬运。</p></dd></div>
+    <div><dt>③ 算力账</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html" title="一个 warp 交出一块矩阵：Tensor Core、WMMA、mma.sync 与 ldmatrix">19</a><span class="arr">→</span><a href="tc20-layout-algebra/tc20-layout-algebra.html" title="布局就是一个函数：shape/stride、布局代数与 CuTe 的语言">20</a><span class="arr">→</span><a href="tc22-hopper/tc22-hopper.html" title="一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster">22</a><span class="arr">→</span><a href="tc23-blackwell/tc23-blackwell.html" title="一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC">23</a><span class="arr">→</span><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线">25</a><span class="arr">→</span><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html" title="Winograd、FFT与特殊卷积">32</a><span class="arr">→</span><a href="at36-flashattention4/at36-flashattention4.html" title="FlashAttention-4：Blackwell 上的 attention">36</a><span class="t">8 篇 · 约 2.7 小时</span></div><p class="note">用对单元，把操作数喂到位，盯住非矩阵运算。</p></dd></div>
+    <div><dt>④ 等待账</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="hw02-execution-model/hw02-execution-model.html" title="一个 warp 停下来，另一个顶上：SIMT 执行与延迟隐藏">02</a><span class="arr">→</span><a href="cu07-occupancy-registers/cu07-occupancy-registers.html" title="Occupancy 不是越高越好：寄存器、共享内存与一个 SM 能装下多少 warp">07</a><span class="arr">→</span><a href="cu08-sync-atomics/cu08-sync-atomics.html" title="线程之间怎么说话：同步、原子操作与 GPU 内存模型">08</a><span class="arr">→</span><a href="pp11-warp-primitives/pp11-warp-primitives.html" title="一个 warp 内部的通信：shuffle、vote、match 与 Cooperative Groups">11</a><span class="arr">→</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html" title="Tensor Core 进场：mma.sync、swizzle与三级流水线">25</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="arr">→</span><a href="at35-flashattention3/at35-flashattention3.html" title="FlashAttention-3：Hopper 上的异步与 FP8">35</a><span class="arr">→</span><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html" title="3D Gaussian Splatting（二）反向传播">42</a><span class="t">10 篇 · 约 3.6 小时</span></div><p class="note">让搬运、计算、写回互不等待。</p></dd></div>
+    <div><dt>⑤ 整卡账</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="cu09-streams-host/cu09-streams-host.html" title="别让 GPU 等主机：pinned 内存、stream、CUDA Graph 与 PDL">09</a><span class="arr">→</span><a href="gm28-gemm-variants/gm28-gemm-variants.html" title="GEMM 变种：Split-K、Grouped GEMM 与 GEMV">28</a><span class="arr">→</span><a href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长">37</a><span class="arr">→</span><a href="tl47-pytorch-integration/tl47-pytorch-integration.html" title="PyTorch 扩展与 Custom Op从 Kernel 到工程落地">47</a><span class="arr">→</span><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html" title="自定义通信算子与计算-通信重叠">50</a><span class="t">6 篇 · 约 2.2 小时</span></div><p class="note">SM 都在干活吗，SM 之外还有多少开销。</p></dd></div>
+  </dl>
+  <h3>按方向</h3>
+  <dl class="paths">
+    <div><dt>LLM 推理</dt><dd><div class="route"><a href="hw03-performance-model/hw03-performance-model.html" title="先算上限，再谈优化：Roofline、算术强度与优化阶梯">03</a><span class="arr">→</span><a href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描">17</a><span class="arr">→</span><a href="op18-quant-gather/op18-quant-gather.html" title="位数减半，麻烦加倍：FP8/FP4 格式、量化 kernel 与 gather/scatter">18</a><span class="arr">→</span><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="arr">→</span><a href="gm28-gemm-variants/gm28-gemm-variants.html" title="GEMM 变种：Split-K、Grouped GEMM 与 GEMV">28</a><span class="arr">→</span><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html" title="低精度 GEMM：FP8、W4A16与 MXFP4">29</a><span class="arr">→</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向">33</a><span class="arr">→</span><a href="at35-flashattention3/at35-flashattention3.html" title="FlashAttention-3：Hopper 上的异步与 FP8">35</a><span class="arr">→</span><a href="at37-inference-attention/at37-inference-attention.html" title="推理 Attention：Decode、Paged、GQA/MLA 与变长">37</a><span class="arr">→</span><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html" title="GPU 互联硬件与集合通信：从 NVLink 到 MNNVL">48</a><span class="arr">→</span><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html" title="自定义通信算子与计算-通信重叠">50</a><span class="t">12 篇 · 约 4.4 小时</span></div><p class="note">decode 与 prefill 的关键 kernel，低精度与多卡。</p></dd></div>
+    <div><dt>生成模型</dt><dd><div class="route"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html" title="逐元素算子只比谁搬得少：向量化、广播与算子融合">16</a><span class="arr">→</span><a href="op17-softmax-norm/op17-softmax-norm.html" title="数清访存再动手：Softmax、LayerNorm与 RMSNorm 的一遍扫描">17</a><span class="arr">→</span><a href="cv30-conv-basics/cv30-conv-basics.html" title="卷积基础：direct conv、im2col 与 NHWC 布局">30</a><span class="arr">→</span><a href="cv31-implicit-gemm/cv31-implicit-gemm.html" title="Implicit GEMM：不物化 col 矩阵的卷积">31</a><span class="arr">→</span><a href="at33-flashattention-fwd/at33-flashattention-fwd.html" title="Attention 基础与FlashAttention 前向">33</a><span class="arr">→</span><a href="df38-unet-ops/df38-unet-ops.html" title="Diffusion（一）：UNet 算子GroupNorm、卷积与融合">38</a><span class="arr">→</span><a href="df39-dit-ops/df39-dit-ops.html" title="Diffusion（二）：DiT 算子adaLN、RoPE 与长序列">39</a><span class="arr">→</span><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html" title="Diffusion（三）：视频生成与加速 kernel">40</a><span class="t">8 篇 · 约 3.0 小时</span></div><p class="note">从 UNet 到 DiT 再到视频生成。</p></dd></div>
+    <div><dt>3D 视觉与图形</dt><dd><div class="route"><a href="cu08-sync-atomics/cu08-sync-atomics.html" title="线程之间怎么说话：同步、原子操作与 GPU 内存模型">08</a><span class="arr">→</span><a href="pp10-reduction/pp10-reduction.html" title="把一亿个数加成一个：并行归约从 Harris 七步到 warp shuffle">10</a><span class="arr">→</span><a href="pp12-scan/pp12-scan.html" title="前缀和是 GPU 上的分配器：从 Hillis–Steele、Blelloch 到单遍 decoupled look-back">12</a><span class="arr">→</span><a href="pp13-sort-topk/pp13-sort-topk.html" title="GPU 上很少真的排序：基数排序、bitonic 网络、Top-K 与采样算子">13</a><span class="arr">→</span><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html" title="3D Gaussian Splatting（一）光栅化前向">41</a><span class="arr">→</span><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html" title="3D Gaussian Splatting（二）反向传播">42</a><span class="arr">→</span><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html" title="NeRF 加速体渲染与哈希编码">43</a><span class="arr">→</span><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html" title="点云与稀疏 3D体素化与稀疏卷积">44</a><span class="t">8 篇 · 约 2.9 小时</span></div><p class="note">排序、原子与不规则访存在 3D 负载里的样子。</p></dd></div>
+    <div><dt>Hopper 与 Blackwell 新硬件</dt><dd><div class="route"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html" title="异步搬运与协调：cp.async、TMA 与 mbarrier">21</a><span class="arr">→</span><a href="tc22-hopper/tc22-hopper.html" title="一条指令喂饱四个 warp：WGMMA、warp 特化与 cluster">22</a><span class="arr">→</span><a href="tc23-blackwell/tc23-blackwell.html" title="一个线程发射一次矩阵乘：Blackwell 的 tcgen05、TMEM 与 CLC">23</a><span class="arr">→</span><a href="gm26-hopper-gemm/gm26-hopper-gemm.html" title="Hopper GEMM：TMA、WGMMA与 Warp Specialization">26</a><span class="arr">→</span><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html" title="Blackwell GEMM：tcgen05、TMEM与 2-CTA 协作">27</a><span class="arr">→</span><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html" title="低精度 GEMM：FP8、W4A16与 MXFP4">29</a><span class="arr">→</span><a href="at35-flashattention3/at35-flashattention3.html" title="FlashAttention-3：Hopper 上的异步与 FP8">35</a><span class="arr">→</span><a href="at36-flashattention4/at36-flashattention4.html" title="FlashAttention-4：Blackwell 上的 attention">36</a><span class="t">8 篇 · 约 2.7 小时</span></div><p class="note">TMA、WGMMA、warp 特化、TMEM、2-CTA 与 CLC。</p></dd></div>
+    <div><dt>面试冲刺</dt><dd><div class="route"><a href="p01-optimization-mainline/p01-optimization-mainline.html" title="一个下界，五笔账：GPU Kernel 优化的一条主线">主线</a><span class="arr">→</span><a href="hw03-performance-model/hw03-performance-model.html" title="先算上限，再谈优化：Roofline、算术强度与优化阶梯">03</a><span class="arr">→</span><a href="mt14-profiling/mt14-profiling.html" title="先测准，再问为什么：计时纪律、Nsight Systems 与 Nsight Compute">14</a><span class="arr">→</span><a href="iv51-interview-bank/iv51-interview-bank.html" title="GPU Kernel 面试题库概念 · 估算 · 系统设计 · STAR">51</a><span class="arr">→</span><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html" title="手写 Kernel：13 个白板面试模板">52</a><span class="t">5 篇 · 约 1.9 小时</span></div><p class="note">先抓方法，再刷题和手撕。</p></dd></div>
+  </dl>
+</section>
+<section id="questions">
+  <h2>按问题查</h2>
+  <p class="hint">全系列 297 道面试题，按部分折叠。点问题直接跳到那一篇里的回答；也可以用页首的搜索框按关键词筛选。</p>
+  <details class="qgroup"><summary>开篇<span class="pmin">9 道</span></summary>
+  <ol class="qs">
+    <li data-search="你会怎么从零优化一个 kernel？ 导读"><span class="q"><a href="p00-overview/p00-overview.html#sec-q1">你会怎么从零优化一个 kernel？</a></span><span class="go">导读</span></li>
+    <li data-search="本系列讲的“三条硬件演进线”是什么？ 导读"><span class="q"><a href="p00-overview/p00-overview.html#sec-q2">本系列讲的“三条硬件演进线”是什么？</a></span><span class="go">导读</span></li>
+    <li data-search="CUDA C++、Triton、CUTLASS/CuTe 各适合什么场景？ 导读"><span class="q"><a href="p00-overview/p00-overview.html#sec-q3">CUDA C++、Triton、CUTLASS/CuTe 各适合什么场景？</a></span><span class="go">导读</span></li>
+    <li data-search="如何判断一个 kernel 是 memory-bound 还是 compute-bound？ 导读"><span class="q"><a href="p00-overview/p00-overview.html#sec-q4">如何判断一个 kernel 是 memory-bound 还是 compute-bound？</a></span><span class="go">导读</span></li>
+    <li data-search="给你一个跑得慢的 kernel，你会怎么优化？ 主线"><span class="q"><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-q1">给你一个跑得慢的 kernel，你会怎么优化？</a></span><span class="go">主线</span></li>
+    <li data-search="kernel 只跑到峰值算力的 30%，说明什么？ 主线"><span class="q"><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-q2">kernel 只跑到峰值算力的 30%，说明什么？</a></span><span class="go">主线</span></li>
+    <li data-search="FlashAttention 为什么快？它的运算量反而更多。 主线"><span class="q"><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-q3">FlashAttention 为什么快？它的运算量反而更多。</a></span><span class="go">主线</span></li>
+    <li data-search="occupancy 越高越好吗？ 主线"><span class="q"><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-q4">occupancy 越高越好吗？</a></span><span class="go">主线</span></li>
+    <li data-search="同一个 GEMM kernel，换一个 shape 慢了将近一半，为什么？ 主线"><span class="q"><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-q5">同一个 GEMM kernel，换一个 shape 慢了将近一半，为什么？</a></span><span class="go">主线</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>一、GPU 硬件与性能模型<span class="pmin">17 道</span></summary>
+  <ol class="qs">
+    <li data-search="SM、warp、CUDA core 是什么关系？ 01"><span class="q"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-q1">SM、warp、CUDA core 是什么关系？</a></span><span class="go">01</span></li>
+    <li data-search="共享内存和 L1 是什么关系？ 01"><span class="q"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-q2">共享内存和 L1 是什么关系？</a></span><span class="go">01</span></li>
+    <li data-search="为什么 GPU 每个 SM 的寄存器堆不比 L1 小？ 01"><span class="q"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-q3">为什么 GPU 每个 SM 的寄存器堆不比 L1 小？</a></span><span class="go">01</span></li>
+    <li data-search="H100 相比 A100 多了哪些硬件单元？B200 相比 H100 呢？ 01"><span class="q"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-q4">H100 相比 A100 多了哪些硬件单元？B200 相比 H100 呢？</a></span><span class="go">01</span></li>
+    <li data-search="给你一块新 GPU，怎么估算它的 FP32 峰值和显存带宽？ 01"><span class="q"><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-q5">给你一块新 GPU，怎么估算它的 FP32 峰值和显存带宽？</a></span><span class="go">01</span></li>
+    <li data-search="什么是 warp divergence？代价多大？怎么避免？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q1">什么是 warp divergence？代价多大？怎么避免？</a></span><span class="go">02</span></li>
+    <li data-search="block 大小怎么选？为什么是 32 的倍数？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q2">block 大小怎么选？为什么是 32 的倍数？</a></span><span class="go">02</span></li>
+    <li data-search="GPU 怎样隐藏访存延迟？和 CPU 有什么不同？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q3">GPU 怎样隐藏访存延迟？和 CPU 有什么不同？</a></span><span class="go">02</span></li>
+    <li data-search="独立线程调度（Volta 起）对老代码有什么影响？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q4">独立线程调度（Volta 起）对老代码有什么影响？</a></span><span class="go">02</span></li>
+    <li data-search="TLP 和 ILP 是什么？什么时候低 occupancy 反而更快？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q5">TLP 和 ILP 是什么？什么时候低 occupancy 反而更快？</a></span><span class="go">02</span></li>
+    <li data-search="问 6（进阶）：Hopper 和 Blackwell 在执行模型上加了什么？ 02"><span class="q"><a href="hw02-execution-model/hw02-execution-model.html#sec-q6">问 6（进阶）：Hopper 和 Blackwell 在执行模型上加了什么？</a></span><span class="go">02</span></li>
+    <li data-search="给一个算子和 shape，判断它是 memory-bound 还是 compute-bound 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q1">给一个算子和 shape，判断它是 memory-bound 还是 compute-bound</a></span><span class="go">03</span></li>
+    <li data-search="GEMM 的算术强度怎么算？和 tile 大小有什么关系？ 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q2">GEMM 的算术强度怎么算？和 tile 大小有什么关系？</a></span><span class="go">03</span></li>
+    <li data-search="为什么 LLM 的 decode 阶段是 memory-bound？怎么缓解？ 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q3">为什么 LLM 的 decode 阶段是 memory-bound？怎么缓解？</a></span><span class="go">03</span></li>
+    <li data-search="“kernel 只跑到峰值的 30%”，你怎么分析？ 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q4">“kernel 只跑到峰值的 30%”，你怎么分析？</a></span><span class="go">03</span></li>
+    <li data-search="FlashAttention 运算量更多（反向要重算），为什么更快？ 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q5">FlashAttention 运算量更多（反向要重算），为什么更快？</a></span><span class="go">03</span></li>
+    <li data-search="占用率越高越好吗？ 03"><span class="q"><a href="hw03-performance-model/hw03-performance-model.html#sec-q6">占用率越高越好吗？</a></span><span class="go">03</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>二、CUDA 编程基础<span class="pmin">38 道</span></summary>
+  <ol class="qs">
+    <li data-search="kernel 启动是同步还是异步？怎样检查 kernel 出错？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q1">kernel 启动是同步还是异步？怎样检查 kernel 出错？</a></span><span class="go">04</span></li>
+    <li data-search="grid-stride loop 有什么好处？grid 大小怎么选？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q2">grid-stride loop 有什么好处？grid 大小怎么选？</a></span><span class="go">04</span></li>
+    <li data-search="为什么 kernel 里要写 if (i &lt; n)？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q3">为什么 kernel 里要写 if (i &lt; n)？</a></span><span class="go">04</span></li>
+    <li data-search="PTX 和 SASS 有什么区别？-arch=sm_80 实际生成了什么？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q4">PTX 和 SASS 有什么区别？-arch=sm_80 实际生成了什么？</a></span><span class="go">04</span></li>
+    <li data-search="为什么用 WGMMA 要 -arch=sm_90a？这样编出的程序能在 B200 上跑吗？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q5">为什么用 WGMMA 要 -arch=sm_90a？这样编出的程序能在 B200 上跑吗？</a></span><span class="go">04</span></li>
+    <li data-search="__restrict__ 和 __launch_bounds__ 有什么用？ 04"><span class="q"><a href="cu04-first-kernel/cu04-first-kernel.html#sec-q6">__restrict__ 和 __launch_bounds__ 有什么用？</a></span><span class="go">04</span></li>
+    <li data-search="什么是合并访存（coalesced access）？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q1">什么是合并访存（coalesced access）？</a></span><span class="go">05</span></li>
+    <li data-search="相邻线程步长为 2 时带宽利用率是多少？步长 32 呢？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q2">相邻线程步长为 2 时带宽利用率是多少？步长 32 呢？</a></span><span class="go">05</span></li>
+    <li data-search="float4 向量化为什么快？有什么前提？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q3">float4 向量化为什么快？有什么前提？</a></span><span class="go">05</span></li>
+    <li data-search="AoS 和 SoA 怎么选？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q4">AoS 和 SoA 怎么选？</a></span><span class="go">05</span></li>
+    <li data-search="为什么朴素矩阵转置慢？怎么改？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q5">为什么朴素矩阵转置慢？怎么改？</a></span><span class="go">05</span></li>
+    <li data-search="const __restrict__ 和 __ldg 有什么用？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q6">const __restrict__ 和 __ldg 有什么用？</a></span><span class="go">05</span></li>
+    <li data-search="怎么判断一个 memory-bound kernel 写得好不好？ 05"><span class="q"><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-q7">怎么判断一个 memory-bound kernel 写得好不好？</a></span><span class="go">05</span></li>
+    <li data-search="给代码判几路冲突 06"><span class="q"><a href="cu06-shared-memory/cu06-shared-memory.html#sec-q1">给代码判几路冲突</a></span><span class="go">06</span></li>
+    <li data-search="转置为什么要 +1 padding？还有别的办法吗？ 06"><span class="q"><a href="cu06-shared-memory/cu06-shared-memory.html#sec-q2">转置为什么要 +1 padding？还有别的办法吗？</a></span><span class="go">06</span></li>
+    <li data-search="bank 冲突和访存合并有什么区别？ 06"><span class="q"><a href="cu06-shared-memory/cu06-shared-memory.html#sec-q3">bank 冲突和访存合并有什么区别？</a></span><span class="go">06</span></li>
+    <li data-search="__syncthreads() 放在 if 里会怎样？ 06"><span class="q"><a href="cu06-shared-memory/cu06-shared-memory.html#sec-q4">__syncthreads() 放在 if 里会怎样？</a></span><span class="go">06</span></li>
+    <li data-search="超过 48 KB 的共享内存怎么用？ 06"><span class="q"><a href="cu06-shared-memory/cu06-shared-memory.html#sec-q5">超过 48 KB 的共享内存怎么用？</a></span><span class="go">06</span></li>
+    <li data-search="手算：A100 上 256 线程、40 个寄存器、20 KB 共享内存，occupancy 多少？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q1">手算：A100 上 256 线程、40 个寄存器、20 KB 共享内存，occupancy 多少？</a></span><span class="go">07</span></li>
+    <li data-search="为什么多用一个寄存器，occupancy 可能掉很多？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q2">为什么多用一个寄存器，occupancy 可能掉很多？</a></span><span class="go">07</span></li>
+    <li data-search="寄存器溢出怎么发现、怎么解决？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q3">寄存器溢出怎么发现、怎么解决？</a></span><span class="go">07</span></li>
+    <li data-search="为什么很多高性能 kernel 的 occupancy 很低？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q4">为什么很多高性能 kernel 的 occupancy 很低？</a></span><span class="go">07</span></li>
+    <li data-search="什么是 wave quantization，怎么缓解？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q5">什么是 wave quantization，怎么缓解？</a></span><span class="go">07</span></li>
+    <li data-search="block 大小怎么选？ 07"><span class="q"><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-q6">block 大小怎么选？</a></span><span class="go">07</span></li>
+    <li data-search="block 之间怎么同步？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q1">block 之间怎么同步？</a></span><span class="go">08</span></li>
+    <li data-search="__syncthreads() 放在 if 里会怎样？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q2">__syncthreads() 放在 if 里会怎样？</a></span><span class="go">08</span></li>
+    <li data-search="手撕：用 atomicCAS 实现 float 的 atomicMax 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q3">手撕：用 atomicCAS 实现 float 的 atomicMax</a></span><span class="go">08</span></li>
+    <li data-search="浮点 atomicAdd 为什么结果不确定？怎么做确定性归约？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q4">浮点 atomicAdd 为什么结果不确定？怎么做确定性归约？</a></span><span class="go">08</span></li>
+    <li data-search="__threadfence() 和 __syncthreads() 有什么区别？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q5">__threadfence() 和 __syncthreads() 有什么区别？</a></span><span class="go">08</span></li>
+    <li data-search="volatile 能不能代替原子操作或 fence？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q6">volatile 能不能代替原子操作或 fence？</a></span><span class="go">08</span></li>
+    <li data-search="直方图的原子争用怎么优化？ 08"><span class="q"><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-q7">直方图的原子争用怎么优化？</a></span><span class="go">08</span></li>
+    <li data-search="pinned 内存为什么快？能不能全部用 pinned？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q1">pinned 内存为什么快？能不能全部用 pinned？</a></span><span class="go">09</span></li>
+    <li data-search="怎样让拷贝和计算重叠？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q2">怎样让拷贝和计算重叠？</a></span><span class="go">09</span></li>
+    <li data-search="开了多个 stream，kernel 还是串行，可能是什么原因？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q3">开了多个 stream，kernel 还是串行，可能是什么原因？</a></span><span class="go">09</span></li>
+    <li data-search="CUDA Graph 解决什么问题？有什么限制？LLM 推理为什么用它？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q4">CUDA Graph 解决什么问题？有什么限制？LLM 推理为什么用它？</a></span><span class="go">09</span></li>
+    <li data-search="用 event 计时要注意什么？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q5">用 event 计时要注意什么？</a></span><span class="go">09</span></li>
+    <li data-search="统一内存、映射内存（零拷贝）、显式拷贝怎么选？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q6">统一内存、映射内存（零拷贝）、显式拷贝怎么选？</a></span><span class="go">09</span></li>
+    <li data-search="PDL 是什么？和把两个 kernel 放进不同 stream 有什么区别？ 09"><span class="q"><a href="cu09-streams-host/cu09-streams-host.html#sec-q7">PDL 是什么？和把两个 kernel 放进不同 stream 有什么区别？</a></span><span class="go">09</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>三、并行原语<span class="pmin">25 道</span></summary>
+  <ol class="qs">
+    <li data-search="手写一个 block 内求和（最高频） 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q1">手写一个 block 内求和（最高频）</a></span><span class="go">10</span></li>
+    <li data-search="Harris 的 v1、v2、v3 分别有什么问题？ 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q2">Harris 的 v1、v2、v3 分别有什么问题？</a></span><span class="go">10</span></li>
+    <li data-search="大数组怎样只用一次 kernel launch 完成归约？ 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q3">大数组怎样只用一次 kernel launch 完成归约？</a></span><span class="go">10</span></li>
+    <li data-search="同样的输入，两次求和结果不一样，为什么？怎么办？ 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q4">同样的输入，两次求和结果不一样，为什么？怎么办？</a></span><span class="go">10</span></li>
+    <li data-search="估算：H100 SXM 上对 1 GiB 的 float32 求和，最快要多久？ 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q5">估算：H100 SXM 上对 1 GiB 的 float32 求和，最快要多久？</a></span><span class="go">10</span></li>
+    <li data-search="argmax 怎么并行？ 10"><span class="q"><a href="pp10-reduction/pp10-reduction.html#sec-q6">argmax 怎么并行？</a></span><span class="go">10</span></li>
+    <li data-search="shuffle 和 shared memory 交换数据有什么区别？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q1">shuffle 和 shared memory 交换数据有什么区别？</a></span><span class="go">11</span></li>
+    <li data-search="mask 参数什么时候不是 0xffffffff？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q2">mask 参数什么时候不是 0xffffffff？</a></span><span class="go">11</span></li>
+    <li data-search="用 ballot 实现 warp 内的流压缩。 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q3">用 ballot 实现 warp 内的流压缩。</a></span><span class="go">11</span></li>
+    <li data-search="width 小于 32 时，shfl_up / shfl_down / shfl_xor 在段边界上返回什么？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q4">width 小于 32 时，shfl_up / shfl_down / shfl_xor 在段边界上返回什么？</a></span><span class="go">11</span></li>
+    <li data-search="怎样实现 warp 内的 argmax？有并列最大值怎么办？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q5">怎样实现 warp 内的 argmax？有并列最大值怎么办？</a></span><span class="go">11</span></li>
+    <li data-search="__match_any_sync 适合什么场景？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q6">__match_any_sync 适合什么场景？</a></span><span class="go">11</span></li>
+    <li data-search="Hopper 上为什么常见 elect_one_sync？ 11"><span class="q"><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-q7">Hopper 上为什么常见 elect_one_sync？</a></span><span class="go">11</span></li>
+    <li data-search="手写一个 warp 内的 inclusive scan 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q1">手写一个 warp 内的 inclusive scan</a></span><span class="go">12</span></li>
+    <li data-search="扩展到一个 block 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q2">扩展到一个 block</a></span><span class="go">12</span></li>
+    <li data-search="Blelloch 和 Hillis–Steele 的工作量与步数 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q3">Blelloch 和 Hillis–Steele 的工作量与步数</a></span><span class="go">12</span></li>
+    <li data-search="大数组的 scan 怎么做，访存是多少 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q4">大数组的 scan 怎么做，访存是多少</a></span><span class="go">12</span></li>
+    <li data-search="decoupled look-back 为什么不会死锁 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q5">decoupled look-back 为什么不会死锁</a></span><span class="go">12</span></li>
+    <li data-search="用 scan 实现流压缩 12"><span class="q"><a href="pp12-scan/pp12-scan.html#sec-q6">用 scan 实现流压缩</a></span><span class="go">12</span></li>
+    <li data-search="GPU 上为什么常用基数排序而不是快排？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q1">GPU 上为什么常用基数排序而不是快排？</a></span><span class="go">13</span></li>
+    <li data-search="LSD 基数排序为什么要求每一轮稳定？怎么在 GPU 上保证？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q2">LSD 基数排序为什么要求每一轮稳定？怎么在 GPU 上保证？</a></span><span class="go">13</span></li>
+    <li data-search="Top-K 在 \(k=1\)、\(k=50\)、\(k=1000\) 时分别怎么做？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q3">Top-K 在 \(k=1\)、\(k=50\)、\(k=1000\) 时分别怎么做？</a></span><span class="go">13</span></li>
+    <li data-search="浮点数怎么做基数排序？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q4">浮点数怎么做基数排序？</a></span><span class="go">13</span></li>
+    <li data-search="3DGS 为什么只排一次就能同时按 tile 和深度排好？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q5">3DGS 为什么只排一次就能同时按 tile 和深度排好？</a></span><span class="go">13</span></li>
+    <li data-search="softmax + top-p 采样怎么融合，怎么避免全排序？ 13"><span class="q"><a href="pp13-sort-topk/pp13-sort-topk.html#sec-q6">softmax + top-p 采样怎么融合，怎么避免全排序？</a></span><span class="go">13</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>四、方法论<span class="pmin">11 道</span></summary>
+  <ol class="qs">
+    <li data-search="你会怎么 profile 一个慢 kernel？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q1">你会怎么 profile 一个慢 kernel？</a></span><span class="go">14</span></li>
+    <li data-search="benchmark 为什么要冲刷 L2？什么时候不该冲刷？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q2">benchmark 为什么要冲刷 L2？什么时候不该冲刷？</a></span><span class="go">14</span></li>
+    <li data-search="CUDA event 和 CPU 计时器有什么区别？几微秒的 kernel 怎么测？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q3">CUDA event 和 CPU 计时器有什么区别？几微秒的 kernel 怎么测？</a></span><span class="go">14</span></li>
+    <li data-search="ncu 里 Compute 只有 30%、Memory 也只有 30%，说明什么？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q4">ncu 里 Compute 只有 30%、Memory 也只有 30%，说明什么？</a></span><span class="go">14</span></li>
+    <li data-search="有效带宽怎么算？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q5">有效带宽怎么算？</a></span><span class="go">14</span></li>
+    <li data-search="在 Hopper/Blackwell 的 warp 特化 GEMM 上，ncu 显示发射槽占用只有百分之几，要不要优化？ 14"><span class="q"><a href="mt14-profiling/mt14-profiling.html#sec-q6">在 Hopper/Blackwell 的 warp 特化 GEMM 上，ncu 显示发射槽占用只有百分之几，要不要优化？</a></span><span class="go">14</span></li>
+    <li data-search="kernel 的结果偶尔错，你怎么查？ 15"><span class="q"><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-q1">kernel 的结果偶尔错，你怎么查？</a></span><span class="go">15</span></li>
+    <li data-search="怎么确认编译器生成了向量化加载？ 15"><span class="q"><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-q2">怎么确认编译器生成了向量化加载？</a></span><span class="go">15</span></li>
+    <li data-search="kernel 挂住不返回，你怎么办？ 15"><span class="q"><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-q3">kernel 挂住不返回，你怎么办？</a></span><span class="go">15</span></li>
+    <li data-search="为什么一次非法访问之后，后面所有 CUDA 调用都失败？ 15"><span class="q"><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-q4">为什么一次非法访问之后，后面所有 CUDA 调用都失败？</a></span><span class="go">15</span></li>
+    <li data-search="-G 和 -lineinfo 有什么区别？ 15"><span class="q"><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-q5">-G 和 -lineinfo 有什么区别？</a></span><span class="go">15</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>五、深度学习常用算子<span class="pmin">15 道</span></summary>
+  <ol class="qs">
+    <li data-search="为什么要做算子融合？什么时候不该融合？ 16"><span class="q"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-q1">为什么要做算子融合？什么时候不该融合？</a></span><span class="go">16</span></li>
+    <li data-search="手写一个通用的向量化逐元素 kernel，要注意什么？ 16"><span class="q"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-q2">手写一个通用的向量化逐元素 kernel，要注意什么？</a></span><span class="go">16</span></li>
+    <li data-search="__expf 和 expf 有什么区别？ 16"><span class="q"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-q3">__expf 和 expf 有什么区别？</a></span><span class="go">16</span></li>
+    <li data-search="dropout 的反向怎么拿到前向的 mask？ 16"><span class="q"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-q4">dropout 的反向怎么拿到前向的 mask？</a></span><span class="go">16</span></li>
+    <li data-search="广播加法 kernel 里的下标怎么算？有什么坑？ 16"><span class="q"><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-q5">广播加法 kernel 里的下标怎么算？有什么坑？</a></span><span class="go">16</span></li>
+    <li data-search="手写一个 softmax kernel 17"><span class="q"><a href="op17-softmax-norm/op17-softmax-norm.html#sec-q1">手写一个 softmax kernel</a></span><span class="go">17</span></li>
+    <li data-search="推导 online softmax，并说明它为什么能并行 17"><span class="q"><a href="op17-softmax-norm/op17-softmax-norm.html#sec-q2">推导 online softmax，并说明它为什么能并行</a></span><span class="go">17</span></li>
+    <li data-search="LayerNorm 反向的 dγ 怎么高效求 17"><span class="q"><a href="op17-softmax-norm/op17-softmax-norm.html#sec-q3">LayerNorm 反向的 dγ 怎么高效求</a></span><span class="go">17</span></li>
+    <li data-search="RMSNorm 为什么比 LayerNorm 快？快多少？ 17"><span class="q"><a href="op17-softmax-norm/op17-softmax-norm.html#sec-q4">RMSNorm 为什么比 LayerNorm 快？快多少？</a></span><span class="go">17</span></li>
+    <li data-search="方差为什么不能用 E[x²] − E[x]²？ 17"><span class="q"><a href="op17-softmax-norm/op17-softmax-norm.html#sec-q5">方差为什么不能用 E[x²] − E[x]²？</a></span><span class="go">17</span></li>
+    <li data-search="FP8 的 E4M3 和 E5M2 有什么区别？各用在哪里？ 18"><span class="q"><a href="op18-quant-gather/op18-quant-gather.html#sec-q1">FP8 的 E4M3 和 E5M2 有什么区别？各用在哪里？</a></span><span class="go">18</span></li>
+    <li data-search="写一个每 token 的 FP8 动态量化 kernel，要注意什么？ 18"><span class="q"><a href="op18-quant-gather/op18-quant-gather.html#sec-q2">写一个每 token 的 FP8 动态量化 kernel，要注意什么？</a></span><span class="go">18</span></li>
+    <li data-search="MXFP4 和 NVFP4 有什么区别？ 18"><span class="q"><a href="op18-quant-gather/op18-quant-gather.html#sec-q3">MXFP4 和 NVFP4 有什么区别？</a></span><span class="go">18</span></li>
+    <li data-search="INT4 权重怎么快速反量化成 FP16？ 18"><span class="q"><a href="op18-quant-gather/op18-quant-gather.html#sec-q4">INT4 权重怎么快速反量化成 FP16？</a></span><span class="go">18</span></li>
+    <li data-search="scatter-add 怎么做到结果确定？MoE 的 permute 怎么写？ 18"><span class="q"><a href="op18-quant-gather/op18-quant-gather.html#sec-q5">scatter-add 怎么做到结果确定？MoE 的 permute 怎么写？</a></span><span class="go">18</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>六、Tensor Core 与异步硬件<span class="pmin">25 道</span></summary>
+  <ol class="qs">
+    <li data-search="Tensor Core 为什么比 CUDA core 快那么多？ 19"><span class="q"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-q1">Tensor Core 为什么比 CUDA core 快那么多？</a></span><span class="go">19</span></li>
+    <li data-search="WMMA 和 mma.sync 有什么区别？ 19"><span class="q"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-q2">WMMA 和 mma.sync 有什么区别？</a></span><span class="go">19</span></li>
+    <li data-search="给你 lane 5，说出它在 m16n8k16 的 A、C 片段里持有哪些元素。 19"><span class="q"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-q3">给你 lane 5，说出它在 m16n8k16 的 A、C 片段里持有哪些元素。</a></span><span class="go">19</span></li>
+    <li data-search="ldmatrix 做了什么？什么时候要 .trans？ 19"><span class="q"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-q4">ldmatrix 做了什么？什么时候要 .trans？</a></span><span class="go">19</span></li>
+    <li data-search="为什么 FP16 GEMM 要用 FP32 累加？ 19"><span class="q"><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-q5">为什么 FP16 GEMM 要用 FP32 累加？</a></span><span class="go">19</span></li>
+    <li data-search="什么是 layout？给出 (4,8):(8,1)，求坐标 (2,3) 和一维坐标 11 对应的偏移。 20"><span class="q"><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-q1">什么是 layout？给出 (4,8):(8,1)，求坐标 (2,3) 和一维坐标 11 对应的偏移。</a></span><span class="go">20</span></li>
+    <li data-search="行优先、列优先、padding、swizzle 怎么用统一的方式表示？ 20"><span class="q"><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-q2">行优先、列优先、padding、swizzle 怎么用统一的方式表示？</a></span><span class="go">20</span></li>
+    <li data-search="CuTe 的布局代数解决了什么问题？ 20"><span class="q"><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-q3">CuTe 的布局代数解决了什么问题？</a></span><span class="go">20</span></li>
+    <li data-search="什么是 TV layout？步长为 0 意味着什么？ 20"><span class="q"><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-q4">什么是 TV layout？步长为 0 意味着什么？</a></span><span class="go">20</span></li>
+    <li data-search="cp.async 和普通 load 的区别？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q1">cp.async 和普通 load 的区别？</a></span><span class="go">21</span></li>
+    <li data-search="TMA 的优点有哪些？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q2">TMA 的优点有哪些？</a></span><span class="go">21</span></li>
+    <li data-search="mbarrier 的 tx-count 怎么工作？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q3">mbarrier 的 tx-count 怎么工作？</a></span><span class="go">21</span></li>
+    <li data-search="mbarrier 的 phase 是什么？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q4">mbarrier 的 phase 是什么？</a></span><span class="go">21</span></li>
+    <li data-search="多级流水线 stage 数怎么选？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q5">多级流水线 stage 数怎么选？</a></span><span class="go">21</span></li>
+    <li data-search="fence.proxy.async 什么时候需要？ 21"><span class="q"><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-q6">fence.proxy.async 什么时候需要？</a></span><span class="go">21</span></li>
+    <li data-search="WGMMA 相比 mma.sync 有哪些变化？ 22"><span class="q"><a href="tc22-hopper/tc22-hopper.html#sec-q1">WGMMA 相比 mma.sync 有哪些变化？</a></span><span class="go">22</span></li>
+    <li data-search="描述符里都有什么？为什么要除以 16？ 22"><span class="q"><a href="tc22-hopper/tc22-hopper.html#sec-q2">描述符里都有什么？为什么要除以 16？</a></span><span class="go">22</span></li>
+    <li data-search="为什么要做 warp 特化？ 22"><span class="q"><a href="tc22-hopper/tc22-hopper.html#sec-q3">为什么要做 warp 特化？</a></span><span class="go">22</span></li>
+    <li data-search="cluster 有什么用？ 22"><span class="q"><a href="tc22-hopper/tc22-hopper.html#sec-q4">cluster 有什么用？</a></span><span class="go">22</span></li>
+    <li data-search="ping-pong 和 cooperative 的区别？ 22"><span class="q"><a href="tc22-hopper/tc22-hopper.html#sec-q5">ping-pong 和 cooperative 的区别？</a></span><span class="go">22</span></li>
+    <li data-search="Blackwell 为什么要专门搞一块 TMEM？ 23"><span class="q"><a href="tc23-blackwell/tc23-blackwell.html#sec-q1">Blackwell 为什么要专门搞一块 TMEM？</a></span><span class="go">23</span></li>
+    <li data-search="cta_group::2 的 A、B 怎么分，为什么划算？ 23"><span class="q"><a href="tc23-blackwell/tc23-blackwell.html#sec-q2">cta_group::2 的 A、B 怎么分，为什么划算？</a></span><span class="go">23</span></li>
+    <li data-search="缩放因子是怎么喂给 Tensor Core 的？ 23"><span class="q"><a href="tc23-blackwell/tc23-blackwell.html#sec-q3">缩放因子是怎么喂给 Tensor Core 的？</a></span><span class="go">23</span></li>
+    <li data-search="Cluster Launch Control 解决了什么问题？ 23"><span class="q"><a href="tc23-blackwell/tc23-blackwell.html#sec-q4">Cluster Launch Control 解决了什么问题？</a></span><span class="go">23</span></li>
+    <li data-search="发了 MMA 之后，怎么知道可以读结果了？ 23"><span class="q"><a href="tc23-blackwell/tc23-blackwell.html#sec-q5">发了 MMA 之后，怎么知道可以读结果了？</a></span><span class="go">23</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>七、GEMM 实战<span class="pmin">33 道</span></summary>
+  <ol class="qs">
+    <li data-search="手撕 shared memory tiled SGEMM。 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q1">手撕 shared memory tiled SGEMM。</a></span><span class="go">24</span></li>
+    <li data-search="寄存器分块为什么有效？ 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q2">寄存器分块为什么有效？</a></span><span class="go">24</span></li>
+    <li data-search="tile 大小怎么选，有什么约束？ 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q3">tile 大小怎么选，有什么约束？</a></span><span class="go">24</span></li>
+    <li data-search="双缓冲的原理是什么？ 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q4">双缓冲的原理是什么？</a></span><span class="go">24</span></li>
+    <li data-search="为什么外循环是 K 维而不是 M 或 N 维？ 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q5">为什么外循环是 K 维而不是 M 或 N 维？</a></span><span class="go">24</span></li>
+    <li data-search="SGEMM 和 HGEMM 的关键区别是什么？ 24"><span class="q"><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-q6">SGEMM 和 HGEMM 的关键区别是什么？</a></span><span class="go">24</span></li>
+    <li data-search="Ampere 上的 HGEMM 流水线怎么设计？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q1">Ampere 上的 HGEMM 流水线怎么设计？</a></span><span class="go">25</span></li>
+    <li data-search="为什么 ldmatrix 需要 swizzle？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q2">为什么 ldmatrix 需要 swizzle？</a></span><span class="go">25</span></li>
+    <li data-search="Threadblock swizzle 是什么？为什么有用？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q3">Threadblock swizzle 是什么？为什么有用？</a></span><span class="go">25</span></li>
+    <li data-search="Epilogue fusion 有哪些、为什么重要？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q4">Epilogue fusion 有哪些、为什么重要？</a></span><span class="go">25</span></li>
+    <li data-search="cp.async 和普通的 shared memory load 有什么区别？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q5">cp.async 和普通的 shared memory load 有什么区别？</a></span><span class="go">25</span></li>
+    <li data-search="为什么 Tensor Core GEMM 不需要高 occupancy？ 25"><span class="q"><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-q6">为什么 Tensor Core GEMM 不需要高 occupancy？</a></span><span class="go">25</span></li>
+    <li data-search="Hopper GEMM 相比 Ampere GEMM 的核心变化是什么？ 26"><span class="q"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-q1">Hopper GEMM 相比 Ampere GEMM 的核心变化是什么？</a></span><span class="go">26</span></li>
+    <li data-search="Warp specialization 的 producer/consumer 怎么同步？ 26"><span class="q"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-q2">Warp specialization 的 producer/consumer 怎么同步？</a></span><span class="go">26</span></li>
+    <li data-search="Persistent kernel 的好处和代价？ 26"><span class="q"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-q3">Persistent kernel 的好处和代价？</a></span><span class="go">26</span></li>
+    <li data-search="TMA multicast 节省了什么？ 26"><span class="q"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-q4">TMA multicast 节省了什么？</a></span><span class="go">26</span></li>
+    <li data-search="FP8 两级累加为什么比直接累加精度更好？ 26"><span class="q"><a href="gm26-hopper-gemm/gm26-hopper-gemm.html#sec-q5">FP8 两级累加为什么比直接累加精度更好？</a></span><span class="go">26</span></li>
+    <li data-search="tcgen05.mma 和 WGMMA 的核心区别？ 27"><span class="q"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-q1">tcgen05.mma 和 WGMMA 的核心区别？</a></span><span class="go">27</span></li>
+    <li data-search="为什么 Blackwell 只需要 PIPE_DEPTH=2？ 27"><span class="q"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-q2">为什么 Blackwell 只需要 PIPE_DEPTH=2？</a></span><span class="go">27</span></li>
+    <li data-search="2-CTA warp specialization 比单 CTA 的好在哪？ 27"><span class="q"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-q3">2-CTA warp specialization 比单 CTA 的好在哪？</a></span><span class="go">27</span></li>
+    <li data-search="CLC 替代 atomicAdd 做调度有什么好处？ 27"><span class="q"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-q4">CLC 替代 atomicAdd 做调度有什么好处？</a></span><span class="go">27</span></li>
+    <li data-search="TMEM 的列式寻址和 GPU 寄存器文件的线程式分配有什么本质区别？ 27"><span class="q"><a href="gm27-blackwell-gemm/gm27-blackwell-gemm.html#sec-q5">TMEM 的列式寻址和 GPU 寄存器文件的线程式分配有什么本质区别？</a></span><span class="go">27</span></li>
+    <li data-search="什么时候用 Split-K 而不是标准 GEMM？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q1">什么时候用 Split-K 而不是标准 GEMM？</a></span><span class="go">28</span></li>
+    <li data-search="Stream-K 比 Split-K 好在哪？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q2">Stream-K 比 Split-K 好在哪？</a></span><span class="go">28</span></li>
+    <li data-search="Grouped GEMM 的调度表有什么讲究？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q3">Grouped GEMM 的调度表有什么讲究？</a></span><span class="go">28</span></li>
+    <li data-search="GEMV 优化的核心瓶颈是什么？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q4">GEMV 优化的核心瓶颈是什么？</a></span><span class="go">28</span></li>
+    <li data-search="L2 tile 遍历顺序（swizzle）为什么能提速？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q5">L2 tile 遍历顺序（swizzle）为什么能提速？</a></span><span class="go">28</span></li>
+    <li data-search="Epilogue fusion 的收益上限是多少？ 28"><span class="q"><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-q6">Epilogue fusion 的收益上限是多少？</a></span><span class="go">28</span></li>
+    <li data-search="FP8 block scaling 的 block size 怎么选？ 29"><span class="q"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-q1">FP8 block scaling 的 block size 怎么选？</a></span><span class="go">29</span></li>
+    <li data-search="W4A16 的 Marlin kernel 为什么比 naive 解量化快？ 29"><span class="q"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-q2">W4A16 的 Marlin kernel 为什么比 naive 解量化快？</a></span><span class="go">29</span></li>
+    <li data-search="MXFP4 的 microscale 为什么是 E8M0？ 29"><span class="q"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-q3">MXFP4 的 microscale 为什么是 E8M0？</a></span><span class="go">29</span></li>
+    <li data-search="低精度 GEMM 的 epilogue 和标准 GEMM 有什么不同？ 29"><span class="q"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-q4">低精度 GEMM 的 epilogue 和标准 GEMM 有什么不同？</a></span><span class="go">29</span></li>
+    <li data-search="实际部署中如何选择 FP8、W4A16、W8A8、MXFP4？ 29"><span class="q"><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-q5">实际部署中如何选择 FP8、W4A16、W8A8、MXFP4？</a></span><span class="go">29</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>八、卷积<span class="pmin">15 道</span></summary>
+  <ol class="qs">
+    <li data-search="im2col 的原理是什么？有什么代价？ 30"><span class="q"><a href="cv30-conv-basics/cv30-conv-basics.html#sec-q1">im2col 的原理是什么？有什么代价？</a></span><span class="go">30</span></li>
+    <li data-search="为什么推荐 NHWC 而不是 NCHW？ 30"><span class="q"><a href="cv30-conv-basics/cv30-conv-basics.html#sec-q2">为什么推荐 NHWC 而不是 NCHW？</a></span><span class="go">30</span></li>
+    <li data-search="Depthwise 卷积为什么难优化？ 30"><span class="q"><a href="cv30-conv-basics/cv30-conv-basics.html#sec-q3">Depthwise 卷积为什么难优化？</a></span><span class="go">30</span></li>
+    <li data-search="1×1 卷积和 GEMM 有什么关系？ 30"><span class="q"><a href="cv30-conv-basics/cv30-conv-basics.html#sec-q4">1×1 卷积和 GEMM 有什么关系？</a></span><span class="go">30</span></li>
+    <li data-search="直接卷积和 im2col 各适合什么场景？ 30"><span class="q"><a href="cv30-conv-basics/cv30-conv-basics.html#sec-q5">直接卷积和 im2col 各适合什么场景？</a></span><span class="go">30</span></li>
+    <li data-search="Implicit GEMM 相比 im2col + GEMM 有什么优劣？ 31"><span class="q"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-q1">Implicit GEMM 相比 im2col + GEMM 有什么优劣？</a></span><span class="go">31</span></li>
+    <li data-search="卷积反向的两个 GEMM 各有什么特点？ 31"><span class="q"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-q2">卷积反向的两个 GEMM 各有什么特点？</a></span><span class="go">31</span></li>
+    <li data-search="为什么 CUTLASS 的卷积只支持 NHWC？ 31"><span class="q"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-q3">为什么 CUTLASS 的卷积只支持 NHWC？</a></span><span class="go">31</span></li>
+    <li data-search="CUTLASS 的 implicit GEMM conv 和 GEMM 在代码结构上有什么区别？ 31"><span class="q"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-q4">CUTLASS 的 implicit GEMM conv 和 GEMM 在代码结构上有什么区别？</a></span><span class="go">31</span></li>
+    <li data-search="implicit GEMM 的 K 维度应该按什么顺序展开？ 31"><span class="q"><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-q5">implicit GEMM 的 K 维度应该按什么顺序展开？</a></span><span class="go">31</span></li>
+    <li data-search="Winograd 卷积为什么能省乘法？缺点是什么？ 32"><span class="q"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-q1">Winograd 卷积为什么能省乘法？缺点是什么？</a></span><span class="go">32</span></li>
+    <li data-search="什么时候考虑 FFT 卷积？ 32"><span class="q"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-q2">什么时候考虑 FFT 卷积？</a></span><span class="go">32</span></li>
+    <li data-search="可变形卷积的反向为什么需要 atomicAdd？ 32"><span class="q"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-q3">可变形卷积的反向为什么需要 atomicAdd？</a></span><span class="go">32</span></li>
+    <li data-search="转置卷积有哪两种实现方式？checkerboard artifact 怎么解？ 32"><span class="q"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-q4">转置卷积有哪两种实现方式？checkerboard artifact 怎么解？</a></span><span class="go">32</span></li>
+    <li data-search="Mamba 的 causal conv1d 为什么值得单独写 kernel？ 32"><span class="q"><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-q5">Mamba 的 causal conv1d 为什么值得单独写 kernel？</a></span><span class="go">32</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>九、Attention<span class="pmin">27 道</span></summary>
+  <ol class="qs">
+    <li data-search="FlashAttention 为什么能同时省显存和加速？（最高频） 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q1">FlashAttention 为什么能同时省显存和加速？（最高频）</a></span><span class="go">33</span></li>
+    <li data-search="FA2 相比 FA1 改了什么？ 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q2">FA2 相比 FA1 改了什么？</a></span><span class="go">33</span></li>
+    <li data-search="Online softmax 的 rescale 是怎么保证正确性的？ 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q3">Online softmax 的 rescale 是怎么保证正确性的？</a></span><span class="go">33</span></li>
+    <li data-search="Causal mask 如何加速 FlashAttention？ 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q4">Causal mask 如何加速 FlashAttention？</a></span><span class="go">33</span></li>
+    <li data-search="FlashAttention 的 IO 复杂度是多少？ 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q5">FlashAttention 的 IO 复杂度是多少？</a></span><span class="go">33</span></li>
+    <li data-search="FlashAttention 能否用于 cross-attention（Q 和 KV 长度不同）？ 33"><span class="q"><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-q6">FlashAttention 能否用于 cross-attention（Q 和 KV 长度不同）？</a></span><span class="go">33</span></li>
+    <li data-search="FlashAttention 反向为什么要重计算 S/P？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q1">FlashAttention 反向为什么要重计算 S/P？</a></span><span class="go">34</span></li>
+    <li data-search="dQ 为什么需要跨 block 累加？dK 和 dV 呢？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q2">dQ 为什么需要跨 block 累加？dK 和 dV 呢？</a></span><span class="go">34</span></li>
+    <li data-search="反向为什么比前向慢 2.5×？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q3">反向为什么比前向慢 2.5×？</a></span><span class="go">34</span></li>
+    <li data-search="Causal mask 下反向有什么额外问题？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q4">Causal mask 下反向有什么额外问题？</a></span><span class="go">34</span></li>
+    <li data-search="D_i 是什么，为什么要预计算？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q5">D_i 是什么，为什么要预计算？</a></span><span class="go">34</span></li>
+    <li data-search="FA2 反向能否进一步减少 GEMM 数量？ 34"><span class="q"><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-q6">FA2 反向能否进一步减少 GEMM 数量？</a></span><span class="go">34</span></li>
+    <li data-search="FA3 相比 FA2 的核心改进是什么？（高频） 35"><span class="q"><a href="at35-flashattention3/at35-flashattention3.html#sec-q1">FA3 相比 FA2 的核心改进是什么？（高频）</a></span><span class="go">35</span></li>
+    <li data-search="为什么 exp 会成为 attention 的瓶颈？ 35"><span class="q"><a href="at35-flashattention3/at35-flashattention3.html#sec-q2">为什么 exp 会成为 attention 的瓶颈？</a></span><span class="go">35</span></li>
+    <li data-search="FP8 attention 的精度问题怎么解决？ 35"><span class="q"><a href="at35-flashattention3/at35-flashattention3.html#sec-q3">FP8 attention 的精度问题怎么解决？</a></span><span class="go">35</span></li>
+    <li data-search="Persistent kernel 对 causal attention 有什么帮助？ 35"><span class="q"><a href="at35-flashattention3/at35-flashattention3.html#sec-q4">Persistent kernel 对 causal attention 有什么帮助？</a></span><span class="go">35</span></li>
+    <li data-search="FA3 的利用率为什么只有 ~75% 而不是 100%？ 35"><span class="q"><a href="at35-flashattention3/at35-flashattention3.html#sec-q5">FA3 的利用率为什么只有 ~75% 而不是 100%？</a></span><span class="go">35</span></li>
+    <li data-search="FA4 的 warp 角色划分和 FA3 有什么不同？（高频） 36"><span class="q"><a href="at36-flashattention4/at36-flashattention4.html#sec-q1">FA4 的 warp 角色划分和 FA3 有什么不同？（高频）</a></span><span class="go">36</span></li>
+    <li data-search="为什么要用软件 exp2 替代 MUFU？ 36"><span class="q"><a href="at36-flashattention4/at36-flashattention4.html#sec-q2">为什么要用软件 exp2 替代 MUFU？</a></span><span class="go">36</span></li>
+    <li data-search="条件 rescale 的正确性怎么保证？ 36"><span class="q"><a href="at36-flashattention4/at36-flashattention4.html#sec-q3">条件 rescale 的正确性怎么保证？</a></span><span class="go">36</span></li>
+    <li data-search="TMEM 和 shared memory 有什么区别？ 36"><span class="q"><a href="at36-flashattention4/at36-flashattention4.html#sec-q4">TMEM 和 shared memory 有什么区别？</a></span><span class="go">36</span></li>
+    <li data-search="LPT 调度对 causal attention 有什么好处？ 36"><span class="q"><a href="at36-flashattention4/at36-flashattention4.html#sec-q5">LPT 调度对 causal attention 有什么好处？</a></span><span class="go">36</span></li>
+    <li data-search="Decode attention 为什么要 split-KV（FlashDecoding）？ 37"><span class="q"><a href="at37-inference-attention/at37-inference-attention.html#sec-q1">Decode attention 为什么要 split-KV（FlashDecoding）？</a></span><span class="go">37</span></li>
+    <li data-search="PagedAttention 的 kernel 和标准 attention kernel 有什么区别？ 37"><span class="q"><a href="at37-inference-attention/at37-inference-attention.html#sec-q2">PagedAttention 的 kernel 和标准 attention kernel 有什么区别？</a></span><span class="go">37</span></li>
+    <li data-search="GQA 对 attention kernel 有什么影响？ 37"><span class="q"><a href="at37-inference-attention/at37-inference-attention.html#sec-q3">GQA 对 attention kernel 有什么影响？</a></span><span class="go">37</span></li>
+    <li data-search="MLA 推理为什么能省 KV cache？吸收是怎么做的？ 37"><span class="q"><a href="at37-inference-attention/at37-inference-attention.html#sec-q4">MLA 推理为什么能省 KV cache？吸收是怎么做的？</a></span><span class="go">37</span></li>
+    <li data-search="Decode attention 的理论延迟下界是什么？ 37"><span class="q"><a href="at37-inference-attention/at37-inference-attention.html#sec-q5">Decode attention 的理论延迟下界是什么？</a></span><span class="go">37</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>十、Diffusion<span class="pmin">15 道</span></summary>
+  <ol class="qs">
+    <li data-search="GroupNorm 怎么并行？和 BatchNorm/LayerNorm 有什么区别？ 38"><span class="q"><a href="df38-unet-ops/df38-unet-ops.html#sec-q1">GroupNorm 怎么并行？和 BatchNorm/LayerNorm 有什么区别？</a></span><span class="go">38</span></li>
+    <li data-search="Diffusion 推理的主要瓶颈是什么？怎么分析？ 38"><span class="q"><a href="df38-unet-ops/df38-unet-ops.html#sec-q2">Diffusion 推理的主要瓶颈是什么？怎么分析？</a></span><span class="go">38</span></li>
+    <li data-search="CFG 如何减少开销？guidance scale 对 kernel 有什么影响？ 38"><span class="q"><a href="df38-unet-ops/df38-unet-ops.html#sec-q3">CFG 如何减少开销？guidance scale 对 kernel 有什么影响？</a></span><span class="go">38</span></li>
+    <li data-search="为什么 diffusion 模型要用 NHWC？ 38"><span class="q"><a href="df38-unet-ops/df38-unet-ops.html#sec-q4">为什么 diffusion 模型要用 NHWC？</a></span><span class="go">38</span></li>
+    <li data-search="CUDA Graph 对 diffusion 推理有多大提升？ 38"><span class="q"><a href="df38-unet-ops/df38-unet-ops.html#sec-q5">CUDA Graph 对 diffusion 推理有多大提升？</a></span><span class="go">38</span></li>
+    <li data-search="adaLN 怎么融合？为什么要融合？ 39"><span class="q"><a href="df39-dit-ops/df39-dit-ops.html#sec-q1">adaLN 怎么融合？为什么要融合？</a></span><span class="go">39</span></li>
+    <li data-search="3D RoPE kernel 怎么写？（手撕） 39"><span class="q"><a href="df39-dit-ops/df39-dit-ops.html#sec-q2">3D RoPE kernel 怎么写？（手撕）</a></span><span class="go">39</span></li>
+    <li data-search="DiT 推理和 LLM 推理的 kernel 差异是什么？ 39"><span class="q"><a href="df39-dit-ops/df39-dit-ops.html#sec-q3">DiT 推理和 LLM 推理的 kernel 差异是什么？</a></span><span class="go">39</span></li>
+    <li data-search="MMDiT 的 joint attention 比 cross-attention 好在哪？kernel 层面有区别吗？ 39"><span class="q"><a href="df39-dit-ops/df39-dit-ops.html#sec-q4">MMDiT 的 joint attention 比 cross-attention 好在哪？kernel 层面有区别吗？</a></span><span class="go">39</span></li>
+    <li data-search="图像 token 序列长度 64K 时，attention 占总耗时多少？ 39"><span class="q"><a href="df39-dit-ops/df39-dit-ops.html#sec-q5">图像 token 序列长度 64K 时，attention 占总耗时多少？</a></span><span class="go">39</span></li>
+    <li data-search="视频生成怎么降低 attention 成本？ 40"><span class="q"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-q1">视频生成怎么降低 attention 成本？</a></span><span class="go">40</span></li>
+    <li data-search="块稀疏 attention 如何保持 kernel 高效？ 40"><span class="q"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-q2">块稀疏 attention 如何保持 kernel 高效？</a></span><span class="go">40</span></li>
+    <li data-search="量化 attention 的精度怎么保持？ 40"><span class="q"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-q3">量化 attention 的精度怎么保持？</a></span><span class="go">40</span></li>
+    <li data-search="VAE tiling 的重叠混合为什么需要？ 40"><span class="q"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-q4">VAE tiling 的重叠混合为什么需要？</a></span><span class="go">40</span></li>
+    <li data-search="Ulysses 和 Ring Attention 怎么选？ 40"><span class="q"><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-q5">Ulysses 和 Ring Attention 怎么选？</a></span><span class="go">40</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>十一、3D<span class="pmin">24 道</span></summary>
+  <ol class="qs">
+    <li data-search="3DGS 为什么用 tile-based 而不是 per-pixel ray marching？ 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q1">3DGS 为什么用 tile-based 而不是 per-pixel ray marching？</a></span><span class="go">41</span></li>
+    <li data-search="排序为什么用 radix sort 而不是比较排序？ 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q2">排序为什么用 radix sort 而不是比较排序？</a></span><span class="go">41</span></li>
+    <li data-search="front-to-back 和 back-to-front α-blending 有什么区别？ 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q3">front-to-back 和 back-to-front α-blending 有什么区别？</a></span><span class="go">41</span></li>
+    <li data-search="3DGS 光栅化的 occupancy 和内存分析。 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q4">3DGS 光栅化的 occupancy 和内存分析。</a></span><span class="go">41</span></li>
+    <li data-search="为什么 3DGS 光栅化的 smem 数组用 SoA 而不是 AoS？ 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q5">为什么 3DGS 光栅化的 smem 数组用 SoA 而不是 AoS？</a></span><span class="go">41</span></li>
+    <li data-search="EWA 投影中的低通滤波 \(0.3\,I\) 是怎么回事？去掉会怎样？ 41"><span class="q"><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-q6">EWA 投影中的低通滤波 \(0.3\,I\) 是怎么回事？去掉会怎样？</a></span><span class="go">41</span></li>
+    <li data-search="3DGS 反向的主要瓶颈是什么？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q1">3DGS 反向的主要瓶颈是什么？</a></span><span class="go">42</span></li>
+    <li data-search="反向为什么要 back-to-front 遍历？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q2">反向为什么要 back-to-front 遍历？</a></span><span class="go">42</span></li>
+    <li data-search="如何减少 3DGS 反向的原子冲突？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q3">如何减少 3DGS 反向的原子冲突？</a></span><span class="go">42</span></li>
+    <li data-search="为什么要保存每像素的最后贡献者（n_contrib）？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q4">为什么要保存每像素的最后贡献者（n_contrib）？</a></span><span class="go">42</span></li>
+    <li data-search="3DGS 反向传播是确定性的吗？如何实现确定性？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q5">3DGS 反向传播是确定性的吗？如何实现确定性？</a></span><span class="go">42</span></li>
+    <li data-search="反向的 T 恢复经过很多步除法，误差会累积吗？怎么验证正确性？ 42"><span class="q"><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-q6">反向的 T 恢复经过很多步除法，误差会累积吗？怎么验证正确性？</a></span><span class="go">42</span></li>
+    <li data-search="多分辨率哈希编码为什么快？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q1">多分辨率哈希编码为什么快？</a></span><span class="go">43</span></li>
+    <li data-search="全融合 MLP 和 cuBLAS 比有什么优势？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q2">全融合 MLP 和 cuBLAS 比有什么优势？</a></span><span class="go">43</span></li>
+    <li data-search="NeRF 体渲染的反向和 3DGS 反向有什么区别？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q3">NeRF 体渲染的反向和 3DGS 反向有什么区别？</a></span><span class="go">43</span></li>
+    <li data-search="Packed rays 解决什么问题？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q4">Packed rays 解决什么问题？</a></span><span class="go">43</span></li>
+    <li data-search="Instant-NGP 的哈希编码和传统位置编码（positional encoding）相比，在 GPU 实现上有什么本质区别？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q5">Instant-NGP 的哈希编码和传统位置编码（positional encoding）相比，在 GPU 实现上有什么本质区别？</a></span><span class="go">43</span></li>
+    <li data-search="全融合 MLP 中的 WMMA fragment 布局对 bank conflict 有什么影响？如何处理？ 43"><span class="q"><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-q6">全融合 MLP 中的 WMMA fragment 布局对 bank conflict 有什么影响？如何处理？</a></span><span class="go">43</span></li>
+    <li data-search="GPU 上怎么实现哈希表？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q1">GPU 上怎么实现哈希表？</a></span><span class="go">44</span></li>
+    <li data-search="FPS 为什么难并行？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q2">FPS 为什么难并行？</a></span><span class="go">44</span></li>
+    <li data-search="稀疏卷积的 gather-GEMM-scatter 和 implicit GEMM 怎么选？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q3">稀疏卷积的 gather-GEMM-scatter 和 implicit GEMM 怎么选？</a></span><span class="go">44</span></li>
+    <li data-search="子流形稀疏卷积为什么重要？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q4">子流形稀疏卷积为什么重要？</a></span><span class="go">44</span></li>
+    <li data-search="稀疏卷积的 kernel map 构建本身需要多少时间？有什么优化空间？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q5">稀疏卷积的 kernel map 构建本身需要多少时间？有什么优化空间？</a></span><span class="go">44</span></li>
+    <li data-search="BEV 池化和 3DGS 的 tile 排序在 GPU 实现上有什么共同模式？它们的差异在哪里？ 44"><span class="q"><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-q6">BEV 池化和 3DGS 的 tile 排序在 GPU 实现上有什么共同模式？它们的差异在哪里？</a></span><span class="go">44</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>十二、工具链<span class="pmin">18 道</span></summary>
+  <ol class="qs">
+    <li data-search="Triton 和 CUDA 的核心区别是什么？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q1">Triton 和 CUDA 的核心区别是什么？</a></span><span class="go">45</span></li>
+    <li data-search="Triton 编译器如何决定 smem 和流水线？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q2">Triton 编译器如何决定 smem 和流水线？</a></span><span class="go">45</span></li>
+    <li data-search="Triton 的 autotune 是如何工作的？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q3">Triton 的 autotune 是如何工作的？</a></span><span class="go">45</span></li>
+    <li data-search="你会如何选择 Triton 和 CUDA？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q4">你会如何选择 Triton 和 CUDA？</a></span><span class="go">45</span></li>
+    <li data-search="Triton 的 constexpr 和 CUDA 的 template 参数有什么关系？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q5">Triton 的 constexpr 和 CUDA 的 template 参数有什么关系？</a></span><span class="go">45</span></li>
+    <li data-search="Triton kernel 中如何诊断性能瓶颈？ 45"><span class="q"><a href="tl45-triton/tl45-triton.html#sec-q6">Triton kernel 中如何诊断性能瓶颈？</a></span><span class="go">45</span></li>
+    <li data-search="CUTLASS 的抽象层次是什么？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q1">CUTLASS 的抽象层次是什么？</a></span><span class="go">46</span></li>
+    <li data-search="CuTe 的 layout 代数为什么有用？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q2">CuTe 的 layout 代数为什么有用？</a></span><span class="go">46</span></li>
+    <li data-search="EVT 解决了什么问题？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q3">EVT 解决了什么问题？</a></span><span class="go">46</span></li>
+    <li data-search="你会如何选择 GPU kernel DSL？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q4">你会如何选择 GPU kernel DSL？</a></span><span class="go">46</span></li>
+    <li data-search="CUTLASS 的学习路径应该怎么走？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q5">CUTLASS 的学习路径应该怎么走？</a></span><span class="go">46</span></li>
+    <li data-search="CUTLASS 2.x 和 3.x 的本质区别是什么？ 46"><span class="q"><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-q6">CUTLASS 2.x 和 3.x 的本质区别是什么？</a></span><span class="go">46</span></li>
+    <li data-search="如何把自定义 CUDA kernel 集成到 PyTorch？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q1">如何把自定义 CUDA kernel 集成到 PyTorch？</a></span><span class="go">47</span></li>
+    <li data-search="如何让自定义 op 支持 torch.compile？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q2">如何让自定义 op 支持 torch.compile？</a></span><span class="go">47</span></li>
+    <li data-search="测试自定义 kernel 的数值正确性时怎么定阈值？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q3">测试自定义 kernel 的数值正确性时怎么定阈值？</a></span><span class="go">47</span></li>
+    <li data-search="如何准确测量 GPU kernel 的执行时间？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q4">如何准确测量 GPU kernel 的执行时间？</a></span><span class="go">47</span></li>
+    <li data-search="Triton kernel 和 CUDA 扩展在部署方式上有什么区别？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q5">Triton kernel 和 CUDA 扩展在部署方式上有什么区别？</a></span><span class="go">47</span></li>
+    <li data-search="自定义 kernel 如何保证 CUDA Graph 兼容性？ 47"><span class="q"><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-q6">自定义 kernel 如何保证 CUDA Graph 兼容性？</a></span><span class="go">47</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>十三、多卡通信<span class="pmin">13 道</span></summary>
+  <ol class="qs">
+    <li data-search="NVLink 和 PCIe 的根本区别是什么？为什么不能用更多 PCIe lane 替代 NVLink？ 48"><span class="q"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-q1">NVLink 和 PCIe 的根本区别是什么？为什么不能用更多 PCIe lane 替代 NVLink？</a></span><span class="go">48</span></li>
+    <li data-search="Ring AllReduce 的带宽复杂度和延迟复杂度分别是多少？什么时候应该用 Tree？ 48"><span class="q"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-q2">Ring AllReduce 的带宽复杂度和延迟复杂度分别是多少？什么时候应该用 Tree？</a></span><span class="go">48</span></li>
+    <li data-search="GPUDirect RDMA 的前提条件是什么？什么时候会 fallback 到传统路径？ 48"><span class="q"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-q3">GPUDirect RDMA 的前提条件是什么？什么时候会 fallback 到传统路径？</a></span><span class="go">48</span></li>
+    <li data-search="DGX H100 的 8 张 GPU 如果做 AllReduce，理论带宽上限是多少？ 48"><span class="q"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-q4">DGX H100 的 8 张 GPU 如果做 AllReduce，理论带宽上限是多少？</a></span><span class="go">48</span></li>
+    <li data-search="为什么 MNNVL 对 MoE 模型特别重要？ 48"><span class="q"><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-q5">为什么 MNNVL 对 MoE 模型特别重要？</a></span><span class="go">48</span></li>
+    <li data-search="NCCL 的 LL128 协议为什么只能用于 NVLink 而不能用于 InfiniBand？ 49"><span class="q"><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-q1">NCCL 的 LL128 协议为什么只能用于 NVLink 而不能用于 InfiniBand？</a></span><span class="go">49</span></li>
+    <li data-search="NCCL 的 proxy 线程为什么是性能瓶颈？有什么替代方案？ 49"><span class="q"><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-q2">NCCL 的 proxy 线程为什么是性能瓶颈？有什么替代方案？</a></span><span class="go">49</span></li>
+    <li data-search="NCCL_DEBUG=INFO 的输出中，怎么判断通信是否正常？ 49"><span class="q"><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-q3">NCCL_DEBUG=INFO 的输出中，怎么判断通信是否正常？</a></span><span class="go">49</span></li>
+    <li data-search="NVLS 和传统 Ring AllReduce 的延迟差距有多大？ 49"><span class="q"><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-q4">NVLS 和传统 Ring AllReduce 的延迟差距有多大？</a></span><span class="go">49</span></li>
+    <li data-search="One-shot AllReduce 和 NCCL Ring AllReduce 的带宽比较？ 50"><span class="q"><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-q1">One-shot AllReduce 和 NCCL Ring AllReduce 的带宽比较？</a></span><span class="go">50</span></li>
+    <li data-search="__threadfence_system() 和 __threadfence() 有什么区别？ 50"><span class="q"><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-q2">__threadfence_system() 和 __threadfence() 有什么区别？</a></span><span class="go">50</span></li>
+    <li data-search="计算-通信重叠的前提条件是什么？什么时候重叠不了？ 50"><span class="q"><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-q3">计算-通信重叠的前提条件是什么？什么时候重叠不了？</a></span><span class="go">50</span></li>
+    <li data-search="DeepEP 的 low-latency kernel 用了什么自定义通信技术？ 50"><span class="q"><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-q4">DeepEP 的 low-latency kernel 用了什么自定义通信技术？</a></span><span class="go">50</span></li>
+  </ol></details>
+  <details class="qgroup"><summary>十四、面试冲刺<span class="pmin">12 道</span></summary>
+  <ol class="qs">
+    <li data-search="如何用一句话解释 GPU 和 CPU 的本质区别？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q1">如何用一句话解释 GPU 和 CPU 的本质区别？</a></span><span class="go">51</span></li>
+    <li data-search="为什么 FlashAttention 不需要存完整的 attention 矩阵？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q2">为什么 FlashAttention 不需要存完整的 attention 矩阵？</a></span><span class="go">51</span></li>
+    <li data-search="什么场景下应该用 FP8 而不是 FP16？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q3">什么场景下应该用 FP8 而不是 FP16？</a></span><span class="go">51</span></li>
+    <li data-search="Ring AllReduce 和 Tree AllReduce 各适合什么场景？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q4">Ring AllReduce 和 Tree AllReduce 各适合什么场景？</a></span><span class="go">51</span></li>
+    <li data-search="如何判断一个 kernel 的优化空间还有多大？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q5">如何判断一个 kernel 的优化空间还有多大？</a></span><span class="go">51</span></li>
+    <li data-search="什么是 kernel fusion？为什么它对推理性能很重要？ 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q6">什么是 kernel fusion？为什么它对推理性能很重要？</a></span><span class="go">51</span></li>
+    <li data-search="解释 double buffering（双缓冲）在 GEMM 中的作用。 51"><span class="q"><a href="iv51-interview-bank/iv51-interview-bank.html#sec-q7">解释 double buffering（双缓冲）在 GEMM 中的作用。</a></span><span class="go">51</span></li>
+    <li data-search="在 block_reduce_sum 中，为什么 sdata 的大小是 32 而不是 blockDim.x / 32？如果 blockDim 小于 1024 会怎样？ 52"><span class="q"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-q1">在 block_reduce_sum 中，为什么 sdata 的大小是 32 而不是 blockDim.x / 32？如果 blockDim 小于 1024 会怎样？</a></span><span class="go">52</span></li>
+    <li data-search="Online Softmax 的修正因子 exp(old_m - new_m) 在数值上是否安全？什么条件下会有精度问题？ 52"><span class="q"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-q2">Online Softmax 的修正因子 exp(old_m - new_m) 在数值上是否安全？什么条件下会有精度问题？</a></span><span class="go">52</span></li>
+    <li data-search="Transpose 中如果用 tile[32][32] 而不是 [33]，bank conflict 会导致多大的性能下降？ 52"><span class="q"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-q3">Transpose 中如果用 tile[32][32] 而不是 [33]，bank conflict 会导致多大的性能下降？</a></span><span class="go">52</span></li>
+    <li data-search="CAS 循环实现 atomicMaxFloat 时，如果输入包含 NaN，行为是什么？如何修复？ 52"><span class="q"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-q4">CAS 循环实现 atomicMaxFloat 时，如果输入包含 NaN，行为是什么？如何修复？</a></span><span class="go">52</span></li>
+    <li data-search="为什么 GEMV 是 memory-bound 而 GEMM 可以是 compute-bound？两者的计算强度分别是多少？ 52"><span class="q"><a href="iv52-handwritten-kernels/iv52-handwritten-kernels.html#sec-q5">为什么 GEMV 是 memory-bound 而 GEMM 可以是 compute-bound？两者的计算强度分别是多少？</a></span><span class="go">52</span></li>
+  </ol></details>
+</section>
+<section id="terms">
+  <h2>术语索引</h2>
+  <p class="hint">读到一半忘了某个词，从这里跳回讲它的那一节。</p>
+  <h3>硬件与性能模型</h3>
+  <dl class="terms">
+    <div data-search="SM 与子分区"><dt>SM 与子分区</dt><dd><a href="hw01-gpu-architecture/hw01-gpu-architecture.html#sec-hierarchy">01</a></dd></div>
+    <div data-search="warp、SIMT"><dt>warp、SIMT</dt><dd><a href="hw02-execution-model/hw02-execution-model.html#sec-hierarchy">02</a></dd></div>
+    <div data-search="warp 分支发散"><dt>warp 分支发散</dt><dd><a href="hw02-execution-model/hw02-execution-model.html#sec-simt">02</a></dd></div>
+    <div data-search="Little 定律"><dt>Little 定律</dt><dd><a href="hw02-execution-model/hw02-execution-model.html#sec-little">02</a></dd></div>
+    <div data-search="roofline、算术强度"><dt>roofline、算术强度</dt><dd><a href="hw03-performance-model/hw03-performance-model.html#sec-ai">03</a></dd></div>
+    <div data-search="优化阶梯"><dt>优化阶梯</dt><dd><a href="hw03-performance-model/hw03-performance-model.html#sec-ladder">03</a></dd></div>
+    <div data-search="一个下界，五笔账"><dt>一个下界，五笔账</dt><dd><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-ledger">主线</a></dd></div>
+    <div data-search="wave 量化"><dt>wave 量化</dt><dd><a href="p01-optimization-mainline/p01-optimization-mainline.html#sec-fix">主线</a></dd></div>
+  </dl>
+  <h3>CUDA 编程</h3>
+  <dl class="terms">
+    <div data-search="访存合并、sector"><dt>访存合并、sector</dt><dd><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-sector">05</a></dd></div>
+    <div data-search="向量化（float4）"><dt>向量化（float4）</dt><dd><a href="cu05-memory-coalescing/cu05-memory-coalescing.html#sec-vector">05</a></dd></div>
+    <div data-search="bank conflict"><dt>bank conflict</dt><dd><a href="cu06-shared-memory/cu06-shared-memory.html#sec-banks">06</a></dd></div>
+    <div data-search="swizzle"><dt>swizzle</dt><dd><a href="cu06-shared-memory/cu06-shared-memory.html#sec-tile">06</a></dd></div>
+    <div data-search="occupancy"><dt>occupancy</dt><dd><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-def">07</a></dd></div>
+    <div data-search="ILP 与低 occupancy"><dt>ILP 与低 occupancy</dt><dd><a href="cu07-occupancy-registers/cu07-occupancy-registers.html#sec-volkov">07</a></dd></div>
+    <div data-search="同步与屏障"><dt>同步与屏障</dt><dd><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-hier">08</a></dd></div>
+    <div data-search="原子操作"><dt>原子操作</dt><dd><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-atomics">08</a></dd></div>
+    <div data-search="内存一致性与 fence"><dt>内存一致性与 fence</dt><dd><a href="cu08-sync-atomics/cu08-sync-atomics.html#sec-6">08</a></dd></div>
+    <div data-search="stream 与 event"><dt>stream 与 event</dt><dd><a href="cu09-streams-host/cu09-streams-host.html#sec-stream">09</a></dd></div>
+    <div data-search="CUDA Graph"><dt>CUDA Graph</dt><dd><a href="cu09-streams-host/cu09-streams-host.html#sec-graph">09</a></dd></div>
+  </dl>
+  <h3>并行原语与方法论</h3>
+  <dl class="terms">
+    <div data-search="并行归约"><dt>并行归约</dt><dd><a href="pp10-reduction/pp10-reduction.html#sec-bound">10</a></dd></div>
+    <div data-search="warp shuffle"><dt>warp shuffle</dt><dd><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-shfl">11</a></dd></div>
+    <div data-search="Cooperative Groups"><dt>Cooperative Groups</dt><dd><a href="pp11-warp-primitives/pp11-warp-primitives.html#sec-cg">11</a></dd></div>
+    <div data-search="前缀和（scan）"><dt>前缀和（scan）</dt><dd><a href="pp12-scan/pp12-scan.html#sec-def">12</a></dd></div>
+    <div data-search="decoupled look-back"><dt>decoupled look-back</dt><dd><a href="pp12-scan/pp12-scan.html#sec-lookback">12</a></dd></div>
+    <div data-search="流压缩与分组"><dt>流压缩与分组</dt><dd><a href="pp12-scan/pp12-scan.html#sec-apps">12</a></dd></div>
+    <div data-search="基数排序"><dt>基数排序</dt><dd><a href="pp13-sort-topk/pp13-sort-topk.html#sec-why">13</a></dd></div>
+    <div data-search="Top-K"><dt>Top-K</dt><dd><a href="pp13-sort-topk/pp13-sort-topk.html#sec-topk">13</a></dd></div>
+    <div data-search="Nsight Systems"><dt>Nsight Systems</dt><dd><a href="mt14-profiling/mt14-profiling.html#sec-nsys">14</a></dd></div>
+    <div data-search="Nsight Compute"><dt>Nsight Compute</dt><dd><a href="mt14-profiling/mt14-profiling.html#sec-ncu">14</a></dd></div>
+    <div data-search="compute-sanitizer"><dt>compute-sanitizer</dt><dd><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-sanitizer">15</a></dd></div>
+    <div data-search="SASS"><dt>SASS</dt><dd><a href="mt15-debugging-sass/mt15-debugging-sass.html#sec-sass">15</a></dd></div>
+  </dl>
+  <h3>常用算子</h3>
+  <dl class="terms">
+    <div data-search="算子融合"><dt>算子融合</dt><dd><a href="op16-elementwise-fusion/op16-elementwise-fusion.html#sec-fusion">16</a></dd></div>
+    <div data-search="online softmax"><dt>online softmax</dt><dd><a href="op17-softmax-norm/op17-softmax-norm.html#sec-online">17</a></dd></div>
+    <div data-search="LayerNorm、RMSNorm"><dt>LayerNorm、RMSNorm</dt><dd><a href="op17-softmax-norm/op17-softmax-norm.html#sec-ln">17</a></dd></div>
+    <div data-search="FP8、FP4 格式"><dt>FP8、FP4 格式</dt><dd><a href="op18-quant-gather/op18-quant-gather.html#sec-formats">18</a></dd></div>
+    <div data-search="gather / scatter"><dt>gather / scatter</dt><dd><a href="op18-quant-gather/op18-quant-gather.html#sec-gather">18</a></dd></div>
+  </dl>
+  <h3>Tensor Core 与异步硬件</h3>
+  <dl class="terms">
+    <div data-search="WMMA、mma.sync"><dt>WMMA、mma.sync</dt><dd><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-wmma">19</a></dd></div>
+    <div data-search="ldmatrix"><dt>ldmatrix</dt><dd><a href="tc19-tensor-core-basics/tc19-tensor-core-basics.html#sec-ldmatrix">19</a></dd></div>
+    <div data-search="CuTe layout"><dt>CuTe layout</dt><dd><a href="tc20-layout-algebra/tc20-layout-algebra.html#sec-shape-stride">20</a></dd></div>
+    <div data-search="cp.async"><dt>cp.async</dt><dd><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-cpasync">21</a></dd></div>
+    <div data-search="TMA"><dt>TMA</dt><dd><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-7">21</a></dd></div>
+    <div data-search="mbarrier"><dt>mbarrier</dt><dd><a href="tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html#sec-mbarrier">21</a></dd></div>
+    <div data-search="WGMMA"><dt>WGMMA</dt><dd><a href="tc22-hopper/tc22-hopper.html#sec-warpgroup">22</a></dd></div>
+    <div data-search="warp 特化"><dt>warp 特化</dt><dd><a href="tc22-hopper/tc22-hopper.html#sec-ws">22</a></dd></div>
+    <div data-search="cluster、DSMEM"><dt>cluster、DSMEM</dt><dd><a href="tc22-hopper/tc22-hopper.html#sec-cluster">22</a></dd></div>
+    <div data-search="tcgen05"><dt>tcgen05</dt><dd><a href="tc23-blackwell/tc23-blackwell.html#sec-issue">23</a></dd></div>
+    <div data-search="TMEM"><dt>TMEM</dt><dd><a href="tc23-blackwell/tc23-blackwell.html#sec-tmem">23</a></dd></div>
+    <div data-search="2-CTA MMA"><dt>2-CTA MMA</dt><dd><a href="tc23-blackwell/tc23-blackwell.html#sec-ctapair">23</a></dd></div>
+    <div data-search="CLC"><dt>CLC</dt><dd><a href="tc23-blackwell/tc23-blackwell.html#sec-clc">23</a></dd></div>
+  </dl>
+  <h3>GEMM 与卷积</h3>
+  <dl class="terms">
+    <div data-search="分块（tiling）"><dt>分块（tiling）</dt><dd><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-smem">24</a></dd></div>
+    <div data-search="双缓冲"><dt>双缓冲</dt><dd><a href="gm24-sgemm-ladder/gm24-sgemm-ladder.html#sec-warp">24</a></dd></div>
+    <div data-search="多级流水线"><dt>多级流水线</dt><dd><a href="gm25-ampere-hgemm/gm25-ampere-hgemm.html#sec-pipeline">25</a></dd></div>
+    <div data-search="Split-K、Stream-K"><dt>Split-K、Stream-K</dt><dd><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-splitk">28</a></dd></div>
+    <div data-search="Grouped GEMM"><dt>Grouped GEMM</dt><dd><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-grouped">28</a></dd></div>
+    <div data-search="GEMV"><dt>GEMV</dt><dd><a href="gm28-gemm-variants/gm28-gemm-variants.html#sec-gemv">28</a></dd></div>
+    <div data-search="block scaling"><dt>block scaling</dt><dd><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-fp8">29</a></dd></div>
+    <div data-search="W4A16"><dt>W4A16</dt><dd><a href="gm29-low-precision-gemm/gm29-low-precision-gemm.html#sec-w4a16">29</a></dd></div>
+    <div data-search="im2col"><dt>im2col</dt><dd><a href="cv30-conv-basics/cv30-conv-basics.html#sec-im2col">30</a></dd></div>
+    <div data-search="NHWC 布局"><dt>NHWC 布局</dt><dd><a href="cv30-conv-basics/cv30-conv-basics.html#sec-layout">30</a></dd></div>
+    <div data-search="implicit GEMM"><dt>implicit GEMM</dt><dd><a href="cv31-implicit-gemm/cv31-implicit-gemm.html#sec-motivation">31</a></dd></div>
+    <div data-search="Winograd"><dt>Winograd</dt><dd><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-winograd">32</a></dd></div>
+    <div data-search="depthwise 卷积"><dt>depthwise 卷积</dt><dd><a href="cv32-winograd-special-conv/cv32-winograd-special-conv.html#sec-7">32</a></dd></div>
+  </dl>
+  <h3>Attention</h3>
+  <dl class="terms">
+    <div data-search="FlashAttention 分块"><dt>FlashAttention 分块</dt><dd><a href="at33-flashattention-fwd/at33-flashattention-fwd.html#sec-tiling">33</a></dd></div>
+    <div data-search="反向重计算"><dt>反向重计算</dt><dd><a href="at34-flashattention-bwd/at34-flashattention-bwd.html#sec-why">34</a></dd></div>
+    <div data-search="FP8 attention"><dt>FP8 attention</dt><dd><a href="at35-flashattention3/at35-flashattention3.html#sec-fp8">35</a></dd></div>
+    <div data-search="ping-pong 调度"><dt>ping-pong 调度</dt><dd><a href="at35-flashattention3/at35-flashattention3.html#sec-pingpong">35</a></dd></div>
+    <div data-search="软件 exp2"><dt>软件 exp2</dt><dd><a href="at36-flashattention4/at36-flashattention4.html#sec-sw-exp">36</a></dd></div>
+    <div data-search="PagedAttention"><dt>PagedAttention</dt><dd><a href="at37-inference-attention/at37-inference-attention.html#sec-paged">37</a></dd></div>
+    <div data-search="split-KV / FlashDecoding"><dt>split-KV / FlashDecoding</dt><dd><a href="at37-inference-attention/at37-inference-attention.html#sec-flashdecode">37</a></dd></div>
+    <div data-search="GQA、MLA"><dt>GQA、MLA</dt><dd><a href="at37-inference-attention/at37-inference-attention.html#sec-gqa-mla">37</a></dd></div>
+  </dl>
+  <h3>应用与工具</h3>
+  <dl class="terms">
+    <div data-search="GroupNorm"><dt>GroupNorm</dt><dd><a href="df38-unet-ops/df38-unet-ops.html#sec-groupnorm">38</a></dd></div>
+    <div data-search="CFG"><dt>CFG</dt><dd><a href="df38-unet-ops/df38-unet-ops.html#sec-cfg">38</a></dd></div>
+    <div data-search="adaLN"><dt>adaLN</dt><dd><a href="df39-dit-ops/df39-dit-ops.html#sec-adaln">39</a></dd></div>
+    <div data-search="3D RoPE"><dt>3D RoPE</dt><dd><a href="df39-dit-ops/df39-dit-ops.html#sec-rope">39</a></dd></div>
+    <div data-search="块稀疏 attention"><dt>块稀疏 attention</dt><dd><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-sparse">40</a></dd></div>
+    <div data-search="VAE 分块解码"><dt>VAE 分块解码</dt><dd><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-vae">40</a></dd></div>
+    <div data-search="步间缓存"><dt>步间缓存</dt><dd><a href="df40-video-diffusion-accel/df40-video-diffusion-accel.html#sec-cache">40</a></dd></div>
+    <div data-search="tile 光栅化、α-blending"><dt>tile 光栅化、α-blending</dt><dd><a href="r3d41-3dgs-forward/r3d41-3dgs-forward.html#sec-rasterize">41</a></dd></div>
+    <div data-search="梯度原子争用"><dt>梯度原子争用</dt><dd><a href="r3d42-3dgs-backward/r3d42-3dgs-backward.html#sec-atomic">42</a></dd></div>
+    <div data-search="多分辨率哈希编码"><dt>多分辨率哈希编码</dt><dd><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-hashgrid">43</a></dd></div>
+    <div data-search="全融合 MLP"><dt>全融合 MLP</dt><dd><a href="r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html#sec-fused-mlp">43</a></dd></div>
+    <div data-search="体素化"><dt>体素化</dt><dd><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-overview">44</a></dd></div>
+    <div data-search="稀疏卷积"><dt>稀疏卷积</dt><dd><a href="r3d44-pointcloud-sparse/r3d44-pointcloud-sparse.html#sec-sparse-conv">44</a></dd></div>
+    <div data-search="Triton autotune"><dt>Triton autotune</dt><dd><a href="tl45-triton/tl45-triton.html#sec-gemm">45</a></dd></div>
+    <div data-search="CUTLASS 的五层抽象"><dt>CUTLASS 的五层抽象</dt><dd><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-cutlass-layers">46</a></dd></div>
+    <div data-search="EVT（可组合 epilogue）"><dt>EVT（可组合 epilogue）</dt><dd><a href="tl46-cutlass-cute/tl46-cutlass-cute.html#sec-evt">46</a></dd></div>
+    <div data-search="custom op 注册"><dt>custom op 注册</dt><dd><a href="tl47-pytorch-integration/tl47-pytorch-integration.html#sec-custom-op">47</a></dd></div>
+    <div data-search="NVLink、NVSwitch"><dt>NVLink、NVSwitch</dt><dd><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-nvlink">48</a></dd></div>
+    <div data-search="集合通信算法"><dt>集合通信算法</dt><dd><a href="cm48-interconnect-collectives/cm48-interconnect-collectives.html#sec-collectives">48</a></dd></div>
+    <div data-search="NCCL 协议"><dt>NCCL 协议</dt><dd><a href="cm49-nccl-internals/cm49-nccl-internals.html#sec-protocols">49</a></dd></div>
+    <div data-search="计算通信重叠"><dt>计算通信重叠</dt><dd><a href="cm50-custom-comm-overlap/cm50-custom-comm-overlap.html#sec-overlap">50</a></dd></div>
+  </dl>
+</section>
+
+<footer>
+  <p>写作时没有 GPU 可用，全系列没有自己测的性能数据：带单位的性能数字都引自公开资料（datasheet、论文、官方文档、MLC 教程）并注明出处，其余的要么按公式计算，要么标明&ldquo;示意，非实测&rdquo;。硬件规格统一取自 NVIDIA 官方页面。代码完整版只经过 Apple clang 的 CUDA 语法与类型检查，没有在 GPU 上编译或运行。</p>
+  <p>阅读时间按每分钟约 300 个汉字估算。姊妹系列：<a href="https://blog.hesenyang-ethan.com/deepep-deepgemm/">DeepEP 与 DeepGEMM 精读</a>、<a href="https://blog.hesenyang-ethan.com/deepinfer/">DeepInfer 精读</a>。<a href="https://blog.hesenyang-ethan.com/">← 回到 Ethan Yang's Blog</a></p>
+</footer>
+
+</div>
+<script>
+(function () {
+  var box = document.getElementById("q"), cnt = document.getElementById("qn");
+  var items = Array.prototype.slice.call(document.querySelectorAll("[data-search]"));
+  var groups = Array.prototype.slice.call(document.querySelectorAll("details.qgroup"));
+  function run() {
+    var q = box.value.trim().toLowerCase(), n = 0;
+    items.forEach(function (el) {
+      var hit = !q || el.getAttribute("data-search").toLowerCase().indexOf(q) >= 0;
+      el.hidden = !hit; if (hit && q) n++;
+    });
+    groups.forEach(function (g) {
+      var any = g.querySelector("li:not([hidden])");
+      g.hidden = !!q && !any;
+      if (q) g.open = !!any;
+    });
+    document.querySelectorAll("ol.posts, dl.terms").forEach(function (l) {
+      var vis = l.querySelector(":scope > [data-search]:not([hidden])");
+      l.hidden = !!q && !vis;
+      var h = l.previousElementSibling;
+      while (h && !/^H3$/.test(h.tagName)) h = h.previousElementSibling;
+      if (h) h.hidden = !!q && !vis;
+      var v = l.previousElementSibling;
+      if (v && v.classList.contains("vol")) v.hidden = !!q && !vis;
+    });
+    cnt.textContent = q ? ("找到 " + n + " 项") : "";
+  }
+  box.addEventListener("input", run);
+})();
+</script>
+</body>
+</html>
