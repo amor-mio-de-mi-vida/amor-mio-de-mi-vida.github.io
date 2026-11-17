@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackwell 上的 FP8/FP4 GEMM：tcgen05、TMEM 与块缩放 MMA</title>
+<meta name="description" content="DeepGEMM 精读第 2 篇：Blackwell 的 tcgen05 指令、张量内存和 UTCCP 缩放因子通路如何串成一条四角色 warp 特化流水线，块缩放 MMA 同时支持 MXFP8 和 MXFP4。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 2 篇</div>
+  <h1>Blackwell 上的 FP8/FP4 GEMM：<br><span class="nobr">tcgen05</span>、TMEM 与块缩放 MMA</h1>
+  <p class="subtitle">DeepGEMM 把 Blackwell 的 tcgen05 指令、张量内存和 UTCCP 缩放因子通路串成一条四角色 warp 特化流水线，用块缩放 MMA 同时支持 MXFP8 和 MXFP4；双 CTA 模式和 swap-AB 技巧为 MoE 的不齐 M 准备好了出口。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 13 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-background">从 SM90 到 SM100：硬件接口换了一层</a><li><a href="#sec-warp-roles">四种 warp 角色：TMA、MMA、UTCCP 转置、尾声</a><ol><li><a href="#sec-1">屏障初始化：6 组屏障，3 种到达模式</a></li></ol><li><a href="#sec-tmem">TMEM 列预算与 overlap 屏障</a><li><a href="#sec-mma">块缩放 MMA：两种指令、两种粒度</a><li><a href="#sec-utccp">UTCCP：把缩放因子从 SMEM 搬进 TMEM</a><li><a href="#sec-dual-cta">双 CTA MMA：两个 CTA 共享一份累加器</a><li><a href="#sec-swap-ab">swap-AB 尾声：让 MoE 的不齐 M 不再是问题</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr"><p class="tldr-title">TL;DR</p><ul>
+<li>Blackwell（SM100）用 <code>tcgen05.mma</code> 取代 Hopper 的 <code>wgmma</code>：操作数在共享内存，累加器搬进张量内存（TMEM），缩放因子也存入 TMEM 供块缩放 MMA 就地读取。</li>
+<li>DeepGEMM 的 SM100 FP8/FP4 内核把线程分成四种角色——TMA 搬运、MMA 发射、UTCCP 转置、尾声写出——比 SM90 多了「UTCCP 转置」一环。</li>
+<li>TMEM 列预算有限（上限 512），当累加器加缩放因子列超限时可以重叠（overlap），通过额外的 <code>tmem_overlap_barriers</code> 保证先读后写。</li>
+<li>swap-AB 技巧把可变的 M 映射到 UMMA 的 N 维度，配合 <code>update_instr_desc_with_umma_n</code> 动态裁剪——这是 MoE 分组 GEMM 的关键出口。</li>
+</ul></div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a> 的 SM90 FP8 GEMM 流水线。本篇新引入：TMEM 与张量内存列预算、UTCCP 转置通路、<code>tcgen05.mma</code>（UMMA）指令、swap-AB 技巧。</p></aside>
+
+<!-- =========================================================== -->
+<h2 id="sec-background" data-short="SM90 到 SM100">从 SM90 到 SM100：硬件接口换了一层</h2>
+
+<p><a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">上一篇</a>讲了 Hopper（SM90）上的 FP8 GEMM：TMA 把数据搬进共享内存（SMEM），<code>wgmma</code> 从 SMEM 读操作数、在寄存器文件里累加。到了 Blackwell（SM100），硬件给 GEMM 的接口做了三个根本性的改变 <span class="cite">[<a href="#ref-ptx_isa" title="NVIDIA. (2024). PTX ISA Reference.">1</a>]</span>：</p>
+
+<ul>
+<li><b>指令换代</b>：<code>wgmma</code> 变成了 <code>tcgen05.mma</code>（也叫 UMMA——Unified Matrix Multiply-Accumulate）。两者最大的区别是操作数来源：<code>wgmma</code> 可以从寄存器读 A 操作数，而 <code>tcgen05.mma</code> 的 A 和 B 都必须在共享内存中，用 SMEM 描述符来定位。</li>
+<li><b>累加器搬家</b>：SM90 的累加器在寄存器文件里，每个 warp 直接访问自己的寄存器。SM100 引入了专用的<b>张量内存（Tensor Memory, TMEM）</b>——每个 SM 最多 512 列，每列 32 个 32 位元素（对应 32 个 datapath）。累加器不再占用寄存器，而是住在 TMEM 里，读写需要 <code>tcgen05.st</code> 和 <code>tcgen05.ld</code> 等专门指令。这意味着尾声（epilogue）阶段必须先从 TMEM 读出累加器再做后处理。</li>
+<li><b>缩放因子就地读取</b>：块缩放 MMA（block-scaled MMA）需要 UE8M0 编码的缩放因子。SM100 要求这些缩放因子也在 TMEM 中——MMA 指令直接从 TMEM 的指定列读取 SF，不需要额外的寄存器传递。这就多出了一条数据通路：SF 先由 TMA 搬入 SMEM，再经 <b>UTCCP</b>（Unified Tensor Core Copy，<code>tcgen05.cp</code>）从 SMEM 拷入 TMEM。</li>
+</ul>
+
+<p>这三个变化叠在一起，使得 SM100 的 GEMM 内核在线程分工、内存管理和同步模式上都与 SM90 有显著不同。DeepGEMM 实现这些变化的核心文件是 <code>sm100_fp8_fp4_gemm_1d1d.cuh</code> <span class="cite">[<a href="#ref-deepgemm_repo" title="DeepSeek AI. (2025). DeepGEMM. GitHub repository.">2</a>]</span>——一个模板化的 CUDA 内核，同时支持 FP8×FP8、FP8×FP4 和 FP4×FP4 三种精度组合。模板参数 <code>kGemmType</code> 决定精度，<code>kGemmMode</code> 决定是普通 GEMM 还是 MoE 分组 GEMM。下面我们来逐一拆解它的核心机制。</p>
+
+<!-- =========================================================== -->
+<h2 id="sec-warp-roles" data-short="Warp 角色">四种 warp 角色：TMA、MMA、UTCCP 转置、尾声</h2>
+
+<p>SM90 内核用两类角色——TMA 生产者 warp 和 MMA 消费者 warpgroup。SM100 内核需要更精细的分工：缩放因子必须先在 SMEM 内转置、再经 UTCCP 拷入 TMEM，这多出了一类专职角色。完整的线程分配如 <a href="#fig-warp-roles">图 1</a> 所示：</p>
+
+<figure id="fig-warp-roles" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-warp-roles-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 320" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="280" y="24" text-anchor="middle">SM100 FP8/FP4 内核的四种 warp 角色</text>
+
+  
+  <rect class="d-box blue" x="16" y="48" width="120" height="56" rx="4"/>
+  <text class="d-text" x="76" y="72" text-anchor="middle" fill="white">Warp 0</text>
+  <text class="d-small" x="76" y="92" text-anchor="middle" fill="white">TMA Load</text>
+
+  
+  <rect class="d-box" x="160" y="48" width="120" height="56" rx="4" style="fill:#f5f0e6;stroke:#bba35e"/>
+  <text class="d-text" x="220" y="72" text-anchor="middle">Warp 2(–3)</text>
+  <text class="d-small" x="220" y="92" text-anchor="middle">SF 转置</text>
+
+  
+  <rect class="d-box accent" x="304" y="48" width="120" height="56" rx="4"/>
+  <text class="d-text" x="364" y="72" text-anchor="middle" fill="white">Warp 1</text>
+  <text class="d-small" x="364" y="92" text-anchor="middle" fill="white">MMA 发射</text>
+
+  
+  <rect class="d-box green" x="448" y="48" width="96" height="56" rx="4"/>
+  <text class="d-text" x="496" y="72" text-anchor="middle" fill="white">其余 warp</text>
+  <text class="d-small" x="496" y="92" text-anchor="middle" fill="white">Epilogue</text>
+
+  
+  <rect class="d-box soft" x="16" y="140" width="264" height="48" rx="4"/>
+  <text class="d-text" x="148" y="170" text-anchor="middle">共享内存（SMEM）</text>
+
+  
+  <rect class="d-box soft" x="304" y="140" width="240" height="48" rx="4"/>
+  <text class="d-text" x="424" y="170" text-anchor="middle">张量内存（TMEM）</text>
+
+  
+  <rect class="d-box soft" x="16" y="260" width="528" height="44" rx="4"/>
+  <text class="d-text" x="280" y="288" text-anchor="middle">全局内存（A, B, SFA, SFB, D）</text>
+
+  
+  <path class="d-arrow" d="M76 104 V138" marker-end="url(#s1-ah)"/>
+  <text class="d-small" x="44" y="124" text-anchor="start">TMA</text>
+
+  
+  <path class="d-arrow" d="M76 188 V258" marker-end="url(#s1-ah)"/>
+  <text class="d-small" x="48" y="230" text-anchor="start">A, B</text>
+
+  
+  <path class="d-arrow" d="M220 104 V138" marker-end="url(#s1-ah)"/>
+  <text class="d-small" x="228" y="124" text-anchor="start">转置</text>
+
+  
+  <path class="d-arrow accent" d="M280 164 H302" marker-end="url(#s1-ah-acc)"/>
+  <text class="d-small d-accent-text" x="276" y="157" text-anchor="start">UTCCP</text>
+
+  
+  <path class="d-arrow accent" d="M364 104 V138" marker-end="url(#s1-ah-acc)"/>
+  <text class="d-small d-accent-text" x="372" y="127" text-anchor="start">MMA</text>
+
+  
+  <path class="d-arrow" d="M496 104 V138" marker-end="url(#s1-ah)"/>
+  <text class="d-small" x="504" y="127" text-anchor="start">读 TMEM</text>
+
+  
+  <path class="d-arrow" d="M496 188 V258" marker-end="url(#s1-ah)"/>
+  <text class="d-small" x="504" y="230" text-anchor="start">TMA store</text>
+
+  
+  <text class="d-mono" x="148" y="200" text-anchor="middle" style="font-size:12px">A, B tile + SFA, SFB</text>
+
+  
+  <text class="d-mono" x="424" y="200" text-anchor="middle" style="font-size:12px">累加器 + SFA/SFB cols</text>
+
+  
+  <text class="d-label" x="364" y="42" text-anchor="middle">仅 leader CTA</text>
+
+  
+  <rect x="16" y="216" width="528" height="32" rx="4" fill="none" stroke="#ccc" stroke-dasharray="4"/>
+  <text class="d-small" x="280" y="236" text-anchor="middle">屏障协调：full_barriers（TMA→MMA）、sf_full_barriers（TMA→转置）、tmem_full/empty_barriers（MMA↔尾声）</text>
+</svg></div>
+  <figcaption id="fig-warp-roles-cap"><span class="fig-label">图 1</span><b>SM100 FP8/FP4 内核的四种 warp 角色与数据通路。</b>Warp 0 用 TMA 把 A/B 和 SFA/SFB 从全局内存搬进共享内存；warp 2(–3) 把 SF 在 SMEM 内转置；warp 1（仅 leader CTA）用 UTCCP 把转好的 SF 拷进 TMEM 后发射 <code>tcgen05.mma</code>；其余 warp 从 TMEM 读累加器，经 SMEM 写回全局。</figcaption>
+</figure>
+
+<p>从代码看，内核用 <code>warp_idx</code>（由 <code>threadIdx.x / 32</code> 得到）把线程分到四条分支：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L211-L495"><code>if (warp_idx == 0 and cute::elect_one_sync()) {
+// ...
+} else if (warp_idx == 1 and is_leader_cta) {
+// ...
+} else if (warp_idx == 2 or (SF_BLOCK_K == 2 and warp_idx == 3)) {
+    // UTCCP transposer
+    // NOTES: use up to 2 warps to transpose, one per SF sub-block on K (only warp 3 when SF_BLOCK_K == 2)
+    const uint32_t sf_k_subblock_idx = warp_idx - 2;
+// ...
+} else if (epilogue_warp_idx &lt; kNumUMMAStoreThreads / 32) {</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L211-L495"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 211–495 行</a>——四条分支入口，节选</p>
+
+<p><b>Warp 0——TMA 搬运工。</b>它遍历所有 K 块，每一轮用 TMA 把 A tile、B tile 搬入 SMEM，再把 SFA、SFB 搬入 SMEM 中另一块区域。搬完后通过 <code>full_barriers[stage].arrive()</code> 通知 warp 1 可以开始消费，通过 <code>sf_full_barriers[stage].arrive()</code> 通知 warp 2 可以开始转置。当 <code>kNumMulticast == 2</code> 时，A 或 B 的 TMA 使用多播模式（multicast），一次搬运同时写入两个 SM 的 SMEM——这要求 cluster 内两个 CTA 的 SMEM 地址连续分配。</p>
+
+<p><b>Warp 1——MMA 发射者。</b>这是唯一执行 <code>tcgen05.mma</code> 的 warp，且仅在 <code>is_leader_cta</code>（双 CTA 时 rank 0 的 CTA）时执行。它在每个 K 块开始前等待 <code>full_barriers</code>，确认 TMA 搬运完毕；然后执行 UTCCP 把 SF 从 SMEM 拷入 TMEM，最后发射一连串 MMA 指令消费 A、B tile。当所有 K 块结束后，它通过 <code>tmem_full_barriers</code> 通知尾声 warp 累加器准备好了。</p>
+
+<p><b>Warp 2(–3)——SF 转置。</b>UTCCP 要求输入数据按 K-major 排列，但 TMA 载入的 SF 是 MN-major 的。Warp 2 在 <code>sf_full_barriers</code> 等到 SF 数据到达后，在 SMEM 内做一次 4×32→32×4 的转置（详见 <a href="#sec-utccp">UTCCP</a>）。当 <code>SF_BLOCK_K == 2</code>（即每个 tile 有两组 SF）时，warp 3 也加入转置，两个 warp 各处理一组。转置完成后通过 <code>full_barriers</code> 的额外到达通知 warp 1。</p>
+
+<p><b>其余 warp——尾声。</b>尾声 warp 等待 <code>tmem_full_barriers</code>，确认 MMA 完成后，用 <code>tcgen05.ld</code> 从 TMEM 读出累加器，做类型转换（BF16 或 FP8），经 SMEM 中转后用 TMA 或直接 store 写回全局内存 D。写完后通过 <code>tmem_empty_barriers</code> 反馈给 warp 1，释放 TMEM 累加器空间用于下一轮 tile。</p>
+
+<h3 id="sec-1">屏障初始化：6 组屏障，3 种到达模式</h3>
+
+<p>四种角色之间的同步靠 6 组屏障协调，全部在 <code>SharedStorage</code> 的 SMEM 中分配。屏障的初始化由 warp 1 的 elected leader 完成，TMEM 分配同时由 warp 2 执行——两者并行：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L164-L189"><code>// Initialize barriers
+if (warp_idx == 1 and cute::elect_one_sync()) {
+    #pragma unroll
+    for (uint32_t i = 0; i &lt; kNumStages; ++ i) {
+        // Arrive at all CTAs
+        smem.sf_full_barriers[i].init(1);
+        smem.empty_barriers[i].init(1);
+        // Arrive only at the leader CTA
+        smem.full_barriers[i].init(kNumMulticast * (1 + 32 * SF_BLOCK_K));
+    }
+    #pragma unroll
+    for (uint32_t i = 0; i &lt; kNumEpilogueStages; ++ i) {
+        // Arrive at all CTAs
+        smem.tmem_full_barriers[i].init(1);
+        // Arrive only at the leader CTA
+        smem.tmem_empty_barriers[i].init(kNumMulticast * kNumUMMAStoreThreads);
+        smem.tmem_overlap_barriers[i].init(kNumMulticast * kNumUMMAStoreThreads);
+    }
+
+    // Make initialized barrier visible in async proxy
+    cutlass::arch::fence_barrier_init();
+} else if (warp_idx == 2) {
+    // Allocate tensor memory
+    Allocator().allocate(kNumTmemCols, &amp;smem.tmem_ptr);
+}
+kNumMulticast &gt; 1 ? comm::cluster_sync_with_relaxed_arrive() : __syncthreads();</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L164-L189"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 164–189 行</a>（屏障初始化与 TMEM 分配）</p>
+
+<p>6 组屏障的完整列表：</p>
+
+<table id="tab-barriers"><thead>
+<tr><th>屏障</th><th>缓冲深度</th><th>到达数</th><th>生产者（arrive）</th><th>消费者（wait）</th><th>信号语义</th></tr>
+</thead><tbody>
+<tr><td><code>sf_full_barriers</code></td><td><code>kNumStages</code></td><td>1</td><td>TMA warp（第 275 行 <code>arrive_and_expect_tx</code>）</td><td>转置 warp 2(–3)（第 476 行 <code>.wait(phase)</code>）</td><td>SFA/SFB 到达 SMEM，可以开始转置</td></tr>
+<tr><td><code>empty_barriers</code></td><td><code>kNumStages</code></td><td>1</td><td>MMA warp 1（第 342 行 <code>umma_arrive</code>）</td><td>TMA warp 0（第 225 行 <code>.wait(phase^1)</code>）</td><td>A/B SMEM stage 已消费完毕，TMA 可覆写</td></tr>
+<tr><td><code>full_barriers</code></td><td><code>kNumStages</code></td><td><code>kNumMulticast × (1 + 32 × SF_BLOCK_K)</code></td><td>TMA warp（第 293 行 <code>arrive_and_expect_tx</code>）+ 转置 warp 每线程各一次（第 492 行 <code>.arrive()</code>）</td><td>MMA warp 1（第 364 行 <code>.wait(phase)</code>）</td><td>A/B 数据 + 转置后的 SF 均就绪</td></tr>
+<tr><td><code>tmem_full_barriers</code></td><td><code>kNumEpilogueStages</code></td><td>1</td><td>MMA warp 1（第 346 行 <code>umma_arrive</code>，最后一个 K 块时）</td><td>尾声 warp</td><td>累加器在 TMEM 中就绪，尾声可读取</td></tr>
+<tr><td><code>tmem_empty_barriers</code></td><td><code>kNumEpilogueStages</code></td><td><code>kNumMulticast × kNumUMMAStoreThreads</code></td><td>尾声 warp 每线程各一次</td><td>MMA warp 1（第 329 行 <code>.wait(phase^1)</code>）</td><td>累加器 TMEM 读取完毕，MMA 可覆写</td></tr>
+<tr><td><code>tmem_overlap_barriers</code></td><td><code>kNumEpilogueStages</code></td><td><code>kNumMulticast × kNumUMMAStoreThreads</code></td><td>尾声 warp 每线程各一次</td><td>MMA warp 1（第 398–400 行，仅首个 K 块）</td><td>TMEM 重叠区域读取完毕，UTCCP 可写入 SF</td></tr>
+</tbody></table>
+
+<p>其中 <code>sf_full_barriers</code> 的到达数为 1（只有 TMA warp 到达），<code>full_barriers</code> 的到达数为 <code>kNumMulticast × (1 + 32 × SF_BLOCK_K)</code>——1 是 TMA warp 的 TMA 完成到达，<code>32 × SF_BLOCK_K</code> 是转置 warp 中每个线程各到达一次。<code>tmem_empty_barriers</code> 和 <code>tmem_overlap_barriers</code> 的到达数为 <code>kNumMulticast × kNumUMMAStoreThreads</code>，即所有尾声线程各到达一次。双 CTA 时所有到达数翻倍（<code>kNumMulticast = 2</code>），因为两个 CTA 的对应角色都会到达同一组屏障。<code>empty_barriers</code> 和 <code>tmem_full_barriers</code> 的到达通过 <code>umma_arrive</code>（UMMA 指令完成时的隐式到达）完成，而非显式的 barrier arrive。初始化后 <code>fence_barrier_init()</code> 确保屏障在异步代理（TMA、UTCCP）可见。</p>
+
+<aside class="sidenote">SM90 内核的 warp 分工只有「TMA 生产者」和「MMA 消费者」两种。SM100 把消费者进一步拆成 MMA、转置和尾声三种角色，本质上是因为 TMEM 引入了额外的数据搬运步骤（UTCCP）和额外的同步约束（overlap barriers）。</aside>
+
+<p>四种角色的线程总数也与 SM90 不同。SM90 的 FP8 内核用 1 个 TMA warp + 1 个 MMA warpgroup（128 线程）= 160 线程。SM100 内核用 1 个 TMA warp + 1 个 MMA warp + 1–2 个转置 warp + 若干尾声 warp，总线程数随 <code>kNumEpilogueWarps</code> 变化，典型配置约 192–256 线程。尾声 warp 的数量由 <code>BLOCK_N / 32</code> 决定——每个尾声 warp 处理 TMEM 的 32 列，<code>BLOCK_N = 128</code> 时需要 4 个尾声 warp，<code>BLOCK_N = 256</code> 时需要 8 个。</p>
+
+<!-- =========================================================== -->
+<h2 id="sec-tmem" data-short="TMEM 预算">TMEM 列预算与 overlap 屏障</h2>
+
+<p>TMEM 每个 SM 最多 512 列。内核需要为三类数据分配列空间：</p>
+<ol>
+<li><b>累加器</b>：<code>UMMA_N × kNumEpilogueStages</code> 列。<code>kNumEpilogueStages</code> 默认为 2（双缓冲），使得一份累加器被 MMA 写入时，另一份可以被尾声读取。</li>
+<li><b>SFA 列</b>：存放 A 的缩放因子，列数为 <code>ceil(SF_BLOCK_M × SF_BLOCK_K, 32)</code>——因为每列 32 个 32 位元素，每个 <code>uint32</code> 装 4 个 UE8M0 字节。</li>
+<li><b>SFB 列</b>：存放 B 的缩放因子，列数为 <code>ceil(SF_BLOCK_N × SF_BLOCK_K, 32)</code>。</li>
+</ol>
+
+<p>具体的计算在内核的编译期常量中（<a href="#fig-tmem-budget">图 2</a> 给出了两个典型算例）：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L117-L128"><code>constexpr uint32_t kNumAccumTmemCols = UMMA_N * kNumEpilogueStages;
+constexpr uint32_t kNumSFATmemCols = SF_BLOCK_M * SF_BLOCK_K / 32;
+constexpr uint32_t kNumSFBTmemCols = SF_BLOCK_N * SF_BLOCK_K / 32;
+constexpr uint32_t kNumSFTmemCols = kNumSFATmemCols + kNumSFBTmemCols;
+constexpr uint32_t kNumOverlappedTmemCols = cute::max&lt;uint32_t&gt;(kNumAccumTmemCols + kNumSFTmemCols, 512) - 512;
+constexpr uint32_t kNumTmemCols = utils::get_num_aligned_tmem_cols&lt;kNumAccumTmemCols + kNumSFTmemCols - kNumOverlappedTmemCols&gt;();
+constexpr uint32_t kTmemStartColOfSFA = kNumAccumTmemCols - kNumOverlappedTmemCols;
+constexpr uint32_t kTmemStartColOfSFB = kTmemStartColOfSFA + kNumSFATmemCols;
+DG_STATIC_ASSERT(kNumOverlappedTmemCols &lt;= UMMA_N, "Invalid overlapped tensor memory columns");
+DG_STATIC_ASSERT(kSwapAB or kNumOverlappedTmemCols == 0 or kNumOverlappedTmemCols &lt;= STORE_BLOCK_N,
+                 "Non-swap overlapped tensor memory columns must fit in the first epilogue store");
+DG_STATIC_ASSERT(32 &lt;= kNumTmemCols and kNumTmemCols &lt;= 512, "Invalid tensor memory columns");</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L117-L128"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 117–128 行</a>（节选）</p>
+
+<p>关键在第 121 行的 <code>kNumOverlappedTmemCols</code>：它等于 <code>max(总列数 − 512, 0)</code>。当累加器加 SF 的总需求不超过 512 列时，三者各占各的地址，互不干扰，overlap 为零。但一旦总需求超过 512——比如 <code>BLOCK_N = 256</code> 时，仅累加器就需要 \(256 \times 2 = 512\) 列——SF 列就只能和累加器列的尾部共用同一片 TMEM 地址。</p>
+
+<figure id="fig-tmem-budget" data-kind="diagram" data-source="computed" data-script="plots/tmem_budget.py">
+  <div class="fig-body"><svg aria-labelledby="fig-tmem-budget-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 240" font-family="sans-serif" role="img" id="s2-root" style="max-width:560px;">
+  <defs>
+    <marker id="s2-ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="280" y="20" text-anchor="middle">TMEM 列预算（算例：BN=128, SF_BLOCK_M=SF_BLOCK_N=128, SF_BLOCK_K=1）</text>
+
+  
+  <rect x="24" y="44" width="512" height="40" rx="2" fill="#f2f2f0" stroke="#999"/>
+  <text class="d-small" x="280" y="38" text-anchor="middle">TMEM 最大 512 列</text>
+
+  
+  <rect class="d-box accent" x="24" y="44" width="128" height="40" rx="2"/>
+  <text class="d-small" x="88" y="70" text-anchor="middle" fill="white">Accum 0</text>
+  <text class="d-mono" x="88" y="58" text-anchor="middle" fill="white" style="font-size:11px">128</text>
+
+  
+  <rect class="d-box accent" x="152" y="44" width="128" height="40" rx="2"/>
+  <text class="d-small" x="216" y="70" text-anchor="middle" fill="white">Accum 1</text>
+  <text class="d-mono" x="216" y="58" text-anchor="middle" fill="white" style="font-size:11px">128</text>
+
+  
+  <rect class="d-box blue" x="280" y="44" width="48" height="40" rx="2"/>
+  <text class="d-small" x="304" y="58" text-anchor="middle" fill="white">SFA</text>
+  <text class="d-mono" x="304" y="74" text-anchor="middle" fill="white" style="font-size:11px">4</text>
+
+  
+  <rect class="d-box blue" x="328" y="44" width="48" height="40" rx="2"/>
+  <text class="d-small" x="352" y="58" text-anchor="middle" fill="white">SFB</text>
+  <text class="d-mono" x="352" y="74" text-anchor="middle" fill="white" style="font-size:11px">4</text>
+
+  
+  <rect x="376" y="44" width="160" height="40" rx="2" fill="#f2f2f0" stroke="#ccc" stroke-dasharray="4"/>
+  <text class="d-label" x="456" y="70" text-anchor="middle">未使用（共 256+8=264 列，对齐到 512）</text>
+
+  
+  <text class="d-title" x="280" y="112" text-anchor="middle">当 BN=256 时出现 overlap</text>
+
+  
+  <rect x="24" y="128" width="512" height="40" rx="2" fill="#f2f2f0" stroke="#999"/>
+
+  
+  <rect class="d-box accent" x="24" y="128" width="256" height="40" rx="2"/>
+  <text class="d-small" x="152" y="154" text-anchor="middle" fill="white">Accum 0 (256)</text>
+
+  
+  <rect class="d-box accent" x="280" y="128" width="256" height="40" rx="2"/>
+  <text class="d-small" x="408" y="154" text-anchor="middle" fill="white">Accum 1 (256)</text>
+
+  
+  <rect x="496" y="124" width="40" height="48" rx="2" fill="none" stroke="#e55100" stroke-width="2" stroke-dasharray="4"/>
+  <text class="d-small d-accent-text" x="516" y="120" text-anchor="middle">overlap</text>
+
+  
+  <rect class="d-box blue" x="496" y="128" width="20" height="40" rx="1"/>
+  <rect class="d-box blue" x="516" y="128" width="20" height="40" rx="1"/>
+  <text class="d-label" x="506" y="182" text-anchor="middle">SFA</text>
+  <text class="d-label" x="526" y="182" text-anchor="middle">SFB</text>
+
+  
+  <text class="d-small" x="280" y="206" text-anchor="middle">总需求 = 256×2 + 8 = 520 &gt; 512 → overlap = 520 − 512 = 8 列</text>
+  <text class="d-small" x="280" y="224" text-anchor="middle">SF 列与累加器尾部重叠：尾声读完后才能写入新 SF，通过 tmem_overlap_barriers 握手</text>
+</svg></div>
+  <figcaption id="fig-tmem-budget-cap"><span class="fig-label">图 2</span><b>TMEM 列预算示例。</b>上：BN=128、SF_BLOCK_M=SF_BLOCK_N=128、SF_BLOCK_K=1 时，累加器 128×2=256 列 + SF 4+4=8 列 = 264 列，不超 512，无 overlap。下：BN=256 时累加器 512 列 + SF 8 列 = 520 &gt; 512，出现 8 列 overlap——SF 列与累加器 stage 0 的尾部共用同一 TMEM 地址。由第 117–128 行的公式直接代入计算。</figcaption>
+</figure>
+
+<p>当出现 overlap 时，同一片 TMEM 地址既是累加器的一部分，又是 SF 的存放处。这就带来了<b>读写冲突</b>：尾声需要读累加器（包括重叠区域），而 MMA warp 的 UTCCP 需要往 SF 列写入新的缩放因子。如果 UTCCP 在尾声读完之前就覆盖了重叠区域，结果就会出错。</p>
+
+<p>为此，内核引入了 <code>tmem_overlap_barriers</code>。尾声在读完重叠区域后到达该屏障（<code>sm100_store_cd_swap_ab.cuh</code> 第 113–122 行）；MMA warp 在下一轮 tile 的<b>首个 K 块</b> UTCCP 之前等待这个屏障：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L394-L406"><code>if constexpr (kNumOverlappedTmemCols &gt; 0) {
+    if (k_block_idx == 0 and scheduler.current_iter &gt; 0) {
+        ptx::tcgen05_before_thread_sync();
+        const auto preceding_iter_idx = scheduler.current_iter - 1;
+        const auto preceding_stage_idx = preceding_iter_idx % kNumEpilogueStages;
+        const auto preceding_phase_idx = (preceding_iter_idx / kNumEpilogueStages) &amp; 1;
+        smem.tmem_overlap_barriers[preceding_stage_idx].wait(preceding_phase_idx);
+        ptx::tcgen05_after_thread_sync();
+    }
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L394-L406"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 394–406 行</a>——MMA warp 中的 overlap 等待</p>
+
+<p>注意这里的巧妙之处：overlap 屏障不是在每个 K 块都等，而是只在首个 K 块 UTCCP 之前等一次（<code>k_block_idx == 0</code>）。原因是同一 tile 内的所有 K 块共享同一组累加器列——SF 只在第一个 K 块的 UTCCP 时写入重叠区域，后续 K 块的 SF 写入的 TMEM 地址不变。这就允许 UTCCP 与前一轮尾声的后半段在时间上部分重叠，而不是严格串行。</p>
+
+<aside class="sidenote">TMEM 分配由 warp 2 执行（第 185–188 行），释放由 warp 0 在最后一轮同步后执行（第 566–567 行）。分配器 <code>Allocator2Sm</code> 在双 CTA 时使用，确保两个 CTA 的 TMEM 不冲突。此外，<code>get_num_aligned_tmem_cols</code>（<code>common/utils.cuh</code> 第 43–50 行）将列数向上对齐到 32/64/128/256/512 之一——实际分配的列数可能比计算值更多。</aside>
+
+<!-- =========================================================== -->
+<h2 id="sec-mma" data-short="块缩放 MMA">块缩放 MMA：两种指令、两种粒度</h2>
+
+<p>SM100 的块缩放 MMA 用 UE8M0 编码的缩放因子对操作数做分块反量化。UE8M0 是一种 8 位纯指数格式——没有尾数位，只有指数，表示 \(2^{e-127}\) 的缩放系数（详见 <a href="../dg03-sf-formats/dg03-sf-formats.html">dg03</a>）。DeepGEMM 用到两种 <code>tcgen05.mma</code> 指令变体 <span class="cite">[<a href="#ref-ptx_isa" title="NVIDIA. (2024). PTX ISA Reference.">1</a>]</span>：</p>
+
+<ul>
+<li><code>kind::mxf8f6f4.block_scale</code>——支持 FP8×FP8、FP8×FP6、FP8×FP4 等混合精度组合。每步 MMA 的 K 维度为 UMMA_K=32，即一次消费 32 个 K 方向的元素。对应地，每 32 个元素有一个 UE8M0 缩放因子。</li>
+<li><code>kind::mxf4.block_scale.block32</code>（需要 CUDA 12.9 或更新版本）——FP4×FP4 专用。由于 FP4 精度更低、吞吐更高，UMMA_K 翻倍到 64。旧版编译器（CUDA &lt; 12.9）写作 <code>scale_vec::2X</code>——含义是每步消耗两组 SF（每组 32 个 K 元素）。</li>
+</ul>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/ptx/tcgen05.cuh#L46-L64"><code>struct SM100_MMA_MXF8F6F4_SS {
+// ...
+          "{\n\t"
+          ".reg .pred p;\n\t"
+          "setp.ne.b32 p, %4, 0;\n\t"
+          "tcgen05.mma.cta_group::1.kind::mxf8f6f4.block_scale [%0], %1, %2, %3, [%5], [%6], p; \n\t"
+          "}\n"
+// ...
+            "r"(tmem_sfa), "r"(tmem_sfb));
+    }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/ptx/tcgen05.cuh#L46-L64"><code>deep_gemm/include/deep_gemm/ptx/tcgen05.cuh</code> 第 46–64 行</a>——mxf8f6f4 block_scale 指令</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/ptx/tcgen05.cuh#L124-L141"><code>struct SM100_MMA_MXF4_SS {
+// ...
+#if (__CUDACC_VER_MAJOR__ &gt; 12) || (__CUDACC_VER_MAJOR__ == 12 &amp;&amp; __CUDACC_VER_MINOR__ &gt;= 9)
+            "tcgen05.mma.cta_group::1.kind::mxf4.block_scale.block32 [%0], %1, %2, %3, [%5], [%6], p; \n\t"
+#else
+            "tcgen05.mma.cta_group::1.kind::mxf4.block_scale.scale_vec::2X [%0], %1, %2, %3, [%5], [%6], p; \n\t"
+#endif</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/ptx/tcgen05.cuh#L124-L141"><code>deep_gemm/include/deep_gemm/ptx/tcgen05.cuh</code> 第 124–141 行</a>——mxf4 block_scale 指令，两种编码</p>
+
+<p>这两种指令都通过 SMEM 描述符读取 A、B 操作数，通过 TMEM 地址读取缩放因子（<code>tmem_sfa</code>、<code>tmem_sfb</code>）。关键区别在于 <b>SF id 的选择</b>——它决定了每步 MMA 用 SF 列中的哪一个缩放因子。在主循环中（第 414–426 行），SF id 的计算有两种模式：</p>
+
+<ul>
+<li><b>粒度 32</b>（<code>kGranKA == 32</code>，即每 32 个 K 元素一个 SF）：<code>sf_id = (offset % 128) / 32</code>。一个 128-K 子块里有 4 个 SF，每步 MMA 消费 32 个 K，sf_id 从 0 到 3 递增。这种模式下缩放粒度更细，量化误差更小。</li>
+<li><b>粒度 128</b>（<code>kGranKA == 128</code>）：<code>sf_id = sfa_stage_in_group_idx</code>。整个 128-K 子块共用一个 SF，id 由更外层的 stage 索引决定。粒度更粗，但 SF 的存储和搬运开销更小。</li>
+</ul>
+
+<aside class="sidenote">MXF4 的 <code>scale_vec::2X</code> / <code>block32</code> 含义是每步 UMMA_K=64 消耗两组 32 元素的 SF（sf_id 以步长 2 递增）；<code>block_scale</code> 本身指的是每个 block（32 或 64 个元素）共享一个标量 SF，与 per-element scaling 相对。</aside>
+
+<p>在 swap-AB 模式下（见 <a href="#sec-swap-ab">swap-AB</a>），A 和 B 的角色互换：指令描述符中 <code>sfa_id</code> 和 <code>sfb_id</code> 也相应翻转（第 427–429 行），以保证缩放因子与实际操作数的对应关系正确。</p>
+
+<!-- =========================================================== -->
+<h2 id="sec-utccp" data-short="UTCCP">UTCCP：把缩放因子从 SMEM 搬进 TMEM</h2>
+
+<p>缩放因子（4 个 UE8M0 值打包成一个 <code>uint32</code>）先由 TMA 搬入 SMEM，但 MMA 要求它们在 TMEM 里。<b>UTCCP</b>（<code>tcgen05.cp</code>，即 Unified Tensor Core Copy）负责这段从 SMEM 到 TMEM 的拷贝。</p>
+
+<p>但 UTCCP 有一个布局要求：输入数据必须按 K-major 排列。而 TMA 载入 SMEM 的 SF 是 MN-major 的——128 个 SF 值按 M（或 N）方向连续存放。因此在 UTCCP 之前，warp 2(–3) 需要在 SMEM 内做一次转置：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L458-L470"><code>} else if (warp_idx == 2 or (SF_BLOCK_K == 2 and warp_idx == 3)) {
+    // UTCCP transposer
+    // NOTES: use up to 2 warps to transpose, one per SF sub-block on K (only warp 3 when SF_BLOCK_K == 2)
+    const uint32_t sf_k_subblock_idx = warp_idx - 2;
+    auto utccp_required_smem_warp_transpose = [&amp;](const uint32_t* smem_ptr) {
+        DG_STATIC_ASSERT(kNumUTCCPAlignedElems == 128, "Invalid aligned elements");
+        uint32_t values[4];
+        #pragma unroll
+        for (uint32_t i = 0; i &lt; 4; ++ i)
+            values[i] = ptx::ld_shared(smem_ptr + i * 32 + lane_idx);
+        __syncwarp();
+        ptx::st_shared(smem_ptr + lane_idx * 4, values[0], values[1], values[2], values[3]);
+    };</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L458-L470"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 458–470 行</a>（节选）</p>
+
+<p>转置函数 <code>utccp_required_smem_warp_transpose</code>（在 <code>SM100_UTCCP_4x32dp128bit</code> 中定义）把 128 个 <code>uint32</code> 按 4×32 的布局（4 行 × 32 个 lane）读入寄存器：每个 lane 读取 4 个间隔 32 的值。然后以 32×4 的布局写回同一块 SMEM——每个 lane 把 4 个值连续写到 <code>lane_idx × 4</code> 的位置。经过这次 shuffle，SMEM 中的数据就从 MN-major 变成了 UTCCP 要求的 K-major 布局。转置是就地完成的（读写同一块 SMEM），需要在读完后、写回前插入一次 <code>__syncwarp()</code>，防止 warp 内某些 lane 的写入覆盖其他 lane 尚未读取的位置。这个转置操作每个 K 块执行一次（或两次，当 <code>SF_BLOCK_K == 2</code> 时），开销约为 128 个 SMEM 读 + 128 个 SMEM 写 + 1 次 warp 同步——相对于 MMA 指令的计算开销而言很小，但仍然是 SM100 相比 SM90 多出的固有延迟。</p>
+
+<p>转置完成后，由 warp 1（MMA warp）发射 UTCCP：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L369-L391"><code>if (cute::elect_one_sync()) {
+    // Do SF copy at certain stages
+    // TODO: process shared memory descriptor by addition
+    using cute_utccp_t = cute::conditional_t&lt;kNumMulticast == 1,
+                                             cute::SM100_UTCCP_4x32dp128bit_1cta, cute::SM100_UTCCP_4x32dp128bit_2cta&gt;;
+    if (sfa_stage_in_group_idx == 0) {
+        #pragma unroll
+        for (uint32_t i = 0; i &lt; SF_BLOCK_K * SF_BLOCK_M / kNumUTCCPAlignedElems; ++ i) {
+            auto smem_ptr = smem.sfa[stage_idx] + i * kNumUTCCPAlignedElems;
+            mma::sm100::replace_smem_desc_addr(sf_desc, smem_ptr);
+            cute_utccp_t::copy(sf_desc, kTmemStartColOfSFA + i * 4);
+        }
+    }
+    if (sfb_stage_in_group_idx == 0) {
+        #pragma unroll
+        for (uint32_t i = 0; i &lt; SF_BLOCK_K * SF_BLOCK_N / kNumUTCCPAlignedElems; ++ i) {
+            auto smem_ptr = smem.sfb[stage_idx] + i * kNumUTCCPAlignedElems;
+            mma::sm100::replace_smem_desc_addr(sf_desc, smem_ptr);
+            cute_utccp_t::copy(sf_desc, kTmemStartColOfSFB + i * 4);
+        }
+    }
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh#L369-L391"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_gemm_1d1d.cuh</code> 第 369–391 行</a>——UTCCP 拷贝循环</p>
+
+<p>每 128 个 SF 元素发一条 <code>cute_utccp_t::copy</code>，底层对应 <code>cute::SM100_UTCCP_4x32dp128bit_1cta</code>（单 CTA）或 <code>_2cta</code>（双 CTA）变体。TMEM 的列步长为 4——因为 128 个 SF 值分布在 4 列 TMEM 上（每列 32 个 32 位元素，每个元素装 4 个 UE8M0 值，排列方式由 UTCCP 的 atom 大小决定）。SF 描述符由 <code>make_sf_desc</code> 构造：指定 K-major 布局、atom 大小 8×128 bit、SBO（Swizzle Base Offset）=128 字节、LBO=0。</p>
+
+<p>值得注意的是同步模型：UTCCP 在 <code>full_barriers</code> 等到 A/B 的 TMA 完成后才执行——它与 A/B 的 MMA 消费在同一个 warp 中串行。内核注释（第 446–448 行）指出 <code>tcgen05.commit</code> 隐含 <code>fence::before_thread_sync</code>，因此 UTCCP 完成到 MMA 开始之间无需显式 fence。这个设计简化了 MMA warp 内部的同步逻辑——不过它依赖的是 PTX ISA 的隐含语义，而非显式的屏障。</p>
+
+<!-- =========================================================== -->
+<h2 id="sec-dual-cta" data-short="双 CTA">双 CTA MMA：两个 CTA 共享一份累加器</h2>
+
+<p>当 <code>kNumMulticast == 2</code> 时，内核使用 cluster 包含两个 CTA。两个 CTA 运行在同一个 GPC（Graphics Processing Cluster）的两个相邻 SM 上，可以通过 TMA multicast 把同一份 A 或 B 数据同时分发给两个 SM 的 SMEM，从而把全局内存带宽需求减半。但双 CTA 模式对 MMA 和 TMEM 管理有几个特殊要求：</p>
+
+<ol>
+<li><b>TMEM 分配必须协调</b>：用 <code>Allocator2Sm</code>（第 49 行）替代普通分配器。分配前需要一次 cluster 同步（第 131 行：<code>cluster_sync_with_relaxed_arrive()</code>），确保两个 CTA 都准备好后再分配，避免 TMEM 地址冲突。</li>
+<li><b>MMA 只由 leader CTA 发射</b>（第 299 行：<code>is_leader_cta</code>）。<code>tcgen05.mma</code> 带 <code>cta_group::2</code> 后缀时，一条指令就消费两个 SM 的 SMEM 数据——leader CTA 发一条就够了，follower CTA 的 warp 1 什么也不做。这避免了重复发射导致的结果错误。</li>
+<li><b>屏障到达计数翻倍</b>：两个 CTA 的 TMA warp 和转置 warp 都会到达同一组屏障。例如 <code>full_barriers</code> 的初始计数是 <code>kNumMulticast × (1 + 32 × SF_BLOCK_K)</code>（第 172 行）——其中 1 是 TMA warp 的到达，32 × SF_BLOCK_K 是转置 warp 的每线程到达数。</li>
+<li><b>MMA 指令用 <code>cta_group::2</code></b>——例如 <code>SM100_MMA_MXF8F6F4_2x1SM_SS</code>。这告诉硬件：两个 SM 共同完成一个更大的 MMA，等效的 UMMA_M 翻倍到 \(128 \times 2 = 256\)。</li>
+</ol>
+
+<aside class="sidenote"><code>cluster_sync_with_relaxed_arrive</code> 由 <code>cute::cluster_arrive_relaxed()</code> 加 <code>cute::cluster_wait()</code> 实现（<code>comm/barrier.cuh</code> 第 26–31 行）。<code>relaxed</code> 意味着到达操作没有内存序保证（不刷新 store buffer），但 <code>cluster_wait</code> 提供了充分的同步语义。相比 <code>cute::cluster_sync()</code>（带 <code>acquire</code> 语义），relaxed 版本在不需要全局可见性时更高效。</aside>
+
+<p>总结一下双 CTA 的收益：TMA multicast 让 A（或 B）只搬一份、两个 SM 共享，全局内存带宽减半；MMA 的 <code>cta_group::2</code> 让两个 SM 的 Tensor Core 联合计算，等效算力翻倍。代价是 TMEM 分配需要额外同步，且屏障逻辑更复杂。DeepGEMM 的启发式（<code>sm100.hpp</code>）在 tile 够大时自动启用双 CTA。具体来说，启发式会在 <code>BLOCK_N ≥ 128</code> 且总 SM 占用率足够时选择双 CTA——因为当 tile 太小时，multicast 节省的带宽不足以抵消 cluster 同步的开销（每次 tile 迭代至少需要一次 <code>cluster_sync_with_relaxed_arrive</code>）。双 CTA 模式还有一个约束：两个 CTA 必须调度到同一个 GPC 内的相邻 SM 上，这限制了硬件调度器的灵活性——如果 GPC 负载不均衡，可能导致某些 SM 空闲而另一些过载。</p>
+
+<!-- =========================================================== -->
+<h2 id="sec-swap-ab" data-short="swap-AB">swap-AB 尾声：让 MoE 的不齐 M 不再是问题</h2>
+
+<p>MoE（Mixture of Experts）的分组 GEMM 中，每个专家分到的 token 数 M 不同、不对齐，而且在推理时每 batch 都在变化。标准 GEMM 的 tile 沿 M 方向固定大小（比如 BLOCK_M=128），对不齐的 M 要么 padding 浪费算力，要么用 mask 降低 Tensor Core 利用率。</p>
+
+<p>swap-AB 的思路是：<b>把 A 和 B 互换</b>，让原来的 M 维度映射到 UMMA 的 N 维度。这样做的好处是，<code>tcgen05.mma</code> 允许动态修改指令描述符中的 N 维度——</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/mma/sm100.cuh#L150-L153"><code>CUTLASS_DEVICE void update_instr_desc_with_umma_n(
+    cute::UMMA::InstrDescriptorBlockScaled&amp; desc, const uint32_t&amp; umma_n) {
+    desc.n_dim_ = umma_n &gt;&gt; 3;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/mma/sm100.cuh#L150-L153"><code>deep_gemm/include/deep_gemm/mma/sm100.cuh</code> 第 150–153 行</a>（节选）</p>
+
+<p>——内核在每个 tile 的开头调用 <code>update_instr_desc_with_umma_n</code>，把 <code>umma_n</code> 设成该 tile 实际有效的 M 值（第 351–354 行）。如果这个 tile 只覆盖了 60 个 token（而非满额的 128），<code>umma_n</code> 就设为 60，多余的列不会被计算也不会被写入。这正是 swap-AB 能高效处理 MoE 不齐 M 的关键——完整的分组 GEMM 调度逻辑见 <a href="../dg04-moe-grouped/dg04-moe-grouped.html">dg04</a>。</p>
+
+<p>启发式中，三种 M 分组 GEMM（<code>GroupedContiguous</code>、<code>GroupedMasked</code>、<code>GroupedMaskedV2</code>）<b>一律启用</b> swap-AB：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L34-L45"><code>if (desc.gemm_type == GemmType::MGroupedContiguous or
+    desc.gemm_type == GemmType::MGroupedContiguousWithPsumLayout or
+    desc.gemm_type == GemmType::MGroupedMasked) {
+    const bool swap_ab = true;
+    const auto block_n = 128;
+    const auto block_m = heuristics_runtime-&gt;get_mk_alignment_for_contiguous_layout();
+    const auto cluster_m = 1;
+    const auto cluster_n = ceil_div(desc.n, block_n) % 2 == 0 and desc.num_sms % 2 == 0 ? 2 : 1;
+    const auto layout = Layout{swap_ab, block_m, block_n, block_k, cluster_m, cluster_n};
+    std::vector&lt;Layout&gt; candidates = {layout};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L34-L45"><code>csrc/jit_kernels/heuristics/sm100.hpp</code> 第 34–45 行</a>——M 分组一律启用 swap-AB</p>
+
+<p>swap-AB 下，<code>UMMA_N = BLOCK_M</code>（第 67 行）——注意是 BLOCK_M 而不是 BLOCK_N，因为原来的 M 现在是 UMMA 的 N。这个维度映射的本质是利用了矩阵乘法的结合律：\(D = A \cdot B\) 等价于 \(D^\top = B^\top \cdot A^\top\)，交换输入后的累加器里存的恰好是 \(D^\top\)（转置的结果矩阵）。尾声在写回全局内存前必须把数据转置回来。转置在 SMEM 层面完成：BF16 输出用 <code>SM90_U32x4_STSM_T</code>（<code>sm100_store_cd_swap_ab.cuh</code> 第 155 行），FP8 输出用 <code>SM100_U8x8_STSM_T</code>（第 172 行）——这两条 STSM 指令在从寄存器存入 SMEM 时自带转置。对应地，TMEM 读取也换成了 <code>16dp256b1x</code> 形状（第 99–103 行），因为 STSM 的 b16/b8 布局要求与标准尾声的 <code>32dp32b</code> 不同。</p>
+
+<p><a href="#fig-pipeline">图 3</a> 给出了完整的流水线时序，展示了 TMA、转置、UTCCP+MMA、尾声四个阶段如何在多个 K 块之间流水并行，以及 overlap 屏障在其中的位置。</p>
+
+<figure id="fig-pipeline" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-pipeline-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 360" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ah3-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="280" y="20" text-anchor="middle">SM100 FP8/FP4 流水线时序</text>
+  <text class="d-label" x="16" y="48" text-anchor="start">Stage</text>
+  <text class="d-label" x="16" y="82" text-anchor="start">K block 0</text>
+  <text class="d-label" x="16" y="142" text-anchor="start">K block 1</text>
+  <text class="d-label" x="16" y="202" text-anchor="start">K block 2</text>
+  <text class="d-label" x="16" y="262" text-anchor="start">尾声</text>
+
+  
+  <text class="d-small" x="116" y="48" text-anchor="middle">TMA load</text>
+  <text class="d-small" x="220" y="48" text-anchor="middle">SF 转置</text>
+  <text class="d-small" x="340" y="48" text-anchor="middle">UTCCP + MMA</text>
+  <text class="d-small" x="480" y="48" text-anchor="middle">Epilogue</text>
+
+  
+  <rect class="d-box blue" x="72" y="60" width="88" height="36" rx="4"/>
+  <text class="d-small" x="116" y="83" text-anchor="middle" fill="white">A,B → SMEM</text>
+
+  <rect x="180" y="60" width="80" height="36" rx="4" style="fill:#f5f0e6;stroke:#bba35e"/>
+  <text class="d-small" x="220" y="83" text-anchor="middle">4×32↔32×4</text>
+
+  <rect class="d-box accent" x="280" y="60" width="120" height="36" rx="4"/>
+  <text class="d-small" x="340" y="83" text-anchor="middle" fill="white">UTCCP → MMA</text>
+
+  
+  <rect class="d-box blue" x="72" y="120" width="88" height="36" rx="4"/>
+  <text class="d-small" x="116" y="143" text-anchor="middle" fill="white">A,B → SMEM</text>
+
+  <rect x="180" y="120" width="80" height="36" rx="4" style="fill:#f5f0e6;stroke:#bba35e"/>
+  <text class="d-small" x="220" y="143" text-anchor="middle">转置</text>
+
+  <rect class="d-box accent" x="280" y="120" width="120" height="36" rx="4"/>
+  <text class="d-small" x="340" y="143" text-anchor="middle" fill="white">UTCCP → MMA</text>
+
+  
+  <rect class="d-box blue" x="72" y="180" width="88" height="36" rx="4"/>
+  <text class="d-small" x="116" y="203" text-anchor="middle" fill="white">A,B → SMEM</text>
+
+  <rect x="180" y="180" width="80" height="36" rx="4" style="fill:#f5f0e6;stroke:#bba35e"/>
+  <text class="d-small" x="220" y="203" text-anchor="middle">转置</text>
+
+  <rect class="d-box accent" x="280" y="180" width="120" height="36" rx="4"/>
+  <text class="d-small" x="340" y="203" text-anchor="middle" fill="white">UTCCP → MMA</text>
+
+  
+  <rect class="d-box green" x="432" y="240" width="112" height="36" rx="4"/>
+  <text class="d-small" x="488" y="263" text-anchor="middle" fill="white">TMEM→SMEM→D</text>
+
+  
+  <path class="d-arrow" d="M160 78 H178" marker-end="url(#s3-ah3)"/>
+  <path class="d-arrow accent" d="M260 78 H278" marker-end="url(#s3-ah3-acc)"/>
+  <path class="d-arrow" d="M160 138 H178" marker-end="url(#s3-ah3)"/>
+  <path class="d-arrow accent" d="M260 138 H278" marker-end="url(#s3-ah3-acc)"/>
+  <path class="d-arrow" d="M160 198 H178" marker-end="url(#s3-ah3)"/>
+  <path class="d-arrow accent" d="M260 198 H278" marker-end="url(#s3-ah3-acc)"/>
+
+  
+  <path class="d-arrow" d="M400 198 H420 V258 H430" marker-end="url(#s3-ah3)"/>
+  <text class="d-label" x="425" y="232" text-anchor="middle">tmem_full</text>
+
+  
+  <path class="d-arrow muted dashed" d="M488 276 V308 H340 V320" marker-end="url(#s3-ah3)"/>
+  <text class="d-label" x="420" y="306" text-anchor="middle">tmem_empty → 下一 tile</text>
+
+  
+  <text class="d-label d-accent-text" x="340" y="338" text-anchor="middle">若存在 overlap 列：tmem_overlap_barriers 延迟到首个 K block UTCCP 后再等</text>
+
+  
+  <text class="d-label" x="116" y="112" text-anchor="middle">empty↑ full↓</text>
+  <text class="d-label" x="220" y="112" text-anchor="middle">sf_full</text>
+</svg></div>
+  <figcaption id="fig-pipeline-cap"><span class="fig-label">图 3</span><b>SM100 FP8/FP4 内核的流水线时序。</b>每个 K 块依次经历 TMA 载入、SF 转置、UTCCP+MMA 三阶段；最后一个 K 块的 MMA 完成后触发尾声。<code>tmem_empty_barriers</code> 把尾声完成反馈给下一轮 tile 的 MMA warp；若存在 overlap 列，<code>tmem_overlap_barriers</code> 保证 UTCCP 不会在尾声读完前覆盖 SF。</figcaption>
+</figure>
+
+<!-- =========================================================== -->
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+<li><b>未讨论 TMA 多播与 swizzle</b>：<code>kSwizzleAMode</code>/<code>kSwizzleBMode</code> 的选择逻辑由启发式处理（<a href="../dg05-heuristics-jit/dg05-heuristics-jit.html">dg05</a>），本文未展开。</li>
+<li><b>未讨论 FP8 C/D 尾声</b>：当 <code>kIsFP8CastWithClamp</code> 时，尾声额外做 FP8 量化并写出 UE8M0 SFD；此路径的详细逻辑未涉及。</li>
+<li><b>TMEM 对齐浪费</b>：<code>get_num_aligned_tmem_cols</code>（<code>common/utils.cuh</code> 第 43–50 行）将列数向上对齐到 32/64/128/256/512 之一——本文给出了公式但未讨论对齐导致的列浪费。</li>
+<li><b>关于 d30fc36 提交</b>：该提交（「Fix sync issue of TMEM alloc/dealloc」, #292）修了 TMEM 分配/释放的同步问题，但改的是 <code>sm100_fp8_gemm</code> 和 <code>sm100_bf16_gemm</code>，<b>不是</b>本文讨论的 FP8/FP4 内核。HEAD 版本的 FP8/FP4 内核使用更弱序的 <code>cluster_sync_with_relaxed_arrive()</code>。</li>
+<li><b>MXF4 的 K-major 约束</b>：<code>kIsMXF4</code> 要求 A、B 都是 K-major（第 84 行），MN-major FP4 不被支持——这是硬件限制。</li>
+<li><b>关于 <code>tcgen05.commit</code> 的隐式 fence</b>：内核注释（第 447 行）说 commit 隐含 <code>fence::before_thread_sync</code>，因此省略了显式 fence。这一说法的依据是 PTX ISA 规范，本文未独立验证其正确性——我们引用的是代码注释，不是硬件文档。</li>
+</ul>
+
+<!-- =========================================================== -->
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">SM90 FP8 GEMM</a>
+  ｜ 下一篇：<a href="../dg03-sf-formats/dg03-sf-formats.html">缩放因子格式</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+  <li id="ref-ptx_isa">NVIDIA. (2024). <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA Reference</a>.</li>
+  <li id="ref-deepgemm_repo">DeepSeek AI. (2025). <a href="https://github.com/deepseek-ai/DeepGEMM">DeepGEMM</a>. GitHub repository.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>。本地没有 GPU，文中没有任何实测性能数字。TMEM 列预算图由 L117–128 的公式直接代入示例参数计算。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

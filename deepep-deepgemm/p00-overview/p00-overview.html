@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepEP 与 DeepGEMM 精读：系列导读</title>
+<meta name="description" content="17 篇精读的路线图：DeepEP 的 EP 通信原语和 DeepGEMM 的 FP8/FP4 GEMM 内核各覆盖了 MoE 的哪一段，如何串起来读。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 与 DeepGEMM 精读 · 导读</div>
+  <h1>DeepEP 与 DeepGEMM 精读：<br>系列导读</h1>
+  <p class="subtitle">DeepEP 负责 MoE 的 dispatch/combine 通信，DeepGEMM 负责 FP8/FP4/BF16 的 GEMM 计算；17 篇精读分两卷拆解源码，本文是路线图。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 6 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-what">DeepEP 和 DeepGEMM 各管什么</a><li><a href="#sec-deepep">DeepEP 卷：8 篇精读</a><li><a href="#sec-deepgemm">DeepGEMM 卷：9 篇精读</a><li><a href="#sec-crossover">两卷的交汇点</a><li><a href="#sec-reading">建议的阅读顺序</a><ol><li><a href="#sec-1">背景篇（新手请先读）</a></li></ol><li><a href="#sec-conventions">系列约定</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>DeepEP（V2.5）是 DeepSeek 的专家并行通信库，实现 MoE 的 dispatch/combine；DeepGEMM 是配套的 FP8/FP4/BF16 GEMM 内核库。两者合在一起覆盖了 MoE 层从通信到计算的完整路径。</li>
+    <li>本系列 17 篇精读分两卷：DeepEP 8 篇（接口 → 直连 → combine → 混合 → 通信底座 → 资源估算 → bucket 集合 → 冗余专家），DeepGEMM 9 篇（SM90 FP8 → SM100 FP8/FP4 → SF 格式 → 分组 GEMM → 启发式/JIT → BF16/einsum → MQA logits → Mega MoE → Mega Gate/mHC）。</li>
+    <li>两卷的交汇点是三处：masked GEMM 吃 DeepEP dispatch 输出（dg04 ↔ ep02）、Mega MoE 把 EP 通信搬进 GEMM 内核（dg08 ↔ ep07）、DeepJIT 同时被两仓使用（dg05 ↔ ep06）。</li>
+    <li>每篇独立可读，单个 HTML 文件可离线打开，所有代码链接指向固定提交。</li>
+    <li>不熟悉 MoE 或 GPU 微架构？先读两篇背景：<a href="../bg01-moe-ep-background/bg01-moe-ep-background.html">bg01（MoE 与 EP）</a>和 <a href="../bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02（GPU 硬件速查）</a>。</li>
+  </ul>
+</div>
+
+<h2 id="sec-what" data-short="两个库">DeepEP 和 DeepGEMM 各管什么</h2>
+
+<p>在 MoE 模型的一个前向步中，每个 token 被路由到若干专家，数据要在持有不同专家的 GPU 之间搬运（dispatch），然后计算（GEMM），最后搬回去归约（combine）。DeepEP 负责"搬运"，DeepGEMM 负责"计算"。</p>
+
+<p><b>DeepEP</b>（<a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">V2.5</a>）实现了两套 EP 通信原语：</p>
+<ul>
+  <li><b>dispatch/combine</b>：把 token 按 top-k 专家选择发送到目标 rank（dispatch），MoE 计算后归约并送回（combine）。支持纯 NVLink（直连）和 NVLink+RDMA（混合）两条路径。</li>
+  <li><b>bucket 集合通信</b>：all-gather、reduce-scatter、all-reduce——用复制引擎驱动，SM 占用降至零或几个。</li>
+</ul>
+
+<p><b>DeepGEMM</b>（<a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">提交 5081f85</a>）提供了一组高性能 GEMM 内核：</p>
+<ul>
+  <li><b>SM90（Hopper）</b>和 <b>SM100（Blackwell）</b>上的 FP8/FP4 块缩放 GEMM。</li>
+  <li><b>MoE 分组 GEMM</b>：contiguous、masked、K-grouped 三种分组模式。</li>
+  <li><b>融合大内核</b>：Mega MoE（一整层 MoE 融合进一个持久化内核）、Mega Gate、Mega mHC。</li>
+  <li>所有内核通过 <b>DeepJIT</b> 运行时编译，从 Python 层按需生成。</li>
+</ul>
+
+
+<h2 id="sec-deepep" data-short="DeepEP 卷">DeepEP 卷：8 篇精读</h2>
+
+<ol>
+  <li><a href="../ep01-epbuffer-api/ep01-epbuffer-api.html"><b>ep01</b> — 一个 EPBuffer 走完训练与推理：容量、展开布局、handle 与延迟尾声</a><br>
+  EPBuffer 的 Python 接口、容量估算、展开布局（expanded layout）、cached dispatch、延迟尾声与 previous_event。</li>
+
+  <li><a href="../ep02-direct-dispatch/ep02-direct-dispatch.html"><b>ep02</b> — 直连模式的 dispatch：计数、布局、收发与拷贝尾声</a><br>
+  notify warp 的三步计数（本地 → 全网格归约 → 对端交换）、TokenLayout 内存布局、发送 warp 流水线、PDL 驱动的拷贝尾声。</li>
+
+  <li><a href="../ep03-combine/ep03-combine.html"><b>ep03</b> — combine：BF16 归约、bias 与归约尾声</a><br>
+  combine 的双路径归约（BF16 直加 vs FP32 累加）、BF16-only 约束的设计动机、bias 融合、归约尾声的去重与输出。</li>
+
+  <li><a href="../ep04-hybrid/ep04-hybrid.html"><b>ep04</b> — NVLink 加 RDMA：混合模式的转发路径</a><br>
+  hybrid dispatch/combine 的三种 warp 角色（notify、scale-out、forward）、NVLink 域 ↔ RDMA 域的两跳转发、combine 的反向重放。</li>
+
+  <li><a href="../ep05-comm-substrate/ep05-comm-substrate.html"><b>ep05</b> — 通信底座：NCCL Gin、对称内存窗口与内存序</a><br>
+  NCCLGin 封装的双路径分派、red_add_rel 的 NVLink/RDMA 实现、对称内存与 get_sym_ptr、屏障层级（gpu → nvlink → gin）、ptx.cuh 内存序词汇。</li>
+
+  <li><a href="../ep06-analytic-config/ep06-analytic-config.html"><b>ep06</b> — 不调参：从拓扑和带宽算出 SM 与 QP，再交给 DeepJIT 现编</a><br>
+  拓扑探测、SM/QP 数的分析公式（取代自动调参）、DeepJIT 运行时编译、RDMA 服务等级。</li>
+
+  <li><a href="../ep07-bucket/ep07-bucket.html"><b>ep07</b> — Bucket 集合通信：零 SM 的 all-gather 与 multimem 归约</a><br>
+  BucketBuffer 的多桶多组设计、由复制引擎驱动的零 SM all-gather、NVLink multimem 归约、hybrid reduce-scatter 的三阶段流水线。</li>
+
+  <li><a href="../ep08-lb-engram-pp/ep08-lb-engram-pp.html"><b>ep08</b> — 冗余专家、Engram 与 PP：三种点对点搬运原语</a><br>
+  lb_prefetch_weights / lb_reduce_grads / redundancy_mapping 与独立 LB 内存区、Engram 远程 RDMA 取数、PP send/recv。</li>
+</ol>
+
+
+<h2 id="sec-deepgemm" data-short="DeepGEMM 卷">DeepGEMM 卷：9 篇精读</h2>
+
+<ol>
+  <li><a href="../dg01-sm90-fp8/dg01-sm90-fp8.html"><b>dg01</b> — 两级累加：Hopper 上的 FP8 GEMM 怎样把 scale 塞进流水线</a><br>
+  SM90 FP8 GEMM 的 1d1d/1d2d 缩放变体、两级 FP32 累加、TMA 生产者/MMA 消费者 warp 特化、mbarrier 流水线与尾声。</li>
+
+  <li><a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html"><b>dg02</b> — Blackwell 上的 FP8/FP4 GEMM：tcgen05、TMEM 与块缩放 MMA</a><br>
+  tcgen05.mma（UMMA）、张量内存与 TMEM 列预算、UTCCP 缩放因子通路、双 CTA MMA、swap-AB 技巧。</li>
+
+  <li><a href="../dg03-sf-formats/dg03-sf-formats.html"><b>dg03</b> — 缩放因子的格式学：UE8M0、MN-major 与 TMA 对齐</a><br>
+  UE8M0 打包（4 个指数进 1 个 int32）、MN-major 布局与 TMA 对齐、三个变换内核的派发逻辑、PSUM 空隙行的安全处理、K 分组打包。</li>
+
+  <li><a href="../dg04-moe-grouped/dg04-moe-grouped.html"><b>dg04</b> — 分组 GEMM 不换内核，只换索引表</a><br>
+  M 分组 contiguous（含 PSUM 布局）、M 分组 masked（解码时吃 DeepEP 输出）、K 分组（权重梯度）、持久化 tile 调度器、L2 复用的块顺序。</li>
+
+  <li><a href="../dg05-heuristics-jit/dg05-heuristics-jit.html"><b>dg05</b> — 配置怎么选、内核何时编：启发式、DeepJIT 与局部性域</a><br>
+  block 大小/stage 数/multicast/swap-AB 的选择逻辑、tc_util/PDL/确定性模式、DeepJIT 编译缓存与惰性初始化、局部性域与 mlopart。</li>
+
+  <li><a href="../dg06-bf16-einsum/dg06-bf16-einsum.html"><b>dg06</b> — 没有 scale 的那一半：BF16、批量收缩、einsum 与 cuBLASLt 兜底</a><br>
+  BF16 GEMM、批量 GEMM、fp8_einsum、cuBLASLt 兜底路径、epilogue 类。</li>
+
+  <li><a href="../dg07-mqa-logits/dg07-mqa-logits.html"><b>dg07</b> — 一条加权 ReLU，四种内核：Lightning Indexer 的 MQA logits</a><br>
+  weighted-ReLU 打分写成块缩放 GEMM、MX/非 MX scale 模式、分页 KV cache 布局、schedule-metadata 内核、稀疏版本。</li>
+
+  <li><a href="../dg08-mega-moe/dg08-mega-moe.html"><b>dg08</b> — Mega MoE：把一整层 MoE 塞进一个持久化内核</a><br>
+  dispatch/Linear1/SwiGLU/FP8 再量化/Linear2/combine 融合、NVLink 通信与计算重叠、对称缓冲区、权重变换（gate/up 交错 + UTCCP scale 转置）。</li>
+
+  <li><a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html"><b>dg09</b> — Mega Gate、Mega mHC 与 TF32 HC prenorm GEMM</a><br>
+  Mega Gate 融合了什么、Mega mHC 的五步流水线、TF32 HC prenorm GEMM、CUDA graph 重放下的 split barrier 修复。</li>
+</ol>
+
+
+<h2 id="sec-crossover" data-short="交汇点">两卷的交汇点</h2>
+
+<p>DeepEP 和 DeepGEMM 不是完全独立的两个库。它们在三处交汇：</p>
+
+<ul>
+  <li><b>masked GEMM ↔ dispatch 输出</b>：DeepEP dispatch 产出的 per-expert token 列表直接成为 DeepGEMM M-grouped masked GEMM 的输入，后者不需要事先知道每个专家分到多少 token。（<a href="../dg04-moe-grouped/dg04-moe-grouped.html">dg04</a> ↔ <a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>）</li>
+  <li><b>Mega MoE ↔ bucket 通信</b>：Mega MoE 把一整层 MoE（包括通信）塞进一个持久化内核，内核里直接用 NVLink 对称缓冲区做 dispatch 和 combine，省掉了独立的 EP 内核调用。（<a href="../dg08-mega-moe/dg08-mega-moe.html">dg08</a> ↔ <a href="../ep07-bucket/ep07-bucket.html">ep07</a>）</li>
+  <li><b>DeepJIT</b>：两仓共用同一个运行时编译子模块。DeepEP 用它按拓扑配置编译 EP 内核（<a href="../ep06-analytic-config/ep06-analytic-config.html">ep06</a>），DeepGEMM 用它按 GEMM 形状和硬件编译 GEMM 内核（<a href="../dg05-heuristics-jit/dg05-heuristics-jit.html">dg05</a>）。</li>
+</ul>
+
+
+<h2 id="sec-reading" data-short="阅读顺序">建议的阅读顺序</h2>
+
+<h3 id="sec-1">背景篇（新手请先读）</h3>
+
+<ol start="0">
+  <li value="0"><a href="../bg01-moe-ep-background/bg01-moe-ep-background.html"><b>bg01</b> — MoE 与专家并行：为什么要搬数据</a><br>
+  MoE 层的结构、专家并行的 dispatch/combine 语义、DeepSeek-V3 配置、DeepEP 与 DeepGEMM 各管什么、一个 token 的完整旅程。</li>
+
+  <li value="0"><a href="../bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html"><b>bg02</b> — GPU 硬件速查：SM、TMA、张量核与 NVLink</a><br>
+  线程层级（warp→warpgroup→CTA→cluster）、内存层级、Hopper 三件套（TMA/WGMMA/mbarrier）、Blackwell 新增（TMEM/UTCCP/dual-CTA）、GEMM 分块基础、NVLink 与 RDMA、术语速查表。</li>
+</ol>
+
+<p>每篇独立可读，但如果要串起来读，建议按以下顺序之一：</p>
+
+<dl>
+  <dt>从入门到精通</dt>
+  <dd>bg01 → bg02 → ep01 → ep02 → ep03 → ep04 → ep05 → ep06 → ep07 → ep08 → dg01 → dg02 → dg03 → dg04 → dg05 → dg06 → dg07 → dg08 → dg09。先建立背景，再读完通信，最后读计算。</dd>
+
+  <dt>从头到尾（已有背景）</dt>
+  <dd>ep01 → ep02 → ep03 → ep04 → ep05 → ep06 → ep07 → ep08 → dg01 → dg02 → dg03 → dg04 → dg05 → dg06 → dg07 → dg08 → dg09。先读完通信再读计算。</dd>
+
+  <dt>只看通信</dt>
+  <dd>ep01 → ep02 → ep03 → ep04 → ep05 → ep06 → ep07 → ep08。八篇讲完 DeepEP 的全部机制。</dd>
+
+  <dt>只看 GEMM</dt>
+  <dd>dg01 → dg02 → dg03 → dg04 → dg05 → dg06 → dg07 → dg08 → dg09。九篇讲完 DeepGEMM 的全部机制。dg04 的 masked GEMM 节可能需要回看 ep02 了解 dispatch 输出格式。</dd>
+
+  <dt>只看融合大内核</dt>
+  <dd>dg08 → dg09（可选先看 dg01 或 dg02 了解基本 GEMM 结构）。</dd>
+</dl>
+
+
+<h2 id="sec-conventions" data-short="约定">系列约定</h2>
+
+<ul>
+  <li><b>代码版本</b>：DeepEP 提交 <code>f6aa38f</code>、DeepGEMM 提交 <code>5081f85</code>。所有代码链接指向这两个固定提交，仓库之后的改动不影响链接内容。</li>
+  <li><b>源码摘录</b>：逐字摘自源码，可能去掉了公共缩进或用 <code>// ...</code> 表示省略。每段摘录下方有指向 GitHub 永久链接的锚点。</li>
+  <li><b>性能数字</b>：本地没有 GPU，全系列没有任何实测性能数字。公式代入的示例参数在图注中说明。</li>
+  <li><b>推断标记</b>：源码能直接证实的写成陈述；推断的设计动机标"推测"或"可能是为了"。</li>
+</ul>
+
+
+<h2 id="sec-limits">局限与未覆盖</h2>
+
+<ul>
+  <li><b>没有端到端性能评测</b>：没有 GPU，所有数字来自代码中的公式和参数，不是实测。</li>
+  <li><b>NCCL Gin 内部不可见</b>：DeepEP 依赖 NCCL 的 Gin API，但 Gin 内部实现不在 DeepEP 仓库中，本系列无法讨论。</li>
+  <li><b>CUTLASS 子模块未检出</b>：DeepGEMM 的 <code>third-party/cutlass</code> 未检出，涉及 CUTLASS 的部分只描述调用接口。</li>
+  <li><b>源码更新</b>：两仓是活跃项目，本系列读的是固定提交。后续提交可能改变这里描述的行为。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>下一篇：<a href="../bg01-moe-ep-background/bg01-moe-ep-background.html">MoE 与专家并行：为什么要搬数据</a>（背景篇）
+  ｜ <a href="../ep01-epbuffer-api/ep01-epbuffer-api.html">一个 EPBuffer 走完训练与推理</a>（正文第 1 篇）
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  本文是「DeepEP 与 DeepGEMM 精读」系列的导读。代码引用分别指向 <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">DeepEP@f6aa38f</a> 和 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">DeepGEMM@5081f85</a>。本地没有 GPU，全系列没有任何实测性能数字。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

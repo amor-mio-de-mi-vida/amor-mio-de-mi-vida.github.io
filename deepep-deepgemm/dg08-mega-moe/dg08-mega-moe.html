@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mega MoE：把一整层 MoE 塞进一个持久化内核</title>
+<meta name="description" content="DeepGEMM 精读第 8 篇：Mega MoE 把 EP dispatch、Linear1、SwiGLU、FP8 量化、Linear2、combine 六步融合进一个持久化内核，用对称内存在 NVLink 上做通信，中间激活留在环形缓冲区里。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 8 篇</div>
+  <h1>Mega MoE：把一整层 MoE 塞进一个持久化内核</h1>
+  <p class="subtitle">DeepGEMM 用一个持久化内核把 EP dispatch、两次 GEMM、SwiGLU 和 combine 全部做完，通信通过 PyTorch 对称内存在 NVLink 上完成，中间激活留在限容的环形缓冲区里，调度器用 L1 预热策略保证 L1/L2 交替不死锁。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 16 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-why">把整层 MoE 塞进一个内核：省掉五次 HBM 往返</a><ol><li><a href="#sec-1">六步的一次完整迭代</a></li></ol><li><a href="#sec-symm-buffer">对称缓冲区：不走 NCCL，内核自己做 NVLink 搬运</a><ol><li><a href="#sec-2">MegaMoEBuffer：对称缓冲区里装什么</a></li></ol><li><a href="#sec-threads">内核的三类线程组：dispatch、MMA 与 epilogue</a><ol><li><a href="#sec-3">SwiGLU 融合：epilogue 里的完整计算</a></li></ol><li><a href="#sec-scheduler">调度器：L1 预热保证无死锁</a><ol><li><a href="#sec-4">L2KBlockDependency：64 位 bitmask 的精细依赖追踪</a></li><li><a href="#sec-5">TaskInfo 与 4 阶段调度</a></li><li><a href="#sec-6">ring buffer 容量也是调度器决定的</a></li></ol><li><a href="#sec-overlap">NVLink 通信与计算的重叠</a><li><a href="#sec-weight-transform">权重变换：gate/up 交错 + UTCCP scale 转置</a><ol><li><a href="#sec-7">gate/up 交错</a></li><li><a href="#sec-8">UTCCP scale 转置</a></li></ol><li><a href="#sec-sm100-paths">SM100 BF16 与 FP8/FP4：两条 MMA 路径的差异</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>Mega MoE 把 EP dispatch（NVLink 拉取）、Linear1（FP8×FP4 / FP8×FP8 / BF16 GEMM）、SwiGLU 与 FP8 再量化、Linear2、combine 写回六个阶段融合进一个持久化内核，通信与计算在同一组 SM 上交替执行。</li>
+    <li>通信不走 NCCL，而是用 PyTorch 对称内存（<code>torch.distributed._symmetric_memory</code>）开出跨 rank 可见的缓冲区，内核自己通过 NVLink 上的远程指针完成拉取和写回。</li>
+    <li>环形缓冲区（ring buffer）限制了同一时刻存活的 token 块数，使中间激活不需要按最坏情况分配。调度器用 L1 预热再转 L1/L2 交替的两阶段策略保证无死锁。</li>
+    <li>权重需要预变换：L1 的 gate/up 权重按 8 行一组交错排列，两层的 UE8M0 缩放因子按 UTCCP 128 元素粒度转置。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg04-moe-grouped/dg04-moe-grouped.html">dg04</a> 的分组 GEMM 调度，以及 <a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>/<a href="../ep07-bucket/ep07-bucket.html">ep07</a> 的 NVLink dispatch/combine 与对称内存。本篇新引入：Mega MoE 六阶段融合持久化内核、PyTorch 对称内存通信、ring buffer 流控与两阶段调度、权重预变换。</p></aside>
+
+<h2 id="sec-why" data-short="为什么融合">把整层 MoE 塞进一个内核：省掉五次 HBM 往返</h2>
+
+<p>一层 MoE 的传统前向包含六步：EP dispatch（all-to-all）把 token 送到持有对应专家权重的 rank，做 Linear1（FP8×FP4 GEMM），做 SwiGLU 激活并重新量化到 FP8，做 Linear2（FP8×FP4 GEMM），再通过 combine（all-to-all）把结果写回各 token 来源的 rank。每步是一次独立的内核启动，中间激活至少写一次全局内存（HBM）。</p>
+
+<p>Mega MoE 把这六步压进一个持久化内核。README 的用法示例展示了它的调用方式：先分配对称缓冲区和变换权重，再调用一个函数完成整层。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L59-L69"><code>## Interfaces
+
+#### Notices
+
+This library provides optimized GEMM kernels for NVIDIA GPUs with a naming convention: `D = C + A @ B`. The input shape layout is NT (non-transposed A, transposed B). While the SM90 implementation supports only the NT memory layout (row-major, col-major), the SM100 implementation supports all memory layouts (NT, TN, NN, TT). For example, `fp8_gemm_nt` will do a `D = C + A @ B.T`
+
+For both architectures, the LHS scaling factor is required to have a TMA-aligned and transposed layout. And the data format for the scaling factor of SM90 and SM100 is different:
+
+- SM90 requires scaling factors in FP32 format.
+- SM100 requires scaling factors in packed [UE8M0](https://docs.nvidia.com/cuda/parallel-thread-execution/#alternate-floating-point-data-formats) format, which packs 4 UE8M0 into a single `torch.int`.
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L59-L69"><code>README.md</code> 第 59–69 行</a>（用法概览）</p>
+
+<p>融合的好处有两个。第一，中间激活——Linear1 的输出、SwiGLU 的输出——不再写到 HBM 再读回来，而是留在片上的 ring buffer 里直接传给下一步。以 hidden = 7168、inter = 18432、4096 个 token 为例，传统流程中 Linear1 输出（BF16）就有 4096 × 18432 × 2 ≈ 144 MiB 需要写入再读出 HBM；融合后这 144 MiB 完全留在 ring buffer 的共享内存中，只有最终的 combine 输出才写回全局内存。第二，NVLink 通信（dispatch 的拉取和 combine 的写回）与张量核计算可以在同一组 SM 上交替执行，通信延迟被藏在计算后面。<a href="#fig-pipeline">图 1</a> 对比了传统流程和 Mega MoE 的时间线。</p>
+
+<figure id="fig-pipeline" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-pipeline-cap" viewBox="0 0 680 420" xmlns="http://www.w3.org/2000/svg" role="img" id="s1-root" style="max-width:680px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+    <marker id="s1-ah-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head" style="fill:var(--blue,#0072B2)"/>
+    </marker>
+  </defs>
+
+  
+  <text x="340" y="24" class="d-title" text-anchor="middle">Mega MoE 持久化内核：一次 launch 完成整层 MoE</text>
+
+  
+  <line x1="40" y1="56" x2="640" y2="56" class="d-arrow muted" marker-end="url(#s1-ah)"/>
+  <text x="650" y="60" class="d-small" text-anchor="start">时间</text>
+
+  
+  <text x="40" y="48" class="d-small">传统流程（6 次内核启动，每步写 HBM）</text>
+
+  
+  <rect x="40" y="68" width="88" height="40" rx="4" class="d-box soft"/>
+  <text x="84" y="93" class="d-text" text-anchor="middle">dispatch</text>
+
+  <rect x="140" y="68" width="72" height="40" rx="4" class="d-box soft"/>
+  <text x="176" y="93" class="d-text" text-anchor="middle">Linear1</text>
+
+  <rect x="224" y="68" width="72" height="40" rx="4" class="d-box soft"/>
+  <text x="260" y="93" class="d-text" text-anchor="middle">SwiGLU</text>
+
+  <rect x="308" y="68" width="72" height="40" rx="4" class="d-box soft"/>
+  <text x="344" y="93" class="d-text" text-anchor="middle">FP8 quant</text>
+
+  <rect x="392" y="68" width="72" height="40" rx="4" class="d-box soft"/>
+  <text x="428" y="93" class="d-text" text-anchor="middle">Linear2</text>
+
+  <rect x="476" y="68" width="80" height="40" rx="4" class="d-box soft"/>
+  <text x="516" y="93" class="d-text" text-anchor="middle">combine</text>
+
+  
+  <text x="132" y="124" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">HBM</text>
+  <text x="216" y="124" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">HBM</text>
+  <text x="300" y="124" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">HBM</text>
+  <text x="384" y="124" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">HBM</text>
+  <text x="468" y="124" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">HBM</text>
+
+  
+  <text x="40" y="160" class="d-small">Mega MoE（1 次内核启动，中间激活留在 ring buffer）</text>
+
+  
+  <rect x="40" y="172" width="600" height="228" rx="6" class="d-box accent" style="fill-opacity:0.06"/>
+  <text x="340" y="194" class="d-title d-accent-text" text-anchor="middle">持久化内核</text>
+
+  
+  <text x="56" y="220" class="d-small" style="fill:var(--blue,#0072B2)">dispatch WG (128 线程)</text>
+  <text x="56" y="268" class="d-small" style="fill:var(--green,#009E73)">MMA WG (128 线程)</text>
+  <text x="56" y="316" class="d-small" style="fill:var(--green,#009E73)">epilogue WG (256 线程)</text>
+
+  
+  <rect x="240" y="208" width="120" height="32" rx="4" class="d-box blue"/>
+  <text x="300" y="229" class="d-text" text-anchor="middle" style="fill:white">NVLink 拉取</text>
+
+  
+  <rect x="240" y="252" width="80" height="32" rx="4" class="d-box green"/>
+  <text x="280" y="273" class="d-text" text-anchor="middle" style="fill:white">L1 MMA</text>
+
+  <rect x="392" y="252" width="80" height="32" rx="4" class="d-box green"/>
+  <text x="432" y="273" class="d-text" text-anchor="middle" style="fill:white">L2 MMA</text>
+
+  <text x="350" y="273" class="d-small" text-anchor="middle">...</text>
+
+  
+  <rect x="296" y="300" width="96" height="32" rx="4" class="d-box accent"/>
+  <text x="344" y="320" class="d-text" text-anchor="middle">SwiGLU+quant</text>
+
+  <rect x="456" y="300" width="96" height="32" rx="4" class="d-box accent"/>
+  <text x="504" y="320" class="d-text" text-anchor="middle">combine 写回</text>
+
+  
+  <rect x="240" y="348" width="200" height="32" rx="4" class="d-box" style="stroke-dasharray:6,3"/>
+  <text x="340" y="369" class="d-text" text-anchor="middle">ring buffer (限容)</text>
+
+  
+  <path class="d-arrow" d="M300 240 V248" marker-end="url(#s1-ah)" style="stroke:var(--blue,#0072B2)"/>
+  <path class="d-arrow" d="M300 284 V296" marker-end="url(#s1-ah-accent)"/>
+  <path class="d-arrow" d="M392 316 V348" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M440 348 V288 H392" marker-end="url(#s1-ah)" style="stroke:var(--green,#009E73)"/>
+
+  
+  <rect x="480" y="208" width="120" height="32" rx="4" class="d-box blue" style="opacity:0.5"/>
+  <text x="540" y="229" class="d-text" text-anchor="middle" style="fill:white">combine NVL</text>
+
+  
+  <rect x="40" y="392" width="14" height="14" rx="2" style="fill:var(--blue,#0072B2)"/>
+  <text x="60" y="404" class="d-small">NVLink 通信</text>
+  <rect x="160" y="392" width="14" height="14" rx="2" style="fill:var(--green,#009E73)"/>
+  <text x="180" y="404" class="d-small">张量核计算</text>
+  <rect x="296" y="392" width="14" height="14" rx="2" style="fill:var(--accent,#D55E00)"/>
+  <text x="316" y="404" class="d-small">融合尾声</text>
+</svg></div>
+  <figcaption id="fig-pipeline-cap"><span class="fig-label">图 1</span><b>传统 MoE 需要六次内核启动和五次 HBM 往返；Mega MoE 用一个持久化内核完成全部六步。</b>蓝色 = NVLink 通信，绿色 = 张量核计算（UMMA），橙色 = 融合尾声（SwiGLU、量化、combine）。持久化内核的三类 warpgroup 同时运行，通信与计算重叠。依据 <code>mega_moe.cuh</code> 和 <code>sm100_fp8_fp4_mega_moe.hpp</code> 的内核结构。</figcaption>
+</figure>
+
+<h3 id="sec-1">六步的一次完整迭代</h3>
+
+<p>下面是一个 pool block（ring 槽位 <code>i</code>）从 dispatch 到 combine 的完整生命周期，标注了每一步由哪个角色执行以及信号握手：</p>
+
+<figure id="tab-lifecycle" class="table">
+  <figcaption id="tab-lifecycle-cap"><span class="fig-label">表 1</span><b>一个 pool block 的完整生命周期。</b>五个角色在同一组 SM 上交替执行，信号列标注了每一步完成后推进的信号和下一步等待的信号。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>步骤</th><th>角色</th><th>操作</th><th>完成后推进的信号</th><th>下一步等待的信号</th></tr></thead>
+    <tbody>
+      <tr><td>1. Dispatch</td><td>warp 0–3</td><td>从远端 rank 拉取 token、SF、metadata 到 ring buffer <code>l1_token[i]</code></td><td><code>l1_full_count[i] += BLOCK_M</code></td><td>TMA Load A 等 <code>l1_full_count[i]</code></td></tr>
+      <tr><td>2. L1 MMA</td><td>warp 4–7</td><td>TMA 把 <code>l1_token[i]</code> + 权重搬入 SMEM，MMA issue 发 UMMA，遍历 K 块</td><td><code>tmem_full_barrier</code>（最后一个 K 块）</td><td>Epilogue 等 <code>tmem_full_barrier</code></td></tr>
+      <tr><td>3. SwiGLU + quant</td><td>warp 8–15</td><td>从 TMEM 读累加器，SiLU(gate) × up × weight，量化到 FP8，TMA 写入 <code>l2_token[i]</code></td><td><code>l2_full_mask[i] |= (1 « n_block_idx)</code> + <code>l1_empty_count[i]++</code></td><td>TMA Load A 等 <code>l2_full_mask[i]</code> 的对应位</td></tr>
+      <tr><td>4. L2 MMA</td><td>warp 4–7</td><td>TMA 把 <code>l2_token[i]</code> + L2 权重搬入 SMEM，MMA issue 发 UMMA</td><td><code>tmem_full_barrier</code></td><td>Epilogue 等 <code>tmem_full_barrier</code></td></tr>
+      <tr><td>5. Combine 写回</td><td>warp 8–15</td><td>从 TMEM 读 FP32，转 BF16，通过 <code>sym_buffer.map</code> 写到源 rank 的 <code>combine_token</code></td><td><code>l2_empty_count[i]++</code>（ring 槽位可复用）</td><td>全部 L2 完成后 grid sync</td></tr>
+      <tr><td>6. Combine 归约</td><td>warp 8–15</td><td>读各 topk 的 <code>combine_token</code>，加权求和，写最终输出 <code>y</code></td><td>—</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>关键的重叠点在于：当 epilogue 在做槽位 <code>i</code> 的 SwiGLU（步骤 3）时，dispatch 已经在拉取槽位 <code>i+1</code> 的 token（步骤 1），而 MMA 可能在做槽位 <code>i-1</code> 的 L2（步骤 4）——三组角色在三个不同的 ring 槽位上并行工作。<code>l1_empty_count</code> 由步骤 3 推进，dispatch 在步骤 1 等它，形成有界缓冲区的生产-消费闭环。</p>
+
+<h2 id="sec-symm-buffer" data-short="对称缓冲区">对称缓冲区：不走 NCCL，内核自己做 NVLink 搬运</h2>
+
+<p>Mega MoE 的通信不使用 NCCL 或 DeepEP 的通信底座，而是直接使用 PyTorch 提供的对称内存（symmetric memory）原语。对称内存的核心语义是：每个 rank 分配同样大小的一块 GPU 内存，PyTorch 底层让所有 rank 的这块内存对彼此可见——rank 0 可以通过 NVLink 直接读写 rank 1 的对称内存，不需要显式的 send/recv。</p>
+
+<p>Python 端的 <code>SymmBuffer</code> 类封装了这个机制。分配时，单 rank 用普通 <code>torch</code> 分配，多 rank 用 <code>symm_mem.empty()</code> 加 <code>symm_mem.rendezvous()</code>。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L42-L60"><code># Allocate or reuse a symmetric buffer
+num_bytes, slice_input_buffers = _C.get_symm_buffer_size_for_mega_moe(
+    group.size(), num_experts,
+    num_max_tokens_per_rank, num_topk,
+    hidden, intermediate_hidden,
+    mma_type, activation,
+    num_shared_experts
+)
+if base is None:
+    allocator = torch if group.size() == 1 else symm_mem
+    self.buffer = allocator.empty(num_bytes, dtype=torch.int8, device='cuda')
+    self.handle = (
+        types.SimpleNamespace(buffer_ptrs=[self.buffer.data_ptr()])
+        if group.size() == 1
+        else symm_mem.rendezvous(self.buffer, group=group)
+    )
+    self.buffer.zero_()
+    self.group.barrier()
+    torch.cuda.synchronize()</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L42-L60"><code>deep_gemm/mega/__init__.py</code> 第 42–60 行</a>（节选）</p>
+
+<p><code>rendezvous()</code> 返回的 handle 携带所有 rank 的 buffer 指针列表（<code>buffer_ptrs</code>）。在 C++ 侧，这些指针被传入 <code>SymBuffer</code> 结构体：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/sym_buffer.cuh#L9-L44"><code>template &lt;uint32_t kNumRanks = kNumMaxRanks&gt;
+struct SymBuffer {
+    int64_t base;
+    int64_t offsets[kNumMaxRanks];
+    uint32_t rank_idx;
+
+    DG_STATIC_ASSERT(kNumRanks &lt;= kNumMaxRanks, "Too many ranks");
+
+    SymBuffer() = default;
+
+    template &lt;typename Container&gt;
+    explicit SymBuffer(const Container&amp; c, const uint32_t&amp; rank_idx): rank_idx(rank_idx) {
+        const auto size = static_cast&lt;uint32_t&gt;(c.size());
+        base = c[rank_idx];
+        for (uint32_t i = 0; i &lt; kNumMaxRanks; ++ i)
+            offsets[i] = i &lt; size ? (c[i] - base) : 0;
+    }
+
+#if defined(__CUDA_ARCH__) or defined(__CLION_IDE__)
+    template &lt;typename ptr_t = void*&gt;
+    CUTLASS_DEVICE ptr_t get_base_ptr() const {
+        return reinterpret_cast&lt;ptr_t&gt;(base);
+    }
+
+    template &lt;typename ptr_t&gt;
+    CUTLASS_DEVICE ptr_t map(const ptr_t&amp; ptr, const uint32_t&amp; dst_rank_idx) const {
+        if constexpr (kNumRanks == 1)
+            return ptr;
+
+        int64_t mapped_ptr = offsets[dst_rank_idx] + reinterpret_cast&lt;int64_t&gt;(ptr);
+        return *reinterpret_cast&lt;ptr_t*&gt;(&amp;mapped_ptr);
+    }
+#endif</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/sym_buffer.cuh#L9-L44"><code>deep_gemm/include/deep_gemm/layout/sym_buffer.cuh</code> 第 9–44 行</a>（节选）</p>
+
+<p><code>SymBuffer</code> 只存一个 <code>base</code>（本 rank 的基址）和每个 rank 相对于 base 的 <code>offsets</code>。<code>map(ptr, dst_rank_idx)</code> 把一个本地指针映射到另一个 rank 的对应位置——只要加上那个 rank 的偏移量。这个偏移加法发生在内核内部的每一次跨 rank 读写中。最多支持 72 个 rank（<code>kNumMaxRanks</code>）。</p>
+
+<h3 id="sec-2">MegaMoEBuffer：对称缓冲区里装什么</h3>
+
+<p>对称缓冲区被切成多个区域，由 <code>MegaMoEBuffer</code> 结构管理。布局从低地址到高地址大致如下：</p>
+
+<ol>
+  <li><strong>workspace</strong>：包含 <code>MegaMoESignals</code>（全局同步计数器、NVLink barrier、各 locality domain 的 L1/L2 任务计数、combine 就绪标记、每个专家的收发 token 计数）以及每个专家的 token 元数据（<code>TokenSrcMetadata</code>：rank_idx、token_idx、topk_idx，用于 combine 时写回正确位置）。</li>
+  <li><strong>输入缓冲</strong>：<code>x</code>（token 数据）、<code>x_sf</code>（scale factor）、<code>topk_idx</code>、<code>topk_weights</code>——调用方在启动内核前把当前 rank 的 token 写到这里，别的 rank 通过 NVLink 来拉。</li>
+  <li><strong>共享专家缓冲</strong>：<code>shared_l1_acts</code>、<code>shared_l2_acts</code> 及其 SF。</li>
+  <li><strong>环形激活缓冲（ring buffer）</strong>：<code>l1_token</code>、<code>l1_sf</code>、<code>l1_topk_weights</code>（Linear1 的输入，从远端拉来）、<code>l2_token</code>、<code>l2_sf</code>（Linear1 的输出，SwiGLU + quant 后写入）、<code>combine_token</code>（Linear2 的 BF16 输出，待 combine 写回）。</li>
+</ol>
+
+<p>环形缓冲区的容量不是"所有可能的 token"，而是一个有限的 <code>num_ring_tokens</code>。它由调度器的活跃块数上界（<code>get_num_max_live_pool_blocks</code>）乘以 <code>block_m</code> 计算得到。这使得内存分配与最大 token 数成正比，而不是与最坏情况下的 token 总量成正比。</p>
+
+<h2 id="sec-threads" data-short="三类线程">内核的三类线程组：dispatch、MMA 与 epilogue</h2>
+
+<p>启发式代码在 <code>MegaMoEConfig</code> 结构体里定义了三组线程：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/mega_moe.hpp#L23-L64"><code>// Thread layout
+int num_dispatch_threads, num_non_epilogue_threads, num_epilogue_threads;
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/mega_moe.hpp#L23-L64"><code>csrc/jit_kernels/heuristics/mega_moe.hpp</code> 第 23–64 行</a>（线程配置）</p>
+
+<p>三组线程共 512 个，16 个 warp，占满一个 SM。但"三组"其实分成五个功能角色（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_mega_moe.cuh#L342-L946"><code>sm100_fp8_fp4_mega_moe.cuh</code> 第 342–946 行</a>）：</p>
+
+<figure id="tab-warp-roles" class="table">
+  <figcaption id="tab-warp-roles-cap"><span class="fig-label">表 2</span><b>Mega MoE 内核的五种 warp 角色。</b>warp 编号基于默认配置 <code>num_dispatch_threads=128, num_non_epilogue_threads=128, num_epilogue_threads=256</code>。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>warp</th><th>线程数</th><th>角色</th><th>寄存器</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td>0–3</td><td>128</td><td>Dispatch</td><td>48</td><td>NVLink 拉取：遍历远端 rank 的 <code>expert_recv_count</code>，按 <code>num_bytes_per_pull</code> 粒度用 TMA 把 token、SF、metadata 从远端 <code>x</code> 拉入本地 ring buffer 的 <code>l1_token</code>。拉取地址通过 <code>sym_buffer.map(local_ptr, src_rank)</code> 加偏移得到 NVLink 直通指针。每填满一个 pool block 就推进 <code>l1_full_count</code>。</td></tr>
+      <tr><td>4</td><td>32</td><td>TMA Load A</td><td>40</td><td>等 <code>l1_full_count</code>（L1）或 <code>l2_full_mask</code>（L2），再把 token + SFA 从 ring buffer / L2 buffer 搬入 SMEM 流水线的下一级，到达时推进 <code>full_barrier</code>。</td></tr>
+      <tr><td>5</td><td>32</td><td>TMA Load B</td><td>40</td><td>与 warp 4 平行：把权重 + SFB 从全局内存搬入 SMEM，支持 FP8、FP4 和共享专家三种路径。两个 CTA 各发自己的 TMA，<code>arrive_and_expect_tx</code> 在 leader CTA 上合并计数。</td></tr>
+      <tr><td>6</td><td>32</td><td>MMA Issue</td><td>40</td><td>只在 leader CTA 运行。等 <code>full_barrier</code>，用 UTCCP 把 SFA/SFB 搬入 TMEM，发 <code>tcgen05.mma</code> 指令（block-scaled UMMA），完成后推进 <code>empty_barrier</code> 和 <code>tmem_full_barrier</code>。</td></tr>
+      <tr><td>7</td><td>32</td><td>Scheduler</td><td>40</td><td>只在 leader CTA 运行。调用 <code>MegaMoEScheduler::mainloop</code>：先跑共享专家 L1，再 <code>fetch_expert_recv_count</code> 等 dispatch 结果，然后用 <code>get_next_task</code> 按 L1 预热 → L1/L2 交替 → 共享专家 L2 的顺序生成 <code>TaskInfo</code>，通过 <code>publish_task</code> 双缓冲传给 MMA 和 epilogue。</td></tr>
+      <tr><td>8–15</td><td>256</td><td>Epilogue</td><td>208</td><td>2 个 warpgroup。等 <code>tmem_full_barrier</code>，从 TMEM 读累加器。L1 任务做 SwiGLU + FP8 量化（见下），L2 任务做 BF16 输出 + NVLink combine 写回。完成后推进 <code>l2_full_mask</code>（L1）或 <code>l2_empty_count</code>（L2）。全部 L2 完成后做 combine 归约。</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>内核使用 2-CTA cluster（<code>cluster=(2,1,1)</code>），两个 CTA 在 A 矩阵（token 维度）上做 multicast，共享同一块 token 数据。Grid 的大小等于 GPU 上的 SM 总数——这是一个占满全 GPU 的持久化内核。</p>
+
+<h3 id="sec-3">SwiGLU 融合：epilogue 里的完整计算</h3>
+
+<p>SwiGLU 的 <code>SiLU(gate) × up</code> 并非一个单独的 warp 或内核，而是直接嵌在 L1 任务的 epilogue 循环里（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_mega_moe.cuh#L1058-L1235"><code>sm100_fp8_fp4_mega_moe.cuh</code> 第 1058–1235 行</a>）。8 个 epilogue warp 分成 2 个 warpgroup，每个负责 <code>BLOCK_M / 2</code> 行。对 L1 的每个 N 块，一个 warpgroup 的步骤是：</p>
+
+<ol>
+  <li><b>从 TMEM 读累加器</b>：用 <code>SM100_TMEM_LOAD_16dp256b1x</code> 每次读 8 行，读入寄存器 <code>raw_values</code>。因为 gate/up 权重已交错（见<a href="#sec-weight-transform">权重变换</a>一节），相邻行就是一对 (gate, up)。</li>
+  <li><b>转 BF16 并可选钳位</b>：FP32 累加结果转为 BF16，如果配置了 <code>kActivationClamp</code>（≠∞），用 <code>__hmin2/__hmax2</code> 钳位。</li>
+  <li><b>SiLU(gate) × up × weight</b>：
+    <pre><code>gate = bf16_to_fp32(gate_row)
+silu_gate = gate / (1 + exp(-gate))   // 或 fast_rcp 版
+activation = silu_gate × up × topk_weight</code></pre>
+    其中 <code>topk_weight</code> 是 dispatch 阶段从远端拉来的路由权重，存在 ring buffer 的 <code>l1_topk_weights</code> 中。</li>
+  <li><b>Amax 归约（线程 → warp → warp 对）</b>：每 8 行的最大绝对值先在 4 个 lane 内归约，再通过共享内存与相邻 warp 交换，得到 8 行的全局 amax。这是 FP8 量化所需的逐块缩放因子的来源。</li>
+  <li><b>量化到 FP8 E4M3</b>：用 amax 算出 UE8M0 缩放因子，除以它后转为 <code>__nv_fp8x4_e4m3</code>，用 <code>STSM</code> 写入 SMEM。</li>
+  <li><b>TMA 写出到 L2 buffer</b>：<code>SM90_TMA_STORE_2D</code> 把 SMEM 中的 FP8 数据写到 ring buffer 的 <code>l2_token</code> 区域。SF 直接写到 <code>l2_sf_buffer</code>。</li>
+  <li><b>信号推进</b>：<code>L2KBlockDependency::arrive</code> 翻转 <code>l2_full_mask</code> 的对应位，同时 <code>red_add(l1_empty_count)</code> 通知 dispatch 可以复用这个 ring 槽位。</li>
+</ol>
+
+<p>L2 任务的 epilogue 更简单：从 TMEM 读 FP32 累加器，转 BF16，写入 SMEM，然后读取 <code>TokenSrcMetadata</code>（包含 <code>rank_idx</code>、<code>token_idx</code>、<code>topk_idx</code>），通过 <code>sym_buffer.map</code> 把 BF16 结果直接写到源 rank 的 <code>combine_token</code> 缓冲区——这就是 combine 的"写回"阶段。全部 L2 N 块完成后，epilogue warp 进入 combine 归约循环：每个 warp 负责一部分 token，从各 topk 对应的 <code>combine_token</code> 读 BF16 值做加权和，写回最终输出 <code>y</code>。</p>
+
+<h2 id="sec-scheduler" data-short="调度策略">调度器：L1 预热保证无死锁</h2>
+
+<p>Mega MoE 把 Linear1 和 Linear2 交替调度到同一个 MMA warpgroup 上。调度器（<code>MegaMoEScheduler</code>）维护四种任务阶段：<code>Linear1</code>、<code>Linear2</code>、<code>SharedLinear1</code>、<code>SharedLinear2</code>。每个阶段的任务按 locality domain 分组，调度器优先从本域的原子计数器领取任务。当本域计数器耗尽时，调度器可以"窃取"另一个域的任务——但有一个保护条件：<code>kNumMinStealWaves</code>（默认为 2）定义了窃取的最低波数阈值，当目标域剩余任务不足 2 波时禁止窃取，以避免跨局部性域读取权重带来的额外延迟拖慢目标域的最后几波任务。SM 的域归属由 <code>sm_locality_domain_idx</code> 确定，它来自 <code>probe_sm_locality_domains</code> 的探测结果（见<a href="../dg05-heuristics-jit/dg05-heuristics-jit.html">第 5 篇</a>），在内核启动时通过 <code>__clusterid()</code> 或设备拓扑信息传入。</p>
+
+<p>L1 和 L2 之间有一个关键的依赖关系：L2 的每个 K 块需要读 L1 的输出，但 L1 的输出按 N 块写入——L1 的一个 N 块完成后，所有 L2 任务中对应 K 范围的那个 K 块才能读取。代码用 <code>L2KBlockDependency</code> 追踪这个依赖：一个 64 位 bitmask，每个 L1 N 块完成时用原子 XOR 翻转对应的位，L2 在读取前用 <code>ld_acq_gpu</code> 检查位是否就绪。</p>
+
+<h3 id="sec-4">L2KBlockDependency：64 位 bitmask 的精细依赖追踪</h3>
+
+<p><code>L2KBlockDependency</code> 结构体用一个 64 位 bitmask 追踪 L1 → L2 的依赖——每个 L1 N 块占一位。当一个 L1 N 块的 MMA 完成时，epilogue 线程调用 <code>arrive</code>，用 <code>ptx::red_xor_rel</code>（release 语义的原子 XOR）翻转那一位。L2 的 MMA 线程在读取每个 K 块之前调用 <code>wait</code>，用 <code>ptx::ld_acq_gpu</code>（GPU-scope acquire load）读 mask，检查当前 K 块对应的那几位是否就绪：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L140-L166"><code>// Each finished L1 N block toggles its bit in `l2_full_mask`, so L2 K blocks can start as soon as they are fed
+// NOTES: the mask parity per ring generation relies on the ring capacity, see `get_num_max_live_pool_blocks`
+template &lt;uint32_t L1_SHAPE_N, uint32_t BLOCK_N, uint32_t BLOCK_K&gt;
+struct L2KBlockDependency {
+    static constexpr uint32_t kNumL1BlockNs = L1_SHAPE_N / BLOCK_N;
+    static constexpr uint32_t kNumL1BlockNsPerL2KBlock = BLOCK_K / (BLOCK_N / 2);
+    static constexpr uint64_t kFullMask = kNumL1BlockNs == 64 ? ~0ull : (1ull &lt;&lt; kNumL1BlockNs) - 1;
+    DG_STATIC_ASSERT(kNumL1BlockNs &lt;= 64, "Too many L1 N blocks for the L2 readiness mask");
+    DG_STATIC_ASSERT(BLOCK_K % (BLOCK_N / 2) == 0, "Invalid L1/L2 shape relationship");
+
+    const uint64_t* mask_ptr;
+    uint64_t expected_mask, pending_mask = kFullMask;
+
+    CUTLASS_DEVICE L2KBlockDependency(const uint64_t* mask_ptr, const uint32_t&amp; generation_idx):
+        mask_ptr(mask_ptr), expected_mask(generation_idx &amp; 1 ? 0ull : kFullMask) {}
+
+    CUTLASS_DEVICE static void arrive(const uint64_t* mask_ptr, const uint32_t&amp; n_block_idx) {
+        ptx::red_xor_rel(mask_ptr, 1ull &lt;&lt; n_block_idx);
+    }
+
+    // Re-read the mask only when the K block is not fed yet
+    CUTLASS_DEVICE void wait(const uint32_t&amp; k_block_idx) {
+        const auto k_block_mask = ((1ull &lt;&lt; kNumL1BlockNsPerL2KBlock) - 1) &lt;&lt; (k_block_idx * kNumL1BlockNsPerL2KBlock);
+        while (pending_mask &amp; k_block_mask)
+            pending_mask = ptx::ld_acq_gpu(mask_ptr) ^ expected_mask;
+    }
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L140-L166"><code>deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh</code> 第 140–166 行</a>（L2KBlockDependency 的 arrive/wait 机制）</p>
+
+<p>这里有一个奇偶代（generation）的技巧：因为 ring buffer 会被复用，同一个 pool block 的下一代 L1 写入又会翻转同一位。构造函数根据 <code>generation_idx &amp; 1</code> 设置 <code>expected_mask</code>——奇数代期望全零、偶数代期望全一。<code>pending_mask = ld_acq_gpu(mask_ptr) ^ expected_mask</code> 让 <code>wait</code> 只关心当前代有没有完成。这要求 ring buffer 的容量是偶数块——<code>get_num_max_live_pool_blocks</code> 保证了这一点。</p>
+
+<p>另一个细节是 <code>k_block_mask</code> 的粒度。L1 的每个 N 块经过 SwiGLU 后输出宽度是 <code>BLOCK_N/2</code>，而 L2 的每个 K 块需要 <code>BLOCK_K</code> 宽的输入——因此一个 L2 K 块依赖 <code>kNumL1BlockNsPerL2KBlock = BLOCK_K / (BLOCK_N/2)</code> 个连续 L1 N 块。<code>wait</code> 在 spin loop 中只检查这几位：<code>k_block_mask = ((1 &lt;&lt; kNumL1BlockNsPerL2KBlock) - 1) &lt;&lt; (k_block_idx * kNumL1BlockNsPerL2KBlock)</code>，这样 L2 可以在部分 L1 N 块完成时就开始处理已就绪的 K 块，实现 L1/L2 的流水线重叠。</p>
+
+<h3 id="sec-5">TaskInfo 与 4 阶段调度</h3>
+
+<p>调度器给 MMA warpgroup 的每个任务用 <code>TaskInfo</code> 结构体描述。它是一个 16 字节对齐的 8 字段 POD，包含 <code>block_phase</code>（Linear1/Linear2/SharedLinear1/SharedLinear2）、<code>local_expert_idx</code>（本 rank 上的专家编号）、<code>m_block_idx</code>（M 方向分块索引）、<code>n_cluster_idx</code>（双 CTA 中的 N 方向成对索引）、<code>pool_block_idx</code>（ring buffer 中的槽位）、<code>valid_m</code>（有效 token 数，尾块可能不满）、<code>shape_n</code> 和 <code>shape_k</code>。<code>is_valid()</code> 检查 <code>block_phase != None</code>——调度器在无任务可取时返回空 TaskInfo，MMA warpgroup 轮询直到拿到有效任务。</p>
+
+<p>如果 L2 任务被调度得太早，它可能等不到 L1 的输出，整个内核就死锁了。调度器的解决方案是 L1 预热（warmup）：在 L1/L2 交替开始之前，先纯跑若干波 L1 任务。预热的波数由 <code>get_num_l1_warmup_waves</code> 计算：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L15-L45"><code>// Get minimal L1 warmup waves to ensure no L1 -&gt; L2 deadlock
+// constexpr func, no runtime overhead in kernel
+CUTLASS_HOST_DEVICE constexpr
+int get_num_l1_warmup_waves(
+    const int&amp; num_total_m_blocks,
+    const int&amp; num_clusters,
+    const int&amp; num_l1_n_clusters,
+    const int&amp; num_l2_n_clusters) {
+    // The first L2 wave may touch multiple M blocks; all their L1 N tasks must be issued first.
+    const int num_first_l2_wave_m_blocks = math::constexpr_ceil_div(num_clusters, num_l2_n_clusters);
+    const int num_l1_warmup_clusters_for_first_l2_wave = math::constexpr_ceil_div(
+        num_first_l2_wave_m_blocks * num_l1_n_clusters, num_clusters);
+
+    // When each M block has more L1 tasks than L2 tasks, the interleaved schedule
+    // leaves `(num_l1_pair_n_blocks - num_l2_pair_n_blocks)` extra L1 tasks behind
+    // per M block. To avoid deadlock, no L2 task for an M block should be scheduled
+    // before that block's L1 tasks have been issued. The last M block is the
+    // bottleneck: it needs its own `num_l1_pair_n_blocks` L1 tasks, and the preceding
+    // `num_total_m_blocks - 1` M blocks accumulate
+    // `(num_total_m_blocks - 1) * (num_l1_pair_n_blocks - num_l2_pair_n_blocks)`
+    // pending L1 tasks, so we issue them during the warmup phase. Add one extra
+    // CTA-pair wave to cover partial-wave rounding.
+    const int num_interleave_cluster_diff_per_m_block =
+        num_l1_n_clusters &gt; num_l2_n_clusters ? num_l1_n_clusters - num_l2_n_clusters : 0;
+    const int num_warmup_waves_for_interleave_schedule = math::constexpr_ceil_div(
+        num_l1_n_clusters + (num_total_m_blocks - 1) * num_interleave_cluster_diff_per_m_block,
+        num_clusters) + 1;
+
+    // TODO: may delay combine NVLink
+    return cute::max(num_l1_warmup_clusters_for_first_l2_wave, num_warmup_waves_for_interleave_schedule);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L15-L45"><code>deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh</code> 第 15–45 行</a>（节选）</p>
+
+<p>这个函数考虑两种约束，取两者的最大值（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L15-L44"><code>mega_moe.cuh</code> 第 15–44 行</a>）：</p>
+
+<ol>
+  <li><b>第一波 L2 约束</b>：第一波 L2 可能涉及 \(\lceil C_{\text{all}} / C_{\text{L2,N}}\rceil\) 个 M 块（\(C_{\text{all}}\) 是 cluster 总数，\(C_{\text{L2,N}}\) 是 L2 的 N 方向 cluster 数），这些 M 块的全部 L1 N 任务必须先完成。预热波数 \(= \lceil \text{M\_blocks} \times C_{\text{L1,N}} / C_{\text{all}} \rceil\)。</li>
+  <li><b>交替调度约束</b>：若 \(C_{\text{L1,N}} > C_{\text{L2,N}}\)，每个 M 块在 L1/L2 交替中积压 \(C_{\text{L1,N}} - C_{\text{L2,N}}\) 个多余的 L1 task。\(M_{\text{total}} - 1\) 个前序 M 块的积压加上当前块自己的 \(C_{\text{L1,N}}\)，除以 \(C_{\text{all}}\) 再加 1 波的余量。</li>
+</ol>
+
+<h3 id="sec-6">ring buffer 容量也是调度器决定的</h3>
+
+<p><code>get_num_max_live_pool_blocks</code> 计算 ring buffer 需要容纳的最大同时存活 M 块数（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L48-L79"><code>mega_moe.cuh</code> 第 48–79 行</a>）：</p>
+
+<div class="eq" id="eq-ring-cap">\[ R = \min\!\Bigl(M_{\text{total}},\; \underbrace{\bigl\lceil\frac{W_{\text{warmup}} \cdot C_{\text{all}}}{C_{\text{L1,N}}}\bigr\rceil}_{\text{预热后存活块}} + \underbrace{M_{\text{total}} \cdot \frac{C_{\text{L2,N}} - C_{\text{L1,N}}}{C_{\text{L2,N}}}}_{\text{前沿增长（仅当 L2>L1 时）}} + \underbrace{\bigl\lceil\frac{C_{\text{all}}}{\min(C_{\text{L1,N}},C_{\text{L2,N}})}\bigr\rceil}_{\text{波余量}}\Bigr) \]<span class="eq-num">(1)</span></div>
+
+<p>第一项：预热结束时有多少个 M 块的 L1 已发出但 L2 还没消费（因此占着 ring 槽位）。第二项：当 \(C_{\text{L2,N}} > C_{\text{L1,N}}\) 时，交替调度中 L2 消费得比 L1 快，存活块的"前沿"在 M 方向膨胀。第三项：覆盖偏波和流水线延迟的余量。最终 <code>num_ring_tokens = R × BLOCK_M</code>。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L48-L80"><code>CUTLASS_HOST_DEVICE constexpr int get_num_max_live_pool_blocks(
+    const int&amp; num_total_m_blocks,
+    const int&amp; num_sms,
+    const int&amp; hidden,
+    const int&amp; intermediate_hidden) {
+    constexpr int kMegaMoEBlockN = 128;
+    constexpr int kNumCTAsPerCluster = 2;
+
+    DG_UNIFIED_ASSERT((intermediate_hidden * 2) % (kNumCTAsPerCluster * kMegaMoEBlockN) == 0);
+    DG_UNIFIED_ASSERT(hidden % (kNumCTAsPerCluster * kMegaMoEBlockN) == 0);
+    const int num_clusters = num_sms / kNumCTAsPerCluster;
+    const int num_l1_n_clusters = intermediate_hidden * 2 / (kNumCTAsPerCluster * kMegaMoEBlockN);
+    const int num_l2_n_clusters = hidden / (kNumCTAsPerCluster * kMegaMoEBlockN);
+    const int num_l1_clusters = num_total_m_blocks * num_l1_n_clusters;
+    const int num_l1_waves = math::constexpr_ceil_div(num_l1_clusters, num_clusters);
+    const int num_min_l1_warmup_waves = get_num_l1_warmup_waves(
+        num_total_m_blocks, num_clusters, num_l1_n_clusters, num_l2_n_clusters);
+    const int num_l1_warmup_waves = cute::min(num_min_l1_warmup_waves, num_l1_waves);
+    const int num_l1_warmup_clusters = cute::min(num_l1_warmup_waves * num_clusters, num_l1_clusters);
+    const int num_live_blocks_after_warmup = math::constexpr_ceil_div(num_l1_warmup_clusters, num_l1_n_clusters);
+
+    // Conservative closed-form bound for the L2/L1 alternating tail. If L1 advances faster in
+    // M-block space (B1 &lt; B2), live blocks can grow by about total_m_blocks * (B2 - B1) / B2.
+    // Add one global-wave margin to cover partial waves / pipeline lag.
+    // This is slightly larger than the tight bound, but cheaper and simpler.
+    // TODO: refactor here
+    const int frontier_growth = num_l2_n_clusters &gt; num_l1_n_clusters ?
+        math::constexpr_ceil_div(
+            num_total_m_blocks * (num_l2_n_clusters - num_l1_n_clusters), num_l2_n_clusters) : 0;
+    const int wave_margin = math::constexpr_ceil_div(
+        num_clusters, cute::min(num_l1_n_clusters, num_l2_n_clusters));
+    return cute::min(num_total_m_blocks, num_live_blocks_after_warmup + frontier_growth + wave_margin);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh#L48-L80"><code>deep_gemm/include/deep_gemm/scheduler/mega_moe.cuh</code> 第 48–80 行</a>（节选）</p>
+
+<h2 id="sec-overlap" data-short="通信重叠">NVLink 通信与计算的重叠</h2>
+
+<p>dispatch warpgroup 在拉取 token 时，MMA warpgroup 可以同时在计算已经拉到 ring buffer 里的上一批 token。两者交替进行：dispatch 填满一个 ring 槽位后翻转 <code>l1_full_count</code>，MMA 看到信号就开始算这个槽位的 L1；MMA 算完 L1 后 epilogue 做 SwiGLU + quant，写入 L2 ring 槽位并翻转 <code>l2_full_mask</code>（这是一个 64 位 mask，每个 L1 N 块对应一位）；MMA 再取 L2 任务算完后，epilogue 做 combine 写回。</p>
+
+<p>全局同步通过 <code>MegaMoESignals</code> 中的信号完成。这个结构体占据对称缓冲区的最前端，128 字节对齐，内含五组信号：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_moe.cuh#L53-L89"><code>
+struct alignas(128) MegaMoESignals {
+    static constexpr uint32_t kNumMaxGridSyncCounters = 4;
+    static constexpr uint32_t kNumMaxExperts = 2048;
+    static constexpr uint32_t kNumMaxExpertsPerRank = 512;
+    static constexpr uint32_t kNumMaxRingBlocks = 1u &lt;&lt; 20;  // 20 MiB for the ring signals
+    static constexpr uint32_t kNumMaxSharedL2Blocks = 1u &lt;&lt; 15;  // 128 KiB
+
+    // Grid and NVLink synchronization
+    uint32_t grid_sync_count[kNumMaxGridSyncCounters];
+    uint32_t nvl_barrier_counter;
+    int nvl_barrier_signals[2];
+
+    // Task scheduling
+    uint32_t l1_task_count[kNumDeviceLocalityDomains];
+    uint32_t l2_task_count[kNumDeviceLocalityDomains];
+    uint32_t shared_l1_task_count[kNumDeviceLocalityDomains];
+    uint32_t shared_l2_task_count[kNumDeviceLocalityDomains];
+
+    // Combine readiness: `combine_ready_grid_idx[peer] == own grid index` means the peer's L2 writes into this
+    // rank are done; grid indices are unique per launch, so no reset is needed. Peers push theirs during dispatch.
+    alignas(128) uint64_t combine_ready_grid_idx[kNumMaxRanks];
+    alignas(128) uint64_t peer_grid_idx[kNumMaxRanks];
+
+    // Expert token counts
+    alignas(128) uint64_t expert_send_count[kNumMaxExperts];
+    uint64_t expert_recv_count[kNumMaxExperts];
+    uint64_t expert_recv_count_sum[kNumMaxExpertsPerRank];
+
+    // Routed-expert ring signals, `l2_full_mask` has one bit per L1 N block
+    uint32_t l1_full_count[kNumMaxRingBlocks];
+    uint32_t l1_empty_count[kNumMaxRingBlocks];
+    uint64_t l2_full_mask[kNumMaxRingBlocks];
+    uint32_t l2_empty_count[kNumMaxRingBlocks];
+
+    // Shared-expert signals
+    uint32_t shared_l2_full_count[kNumMaxSharedL2Blocks];</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_moe.cuh#L53-L89"><code>deep_gemm/include/deep_gemm/layout/mega_moe.cuh</code> 第 53–89 行</a>（MegaMoESignals 的完整布局）</p>
+
+<p>第一组是全局同步：<code>grid_sync_count</code>（4 个 grid 级计数器）、<code>nvl_barrier_counter</code> 加两相 <code>nvl_barrier_signals</code>，保证所有 rank 的 dispatch 完成后才开始计算。第二组是调度计数器：每个 locality domain 各有 L1、L2、SharedL1、SharedL2 四个原子计数器，调度器用 <code>atomicAdd</code> 领取任务。第三组是 combine 就绪标记：<code>combine_ready_grid_idx[peer]</code> 存的是 peer rank 的 grid index——每次 launch 的 grid index 唯一递增，所以不需要重置。第四组是专家粒度的 token 计数（send/recv/recv_sum），dispatch warpgroup 用来知道每个专家收了多少 token。第五组是 ring buffer 的四路信号：<code>l1_full_count</code>（dispatch 填好，MMA 可读）、<code>l1_empty_count</code>（MMA 读完，dispatch 可复用）、<code>l2_full_mask</code>（L1 的 64 位完成 bitmask，L2 做 K 块级等待）、<code>l2_empty_count</code>（L2 读完，ring 槽位可回收）。</p>
+
+<p>这五组信号的内存布局经过精心对齐。结构体最外层按 128 字节对齐（<code>alignas(128)</code>），<code>combine_ready_grid_idx</code> 和 <code>expert_send_count</code> 各自也有 128 字节对齐。这保证了不同信号组落在不同的缓存行上，避免了跨 rank 原子操作之间的伪共享。<code>kNumMaxRingBlocks</code> 设为 <span class="math">2^{20}</span>（约 100 万个条目），是信号数组（<code>l1_full_count</code>、<code>l1_empty_count</code>、<code>l2_empty_count</code> 等）的编译期索引上界，而非 ring buffer 数据区域的实际容量。运行时只使用前 <code>num_ring_tokens / block_m</code> 个条目——这个值由 <code>get_num_max_live_pool_blocks</code> 决定，通常只有几十到几百。</p>
+
+<p>信号的生产-消费协议采用单调递增计数器而非布尔标志。以 <code>l1_full_count</code> 为例：dispatch 线程填满第 <code>i</code> 个 ring 槽位后把 <code>l1_full_count[i]</code> 加 1（release 语义）；MMA 线程在取第 <code>i</code> 个槽位前轮询 <code>l1_full_count[i]</code> 直到它等于预期的代数（acquire 语义）。因为 ring buffer 会被循环复用，计数器的值每绕一圈加 1，所以 MMA 线程总是知道自己等的是第几代。同理，<code>l1_empty_count</code> 由 MMA 推进、dispatch 等待，形成了一个经典的有界缓冲区生产者-消费者模型。</p>
+
+<p><code>l2_full_mask</code> 比较特殊：它是 64 位 bitmask 而非计数器，因为 L2 需要做 K 块级的细粒度等待——一个 L1 N 块完成后只翻转一位，L2 可以在其他 K 块还没就绪时先处理已就绪的部分。这种设计让 L2 的 MMA 可以尽早开始消费已完成的 K 块，而不是等到同一 pool block 的所有 L1 N 块全部完成。在典型配置中 L1 可能有 8–16 个 N 块，如果 L2 要等全部完成才能开始，流水线就会出现明显的气泡。bitmask 的逐位等待把这个气泡缩小到单个 N 块的延迟，对整体吞吐有可观的提升。</p>
+
+<h2 id="sec-weight-transform" data-short="权重变换">权重变换：gate/up 交错 + UTCCP scale 转置</h2>
+
+<p>Mega MoE 要求权重在第一次使用前做一次预变换。<code>transform_weights_for_mega_moe</code> 对 FP8/FP4 权重做两件事，对 BF16 权重只做第一件：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L146-L164"><code>def transform_weights_for_mega_moe(
+    l1_weights: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+    l2_weights: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+    activation: str = 'swiglu'
+) -&gt; Tuple[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+           Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]]:
+    assert activation == 'swiglu', f'Only `swiglu` activation is supported, got `{activation}`'
+    if isinstance(l1_weights, tuple):
+        # FP8/FP4: interleave gate/up for weight and SF, then transpose L1 SF for UTCCP
+        l1_w = _interleave_weights(l1_weights[0])
+        l1_sf = _transpose_sf_for_utccp(_interleave_weights(l1_weights[1]))
+        l1_transformed = (l1_w, l1_sf)
+        # L2: only transpose SF for UTCCP
+        l2_transformed = (l2_weights[0], _transpose_sf_for_utccp(l2_weights[1]))
+    else:
+        # BF16: L1 interleave gate/up, L2 unchanged
+        l1_transformed = _interleave_weights(l1_weights)
+        l2_transformed = l2_weights
+    return l1_transformed, l2_transformed</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L146-L164"><code>deep_gemm/mega/__init__.py</code> 第 146–164 行</a>（节选）</p>
+
+<h3 id="sec-7">gate/up 交错</h3>
+
+<p><code>_interleave_weights</code> 把 L1 权重从 <code>[gate | up]</code> 的拼接排列变成 <code>[gate:0..7, up:0..7, gate:8..15, up:8..15, ...]</code> 的交错排列。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L112-L126"><code>def _interleave_weights(t: torch.Tensor, gran: int = 8) -&gt; torch.Tensor:
+    # [gate: 0..7, up: 0..7, gate: 8..15, up: 8..15, ...] instead of [gate | up]
+    # Unsqueeze for 2D
+    assert t.dim() in (2, 3)
+    squeeze_group_dim = t.dim() == 2
+    if squeeze_group_dim:
+        t = t.unsqueeze(0)
+
+    # Transpose
+    g, n, *rest = t.shape
+    half = n // 2
+    gate = t[:, :half].reshape(g, half // gran, gran, *rest)
+    up = t[:, half:].reshape(g, half // gran, gran, *rest)
+    result = torch.empty_like(t).copy_(torch.stack([gate, up], dim=2).reshape(g, n, *rest))
+    return result.squeeze(0) if squeeze_group_dim else result</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L112-L126"><code>deep_gemm/mega/__init__.py</code> 第 112–126 行</a>（节选）</p>
+
+<p>为什么要交错？SwiGLU 的定义是 <code>SiLU(gate) * up</code>，epilogue 线程需要同时读到一对 gate 和 up 行来做激活。如果 gate 和 up 各自连续存放，epilogue 就要跳到相距 N/2 行的地方读取另一半；交错后，第 2i 行是 gate、第 2i+1 行是 up（在 8 行粒度内），读取是局部的。<a href="#fig-interleave">图 2</a> 画出了变换前后的排列。</p>
+
+<figure id="fig-interleave" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-interleave-cap" viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" role="img" id="s2-root" style="max-width:560px;">
+  <defs>
+    <marker id="s2-ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+  </defs>
+
+  
+  <text x="280" y="20" class="d-title" text-anchor="middle">gate/up 权重交错变换</text>
+
+  
+  <text x="24" y="52" class="d-small" text-anchor="end" style="writing-mode:lr">变换前</text>
+
+  
+  <rect x="40" y="40" width="200" height="24" rx="2" style="fill:var(--green,#009E73);fill-opacity:0.2;stroke:var(--green,#009E73)"/>
+  <text x="140" y="57" class="d-text" text-anchor="middle">gate (行 0 ... N/2-1)</text>
+
+  
+  <rect x="240" y="40" width="200" height="24" rx="2" style="fill:var(--blue,#0072B2);fill-opacity:0.2;stroke:var(--blue,#0072B2)"/>
+  <text x="340" y="57" class="d-text" text-anchor="middle">up (行 N/2 ... N-1)</text>
+
+  
+  <path class="d-arrow" d="M280 72 V96" marker-end="url(#s2-ah2)"/>
+  <text x="290" y="88" class="d-small">_interleave_weights(gran=8)</text>
+
+  
+  <text x="24" y="122" class="d-small" text-anchor="end">变换后</text>
+
+  
+  <rect x="40" y="108" width="56" height="24" rx="2" style="fill:var(--green,#009E73);fill-opacity:0.25;stroke:var(--green,#009E73)"/>
+  <text x="68" y="125" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">g:0-7</text>
+
+  
+  <rect x="96" y="108" width="56" height="24" rx="2" style="fill:var(--blue,#0072B2);fill-opacity:0.25;stroke:var(--blue,#0072B2)"/>
+  <text x="124" y="125" class="d-small" text-anchor="middle" style="fill:var(--blue,#0072B2)">u:0-7</text>
+
+  
+  <rect x="152" y="108" width="56" height="24" rx="2" style="fill:var(--green,#009E73);fill-opacity:0.25;stroke:var(--green,#009E73)"/>
+  <text x="180" y="125" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">g:8-15</text>
+
+  
+  <rect x="208" y="108" width="56" height="24" rx="2" style="fill:var(--blue,#0072B2);fill-opacity:0.25;stroke:var(--blue,#0072B2)"/>
+  <text x="236" y="125" class="d-small" text-anchor="middle" style="fill:var(--blue,#0072B2)">u:8-15</text>
+
+  <text x="276" y="125" class="d-small" text-anchor="middle">...</text>
+
+  <rect x="296" y="108" width="56" height="24" rx="2" style="fill:var(--green,#009E73);fill-opacity:0.25;stroke:var(--green,#009E73)"/>
+  <text x="324" y="125" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">g:last</text>
+
+  <rect x="352" y="108" width="56" height="24" rx="2" style="fill:var(--blue,#0072B2);fill-opacity:0.25;stroke:var(--blue,#0072B2)"/>
+  <text x="380" y="125" class="d-small" text-anchor="middle" style="fill:var(--blue,#0072B2)">u:last</text>
+
+  
+  <text x="40" y="160" class="d-small" style="fill:var(--ink-2,#555)">SwiGLU(gate, up) = SiLU(gate) * up</text>
+  <text x="40" y="178" class="d-small" style="fill:var(--ink-2,#555)">交错后 epilogue 线程只需读相邻行就能得到一对 (gate, up)</text>
+
+  
+  <text x="280" y="212" class="d-title" text-anchor="middle">UTCCP scale 转置</text>
+
+  
+  <text x="24" y="240" class="d-small" text-anchor="end">前</text>
+  <rect x="40" y="228" width="192" height="28" rx="2" class="d-box"/>
+  <text x="136" y="247" class="d-mono" text-anchor="middle">(mn, packed_k)</text>
+
+  
+  <path class="d-arrow" d="M240 242 H272" marker-end="url(#s2-ah2)"/>
+
+  
+  <text x="280" y="240" class="d-small" text-anchor="start">后</text>
+  <rect x="296" y="228" width="240" height="28" rx="2" class="d-box accent"/>
+  <text x="416" y="247" class="d-mono d-accent-text" text-anchor="middle">(-1, 4, 32, k) -> (-1, 32, 4, k)</text>
+
+  <text x="40" y="272" class="d-small" style="fill:var(--ink-2,#555)">每 128 行中 (4, 32) 块转置为 (32, 4)，让 TMA load 对齐 UTCCP 期望的 TMEM 布局</text>
+</svg></div>
+  <figcaption id="fig-interleave-cap"><span class="fig-label">图 2</span><b>交错变换让 gate 和 up 权重按 8 行一组两两相邻，epilogue 做 SwiGLU 时只需读相邻行。</b>上半：<code>_interleave_weights</code> 将 [gate | up] 变为 [g:0-7, u:0-7, g:8-15, u:8-15, ...]。下半：UTCCP scale 转置将每 128 行中的 (4, 32) 子块转置为 (32, 4)，对齐 TMEM 中 UTCCP 期望的访问模式。依据 <code>mega/__init__.py</code> 第 112–143 行。</figcaption>
+</figure>
+
+<h3 id="sec-8">UTCCP scale 转置</h3>
+
+<p><code>_transpose_sf_for_utccp</code> 对两层权重的 UE8M0 缩放因子做转置。它把 <code>(mn, packed_sf_k)</code> 中每 128 行视为 <code>(-1, 4, 32, packed_sf_k)</code>，然后交换 dim 2 和 dim 3，结果是 <code>(-1, 32, 4, packed_sf_k)</code>。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L129-L143"><code>def _transpose_sf_for_utccp(sf: torch.Tensor) -&gt; torch.Tensor:
+    # Unsqueeze for 2D
+    assert sf.dtype == torch.int and sf.dim() in (2, 3)
+    squeeze_group_dim = sf.dim() == 2
+    if squeeze_group_dim:
+        sf = sf.unsqueeze(0)
+
+    # Transpose
+    num_groups, mn, packed_sf_k = sf.shape
+    assert mn % 128 == 0
+    result = (sf.reshape(num_groups, -1, 4, 32, packed_sf_k)
+                .transpose(2, 3)
+                .reshape(num_groups, mn, packed_sf_k))
+    result = torch.empty_like(sf).copy_(result)
+    return result.squeeze(0) if squeeze_group_dim else result</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/mega/__init__.py#L129-L143"><code>deep_gemm/mega/__init__.py</code> 第 129–143 行</a>（节选）</p>
+
+<p>这个转置是 SM100 块缩放 MMA 的要求。UTCCP（Unified Tensor Core Copy）把缩放因子从全局内存搬入 TMEM（张量内存），搬运的粒度是 128 个元素。转置后，TMA 按行读入的 SF 数据恰好按照 UTCCP 期望的顺序排列在 TMEM 里。对 L1 权重，先做 gate/up 交错再做 SF 转置；对 L2 权重，只做 SF 转置（L2 不涉及 gate/up 拆分）。</p>
+
+<h2 id="sec-sm100-paths" data-short="BF16 vs FP8/FP4">SM100 BF16 与 FP8/FP4：两条 MMA 路径的差异</h2>
+
+<p>Mega MoE 有两套 SM100 实现：<code>sm100_bf16_mega_moe.cuh</code> 用于 BF16 前向路径，<code>sm100_fp8_fp4_mega_moe.cuh</code> 用于 FP8/FP4 量化路径。两者共享 Mega MoE 的整体架构——对称缓冲、ring buffer、三类线程组、L1 预热调度——但 UMMA 配置和缩放因子处理有关键差异。</p>
+
+<p>BF16 路径的 MMA 配置：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_bf16_mega_moe.cuh#L118-L133"><code>// Data types
+using a_dtype_t = cutlass::bfloat16_t;
+using b_dtype_t = cutlass::bfloat16_t;
+using d_dtype_t = cutlass::bfloat16_t;
+
+// MMA configs
+// NOTES: always swap A/B, 2-CTA MMA, and matrices are K-major
+constexpr uint32_t LAYOUT_AD_M = 128;
+constexpr uint32_t UMMA_M = LAYOUT_AD_M * 2;
+constexpr uint32_t UMMA_N = BLOCK_M;  // Swap AB
+constexpr uint32_t UMMA_BLOCK_K = 64;
+constexpr uint32_t UMMA_K = 16;
+constexpr uint32_t LOAD_BLOCK_M = BLOCK_M / 2;  // Multicast on A
+constexpr uint32_t LOAD_BLOCK_N = BLOCK_N;
+DG_STATIC_ASSERT(BLOCK_M % 16 == 0, "Invalid block M");
+DG_STATIC_ASSERT(BLOCK_N == LAYOUT_AD_M, "Invalid block N");</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_bf16_mega_moe.cuh#L118-L133"><code>deep_gemm/include/deep_gemm/impls/sm100_bf16_mega_moe.cuh</code> 第 118–133 行</a>（BF16 路径的数据类型与 MMA 配置）</p>
+
+<p>BF16 路径三种数据类型全部是 <code>bfloat16_t</code>，UMMA 指令的 K 维粒度为 16（<code>UMMA_K = 16</code>），每轮 MMA 消费 64 列（<code>UMMA_BLOCK_K = 64</code>）。没有缩放因子、没有 UTCCP 变换、没有 TMA SF 描述符。</p>
+
+<p>FP8/FP4 路径在三个方面不同：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_mega_moe.cuh#L138-L168"><code>// SF and its buffer configs
+constexpr uint32_t kGranK = 32;
+constexpr uint32_t kNumUTCCPAlignedElems = 128;
+DG_STATIC_ASSERT(SF_BLOCK_M == math::constexpr_align(BLOCK_M, kNumUTCCPAlignedElems), "Invalid SF_BLOCK_M");
+DG_STATIC_ASSERT(SF_BLOCK_N == BLOCK_N, "No padding is needed for SFB");
+
+// UTCCP 4x32 transpose index mapping within each 128-element group
+const auto transform_sf_token_idx = [](const uint32_t&amp; token_idx_in_expert) {
+    const uint32_t idx = token_idx_in_expert % BLOCK_M;
+    return token_idx_in_expert / BLOCK_M * SF_BLOCK_M +
+           (idx &amp; ~127u) + (idx &amp; 31u) * 4 + ((idx &gt;&gt; 5) &amp; 3u);
+};
+
+// Data types
+// NOTES: activations and shared weights are FP8 (e4m3); routed weights may be FP8 or FP4 (e2m1)
+using a_dtype_t = cutlass::float_e4m3_t;
+using shared_b_dtype_t = cutlass::float_e4m3_t;
+constexpr bool kIsWeightFP8 = cute::is_same_v&lt;weight_dtype_t, cutlass::float_e4m3_t&gt;;
+DG_STATIC_ASSERT(kIsWeightFP8 or cute::is_same_v&lt;weight_dtype_t, cutlass::detail::float_e2m1_unpacksmem_t&gt;, "Invalid routed weight type");
+
+// MMA configs
+// NOTES: always swap A/B, 2-CTA MMA, and matrices are K-major
+constexpr uint32_t LAYOUT_AD_M = 128;
+constexpr uint32_t UMMA_M = LAYOUT_AD_M * 2;
+constexpr uint32_t UMMA_N = BLOCK_M;  // Swap AB
+constexpr uint32_t UMMA_BLOCK_K = 128;
+constexpr uint32_t UMMA_K = 32;
+constexpr uint32_t LOAD_BLOCK_M = BLOCK_M / 2;  // Multicast on A
+constexpr uint32_t LOAD_BLOCK_N = BLOCK_N;
+DG_STATIC_ASSERT(BLOCK_M % 16 == 0, "Invalid block M");
+DG_STATIC_ASSERT(BLOCK_N == LAYOUT_AD_M, "Invalid block N");</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_mega_moe.cuh#L138-L168"><code>deep_gemm/include/deep_gemm/impls/sm100_fp8_fp4_mega_moe.cuh</code> 第 138–168 行</a>（FP8/FP4 路径的 SF 配置、UTCCP 变换与 MMA 配置）</p>
+
+<p>差异总结：</p>
+<ol>
+  <li><strong>UMMA 粒度翻倍</strong>：<code>UMMA_K = 32</code>（BF16 是 16）、<code>UMMA_BLOCK_K = 128</code>（BF16 是 64）。低精度元素尺寸更小，tcgen05 每条指令打包更多数据。</li>
+  <li><strong>权重支持 FP8 或 FP4</strong>：<code>weight_dtype_t</code> 可以是 <code>float_e4m3_t</code>（FP8）或 <code>float_e2m1_unpacksmem_t</code>（FP4）——前者是路由专家用 FP8 权重，后者用 FP4。激活和共享专家权重固定为 FP8 e4m3。</li>
+  <li><strong>UTCCP 4×32 转置</strong>：<code>transform_sf_token_idx</code> lambda 把每 128 个元素的线性索引映射为 <code>(idx &amp; 31) * 4 + ((idx &gt;&gt; 5) &amp; 3)</code>——与 <a href="#sec-weight-transform">权重变换</a> 一节中 <code>_transpose_sf_for_utccp</code> 在 Python 端做的 4×32 转置对应，内核端用它来定位转置后的 SF 行。此外，FP8/FP4 路径需要额外的 TMA 描述符来搬运 A、B、共享 B 各自的缩放因子。</li>
+</ol>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li>Mega MoE <strong>只有 SM100（Blackwell）实现</strong>。它依赖 tcgen05/UMMA、TMEM、UTCCP 和 2-CTA cluster，这些都是 SM100 的新特性。在 SM90（Hopper）上无法实现同等的融合度。这意味着对于 Hopper 集群，MoE 层仍需分解为独立的 dispatch、GEMM、combine 三步调用，中间结果要写回 HBM，而 Mega MoE 把这些全部融合进一个持久化内核，省去了中间的全局内存往返——<code>wgmma</code> 不支持 cta_group::2，累加器在寄存器而非 TMEM 中（无法跨 warpgroup 共享），且缺少对称内存的原生 NVLink 指针机制。</li>
+  <li>本文<strong>没有实测性能数字</strong>。本地没有 GPU，仓库文档中也没有提供 Mega MoE 的 benchmark 数据。</li>
+  <li>BF16 路径与 FP8/FP4 路径的 MMA 配置差异已在上一节展开，但两条路径的<strong>epilogue 实现细节</strong>（BF16 路径的 SwiGLU 直接写出 vs FP8 路径的 SF 打包）<strong>没有逐行对比</strong>。BF16 路径在 epilogue 阶段可以直接把 SwiGLU 的结果写到全局内存，因为输出精度和计算精度一致；FP8 路径则需要额外一步量化和缩放因子的打包写出，这使得其 epilogue 的寄存器压力和共享内存用量都更高。两条路径在调度器层面共享相同的 L1/L2 信号机制和持久化 tile 分配逻辑，差异仅在 MMA 配置和尾声处理上，这使得两条路径可以共享大部分调度器和通信代码，降低了维护负担，也方便了后续对新数据类型（如未来可能出现的更低精度格式）的扩展支持，也便于独立测试和调试各条路径。</li>
+  <li>共享专家路径（<code>SharedLinear1</code>、<code>SharedLinear2</code>）使用了独立的输入缓冲区和信号（如 <code>shared_l2_full_count</code>），本文只做概述，<strong>没有深入分析共享专家的调度</strong>。</li>
+  <li>Mega MoE 与 DeepEP 的集成——特别是 DeepEP 的 deferred epilogue 接口——<strong>不在本文范围</strong>。Mega MoE 自己包含了 dispatch 功能，可以独立于 DeepEP 使用。</li>
+  <li>内核内部的 UMMA 流水线（TMA → TMEM → UMMA → 累加器 → 输出）细节和 Mega MoE 的 warp 特化内部实现<strong>没有展开</strong>。dg02（<a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">Blackwell GEMM</a>）覆盖了 SM100 GEMM 的通用结构。</li>
+  <li>调度器中局部性域亲和与工作窃取的条件判断（"当本域剩余任务过少时禁用窃取"等边界条件）<strong>没有逐行展开</strong>。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg07-mqa-logits/dg07-mqa-logits.html">Lightning Indexer 的 MQA logits</a>
+  ｜ 下一篇：<a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">Mega Gate、Mega mHC 与 TF32 HC prenorm</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+  <li id="ref-readme">DeepSeek-AI. (2025). <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1">DeepGEMM README</a>.</li>
+  <li id="ref-dsv32">DeepSeek-AI. (2025). <a href="https://arxiv.org/abs/2505.09343">DeepSeek-V3.2 Technical Report</a>. <i>arXiv:2505.09343</i>.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>（含 <code>1fc9c66</code> 的改动）。本地没有 GPU，文中没有任何实测性能数字。ring buffer 容量公式由 <code>get_num_max_live_pool_blocks</code> 的源码逻辑推导。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepEP 与 DeepGEMM 精读 · 系列目录</title>
+<meta name="description" content="20 篇文章拆解 DeepSeek 开源的专家并行通信库 DeepEP（V2.5）与 FP8/FP4 GEMM 内核库 DeepGEMM：导读、2 篇背景与 17 篇源码精读，附系列地图、阅读路径、按问题查找和术语索引。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1a1a1a; --ink-2: #4a4a4a; --ink-3: #767676; --rule: #e4e4e0;
+  --bg: #ffffff; --bg-soft: #f7f7f4; --link: #0b5cad;
+  --c-blue: #0072B2; --c-verm: #D55E00; --c-green: #009E73; --c-gray: #8c8c8c;
+  --ep-bg: #e8f1f8; --ep-line: #b7d3e8; --ep-ink: #00598c;
+  --gm-bg: #e6f4ef; --gm-line: #b0dccd; --gm-ink: #006b4c;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, "PingFang SC", monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--serif); font-size: 17px; line-height: 1.7; text-rendering: optimizeLegibility; }
+.col { max-width: 792px; margin: 0 auto; padding: 0 16px; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+p { margin: 0 0 1em; }
+code { font-family: var(--mono); font-size: .88em; }
+
+/* header */
+.crumbs { font: 13.5px/1.5 var(--sans); color: var(--ink-3); padding-top: 22px; }
+.crumbs a { color: var(--ink-2); text-decoration: none; }
+.crumbs a:hover { color: var(--link); text-decoration: underline; }
+.crumbs .sep { padding: 0 .45em; }
+header.top { padding: 34px 0 22px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 12px; }
+h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; }
+.lead { font-size: 19px; line-height: 1.6; color: var(--ink-2); margin: 0 0 14px; }
+.facts { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; }
+.jump { font: 14px/1.6 var(--sans); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 10px 0; margin: 22px 0 0; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.jump a { color: var(--ink-2); text-decoration: none; }
+.jump a:hover { color: var(--link); text-decoration: underline; }
+
+/* sections */
+section { padding-top: 12px; }
+h2 { font: 650 24px/1.3 var(--sans); letter-spacing: -.01em; margin: 1.9em 0 .5em; scroll-margin-top: 16px; }
+h3 { font: 600 17px/1.4 var(--sans); margin: 1.9em 0 .45em; scroll-margin-top: 16px; }
+.hint { font: 14.5px/1.65 var(--sans); color: var(--ink-2); margin: 0 0 1.1em; }
+.vol { font-size: 16px; line-height: 1.65; color: var(--ink-2); margin: 0 0 1em; }
+
+/* start cards */
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.cards li { min-width: 0; }
+.card { display: block; height: 100%; border: 1px solid var(--rule); border-radius: 8px; padding: 16px 16px 14px; color: inherit; text-decoration: none; background: var(--bg); }
+.card:hover { border-color: var(--ink-3); }
+.card .when { font: 600 12.5px/1.4 var(--sans); letter-spacing: .04em; color: var(--c-verm); margin-bottom: 6px; }
+.card .ttl { font: 600 17px/1.4 var(--sans); color: var(--ink); margin-bottom: 6px; }
+.card:hover .ttl { color: var(--link); }
+.card .why { font-size: 15px; line-height: 1.6; color: var(--ink-2); margin: 0 0 8px; }
+.card .min { font: 13px/1.4 var(--sans); color: var(--ink-3); }
+.after-cards { font: 14.5px/1.65 var(--sans); color: var(--ink-2); margin: 14px 0 0; }
+
+/* map */
+.map { border: 1px solid var(--rule); border-radius: 8px; padding: 16px; background: var(--bg-soft); }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; margin: 0; padding: 0; list-style: none; }
+.stage { position: relative; background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 11px 11px 12px; }
+.stage:not(:last-child)::after { content: "→"; position: absolute; right: -19px; top: 14px; font: 600 16px/1 var(--sans); color: var(--ink-3); }
+.step { font: 600 14.5px/1.35 var(--sans); color: var(--ink); }
+.step .n { color: var(--c-verm); margin-right: .35em; }
+.what { font: 13px/1.5 var(--sans); color: var(--ink-3); margin: 3px 0 9px; }
+.chips { display: flex; flex-direction: column; gap: 6px; }
+.chip { display: block; font: 13px/1.4 var(--sans); padding: 5px 8px; border-radius: 5px; border: 1px solid; text-decoration: none; color: var(--ink); }
+.chip b { font: 600 12.5px/1.4 var(--mono); margin-right: .55em; }
+.chip.e { background: var(--ep-bg); border-color: var(--ep-line); } .chip.e b { color: var(--ep-ink); }
+.chip.g { background: var(--gm-bg); border-color: var(--gm-line); } .chip.g b { color: var(--gm-ink); }
+.chip:hover { border-color: var(--ink-2); text-decoration: none; }
+.band { display: grid; grid-template-columns: 8.2em minmax(0, 1fr); gap: 4px 14px; align-items: start; padding: 12px 0 0; margin-top: 12px; border-top: 1px dashed #cfcfc8; }
+.band .lab { font: 600 13.5px/1.45 var(--sans); color: var(--ink); padding-top: 5px; }
+.band .lab small { display: block; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
+.band .chips { flex-direction: row; flex-wrap: wrap; }
+.key { font: 13px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 10px 0 0; }
+.sw { display: inline-flex; align-items: center; gap: 6px; }
+.sw::before { content: ""; width: 10px; height: 10px; border-radius: 2px; border: 1px solid; flex: none; }
+.sw.e::before { background: var(--ep-bg); border-color: var(--c-blue); }
+.sw.g::before { background: var(--gm-bg); border-color: var(--c-green); }
+
+/* full list */
+ol.posts { list-style: none; margin: 0; padding: 0; border-top: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); }
+ol.posts > li { display: grid; grid-template-columns: 6.4em minmax(0, 1fr); gap: 0 14px; padding: 14px 0 13px; border-bottom: 1px solid var(--rule); scroll-margin-top: 16px; }
+ol.posts > li:last-child { border-bottom: 0; }
+.no { font: 600 13.5px/1.75 var(--sans); color: var(--ink-3); white-space: nowrap; padding-top: 1px; }
+.no code { display: block; font: 500 12.5px/1.5 var(--mono); color: var(--ink-3); }
+.posts .ttl { font: 600 17px/1.45 var(--sans); }
+.posts .ttl a { color: var(--ink); text-decoration: none; }
+.posts .ttl a:hover { color: var(--link); text-decoration: underline; }
+.posts .sum { font-size: 15.5px; line-height: 1.6; color: var(--ink-2); margin: 3px 0 5px; }
+.meta { font: 13px/1.5 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: center; }
+.meta a { color: var(--ink-2); }
+.layer { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.layer::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c-gray); flex: none; }
+.l-ep::before { background: var(--c-blue); }
+.l-gm::before { background: var(--c-green); }
+
+/* paths */
+dl.paths { margin: 0; border-top: 1px solid var(--rule); }
+dl.paths > div { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 0 14px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+dl.paths dt { font: 600 14.5px/1.7 var(--sans); color: var(--ink); }
+dl.paths dd { margin: 0; }
+.route { font: 15px/1.7 var(--sans); display: flex; flex-wrap: wrap; align-items: baseline; }
+.route a { white-space: nowrap; }
+.route .arr { color: var(--ink-3); padding: 0 .15em; }
+.route .t { color: var(--ink-3); font-size: 13px; white-space: nowrap; margin-left: .5em; }
+.note { font-size: 15px; line-height: 1.6; color: var(--ink-2); margin: 2px 0 0; }
+
+/* questions */
+ol.qs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+ol.qs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 14px; padding: 9px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.qs .q { font: 500 15.5px/1.6 var(--sans); }
+.qs .q a { color: var(--ink); text-decoration: none; }
+.qs .q a:hover { color: var(--link); text-decoration: underline; }
+.qs .go { font: 14px/1.6 var(--sans); color: var(--ink-3); white-space: nowrap; }
+
+/* terms */
+dl.terms { margin: 0; columns: 2; column-gap: 32px; border-top: 1px solid var(--rule); }
+dl.terms > div { break-inside: avoid; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+dl.terms dt { font: 500 14.5px/1.5 var(--sans); color: var(--ink); min-width: 0; }
+dl.terms dd { margin: 0; font: 14px/1.5 var(--sans); color: var(--ink-3); white-space: nowrap; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 3.2em; padding: 18px 0 56px; font: 13.5px/1.65 var(--sans); color: var(--ink-3); }
+footer p { margin: 0 0 .7em; }
+footer code, .hint code { font-size: .9em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+
+@media (max-width: 720px) {
+  header.top { padding-top: 24px; }
+  h1 { font-size: 30px; }
+  .lead { font-size: 17.5px; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .stage:not(:last-child)::after { content: "↓"; right: auto; left: 50%; top: auto; bottom: -21px; transform: translateX(-50%); }
+  .stage .chips { flex-direction: row; flex-wrap: wrap; }
+  .band { grid-template-columns: minmax(0, 1fr); }
+  .band .lab { padding-top: 0; }
+  ol.posts > li { grid-template-columns: minmax(0, 1fr); }
+  .no { padding-top: 0; }
+  .no code { display: inline; margin-left: .6em; }
+  dl.paths > div { grid-template-columns: minmax(0, 1fr); }
+  ol.qs li { grid-template-columns: minmax(0, 1fr); }
+  dl.terms { columns: 1; }
+}
+</style>
+</head>
+<body>
+<div class="col">
+
+<nav class="crumbs" aria-label="所在位置">
+  <a href="https://blog.hesenyang-ethan.com/">Ethan Yang's Blog</a><span class="sep">/</span>DeepEP 与 DeepGEMM 精读
+</nav>
+
+<header class="top">
+  <div class="kicker">DeepEP 与 DeepGEMM 精读 · 系列目录</div>
+  <h1>DeepEP 与 DeepGEMM 精读</h1>
+  <p class="lead">DeepEP 是 DeepSeek 开源的专家并行通信库，DeepGEMM 是配套的 FP8/FP4/BF16 矩阵乘内核库。两者合起来，覆盖一层 MoE 从搬数据到做计算的完整路径。这个系列对着源码逐篇拆解它们的核心设计。</p>
+  <ul class="facts">
+    <li>20 篇：导读、2 篇背景、17 篇精读</li>
+    <li>全部读完约 5 个半小时</li>
+    <li>依据源码提交 DeepEP <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">f6aa38f</a>（V2.5）、DeepGEMM <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">5081f85</a></li>
+  </ul>
+  <nav class="jump" aria-label="页内导航">
+    <a href="#start">从哪里开始</a>
+    <a href="#map">系列地图</a>
+    <a href="#all">全部篇目</a>
+    <a href="#paths">阅读路径</a>
+    <a href="#questions">按问题查</a>
+    <a href="#terms">术语索引</a>
+  </nav>
+</header>
+
+<section id="start">
+  <h2>从哪里开始</h2>
+  <ul class="cards">
+    <li><a class="card" href="bg01-moe-ep-background/bg01-moe-ep-background.html">
+      <div class="when">没接触过 MoE 或专家并行</div>
+      <div class="ttl">背景第 1 篇：MoE 与专家并行</div>
+      <p class="why">从“专家为什么要分到多块 GPU 上”讲起，说清 dispatch 和 combine 这两次通信是怎么来的。</p>
+      <div class="min">约 7 分钟</div>
+    </a></li>
+    <li><a class="card" href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">
+      <div class="when">没写过 Hopper / Blackwell 内核</div>
+      <div class="ttl">背景第 2 篇：GPU 硬件速查</div>
+      <p class="why">线程与内存层级、TMA、WGMMA、mbarrier、TMEM、NVLink 与 RDMA。后面各篇反复用到的术语都在这里。</p>
+      <div class="min">约 8 分钟</div>
+    </a></li>
+    <li><a class="card" href="p00-overview/p00-overview.html">
+      <div class="when">想先看全貌</div>
+      <div class="ttl">系列导读：两个库的全景</div>
+      <p class="why">两个库各管什么，17 篇精读怎样分成两卷，两卷在哪三处交汇。</p>
+      <div class="min">约 6 分钟</div>
+    </a></li>
+  </ul>
+  <p class="after-cards">背景都有的读者可以直接读精读：通信从 <a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a> 进，计算从 <a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a> 进。这两篇开头各有一节库概览，先交代这个库对外提供什么，再进代码。</p>
+</section>
+
+<section id="map">
+  <h2>系列地图</h2>
+  <p class="hint">一层 MoE 的前向分四步：路由、分发、专家计算、合并。下图把每篇精读放到它讲的那一步上，点色块即可打开。<code>ep</code> 开头的是 DeepEP 卷，<code>dg</code> 开头的是 DeepGEMM 卷；正文里互相引用时也用这套代号。</p>
+  <div class="map">
+    <ol class="flow">
+      <li class="stage">
+        <div class="step"><span class="n">1</span>路由</div>
+        <p class="what">gate 给每个 token 选出 top-k 个专家</p>
+        <div class="chips">
+          <a class="chip g" href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-mega-gate"><b>dg09</b>Mega Gate</a>
+        </div>
+      </li>
+      <li class="stage">
+        <div class="step"><span class="n">2</span>分发 dispatch</div>
+        <p class="what">把 token 送到专家所在的 GPU</p>
+        <div class="chips">
+          <a class="chip e" href="ep01-epbuffer-api/ep01-epbuffer-api.html"><b>ep01</b>接口与布局</a>
+          <a class="chip e" href="ep02-direct-dispatch/ep02-direct-dispatch.html"><b>ep02</b>直连内核</a>
+          <a class="chip e" href="ep04-hybrid/ep04-hybrid.html"><b>ep04</b>跨节点混合</a>
+        </div>
+      </li>
+      <li class="stage">
+        <div class="step"><span class="n">3</span>专家计算</div>
+        <p class="what">每个专家对收到的 token 做矩阵乘</p>
+        <div class="chips">
+          <a class="chip g" href="dg01-sm90-fp8/dg01-sm90-fp8.html"><b>dg01</b>Hopper FP8</a>
+          <a class="chip g" href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html"><b>dg02</b>Blackwell FP8/FP4</a>
+          <a class="chip g" href="dg03-sf-formats/dg03-sf-formats.html"><b>dg03</b>缩放因子格式</a>
+          <a class="chip g" href="dg04-moe-grouped/dg04-moe-grouped.html"><b>dg04</b>MoE 分组</a>
+          <a class="chip g" href="dg06-bf16-einsum/dg06-bf16-einsum.html"><b>dg06</b>BF16 与 einsum</a>
+        </div>
+      </li>
+      <li class="stage">
+        <div class="step"><span class="n">4</span>合并 combine</div>
+        <p class="what">把专家输出加权送回 token 原位</p>
+        <div class="chips">
+          <a class="chip e" href="ep03-combine/ep03-combine.html"><b>ep03</b>归约内核</a>
+        </div>
+      </li>
+    </ol>
+    <div class="band">
+      <div class="lab">整层融合<small>第 2–4 步放进一个内核</small></div>
+      <div class="chips">
+        <a class="chip g" href="dg08-mega-moe/dg08-mega-moe.html"><b>dg08</b>Mega MoE</a>
+      </div>
+    </div>
+    <div class="band">
+      <div class="lab">地基<small>上面每一步都踩着它</small></div>
+      <div class="chips">
+        <a class="chip e" href="ep05-comm-substrate/ep05-comm-substrate.html"><b>ep05</b>通信底座</a>
+        <a class="chip e" href="ep06-analytic-config/ep06-analytic-config.html"><b>ep06</b>资源估算与 JIT</a>
+        <a class="chip g" href="dg05-heuristics-jit/dg05-heuristics-jit.html"><b>dg05</b>配置启发式与 JIT</a>
+      </div>
+    </div>
+    <div class="band">
+      <div class="lab">一次前向之外<small>其他原语与内核</small></div>
+      <div class="chips">
+        <a class="chip e" href="ep07-bucket/ep07-bucket.html"><b>ep07</b>Bucket 集合通信</a>
+        <a class="chip e" href="ep08-lb-engram-pp/ep08-lb-engram-pp.html"><b>ep08</b>冗余专家、Engram、PP</a>
+        <a class="chip g" href="dg07-mqa-logits/dg07-mqa-logits.html"><b>dg07</b>索引器打分</a>
+        <a class="chip g" href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-mega-mhc"><b>dg09</b>Mega mHC</a>
+      </div>
+    </div>
+  </div>
+  <p class="key"><span class="sw e">DeepEP：通信</span><span class="sw g">DeepGEMM：计算</span></p>
+</section>
+
+<section id="all">
+  <h2>全部篇目</h2>
+  <p class="hint">每篇都能独立读，文末的“上一篇 / 下一篇”按 背景 → 导读 → DeepEP 卷 → DeepGEMM 卷 的顺序串成一条线。篇号下面的小字是代号。“先读”列的是这一篇直接依赖的篇目，不是必须，但读过会顺很多。</p>
+
+  <h3 id="entry">导读与背景</h3>
+  <ol class="posts">
+    <li id="p00">
+      <div class="no">导读</div>
+      <div>
+        <div class="ttl"><a href="p00-overview/p00-overview.html">DeepEP 与 DeepGEMM 精读：系列导读</a></div>
+        <p class="sum">两个库各管什么，17 篇精读怎样分成两卷；两卷在三处交汇：masked GEMM 接 dispatch 的输出，Mega MoE 把通信搬进内核，DeepJIT 被两个仓库共用。</p>
+        <div class="meta"><span class="layer">入口</span><span>约 6 分钟</span></div>
+      </div>
+    </li>
+    <li id="bg01">
+      <div class="no">背景第 1 篇<code>bg01</code></div>
+      <div>
+        <div class="ttl"><a href="bg01-moe-ep-background/bg01-moe-ep-background.html">MoE 与专家并行：为什么要搬数据</a></div>
+        <p class="sum">MoE 把稠密 FFN 拆成几百个专家，每个 token 只激活其中 k 个。专家分散到多块 GPU 之后，就多出 dispatch 和 combine 两次全对全通信。</p>
+        <div class="meta"><span class="layer">入口</span><span>约 7 分钟</span></div>
+      </div>
+    </li>
+    <li id="bg02">
+      <div class="no">背景第 2 篇<code>bg02</code></div>
+      <div>
+        <div class="ttl"><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">GPU 硬件速查：SM、TMA、张量核与 NVLink</a></div>
+        <p class="sum">线程层级与内存层级，Hopper 的 TMA、WGMMA、mbarrier，Blackwell 的 TMEM 与 tcgen05，GEMM 为什么要分块，NVLink 与 RDMA 差在哪。文末有术语速查表。</p>
+        <div class="meta"><span class="layer">入口</span><span>约 8 分钟</span><span>先读：<a href="bg01-moe-ep-background/bg01-moe-ep-background.html">bg01</a></span></div>
+      </div>
+    </li>
+  </ol>
+
+  <h3 id="deepep">DeepEP 卷：通信</h3>
+  <p class="vol">DeepEP 是一个 Python + CUDA 通信库，对外提供四个缓冲区类：<b>EPBuffer</b>（dispatch / combine，ep01–ep06）、<b>BucketBuffer</b>（all-gather、reduce-scatter、all-reduce，ep07）、<b>PPBuffer</b>（相邻 rank 之间收发，ep08）和 <b>EngramBuffer</b>（远程取数，ep08）。四者共用一套通信底座：NCCL Gin 设备端接口与对称内存窗口（ep05）。</p>
+  <ol class="posts">
+    <li id="ep01">
+      <div class="no">EP 第 1 篇<code>ep01</code></div>
+      <div>
+        <div class="ttl"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html">一个 EPBuffer 走完训练与推理：容量、展开布局、handle 与延迟尾声</a></div>
+        <p class="sum">开头是 DeepEP 的库概览。正文讲接口语义：缓冲区要多大，dispatch 吐出的展开布局长什么样，handle 里存了什么，以及为什么 dispatch 的反向恰好是 combine。</p>
+        <div class="meta"><span class="layer l-ep">接口</span><span>约 30 分钟</span><span>先读：<a href="bg01-moe-ep-background/bg01-moe-ep-background.html">bg01</a></span></div>
+      </div>
+    </li>
+    <li id="ep02">
+      <div class="no">EP 第 2 篇<code>ep02</code></div>
+      <div>
+        <div class="ttl"><a href="ep02-direct-dispatch/ep02-direct-dispatch.html">直连模式的 dispatch：计数、布局、收发与拷贝尾声</a></div>
+        <p class="sum">通知 warp 先数清每个专家要收多少 token；发送 warp 把 hidden、缩放因子和元数据打包成对齐的记录，直写对端缓冲区；最后由拷贝尾声展开成输出张量。</p>
+        <div class="meta"><span class="layer l-ep">数据通路</span><span>约 17 分钟</span><span>先读：<a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a>、<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="ep03">
+      <div class="no">EP 第 3 篇<code>ep03</code></div>
+      <div>
+        <div class="ttl"><a href="ep03-combine/ep03-combine.html">combine：BF16 归约、bias 与归约尾声</a></div>
+        <p class="sum">把专家输出送回源 rank 并归约：没有 bias 且有效槽位不超过两个时走 BF16 直接相加的快路径，否则走 FP32 累加；bias 可以并进同一次归约。</p>
+        <div class="meta"><span class="layer l-ep">数据通路</span><span>约 14 分钟</span><span>先读：<a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a></span></div>
+      </div>
+    </li>
+    <li id="ep04">
+      <div class="no">EP 第 4 篇<code>ep04</code></div>
+      <div>
+        <div class="ttl"><a href="ep04-hybrid/ep04-hybrid.html">NVLink 加 RDMA：混合模式的转发路径</a></div>
+        <p class="sum">EP 组跨多个 NVLink 域时走两跳：先经 RDMA 送到目标域的代理节点，再经 NVLink 转发进最终的接收缓冲；combine 沿原路反向重放。</p>
+        <div class="meta"><span class="layer l-ep">数据通路</span><span>约 15 分钟</span><span>先读：<a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>、<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="ep05">
+      <div class="no">EP 第 5 篇<code>ep05</code></div>
+      <div>
+        <div class="ttl"><a href="ep05-comm-substrate/ep05-comm-substrate.html">通信底座：NCCL Gin、对称内存窗口与内存序</a></div>
+        <p class="sum">所有 EP 内核共用的地基：对 NCCL Gin 的一层薄封装，让同一 NVLink 域的 GPU 用指针直接读写对端内存的对称窗口，以及 <code>ptx.cuh</code> 里的内存序与屏障。</p>
+        <div class="meta"><span class="layer l-ep">通信底座</span><span>约 15 分钟</span><span>先读：<a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>、<a href="ep04-hybrid/ep04-hybrid.html">ep04</a>、<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="ep06">
+      <div class="no">EP 第 6 篇<code>ep06</code></div>
+      <div>
+        <div class="ttl"><a href="ep06-analytic-config/ep06-analytic-config.html">不调参：从拓扑和带宽算出 SM 与 QP，再交给 DeepJIT 现编</a></div>
+        <p class="sum">SM 数与 QP 数不靠调参，而是由探测到的拓扑和带宽按公式算出。算出的整数是内核的模板实参，所以同时决定了 DeepJIT 要编译哪一份内核。</p>
+        <div class="meta"><span class="layer l-ep">资源估算</span><span>约 21 分钟</span><span>先读：<a href="ep05-comm-substrate/ep05-comm-substrate.html">ep05</a>、<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="ep07">
+      <div class="no">EP 第 7 篇<code>ep07</code></div>
+      <div>
+        <div class="ttl"><a href="ep07-bucket/ep07-bucket.html">Bucket 集合通信：零 SM 的 all-gather 与 multimem 归约</a></div>
+        <p class="sum">BucketBuffer 的三种集合通信。NVLink 上的 all-gather 完全交给复制引擎，不占 SM；节点内归约用一条 <code>multimem.ld_reduce</code> 指令完成。</p>
+        <div class="meta"><span class="layer l-ep">集合通信</span><span>约 14 分钟</span><span>先读：<a href="ep05-comm-substrate/ep05-comm-substrate.html">ep05</a>、<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="ep08">
+      <div class="no">EP 第 8 篇<code>ep08</code></div>
+      <div>
+        <div class="ttl"><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html">冗余专家、Engram 与 PP：三种点对点搬运原语</a></div>
+        <p class="sum">冗余专家的权重预取与梯度回收，加上两个实验性原语：按下标从远端表里取行的 Engram，和只在环上相邻 rank 之间收发的 PP。</p>
+        <div class="meta"><span class="layer l-ep">点对点原语</span><span>约 23 分钟</span><span>先读：<a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a>、<a href="ep05-comm-substrate/ep05-comm-substrate.html">ep05</a></span></div>
+      </div>
+    </li>
+  </ol>
+
+  <h3 id="deepgemm">DeepGEMM 卷：计算</h3>
+  <p class="vol">DeepGEMM 是一个按需编译的 CUDA 内核库，内核分三类：<b>基础 GEMM</b>（FP8、FP4、BF16，dg01–dg03、dg06）、<b>MoE 分组 GEMM</b>（contiguous、masked、K 分组，dg04）和<b>融合大内核</b>（Mega MoE、Mega Gate、Mega mHC，dg08–dg09）。所有内核都由 host 端的启发式选配置，再经 DeepJIT 编译并缓存（dg05）。</p>
+  <ol class="posts">
+    <li id="dg01">
+      <div class="no">GEMM 第 1 篇<code>dg01</code></div>
+      <div>
+        <div class="ttl"><a href="dg01-sm90-fp8/dg01-sm90-fp8.html">两级累加：Hopper 上的 FP8 GEMM 怎样把 scale 塞进流水线</a></div>
+        <p class="sum">开头是 DeepGEMM 的库概览。正文讲 Hopper 上的 FP8 内核：张量核每次只算一个 128 宽的 K 块，乘上 scale 再并入第二组累加器；以及围绕它的 warp 特化与 mbarrier 流水线。</p>
+        <div class="meta"><span class="layer l-gm">基础内核 · Hopper</span><span>约 20 分钟</span><span>先读：<a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a></span></div>
+      </div>
+    </li>
+    <li id="dg02">
+      <div class="no">GEMM 第 2 篇<code>dg02</code></div>
+      <div>
+        <div class="ttl"><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">Blackwell 上的 FP8/FP4 GEMM：tcgen05、TMEM 与块缩放 MMA</a></div>
+        <p class="sum"><code>tcgen05.mma</code> 取代 WGMMA：累加器和缩放因子都搬进张量内存（TMEM），线程分成搬运、MMA、UTCCP 转置、尾声四种角色；swap-AB 让不齐的 M 也能处理。</p>
+        <div class="meta"><span class="layer l-gm">基础内核 · Blackwell</span><span>约 14 分钟</span><span>先读：<a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a></span></div>
+      </div>
+    </li>
+    <li id="dg03">
+      <div class="no">GEMM 第 3 篇<code>dg03</code></div>
+      <div>
+        <div class="ttl"><a href="dg03-sf-formats/dg03-sf-formats.html">缩放因子的格式学：UE8M0、MN-major 与 TMA 对齐</a></div>
+        <p class="sum">缩放因子为什么必须是 2 的幂，四个 8 位指数怎样打包进一个 int32，变换后的张量怎样满足 TMA 的 16 字节对齐。</p>
+        <div class="meta"><span class="layer l-gm">数据格式</span><span>约 13 分钟</span><span>先读：<a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a></span></div>
+      </div>
+    </li>
+    <li id="dg04">
+      <div class="no">GEMM 第 4 篇<code>dg04</code></div>
+      <div>
+        <div class="ttl"><a href="dg04-moe-grouped/dg04-moe-grouped.html">分组 GEMM 不换内核，只换索引表</a></div>
+        <p class="sum">三种 MoE 分组 GEMM 共用一套内核，差别只在一张索引表存什么、调度器怎么读它。这张表和 DeepEP handle 里的前缀和是同一张，通信和计算就在这里接上。</p>
+        <div class="meta"><span class="layer l-gm">MoE 分组</span><span>约 16 分钟</span><span>先读：<a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a>、<a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a>、<a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a></span></div>
+      </div>
+    </li>
+    <li id="dg05">
+      <div class="no">GEMM 第 5 篇<code>dg05</code></div>
+      <div>
+        <div class="ttl"><a href="dg05-heuristics-jit/dg05-heuristics-jit.html">配置怎么选、内核何时编：启发式、DeepJIT 与局部性域</a></div>
+        <p class="sum">不做自动调参：host 侧枚举少量候选，淘汰不合法的，再选出一个。配置拼成源码交给 DeepJIT，先查内存与磁盘两级缓存，未命中才编译。</p>
+        <div class="meta"><span class="layer l-gm">配置与 JIT</span><span>约 16 分钟</span><span>先读：<a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a>–<a href="dg04-moe-grouped/dg04-moe-grouped.html">dg04</a></span></div>
+      </div>
+    </li>
+    <li id="dg06">
+      <div class="no">GEMM 第 6 篇<code>dg06</code></div>
+      <div>
+        <div class="ttl"><a href="dg06-bf16-einsum/dg06-bf16-einsum.html">没有 scale 的那一半：BF16、批量收缩、einsum 与 cuBLASLt 兜底</a></div>
+        <p class="sum">去掉缩放因子，BF16 内核少一级累加，多出 FP32 输出与累加的能力。einsum 只认四条表达式；普通 BF16 GEMM 默认走 cuBLASLt。</p>
+        <div class="meta"><span class="layer l-gm">基础内核 · BF16</span><span>约 14 分钟</span><span>先读：<a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a></span></div>
+      </div>
+    </li>
+    <li id="dg07">
+      <div class="no">GEMM 第 7 篇<code>dg07</code></div>
+      <div>
+        <div class="ttl"><a href="dg07-mqa-logits/dg07-mqa-logits.html">一条加权 ReLU，四种内核：Lightning Indexer 的 MQA logits</a></div>
+        <p class="sum">索引器的分数是每个头的点积过 ReLU 再加权求和。按 KV 的取法（连续、分页、稀疏及其组合）有四个入口；SM90 与 SM100 处理缩放的方式不同。</p>
+        <div class="meta"><span class="layer l-gm">专用内核</span><span>约 25 分钟</span><span>先读：<a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a>–<a href="dg03-sf-formats/dg03-sf-formats.html">dg03</a></span></div>
+      </div>
+    </li>
+    <li id="dg08">
+      <div class="no">GEMM 第 8 篇<code>dg08</code></div>
+      <div>
+        <div class="ttl"><a href="dg08-mega-moe/dg08-mega-moe.html">Mega MoE：把一整层 MoE 塞进一个持久化内核</a></div>
+        <p class="sum">dispatch、两层线性、SwiGLU 与再量化、combine 共六个阶段融合进一个持久化内核，通信与计算在同一组 SM 上交替执行；通信不走 NCCL，用 PyTorch 的对称内存。</p>
+        <div class="meta"><span class="layer l-gm">融合内核</span><span>约 16 分钟</span><span>先读：<a href="dg04-moe-grouped/dg04-moe-grouped.html">dg04</a>、<a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>、<a href="ep07-bucket/ep07-bucket.html">ep07</a></span></div>
+      </div>
+    </li>
+    <li id="dg09">
+      <div class="no">GEMM 第 9 篇<code>dg09</code></div>
+      <div>
+        <div class="ttl"><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">Mega Gate、Mega mHC 与 TF32 HC prenorm GEMM</a></div>
+        <p class="sum">Mega Gate 把门控 GEMM、打分和 top-k 选择融成一个内核，输出就是 dispatch 要的路由。Mega mHC 把 HyperConnection 的各步融合。另有一处 CUDA graph 重放下的屏障修复。</p>
+        <div class="meta"><span class="layer l-gm">融合内核</span><span>约 16 分钟</span><span>先读：<a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a></span></div>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section id="paths">
+  <h2>阅读路径</h2>
+  <p class="hint">两种选法：第一次接触这两个库，按难度分三段读；已经熟悉其中一部分，按关注点走捷径。</p>
+
+  <h3>按难度，由浅入深</h3>
+  <dl class="paths">
+    <div>
+      <dt>入门</dt>
+      <dd>
+        <div class="route"><a href="bg01-moe-ep-background/bg01-moe-ep-background.html">bg01</a><span class="arr">→</span><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a><span class="arr">→</span><a href="p00-overview/p00-overview.html">导读</a><span class="arr">→</span><a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a><span class="arr">→</span><a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a><span class="t">约 70 分钟</span></div>
+        <p class="note">MoE 为什么要通信，GPU 上有哪些部件，两个库各长什么样。读完能回答：EPBuffer 是什么，一个 GEMM 内核的骨架是什么。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>进阶</dt>
+      <dd>
+        <div class="route"><a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a><span class="arr">→</span><a href="ep03-combine/ep03-combine.html">ep03</a><span class="arr">→</span><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a><span class="arr">→</span><a href="dg03-sf-formats/dg03-sf-formats.html">dg03</a><span class="arr">→</span><a href="dg04-moe-grouped/dg04-moe-grouped.html">dg04</a><span class="arr">→</span><a href="dg06-bf16-einsum/dg06-bf16-einsum.html">dg06</a><span class="t">约 90 分钟</span></div>
+        <p class="note">一层 MoE 的主干：token 怎样发出去、收回来，专家的矩阵乘在两代硬件上怎样算。读完能回答：一条 token 记录长什么样，专家收到的 token 数不齐时 GEMM 怎么排。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>精通</dt>
+      <dd>
+        <div class="route"><a href="ep04-hybrid/ep04-hybrid.html">ep04</a><span class="arr">→</span><a href="ep05-comm-substrate/ep05-comm-substrate.html">ep05</a><span class="arr">→</span><a href="ep06-analytic-config/ep06-analytic-config.html">ep06</a><span class="arr">→</span><a href="dg05-heuristics-jit/dg05-heuristics-jit.html">dg05</a><span class="arr">→</span><a href="ep07-bucket/ep07-bucket.html">ep07</a><span class="arr">→</span><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html">ep08</a><span class="arr">→</span><a href="dg07-mqa-logits/dg07-mqa-logits.html">dg07</a><span class="arr">→</span><a href="dg08-mega-moe/dg08-mega-moe.html">dg08</a><span class="arr">→</span><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">dg09</a><span class="t">约 160 分钟</span></div>
+        <p class="note">跨节点通信、通信底座、不调参的配置与 JIT，再到融合大内核。需要的背景最多：RDMA、内存序、CUDA graph。</p>
+      </dd>
+    </div>
+  </dl>
+
+  <h3>按关注点，走捷径</h3>
+  <dl class="paths">
+    <div>
+      <dt>做 EP 通信</dt>
+      <dd>
+        <div class="route"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a><span class="arr">→</span><a href="ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a><span class="arr">→</span><a href="ep03-combine/ep03-combine.html">ep03</a><span class="arr">→</span><a href="ep04-hybrid/ep04-hybrid.html">ep04</a><span class="arr">→</span><a href="ep05-comm-substrate/ep05-comm-substrate.html">ep05</a><span class="arr">→</span><a href="ep06-analytic-config/ep06-analytic-config.html">ep06</a></div>
+        <p class="note">一个 token 的完整往返，再到支撑它的通信底座与资源估算。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>写 GEMM 内核</dt>
+      <dd>
+        <div class="route"><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a><span class="arr">→</span><a href="dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a><span class="arr">→</span><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a><span class="arr">→</span><a href="dg03-sf-formats/dg03-sf-formats.html">dg03</a><span class="arr">→</span><a href="dg06-bf16-einsum/dg06-bf16-einsum.html">dg06</a><span class="arr">→</span><a href="dg05-heuristics-jit/dg05-heuristics-jit.html">dg05</a></div>
+        <p class="note">Hopper 与 Blackwell 两代内核的骨架、缩放因子格式、BF16 变体，最后看配置怎么选。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>做推理与解码</dt>
+      <dd>
+        <div class="route"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-cpusync">ep01</a><span class="arr">→</span><a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-masked">dg04</a><span class="arr">→</span><a href="dg08-mega-moe/dg08-mega-moe.html">dg08</a><span class="arr">→</span><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">dg09</a></div>
+        <p class="note">不等 CPU 同步的 dispatch、能录进 CUDA graph 的 masked 布局、整层融合的 Mega MoE 与 Mega Gate。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>只看两库怎么接上</dt>
+      <dd>
+        <div class="route"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-expand">ep01</a><span class="arr">→</span><a href="dg04-moe-grouped/dg04-moe-grouped.html">dg04</a><span class="arr">→</span><a href="dg08-mega-moe/dg08-mega-moe.html">dg08</a><span class="arr">→</span><a href="ep06-analytic-config/ep06-analytic-config.html#sec-jit">ep06</a><span class="arr">→</span><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-deepjit">dg05</a></div>
+        <p class="note">三个交汇点：展开布局与分组 GEMM 共用的那张前缀和表，把通信搬进内核的 Mega MoE，两个仓库都用的 DeepJIT。</p>
+      </dd>
+    </div>
+    <div>
+      <dt>只有一小时</dt>
+      <dd>
+        <div class="route"><a href="p00-overview/p00-overview.html">导读</a><span class="arr">→</span><a href="ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a><span class="arr">→</span><a href="dg04-moe-grouped/dg04-moe-grouped.html">dg04</a></div>
+        <p class="note">两个库的分工、EP 的接口语义，以及通信与计算接上的那张索引表。</p>
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<section id="questions">
+  <h2>按问题查</h2>
+  <p class="hint">带着具体问题来的，从这里进。点问题直接跳到回答它的那一节，右边是相关的其他篇目。</p>
+
+  <h3>通信（DeepEP）</h3>
+  <ol class="qs">
+    <li><span class="q"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-buffer">一个 EPBuffer 要占多少显存，怎么算出来的？</a></span><span class="go">ep01</span></li>
+    <li><span class="q"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-expand">dispatch 返回的张量为什么按专家分段，还要补齐？</a></span><span class="go">ep01 · 另见 <a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-contiguous">dg04</a></span></li>
+    <li><span class="q"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-cpusync">解码时不想等 CPU 同步，输出张量的大小怎么定？</a></span><span class="go">ep01 · 另见 <a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-masked">dg04</a></span></li>
+    <li><span class="q"><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-handle">handle 里存了什么，为什么重放 dispatch 能跳过计数？</a></span><span class="go">ep01</span></li>
+    <li><span class="q"><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-layout">一条 token 记录在缓冲区里长什么样？</a></span><span class="go">ep02</span></li>
+    <li><span class="q"><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-fp8">FP8 的缩放因子怎样跟着 token 一起传？</a></span><span class="go">ep02 · 另见 <a href="dg03-sf-formats/dg03-sf-formats.html">dg03</a></span></li>
+    <li><span class="q"><a href="ep03-combine/ep03-combine.html#sec-bf16">为什么 combine 只接受 BF16？</a></span><span class="go">ep03</span></li>
+    <li><span class="q"><a href="ep04-hybrid/ep04-hybrid.html#sec-why">EP 组跨了节点，token 走哪条路？</a></span><span class="go">ep04 · 另见 <a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-interconnect">bg02</a></span></li>
+    <li><span class="q"><a href="ep05-comm-substrate/ep05-comm-substrate.html#sec-sym-mem">内核“直接写对端显存”靠的是什么？</a></span><span class="go">ep05</span></li>
+    <li><span class="q"><a href="ep06-analytic-config/ep06-analytic-config.html#sec-sm">SM 数和 QP 数为什么不用手调？</a></span><span class="go">ep06 · 另见 <a href="ep07-bucket/ep07-bucket.html#sec-sms">ep07</a></span></li>
+    <li><span class="q"><a href="ep07-bucket/ep07-bucket.html#sec-ag">all-gather 为什么可以一个 SM 都不占？</a></span><span class="go">ep07</span></li>
+    <li><span class="q"><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html#sec-lbmap">冗余专家的权重和梯度怎样在副本之间同步？</a></span><span class="go">ep08</span></li>
+  </ol>
+
+  <h3>计算（DeepGEMM）</h3>
+  <ol class="qs">
+    <li><span class="q"><a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-twolevel">FP8 的 scale 在内核的哪一步乘进去？</a></span><span class="go">dg01</span></li>
+    <li><span class="q"><a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-warp">一个 CTA 里为什么要分“搬数的”和“算数的”两种 warp？</a></span><span class="go">dg01 · 另见 <a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-hopper">bg02</a></span></li>
+    <li><span class="q"><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-tmem">Blackwell 的 TMEM 里放什么，列数不够怎么办？</a></span><span class="go">dg02</span></li>
+    <li><span class="q"><a href="dg03-sf-formats/dg03-sf-formats.html#sec-ue8m0">缩放因子为什么要转成 UE8M0 再打包？</a></span><span class="go">dg03</span></li>
+    <li><span class="q"><a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-why">每个专家收到的 token 数不一样，GEMM 怎么排？</a></span><span class="go">dg04 · 另见 <a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-expand">ep01</a></span></li>
+    <li><span class="q"><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-heuristics">块大小这些配置是调出来的，还是算出来的？</a></span><span class="go">dg05</span></li>
+    <li><span class="q"><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-deepjit">内核什么时候编译，怎样判断缓存命中？</a></span><span class="go">dg05 · 另见 <a href="ep06-analytic-config/ep06-analytic-config.html#sec-jit">ep06</a></span></li>
+    <li><span class="q"><a href="dg06-bf16-einsum/dg06-bf16-einsum.html#sec-cublas">普通 BF16 矩阵乘走 DeepGEMM 自己的内核，还是 cuBLASLt？</a></span><span class="go">dg06</span></li>
+    <li><span class="q"><a href="dg07-mqa-logits/dg07-mqa-logits.html#sec-math">Lightning Indexer 的分数是怎么算的？</a></span><span class="go">dg07</span></li>
+    <li><span class="q"><a href="dg08-mega-moe/dg08-mega-moe.html#sec-why">通信和计算能不能放进同一个内核？</a></span><span class="go">dg08</span></li>
+    <li><span class="q"><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-mega-gate">门控路由（top-k 选择）能不能也放进内核？</a></span><span class="go">dg09</span></li>
+    <li><span class="q"><a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-masked">哪些路径能录进 CUDA graph 重放？</a></span><span class="go">dg04 · 另见 <a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-cuda-graph-fix">dg09</a></span></li>
+  </ol>
+</section>
+
+<section id="terms">
+  <h2>术语索引</h2>
+  <p class="hint">读到一半忘了某个词，从这里跳回讲它的那一节。硬件术语的一句话解释也可以直接查 <a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-glossary">bg02 的术语速查表</a>。</p>
+
+  <h3>硬件与指令</h3>
+  <dl class="terms">
+    <div><dt>warp、warpgroup、CTA、cluster</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-thread">bg02</a></dd></div>
+    <div><dt>NVLink、RDMA</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-interconnect">bg02</a></dd></div>
+    <div><dt>TMA</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-hopper">bg02</a></dd></div>
+    <div><dt>WGMMA</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-hopper">bg02</a>、<a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-twolevel">dg01</a></dd></div>
+    <div><dt>mbarrier</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-hopper">bg02</a>、<a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-pipeline">dg01</a></dd></div>
+    <div><dt>warp 特化</dt><dd><a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-warp">dg01</a></dd></div>
+    <div><dt>TMEM（张量内存）</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-blackwell">bg02</a>、<a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-tmem">dg02</a></dd></div>
+    <div><dt>tcgen05.mma（UMMA）</dt><dd><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-mma">dg02</a></dd></div>
+    <div><dt>UTCCP</dt><dd><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-utccp">dg02</a></dd></div>
+    <div><dt>PDL（程序化依赖启动）</dt><dd><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-epilogue">ep02</a></dd></div>
+    <div><dt>复制引擎（CE）</dt><dd><a href="ep07-bucket/ep07-bucket.html#sec-ag">ep07</a></dd></div>
+    <div><dt>multimem.ld_reduce</dt><dd><a href="ep07-bucket/ep07-bucket.html#sec-multimem">ep07</a></dd></div>
+  </dl>
+
+  <h3>通信（DeepEP）</h3>
+  <dl class="terms">
+    <div><dt>dispatch、combine</dt><dd><a href="bg01-moe-ep-background/bg01-moe-ep-background.html#sec-dispatch-combine">bg01</a>、<a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-intuition">ep01</a></dd></div>
+    <div><dt>展开布局（expanded layout）</dt><dd><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-expand">ep01</a></dd></div>
+    <div><dt>do_cpu_sync</dt><dd><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-cpusync">ep01</a></dd></div>
+    <div><dt>EPHandle、缓存 dispatch</dt><dd><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-handle">ep01</a></dd></div>
+    <div><dt>延迟尾声</dt><dd><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-defer">ep01</a></dd></div>
+    <div><dt>通知 warp、两级计数</dt><dd><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-count">ep02</a></dd></div>
+    <div><dt>token 记录（TokenLayout）</dt><dd><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-layout">ep02</a></dd></div>
+    <div><dt>拷贝尾声</dt><dd><a href="ep02-direct-dispatch/ep02-direct-dispatch.html#sec-epilogue">ep02</a></dd></div>
+    <div><dt>scale-out、scale-up 域</dt><dd><a href="ep04-hybrid/ep04-hybrid.html#sec-why">ep04</a></dd></div>
+    <div><dt>NCCL Gin</dt><dd><a href="ep05-comm-substrate/ep05-comm-substrate.html#sec-gin-api">ep05</a></dd></div>
+    <div><dt>对称内存窗口</dt><dd><a href="ep05-comm-substrate/ep05-comm-substrate.html#sec-sym-mem">ep05</a></dd></div>
+    <div><dt>内存序、屏障</dt><dd><a href="ep05-comm-substrate/ep05-comm-substrate.html#sec-barrier">ep05</a></dd></div>
+    <div><dt>QP</dt><dd><a href="ep05-comm-substrate/ep05-comm-substrate.html#sec-qp">ep05</a>、<a href="ep06-analytic-config/ep06-analytic-config.html#sec-qp">ep06</a></dd></div>
+    <div><dt>RDMA 服务等级（SL）</dt><dd><a href="ep06-analytic-config/ep06-analytic-config.html#sec-sl">ep06</a></dd></div>
+    <div><dt>BucketBuffer、BucketSession</dt><dd><a href="ep07-bucket/ep07-bucket.html#sec-api">ep07</a></dd></div>
+    <div><dt>副本表（redundancy_mapping）</dt><dd><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html#sec-lbmap">ep08</a></dd></div>
+    <div><dt>Engram</dt><dd><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html#sec-engram">ep08</a></dd></div>
+    <div><dt>PP 收发</dt><dd><a href="ep08-lb-engram-pp/ep08-lb-engram-pp.html#sec-pp">ep08</a></dd></div>
+  </dl>
+
+  <h3>计算（DeepGEMM）</h3>
+  <dl class="terms">
+    <div><dt>GEMM 分块、累加器、尾声</dt><dd><a href="bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html#sec-gemm">bg02</a></dd></div>
+    <div><dt>两级累加</dt><dd><a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-twolevel">dg01</a></dd></div>
+    <div><dt>1d1d、1d2d</dt><dd><a href="dg01-sm90-fp8/dg01-sm90-fp8.html#sec-variants">dg01</a></dd></div>
+    <div><dt>块缩放 MMA</dt><dd><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-mma">dg02</a></dd></div>
+    <div><dt>双 CTA</dt><dd><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-dual-cta">dg02</a></dd></div>
+    <div><dt>swap-AB</dt><dd><a href="dg02-sm100-blockscaled/dg02-sm100-blockscaled.html#sec-swap-ab">dg02</a></dd></div>
+    <div><dt>UE8M0</dt><dd><a href="dg03-sf-formats/dg03-sf-formats.html#sec-ue8m0">dg03</a></dd></div>
+    <div><dt>MN-major</dt><dd><a href="dg03-sf-formats/dg03-sf-formats.html#sec-mn-major">dg03</a></dd></div>
+    <div><dt>PSUM 布局</dt><dd><a href="ep01-epbuffer-api/ep01-epbuffer-api.html#sec-expand">ep01</a>、<a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-contiguous">dg04</a></dd></div>
+    <div><dt>contiguous、masked、K 分组</dt><dd><a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-why">dg04</a></dd></div>
+    <div><dt>持久化调度器</dt><dd><a href="dg04-moe-grouped/dg04-moe-grouped.html#sec-scheduler">dg04</a></dd></div>
+    <div><dt>启发式配置</dt><dd><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-heuristics">dg05</a></dd></div>
+    <div><dt>DeepJIT</dt><dd><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-deepjit">dg05</a>、<a href="ep06-analytic-config/ep06-analytic-config.html#sec-jit">ep06</a></dd></div>
+    <div><dt>局部性域（locality domain）</dt><dd><a href="dg05-heuristics-jit/dg05-heuristics-jit.html#sec-locality">dg05</a></dd></div>
+    <div><dt>split-K</dt><dd><a href="dg06-bf16-einsum/dg06-bf16-einsum.html#sec-bmm">dg06</a></dd></div>
+    <div><dt>einsum</dt><dd><a href="dg06-bf16-einsum/dg06-bf16-einsum.html#sec-einsum">dg06</a></dd></div>
+    <div><dt>cuBLASLt 回退</dt><dd><a href="dg06-bf16-einsum/dg06-bf16-einsum.html#sec-cublas">dg06</a></dd></div>
+    <div><dt>MQA logits</dt><dd><a href="dg07-mqa-logits/dg07-mqa-logits.html#sec-why">dg07</a></dd></div>
+    <div><dt>分页 KV cache</dt><dd><a href="dg07-mqa-logits/dg07-mqa-logits.html#sec-paged">dg07</a></dd></div>
+    <div><dt>Mega MoE</dt><dd><a href="dg08-mega-moe/dg08-mega-moe.html#sec-why">dg08</a></dd></div>
+    <div><dt>环形缓冲区（ring buffer）</dt><dd><a href="dg08-mega-moe/dg08-mega-moe.html#sec-scheduler">dg08</a></dd></div>
+    <div><dt>Mega Gate</dt><dd><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-mega-gate">dg09</a></dd></div>
+    <div><dt>Mega mHC、Sinkhorn</dt><dd><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-mega-mhc">dg09</a></dd></div>
+    <div><dt>TF32 HC prenorm</dt><dd><a href="dg09-mega-gate-mhc/dg09-mega-gate-mhc.html#sec-hc-prenorm">dg09</a></dd></div>
+  </dl>
+</section>
+
+<footer>
+  <p>本系列依据 DeepEP 提交 <code>f6aa38fe06cd</code> 与 DeepGEMM 提交 <code>5081f8513af5</code> 的源码、两个仓库的 README 与文档写成，代码引用都是指向固定提交的永久链接。</p>
+  <p>写作时没有 GPU 可用，全系列没有自己测的性能数据：带单位的性能数字只引自仓库文档；其余图表要么按代码里的公式代入参数计算，要么标明“示意，非实测”。阅读时间按每分钟约 300 个汉字估算。</p>
+  <p>姊妹系列：<a href="https://blog.hesenyang-ethan.com/deepinfer/">DeepInfer 精读</a>，拆解 DeepSeek 的开源推理引擎。<a href="https://blog.hesenyang-ethan.com/">← 回到 Ethan Yang's Blog</a></p>
+</footer>
+
+</div>
+</body>
+</html>

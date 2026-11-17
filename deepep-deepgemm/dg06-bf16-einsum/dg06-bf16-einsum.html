@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>没有 scale 的那一半：BF16、批量收缩、einsum 与 cuBLASLt 兜底</title>
+<meta name="description" content="DeepGEMM 精读第 6 篇：BF16 GEMM、批量收缩（split-K）、四条 einsum 表达式、cuBLASLt 兜底策略与 epilogue 类体系。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 6 篇</div>
+  <h1>没有 scale 的那一半：BF16、批量收缩、<br>einsum 与 <span class="nobr">cuBLASLt 兜底</span></h1>
+  <p class="subtitle">把缩放因子拿掉，GEMM 内核就只剩一个累加器。DeepGEMM 用这条简化路线撑起 BF16 GEMM、两种完全不同的“批量”、四条硬编码的 einsum 表达式，以及一个在 JIT 时拼进模板的 epilogue 体系——而最常见的 BF16 矩阵乘，默认先问 cuBLASLt。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 12 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-bf16">去掉 scale，内核就少了一级累加</a><li><a href="#sec-bmm">两种批量：第三个坐标，和被收缩的维度</a><li><a href="#sec-einsum">einsum 只认四条表达式，每条都是一次坐标重排</a><li><a href="#sec-cublas">cuBLASLt 不是失败路径，而是 BF16 的默认路径</a><li><a href="#sec-epilogue">epilogue 是一个模板参数，JIT 时才拼进内核</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>BF16 内核和 FP8 内核的骨架一样，差别是没有缩放因子的 TMA、也没有 promotion：WGMMA 的累加器一路累加到 K 末尾。</li>
+    <li>少了 scale，反而多了两样能力：A/B 可以是 MN-major，C/D 可以是 FP32 并支持累加。</li>
+    <li>DeepGEMM 里有两种“批量”：batch 当第三个坐标（3D TMA），和 batch 当被收缩的维度（split-K 加原子累加）。</li>
+    <li><code>einsum</code> 只认四条硬编码表达式，每条的实现都是把张量 permute 成 <code>(batch, M, N, K)</code> 再调已有内核。</li>
+    <li>普通 BF16 GEMM 的默认路径是 cuBLASLt；只有开了确定性模式、调小过 SM 数，或要用自定义 epilogue，才落到自己的内核。</li>
+    <li>epilogue 是设备端的一个模板类；host 侧的 <code>EpilogueClass</code> 只交出三样东西：类型名、内核实参、编译选项。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a> 的 SM90 GEMM 流水线骨架。本篇新引入：BF16 去 scale 后的 stage 合并、split-K 原子累加、<code>einsum</code> 四条硬编码表达式、cuBLASLt 回退策略、epilogue 模板类。</p></aside>
+
+<p>前五篇讲的都是带缩放因子的内核：FP8、FP4、UE8M0 的打包与转置、分组 GEMM 的 PSUM 布局。这一篇讲剩下的那一半——不带 scale 的部分。它们在仓库里占的篇幅不小：两个架构各一个 BF16 GEMM、两个批量收缩内核、一个只认四条表达式的 <code>einsum</code>、一整套 cuBLASLt 封装，以及一个被所有 SM100 内核共用的 epilogue 体系。</p>
+
+<aside class="sidenote">本篇不重复讲 SM90 的流水线骨架（warp 特化、full/empty mbarrier、TMA 多播、两级累加），见<a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">第 1 篇</a>；也不重复 SM100 的 tcgen05/UMMA 与张量内存（TMEM），见<a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">第 2 篇</a>。</aside>
+<p>把这些放在一起讲是有理由的：它们回答同一个问题——当“缩放”这件事从内核里消失后，剩下的结构长什么样，以及 DeepGEMM 在什么情况下干脆不自己算。符号沿用全系列：\( D = C + A B^\top \)，M、N、K 是 GEMM 的三个维度，BK 是 K 方向的块宽。</p>
+
+<h2 id="sec-bf16" data-short="BF16">去掉 scale，内核就少了一级累加</h2>
+
+<p><a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">第 1 篇</a>里 SM90 的 FP8 内核有两组累加寄存器：<code>accum</code> 只装一个 128 宽的 K 块，每块算完乘上两个 scale 加进 <code>final_accum</code>。BF16 不需要 scale，于是 <code>final_accum</code> 整个消失了：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L230-L271"><code>float accum[WGMMA::kNumAccum * (BLOCK_M / WAVE_BLOCK_M)] = {0};
+// ...
+for (uint32_t local_idx = 0; local_idx &lt; BLOCK_M / WAVE_BLOCK_M; ++ local_idx) {
+    auto shifted_accum = accum + WGMMA::kNumAccum * local_idx;
+    for (uint32_t k = 0; k &lt; BLOCK_K / WGMMA::K; ++ k) {
+        // ...
+        WGMMA::wgmma(a_desc, b_desc, shifted_accum, 1);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L230-L271"><code>sm90_bf16_gemm.cuh</code> 第 230–271 行</a>（节选）。</p>
+
+<p>注意最后那个实参 <code>1</code>：它是 WGMMA 的 <code>scale_d</code>，为真时指令用 <code>ScaleOut::One</code>，即累加进累加器。FP8 内核传的是 K 方向的循环变量（第 0 条 WGMMA 清零），BF16 内核恒传 1，所以同一组寄存器从第一个 K 块累加到最后一个。<a href="#fig-regpath">图 1</a> 把两条路径并排画出来。</p>
+
+<figure id="fig-regpath" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-regpath-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 252" font-family="sans-serif" role="img" id="s1-root" style="max-width:488px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="16" y="22">FP8 内核：两级累加</text>
+
+  <rect class="d-box blue" x="16" y="44" width="80" height="48" rx="4"/>
+  <text class="d-text" x="56" y="64" text-anchor="middle">共享内存</text>
+  <text class="d-mono" x="56" y="82" text-anchor="middle">A/B tile</text>
+
+  <path class="d-arrow" d="M96 68 H134" marker-end="url(#s1-ah)"/>
+
+  <rect class="d-box green" x="136" y="44" width="80" height="48" rx="4"/>
+  <text class="d-title" x="176" y="64" text-anchor="middle">WGMMA</text>
+  <text class="d-mono" x="176" y="82" text-anchor="middle">scale_d = k</text>
+
+  <path class="d-arrow" d="M216 68 H254" marker-end="url(#s1-ah)"/>
+
+  <rect class="d-box" x="256" y="44" width="80" height="48" rx="4"/>
+  <text class="d-mono" x="296" y="64" text-anchor="middle">accum[]</text>
+  <text class="d-small" x="296" y="82" text-anchor="middle">1 个 K 块</text>
+
+  <path class="d-arrow accent" d="M336 68 H374" marker-end="url(#s1-ah-acc)"/>
+
+  <rect class="d-box accent" x="376" y="44" width="96" height="48" rx="4"/>
+  <text class="d-mono" x="424" y="64" text-anchor="middle">final_accum</text>
+  <text class="d-small" x="424" y="82" text-anchor="middle">FP32</text>
+
+  <text class="d-label d-accent-text" x="355" y="110" text-anchor="middle">× scale，在 CUDA 核上</text>
+
+  
+  <text class="d-title" x="16" y="152">BF16 内核：一级累加</text>
+
+  <rect class="d-box blue" x="16" y="174" width="80" height="48" rx="4"/>
+  <text class="d-text" x="56" y="194" text-anchor="middle">共享内存</text>
+  <text class="d-mono" x="56" y="212" text-anchor="middle">A/B tile</text>
+
+  <path class="d-arrow" d="M96 198 H134" marker-end="url(#s1-ah)"/>
+
+  <rect class="d-box green" x="136" y="174" width="80" height="48" rx="4"/>
+  <text class="d-title" x="176" y="194" text-anchor="middle">WGMMA</text>
+  <text class="d-mono" x="176" y="212" text-anchor="middle">scale_d = 1</text>
+
+  <path class="d-arrow" d="M216 198 H254" marker-end="url(#s1-ah)"/>
+
+  <rect class="d-box" x="256" y="174" width="80" height="48" rx="4"/>
+  <text class="d-mono" x="296" y="194" text-anchor="middle">accum[]</text>
+  <text class="d-small" x="296" y="212" text-anchor="middle">整个 K</text>
+
+  <rect class="d-group" x="376" y="174" width="96" height="48" rx="4"/>
+  <text class="d-label d-accent-text" x="424" y="202" text-anchor="middle">没有这一步</text>
+
+  <text class="d-label" x="296" y="240" text-anchor="middle">accum 一路累加到 K 末尾，直接进尾声</text>
+</svg></div>
+  <figcaption id="fig-regpath-cap"><span class="fig-label">图 1</span><b>两种内核的流水线骨架相同，BF16 少的正是那一步 promotion。</b>上下两排布局一致：蓝色是共享内存，绿色是张量核，白色是寄存器。上排 FP8 的 <code>scale_d = k</code> 让每个 128-K 块重新开始累加，于是必须有橙色那一步把部分和乘上 scale 搬进第二组寄存器；下排 BF16 的 <code>scale_d</code> 恒为 1，虚线框处什么都没有。示意图，不含实测数据。</figcaption>
+</figure>
+
+<p>少一级累加换来的是寄存器和指令数。但更有意思的是 BF16 内核多出来的两样能力，它们都是 FP8 路径做不到的。</p>
+
+<p><b>第一，A 和 B 的主序（major-ness）可以不是 K-major。</b>FP8 内核在 host 侧就断言 <code>major_a == Major::K and major_b == Major::K</code>，而 BF16 内核把两个主序做成了模板参数 <code>kMajorA</code>、<code>kMajorB</code>：TMA 的两个坐标按它们对调（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L188-L199"><code>sm90_bf16_gemm.cuh</code> 第 188–199 行</a>），WGMMA 的共享内存描述符也按它们生成（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L219-L222">第 219–222 行</a>）。这就是 README 说 SM90 只支持 NT 布局、SM100 支持四种布局时没说清的一层：在 SM90 上，BF16 内核本身是支持 MN-major 操作数的，只是 FP8 路径不支持 <span class="cite">[<a href="#ref-deepgemm" title="DeepSeek-AI (2026). DeepGEMM. 源码仓库，本文引用提交 <code>5081f85</code>。">1</a>]</span>。K 分组的 BF16 内核甚至要求两边都是 MN-major（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm90_bf16_gemm.hpp#L272"><code>sm90_bf16_gemm.hpp</code> 第 272 行</a>）。</p>
+
+<p><b>第二，C/D 可以是 FP32，而且支持累加。</b>内核静态断言 <code>cd_dtype_t</code> 是 <code>float</code> 或 <code>bfloat16_t</code>，再按 <code>kWithAccumulation</code> 在编译期选 TMA 指令：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L380-L385"><code>using cute_tma_t = cute::conditional_t&lt;kWithAccumulation,
+                                       cute::SM90_TMA_REDUCE_ADD_2D, cute::SM90_TMA_STORE_2D&gt;;
+cute_tma_t::copy(&amp;tensor_map_cd, smem_ptr,
+                 n_block_idx * BLOCK_N + in_block_n_offset, m_idx);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L380-L385"><code>sm90_bf16_gemm.cuh</code> 第 380–385 行</a>（节选）。</p>
+
+<p>BF16 输出走 STSM 写共享内存，FP32 输出走 <code>st.shared</code> 写 <code>float2</code>——和 FP8 的两个变体是同一套取舍。另外这个内核还藏了一个小优化：当启发式给出的 stage 数 ≥ 10、且是 NT 的普通 GEMM、且只有一个数学 warpgroup 时，它把若干个 stage 合并成一个更大的 BLOCK_K，注释说是为了摊薄 <code>warpgroup_wait&lt;0&gt;()</code> 的开销（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bf16_gemm.cuh#L45-L56"><code>sm90_bf16_gemm.cuh</code> 第 45–56 行</a>）。阈值 10 大概来自经验：stage 越多说明每 stage 的 SMEM 越小、BK 越窄，此时 WGMMA 的发射/等待开销占比上升；合并两三个 stage 成一个更宽的 BK 后，一次 WGMMA 处理更多 K 元素，等待点减半到三分之一，但 stage 数也相应减半——合并后仍保证至少 5 个 stage，确保流水线深度足以隐藏 TMA 延迟。</p>
+
+<p>SM100 的 BF16 内核是另一份代码（<code>sm100_bf16_gemm.cuh</code>），结构按第 2 篇讲的 tcgen05 路线：UMMA 指令、TMEM 累加器、可选的 swap-AB 尾声。它和 SM90 版本的接口差别只有一个——多一个 epilogue 类的模板参数，这是本篇最后一节的内容。两个架构的 host 包装都在 <code>bf16_gemm_nt</code> 里按 <code>arch_major</code> 分派（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/gemm.hpp#L525-L534"><code>gemm.hpp</code> 第 525–534 行</a>），SM90 那一支还要额外断言“alpha 和自定义 epilogue 需要 SM100”。</p>
+
+<h2 id="sec-bmm" data-short="两种批量">两种批量：第三个坐标，和被收缩的维度</h2>
+
+<p>“批量 GEMM”在 DeepGEMM 里指两件完全不同的事，分清它们比记住函数名重要。</p>
+
+<p><b>第一种：batch 是第三个坐标。</b><code>GemmType::Batched</code> 走的还是普通 GEMM 内核，只是 TMA 描述符从 2D 变成 3D，batch 下标由调度器的 <code>current_group_idx</code> 提供，每个 batch 独立算一个 \( [M,N] \) 输出。FP8 侧是 <code>sm90_fp8_bmm</code>（复用 1d2d 内核，<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm90_fp8_gemm_1d2d.hpp#L283-L352"><code>sm90_fp8_gemm_1d2d.hpp</code> 第 283–352 行</a>），BF16 侧是 <code>sm90_bf16_bhr_hdr_bhd</code> 这类 einsum 专用包装。它们的共同点是 batch 维不参与收缩。</p>
+
+<p><b>第二种：batch 是被收缩的维度。</b>表达式 <code>bmk,bnk->mn</code> 要算 \( D_{mn} = \sum_{s}\sum_{k} A_{smk} B_{snk} \)，batch 维 s 和 k 一样要被求和掉。于是 \( s \times K \) 个元素构成一条很长的收缩链，一个 CTA 算不完也不该独占，代码把它切成 split-K：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm90_bmk_bnk_mn.hpp#L32-L35"><code>const int num_sms = runtime-&gt;get_num_sms();
+const int num_mn_blocks = ceil_div(m, block_m) * ceil_div(n, block_n);
+const int num_sk_blocks = s * (k / block_k);
+const int split_factor = ceil_div(num_sk_blocks, std::max(num_sms / num_mn_blocks, 1));</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm90_bmk_bnk_mn.hpp#L32-L35"><code>sm90_bmk_bnk_mn.hpp</code> 第 32–35 行</a>。</p>
+
+<p>先算输出被切成多少个 MN 块，再看每个 MN 块能分到几个 SM，然后把 \( s \cdot K/\mathrm{BK} \) 个“切片块”均分给它们；grid 大小就是 MN 块数乘以 \( \lceil \text{切片块数} / \text{split\_factor} \rceil \)。代入一组测试里的形状（<code>tests/test_einsum.py</code> 用 \( s = 4096 \)、\( M = 128 \)、\( N = 384 \)、\( K = 128 \)）：block 是 128×128×64，MN 块数为 \( 1 \times 3 = 3 \)，切片块数为 \( 4096 \times 2 = 8192 \)；若设备有 132 个 SM，每个 MN 块分到 44 个 SM，于是 <code>split_factor</code> = ⌈8192/44⌉ = 187，grid = \( 3 \times \lceil 8192/187 \rceil = 3 \times 44 = 132 \)。这是按公式手算的，没有在 GPU 上验证。</p>
+
+<p>切片算完各自得到一份部分和，谁来合并？SM90 版本直接用 <code>atomicAdd</code> 把寄存器里的值加到全局内存的 FP32 输出上：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bmk_bnk_mn.cuh#L160-L174"><code>const auto row = m_block_idx * BLOCK_M + warp_idx * 16 + lane_idx / 4;
+const auto col = n_block_idx * BLOCK_N + (lane_idx % 4) * 2;
+for (uint32_t i = 0; i &lt; WGMMA::kNumAccum / 4; ++ i) {
+    if (col + i * 8 &gt;= SHAPE_N)
+        break;
+    if (row &lt; SHAPE_M) {
+        atomicAdd(reinterpret_cast&lt;float2*&gt;(d + (row + 0) * SHAPE_N + col + i * 8),
+                  make_float2(accum[i * 4 + 0], accum[i * 4 + 1]));
+    }
+    // ...
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_bmk_bnk_mn.cuh#L160-L174"><code>sm90_bmk_bnk_mn.cuh</code> 第 160–174 行</a>（节选）。</p>
+
+<p>SM100 版本做同一件事，但用的是 TMEM 加 <code>SM90_TMA_REDUCE_ADD_2D</code>：先把累加器从张量内存取回寄存器、经共享内存，再由 TMA 把整块加回去（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_bmk_bnk_mn.cuh#L243-L257"><code>sm100_bmk_bnk_mn.cuh</code> 第 243–257 行</a>）。两者都要求输出是 FP32，因为累加必须在 FP32 上做。<a href="#fig-splitk">图 2</a> 画出这个结构。</p>
+
+<figure id="fig-splitk" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-splitk-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 256" font-family="sans-serif" role="img" id="s2-root" style="max-width:520px;">
+  <defs>
+    <marker id="s2-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s2-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-label" x="16" y="22">s 个切片，每片各算一份 [M, N] 部分和</text>
+
+  
+  <rect class="d-box blue" x="16" y="36" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="46" y="59" text-anchor="middle">A[0]</text>
+  <rect class="d-box green" x="84" y="36" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="114" y="59" text-anchor="middle">B[0]</text>
+  <path class="d-arrow" d="M144 54 H186" marker-end="url(#s2-ah)"/>
+  <rect class="d-box" x="188" y="36" width="96" height="36" rx="3"/>
+  <text class="d-small" x="236" y="59" text-anchor="middle">部分和 [M, N]</text>
+
+  
+  <rect class="d-box blue" x="16" y="92" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="46" y="115" text-anchor="middle">A[1]</text>
+  <rect class="d-box green" x="84" y="92" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="114" y="115" text-anchor="middle">B[1]</text>
+  <path class="d-arrow" d="M144 110 H186" marker-end="url(#s2-ah)"/>
+  <rect class="d-box" x="188" y="92" width="96" height="36" rx="3"/>
+  <text class="d-small" x="236" y="115" text-anchor="middle">部分和 [M, N]</text>
+
+  
+  <text class="d-label" x="80" y="150" text-anchor="middle">⋯</text>
+  <rect class="d-box blue" x="16" y="160" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="46" y="183" text-anchor="middle">A[s-1]</text>
+  <rect class="d-box green" x="84" y="160" width="60" height="36" rx="3"/>
+  <text class="d-mono" x="114" y="183" text-anchor="middle">B[s-1]</text>
+  <path class="d-arrow" d="M144 178 H186" marker-end="url(#s2-ah)"/>
+  <rect class="d-box" x="188" y="160" width="96" height="36" rx="3"/>
+  <text class="d-small" x="236" y="183" text-anchor="middle">部分和 [M, N]</text>
+
+  
+  <path class="d-arrow accent" d="M284 54 H332 V96" marker-end="url(#s2-ah-acc)"/>
+  <path class="d-arrow accent" d="M284 110 H380" marker-end="url(#s2-ah-acc)"/>
+  <path class="d-arrow accent" d="M284 178 H332 V124" marker-end="url(#s2-ah-acc)"/>
+
+  <rect class="d-box accent" x="382" y="88" width="122" height="44" rx="4"/>
+  <text class="d-mono" x="443" y="108" text-anchor="middle">D [M, N]</text>
+  <text class="d-small" x="443" y="126" text-anchor="middle">全局内存 FP32</text>
+
+  <text class="d-label d-accent-text" x="428" y="152" text-anchor="middle">SM90：atomicAdd</text>
+  <text class="d-label d-accent-text" x="428" y="170" text-anchor="middle">SM100：TMA reduce-add</text>
+  <text class="d-label" x="236" y="222" text-anchor="middle">每个 CTA 领 split_factor 个切片</text>
+  <text class="d-label" x="236" y="240" text-anchor="middle">grid = MN 块数 × ⌈s·K/BK / split_factor⌉</text>
+</svg></div>
+  <figcaption id="fig-splitk-cap"><span class="fig-label">图 2</span><b><code>bmk,bnk-&gt;mn</code> 的 batch 维是被收缩掉的，所以它是一个 split-K 内核，不是批量 GEMM。</b>每个切片对 \( [M,N] \) 的每个元素都有贡献，所有部分和必须汇总到同一块 FP32 输出上：SM90 用 <code>atomicAdd</code>，SM100 用 TMA 的 reduce-add。图中只画了 3 个切片，实际有 s 个；一个 CTA 负责连续 <code>split_factor</code> 个切片块。示意图，不含实测数据。</figcaption>
+</figure>
+
+<p>这也解释了接口上的一个约束：这个表达式的输出若是 BF16，<code>bmk_bnk_mn</code> 会先申请一块 FP32 的 workspace、memset 清零、递归调用自己做累加，最后用 <code>d.copy_(workspace)</code> 隐式转成 BF16（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L25-L39"><code>einsum.hpp</code> 第 25–39 行</a>）。FP32 输出则必须把 C 指向 D 本身——因为内核是原子累加进去的，而不是写进去的。</p>
+
+<h2 id="sec-einsum" data-short="einsum">einsum 只认四条表达式，每条都是一次坐标重排</h2>
+
+<p>DeepGEMM 的 <code>einsum</code> 不解析表达式，它只是比较字符串：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L166-L178"><code>if (expr == "bmk,bnk-&gt;mn") {
+    bmk_bnk_mn(a, b, d, c);
+} else if (expr == "bhr,hdr-&gt;bhd") {
+    bhr_hdr_bhd(a, b, d, c, epilogue_class);
+} else if (expr == "bhd,hdr-&gt;bhr") {
+    bhd_hdr_bhr(a, b, d, c, epilogue_class);
+} else if (expr == "bhd,bhr-&gt;hdr") {
+    bhd_bhr_hdr(a, b, d, c);
+} else {
+    DG_HOST_UNREACHABLE(std::format("Unsupported einsum expression: {}", expr));
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L166-L178"><code>csrc/apis/einsum.hpp</code> 第 166–178 行</a>（节选，省略两行断言）。文件里标着 <code>// TODO: support any expression</code>。</p>
+
+<p>四条表达式里，后三条都是同一种形状：b 是 token 维、h 是头数、d 和 r 是两个特征维。它们对应 <a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">HyperConnection</a> 一类按头分组的小矩阵乘：<code>bhr,hdr->bhd</code> 是 MHA 的前向投影（每个头把 r 维特征映射到 d 维），<code>bhd,hdr->bhr</code> 是反向梯度，<code>bhd,bhr->hdr</code> 是对投影矩阵的权重梯度——b 是 token 被收缩掉的。FP8 版本 <code>fp8_einsum</code> 的实现就是把张量 permute 成 <code>fp8_bmm</code> 要的 <code>(batch, M, N, K)</code> 次序，再交给批量 GEMM——代码里每条都写了注释说明映射关系。<a href="#tab-einsum">表 1</a> 把四条表达式的去向列齐。</p>
+
+<figure id="tab-einsum" class="table">
+  <figcaption id="tab-einsum-cap"><span class="fig-label">表 1</span><b>四条表达式对应三种实现：一个 split-K 专用内核、批量 GEMM、以及只有 cuBLASLt 能算的那条。</b>“(batch, M, N, K)” 列是 <code>fp8_einsum</code> 注释里给出的坐标映射；“BF16 路径”里的 cuBLASLt 指默认路径（见下一节），自有内核在确定性模式下使用。依据：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L150-L298"><code>einsum.hpp</code> 第 150–298 行</a>。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>表达式</th><th class="nowrap">(batch, M, N, K)</th><th>BF16 路径</th><th>FP8 路径</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap"><code>bmk,bnk-&gt;mn</code></td><td>—（split-K）</td><td class="nowrap">专用内核</td><td>不支持</td></tr>
+      <tr><td class="nowrap"><code>bhr,hdr-&gt;bhd</code></td><td>(h, b, d, r)</td><td>cuBLASLt 或自有</td><td>SM90 与 SM100</td></tr>
+      <tr><td class="nowrap"><code>bhd,hdr-&gt;bhr</code></td><td>(h, b, r, d)</td><td>cuBLASLt 或自有</td><td>仅 SM100</td></tr>
+      <tr><td class="nowrap"><code>bhd,bhr-&gt;hdr</code></td><td>(h, d, r, b)</td><td>只有 cuBLASLt</td><td>仅 SM100</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>最后一条 <code>bhd,bhr->hdr</code> 值得注意：它的 batch 维 b 同样是被收缩的（这是一个 wgrad 形状），输出是 FP32 且必须带累加。BF16 版本没有自有内核，直接调 cuBLASLt，代码旁边留着 <code>// TODO: investigate cuBLAS determinism.</code>（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L146-L147"><code>einsum.hpp</code> 第 146–147 行</a>）——也就是说，开了确定性模式也挡不住这条路径走 cuBLAS，这一点在仓库里是个已知的待办。</p>
+
+<p><code>fp8_bmm</code> 还有一个接口细节：它的 D 可以是一个普通张量，也可以是一个 <code>(d, sfd)</code> 对——后者是“输出直接量化成 FP8”的简写，等价于传一个不裁剪的 <code>FP8CastWithClamp</code> epilogue。这要求 <code>d.stride(0) == n</code> 且 <code>n % 128 == 0</code>，因为所有 batch 的 scale 列被拼成一个二维视图，一个打包的 4-scale 字不能跨 batch 边界（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/einsum.hpp#L218-L227"><code>einsum.hpp</code> 第 218–227 行</a>）。</p>
+
+<h2 id="sec-cublas" data-short="cuBLASLt">cuBLASLt 不是失败路径，而是 BF16 的默认路径</h2>
+
+<p>“兜底”这个词容易让人误解。看 <code>bf16_gemm_nt</code> 的分派顺序：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/gemm.hpp#L518-L523"><code>// Dispatch into different implements; cuBLASLt only covers a plain store, optionally alpha-scaled
+if (not heuristics_runtime-&gt;get_deterministic_algorithms() and runtime-&gt;is_cublaslt_available()
+    and epilogue_alpha.has_value()) {
+    cublaslt_gemm(a, b, d, m, n, k, major_a, major_b, c.has_value(), epilogue_alpha.value());
+    return;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/gemm.hpp#L518-L523"><code>csrc/apis/gemm.hpp</code> 第 518–523 行</a>。</p>
+
+<p>cuBLASLt 在<b>前面</b>。普通的 BF16 矩阵乘，只要三个条件都成立就交给 cuBLASLt，自有内核反而是例外路径。三个条件各有含义：</p>
+
+<ul>
+  <li><code>get_deterministic_algorithms()</code>：用户调 <code>deep_gemm.use_deterministic_algorithms(True)</code> 时置位（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/runtime.hpp#L20-L26"><code>heuristics/runtime.hpp</code> 第 20–26 行</a>）。开了就不走 cuBLASLt——因为 cuBLAS 可能选 split-K 之类的归约方案，逐位结果不保证可复现。测试里正是用这个开关来回切换两条路径做对比。</li>
+  <li><code>is_cublaslt_available()</code>：它的定义是 <code>get_num_sms() == jit-&gt;device.get_num_sms()</code>（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/runtime/runtime.hpp#L89-L91"><code>runtime.hpp</code> 第 89–91 行</a>）。也就是说，只要用户用 <code>set_num_sms</code> 把可用 SM 数调小过（为了和通信内核抢资源时常这么做），cuBLASLt 就被判定为“不可用”——DeepGEMM 自己的内核能按 SM 数开 grid，cuBLASLt 的 <code>SM_COUNT_TARGET</code> 不被当作同等可靠的限制手段。</li>
+  <li><code>epilogue_alpha.has_value()</code>：epilogue 类的 <code>get_alpha()</code> 只在”这个 epilogue 就是一次普通写回、最多乘一个 alpha”时返回数值，其余情况返回 <code>nullopt</code>（见下一节）。FP8 量化输出、随机舍入这类 epilogue 因此自动排除 cuBLASLt。</li>
+</ul>
+
+<p><a href="#fig-dispatch">图 3</a> 把这条判定链画成流程图。注意默认状态下三问全否——确定性模式默认关、SM 数默认等于设备 SM 数、默认 epilogue 是 <code>Identity</code>——所以一次不带参数的 <code>bf16_gemm_nt</code> 调用走的确实是 cuBLASLt。</p>
+
+<figure id="fig-dispatch" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-dispatch-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 296" font-family="sans-serif" role="img" id="s3-root" style="max-width:496px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <rect class="d-box soft" x="16" y="12" width="232" height="32" rx="4"/>
+  <text class="d-mono" x="132" y="32" text-anchor="middle">bf16_gemm_nt(...)</text>
+
+  <path class="d-arrow" d="M132 44 V62" marker-end="url(#s3-ah)"/>
+
+  
+  <rect class="d-box" x="16" y="64" width="232" height="36" rx="4"/>
+  <text class="d-text" x="132" y="87" text-anchor="middle">开了确定性模式？</text>
+  <path class="d-arrow" d="M248 82 H294" marker-end="url(#s3-ah)"/>
+  <text class="d-label" x="271" y="76" text-anchor="middle">是</text>
+  <path class="d-arrow" d="M132 100 V118" marker-end="url(#s3-ah)"/>
+  <text class="d-label" x="142" y="114">否</text>
+
+  
+  <rect class="d-box" x="16" y="120" width="232" height="36" rx="4"/>
+  <text class="d-text" x="132" y="143" text-anchor="middle">SM 数被调小过？</text>
+  <path class="d-arrow" d="M248 138 H294" marker-end="url(#s3-ah)"/>
+  <text class="d-label" x="271" y="132" text-anchor="middle">是</text>
+  <path class="d-arrow" d="M132 156 V174" marker-end="url(#s3-ah)"/>
+  <text class="d-label" x="142" y="170">否</text>
+
+  
+  <rect class="d-box" x="16" y="176" width="232" height="36" rx="4"/>
+  <text class="d-text" x="132" y="199" text-anchor="middle">epilogue 不只是 alpha？</text>
+  <path class="d-arrow" d="M248 194 H294" marker-end="url(#s3-ah)"/>
+  <text class="d-label" x="271" y="188" text-anchor="middle">是</text>
+  <path class="d-arrow accent" d="M132 212 V238" marker-end="url(#s3-ah-acc)"/>
+  <text class="d-label" x="142" y="232">否</text>
+
+  <rect class="d-box accent" x="16" y="240" width="232" height="40" rx="4"/>
+  <text class="d-title" x="132" y="258" text-anchor="middle">cuBLASLt matmul</text>
+  <text class="d-label" x="132" y="274" text-anchor="middle">BF16 GEMM 的默认路径</text>
+
+  
+  <rect class="d-box green" x="296" y="64" width="184" height="148" rx="4"/>
+  <text class="d-title" x="388" y="92" text-anchor="middle">自己的内核</text>
+  <text class="d-mono" x="388" y="118" text-anchor="middle">sm90_bf16_gemm</text>
+  <text class="d-mono" x="388" y="138" text-anchor="middle">sm100_bf16_gemm</text>
+  <text class="d-small" x="388" y="166" text-anchor="middle">FP32 输出、带累加</text>
+  <text class="d-small" x="388" y="186" text-anchor="middle">任意 epilogue 类</text>
+</svg></div>
+  <figcaption id="fig-dispatch-cap"><span class="fig-label">图 3</span><b>三个条件全不成立时才走 cuBLASLt，但”全不成立”正是默认状态。</b>判定顺序自上而下，任一问题答”是”就转向右侧的自有内核（绿色）；三问全否才落到橙色的 cuBLASLt。示意图，不含实测数据。</figcaption>
+</figure>
+
+<p>封装层本身只有一个文件，二百多行。调用序列是教科书式的 cuBLASLt 用法：<code>cublasLtMatmulDescCreate</code> 建描述子，<code>SetAttribute</code> 设 <code>TRANSA</code>/<code>TRANSB</code>/<code>SCALE_TYPE</code>、把 <code>SM_COUNT_TARGET</code> 设成 DeepGEMM 的 SM 数、FP8 操作数时显式关掉 <code>FAST_ACCUM</code>；<code>cublasLtMatrixLayoutCreate</code> 建三个布局（批量时再设 <code>BATCH_COUNT</code> 与 <code>STRIDED_BATCH_OFFSET</code>）；<code>cublasLtMatmulPreferenceSetAttribute</code> 限制 workspace 大小、并用 <code>REDUCTION_SCHEME_MASK</code> 只允许 <code>NONE</code> 与 <code>COMPUTE_TYPE</code> 两种归约；<code>cublasLtMatmulAlgoGetHeuristic</code> 取<b>一个</b>算法并断言确实取到了；最后 <code>cublasLtMatmul</code>。</p>
+
+<p>最后这一步有个必须看懂的细节：cuBLASLt 用列主序，而 DeepGEMM 的 D 是行主序，于是两个操作数被<b>换了位置</b>——</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/smxx_cublaslt.hpp#L93-L105"><code>// Call: D = alpha * (A @ B) + beta * C
+const float beta = accumulate ? 1.0f : 0.0f;
+DG_CUBLASLT_CHECK(cublasLtMatmul(handle,                                // Light handle
+                                 desc,                                  // Operation description
+                                 &amp;alpha,                                // Alpha
+                                 b.data_ptr(), layout_a,                // A
+                                 a.data_ptr(), layout_b,                // B
+                                 &amp;beta,                                 // Beta
+                                 d.data_ptr(), layout_d,                // C
+                                 d.data_ptr(), layout_d,                // D
+                                 &amp;heuristic.algo,                       // Algorithm
+                                 workspace.data_ptr(), workspace_bytes, // Workspace
+                                 stream));                              // Stream</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/smxx_cublaslt.hpp#L93-L105"><code>smxx_cublaslt.hpp</code> 第 93–105 行</a>。</p>
+
+<p>传给 cuBLASLt 的 A 是 DeepGEMM 的 B、传给它的 B 是 DeepGEMM 的 A，布局也相应交换——按列主序解读这次乘法，算出来的正是所求行主序结果的转置，也就是所求的结果本身。C 和 D 传同一个指针，<code>beta</code> 为 1 即实现累加。</p>
+
+<aside class="sidenote">workspace 固定 16 MiB，注释给了理由：超过 16 MiB 时 cuBLAS 在某些形状（例如 m = 128、n = 7168、k = 16384）上会选到更差的启发式。handle 默认自己创建而不用 PyTorch 的，因为 <code>at::cuda::getCurrentCUDABlasLtHandle</code> 在某些 PyTorch 版本上 CPU 开销大（两处注释见 <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/runtime/runtime.hpp#L24-L51"><code>runtime.hpp</code> 第 24–51 行</a>）。</aside>
+<p>除了兜底，这个文件还提供了三样 DeepGEMM 自己没有内核的运算：<code>cublaslt_nvfp4_gemm</code>（NVFP4 配方，16 元素一组的 UE4M3 scale，通过 <code>A_SCALE_MODE</code>/<code>B_SCALE_POINTER</code> 传入），以及 <code>batched_syrk</code>（\( D = A A^\top \)）和 <code>batched_symm</code>（A 按约定对称），两者都被实现成普通的 strided-batched GEMM（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/gemm.hpp#L796-L833"><code>gemm.hpp</code> 第 796–833 行</a>）。</p>
+
+<h2 id="sec-epilogue" data-short="epilogue 类">epilogue 是一个模板参数，JIT 时才拼进内核</h2>
+
+<p>前面反复出现的 <code>epilogue_class</code> 是什么？它是 DeepGEMM 让用户替换“尾声那一步”的机制：GEMM 算完后，在把结果写出去之前，可以对累加值做一次变换。SM100 的每个 GEMM 都带且只带一个 epilogue 类——头注释写明“它们不组合”（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/epilogue_class.hpp#L18-L20"><code>epilogue_class.hpp</code> 第 18–20 行</a>）。</p>
+
+<p>host 侧的基类只有四个虚函数，每个都对应一件要交给 JIT 的东西：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/epilogue_class.hpp#L21-L41"><code>class EpilogueClass {
+    virtual std::string get_epilogue_operator_type() const = 0;
+    virtual EpilogueOperatorArgs make_epilogue_operator_args(const int&amp; m, const int&amp; n) const { return {}; }
+    virtual deep_jit::cuda::CompilerOptions compiler_options() const { return {}; }
+    // ...
+    virtual std::optional&lt;float&gt; get_alpha() const { return std::nullopt; }
+    virtual std::optional&lt;torch::Tensor&gt; output_sfd() const { return std::nullopt; }
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/epilogue_class.hpp#L21-L41"><code>epilogue_class.hpp</code> 第 21–41 行</a>（节选，省略 <code>public:</code>、析构函数与 <code>check()</code> 的函数体）。</p>
+
+<p>第一个函数返回一个<b>字符串</b>，内容是设备端类型的名字，例如 <code>"epilogue::operators::CastToFP8WithClamp"</code>。这个字符串被直接格式化进 JIT 要编译的那段源码里：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_bf16_gemm.hpp#L68-L75"><code>to_string(args.gemm_desc.cd_dtype),
+args.epilogue_class-&gt;get_epilogue_operator_type(),
+args.gemm_desc.tc_util), args.epilogue_class-&gt;compiler_options());
+
+// Launch
+jit-&gt;launch(
+    kernel, args.options,
+    args.grouped_layout, args.gemm_desc.m, args.gemm_desc.n, args.gemm_desc.k, args.epilogue_class-&gt;make_epilogue_operator_args(args.gemm_desc.m, args.gemm_desc.n),</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_bf16_gemm.hpp#L68-L75"><code>sm100_bf16_gemm.hpp</code> 第 68–75 行</a>（节选：<code>std::format</code> 的末尾几个实参与紧随其后的启动调用）。</p>
+
+<p>三样东西各走各的路：类型名作为模板实参进入 <code>__instantiate_kernel</code> 里那串 <code>sm100_bf16_gemm_impl&lt;...&gt;</code>；<code>compiler_options()</code> 作为编译选项传给 JIT；<code>make_epilogue_operator_args(m, n)</code> 返回的结构体作为普通内核实参传给 <code>launch</code>。<a href="#fig-epilogue">图 4</a> 把这条路径画出来。</p>
+
+<figure id="fig-epilogue" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-epilogue-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 276" font-family="sans-serif" role="img" id="s4-root" style="max-width:520px;">
+  <defs>
+    <marker id="s4-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s4-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <rect class="d-box soft" x="16" y="12" width="248" height="32" rx="4"/>
+  <text class="d-mono" x="140" y="32" text-anchor="middle">epilogue.FP8CastWithClamp(sfd)</text>
+  <text class="d-label" x="16" y="60">Python 侧传进来的对象</text>
+
+  <path class="d-arrow" d="M140 44 V74" marker-end="url(#s4-ah)"/>
+
+  
+  <rect class="d-box blue" x="16" y="76" width="248" height="104" rx="4"/>
+  <text class="d-title" x="140" y="96" text-anchor="middle">EpilogueClass（host）</text>
+  <text class="d-mono" x="28" y="120">get_epilogue_operator_type()</text>
+  <text class="d-mono" x="28" y="142">make_epilogue_operator_args()</text>
+  <text class="d-mono" x="28" y="164">compiler_options()</text>
+
+  
+  <path class="d-arrow accent" d="M264 116 H310" marker-end="url(#s4-ah-acc)"/>
+  <rect class="d-box accent" x="312" y="92" width="192" height="48" rx="4"/>
+  <text class="d-small" x="408" y="110" text-anchor="middle">模板参数</text>
+  <text class="d-mono" x="408" y="130" text-anchor="middle">CastToFP8WithClamp</text>
+
+  <path class="d-arrow" d="M264 142 H310" marker-end="url(#s4-ah)"/>
+  <rect class="d-box" x="312" y="146" width="192" height="26" rx="4"/>
+  <text class="d-small" x="408" y="164" text-anchor="middle">内核实参 sfd、clamp 值</text>
+
+  <path class="d-arrow" d="M264 164 H302 V182 H310" marker-end="url(#s4-ah)"/>
+  <rect class="d-box" x="312" y="178" width="192" height="26" rx="4"/>
+  <text class="d-small" x="408" y="196" text-anchor="middle">编译选项 arch = sm_100a</text>
+
+  
+  <path class="d-arrow" d="M408 204 V230" marker-end="url(#s4-ah)"/>
+  <rect class="d-box green" x="16" y="232" width="488" height="36" rx="4"/>
+  <text class="d-text" x="260" y="255" text-anchor="middle">DeepJIT 按拼好的源码串编译并缓存，再把实参交给 jit-&gt;launch</text>
+</svg></div>
+  <figcaption id="fig-epilogue-cap"><span class="fig-label">图 4</span><b>用户选的 epilogue 不是运行时分支，而是一个被拼进源码串的模板参数。</b>host 侧的 <code>EpilogueClass</code> 交出三样东西：设备端类型名（橙色，进模板实参）、内核实参、以及可能改变目标架构的编译选项；DeepJIT 按拼好的源码串编译并缓存，所以每种 epilogue 对应一份独立的内核二进制。设备端的同名结构体提供 <code>apply_values</code>、<code>cast_bf16</code> 等钩子，由尾声代码调用。示意图，不含实测数据。</figcaption>
+</figure>
+
+<p>仓库现在提供四个 epilogue 类（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/epilogue_class.hpp#L13-L31"><code>apis/epilogue_class.hpp</code> 第 13–31 行</a>），每个都能看出这套接口的设计意图：</p>
+
+<ul>
+  <li><code>Identity</code>：什么都不做，<code>get_alpha()</code> 返回 1.0——于是 cuBLASLt 可以接手。设备端它还兼任基类，提供默认的 BF16 转换钩子 <code>cast_bf16</code>。</li>
+  <li><code>Alpha</code>：把累加值乘上一个常数，设备端是 <code>ScaleByAlpha::apply_values</code>，用 <code>__fmul2_rn</code> 成对处理。注释说明了为什么不支持任意 beta：那需要另一条加载 C 的路径，不属于这个“只改值”的算子（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/operators.cuh#L36-L51"><code>operators.cuh</code> 第 36–51 行</a>）。</li>
+  <li><code>FP8CastWithClamp</code>：把输出量化成 E4M3 加 UE8M0 scale，可选裁剪，还能把被裁剪的元素个数异步写回一个标量张量。它的 <code>check()</code> 要求 D 必须是 <code>float8_e4m3fn</code>，<code>output_sfd()</code> 返回 SF 张量（空问题时用来清零）。注释特别说明：累加值先舍入成 BF16 再求 amax、算 scale、转 FP8，这样结果和“先出 BF16、再跑独立的 per-token cast 内核”逐位一致（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/operators.cuh#L112-L120"><code>operators.cuh</code> 第 112–120 行</a>）。</li>
+  <li><code>BF16StochasticRounding</code>：随机舍入到 BF16。设备端用 PTX 的 <code>cvt.rn.satfinite.rs.bf16.f32</code> 指令——<code>.rs</code> 后缀表示 stochastic rounding，硬件为每个元素独立生成随机位决定向上还是向下舍入（per-element，非 per-block）。它是 <code>compiler_options()</code> 唯一的用户——<code>cvt.rs</code> 指令要求具体架构（如 <code>sm_100a</code>）而不是族架构，于是这个类把编译目标改掉（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/epilogue_class.hpp#L122-L126"><code>epilogue_class.hpp</code> 第 122–126 行</a>）。</li>
+</ul>
+
+<p>最后，三种指定方式（epilogue 对象、裸 <code>alpha</code> 参数、FP8 的 <code>(d, sfd)</code> 输出对）是互斥的，由 <code>resolve_epilogue_class</code> 统一归一化：断言三者至多一个、没给就用 <code>Identity</code>、最后用 <code>check()</code> 核对 D 的类型（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/epilogue_class.hpp#L137-L153"><code>epilogue_class.hpp</code> 第 137–153 行</a>）。于是“alpha”和“输出 FP8”这两个看起来像普通参数的东西，在内部其实就是两个 epilogue 类。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>零性能数字。</b>本文不含任何实测或引用的性能数值。<code>tests/test_bf16.py</code> 和 <code>tests/test_einsum.py</code> 会打印 TFLOPS 与“相对 cuBLASLt 的倍数”，但那需要 GPU；本地无 GPU，不跑、也不猜。唯一的算术是 split-K 那段 <code>split_factor</code> 的手算，参数（132 个 SM）是假设值，不是实测。</li>
+  <li><b>cuBLASLt 内部不展开。</b>它选了哪个算法、<code>nvjet</code> 内核长什么样、<code>REDUCTION_SCHEME_MASK</code> 具体排除了哪些实现，都在闭源库里。本文只讲 DeepGEMM 调了哪些 API、传了什么属性。测试里按内核名 <code>nvjet</code> 抓时间这一点可以旁证它确实落到了 cuBLAS 的内核上，但我们没有验证过。</li>
+  <li><b>SM100 的两条路线只讲接口。</b><code>sm100_bf16_gemm.cuh</code> 与 <code>sm100_bmk_bnk_mn.cuh</code> 的 UMMA/TMEM 细节、swap-AB 尾声的布局，属于<a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">第 2 篇</a>；本文只对比了它们与 SM90 版本在接口和归约方式上的差别。</li>
+  <li><b>推断与事实。</b>“<code>is_cublaslt_available</code> 用 SM 数相等来判断，是因为不把 <code>SM_COUNT_TARGET</code> 当作同等可靠的限制手段”是我们的推测，仓库里只有那一行代码，没有注释说明理由。“MN-major 的 BF16 内核在 SM90 上可用”是从模板参数和 TMA 分支读出来的事实，但我们没有在 GPU 上跑过这些配置。</li>
+  <li><b>没讲的部分：</b><code>einsum</code> 的 FP8 版本如何与 HyperConnection 对接（<a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">第 9 篇</a>）、epilogue 在 SM100 尾声里具体被调用的位置（<code>epilogue/sm100_store_cd.cuh</code> 与 swap-AB 变体）、<code>EpilogueOperatorArgs</code> 的字段全集，以及 <code>FP8CastWithClamp</code> 里那套 CUDA graph 安全的计数器初始化（<code>clamp_count_ready</code> 用 grid id 做标记）。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg05-heuristics-jit/dg05-heuristics-jit.html">配置怎么选、内核何时编</a>
+  ｜ 下一篇：<a href="../dg07-mqa-logits/dg07-mqa-logits.html">Lightning Indexer 的打分内核</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
+<ol class="references">
+  <li id="ref-deepgemm">DeepSeek-AI (2026). <a href="https://github.com/deepseek-ai/DeepGEMM">DeepGEMM</a>. 源码仓库，本文引用提交 <code>5081f85</code>。</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均为永久链接，指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>；每段 <code>&lt;pre&gt;</code> 摘录逐字取自所链行号区间，省略处写作单独一行注释。本文不含任何 GPU 实测数据，也不引用任何性能数字。split-K 一节的 <code>split_factor</code> 手算使用的 SM 数（132）为假设值。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

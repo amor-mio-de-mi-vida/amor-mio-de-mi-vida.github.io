@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>冗余专家、Engram 与 PP：三种点对点搬运原语</title>
+<meta name="description" content="DeepEP V2.5 的三种点对点原语精读：lb_prefetch_weights / lb_reduce_grads 与副本表、独立的 LB 内存区，以及实验性的 Engram RDMA 取数和 PP 收发。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 8 篇</div>
+  <h1>冗余专家、Engram 与 PP：<br>三种点对点<span class="nobr">搬运原语</span></h1>
+  <p class="subtitle">EPBuffer 的 lb_* 接口按一张副本表在 NVLink 域内推权重、拉梯度；EngramBuffer 用 RDMA 读按下标从远端表里取行；PPBuffer 用有限的槽位在流水线相邻 rank 间收发张量——三者都绕开了 dispatch/combine 的全对全路径。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 20 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-lbmap">一张副本表决定冗余专家放在哪里</a><li><a href="#sec-prefetch">lb_prefetch_weights：所有者把权重推进对端的冗余槽</a><li><a href="#sec-reduce">lb_reduce_grads：同一张表，反方向拉回梯度并就地累加</a><li><a href="#sec-lbmem">冗余张量为什么必须住在单独的 LB 区</a><li><a href="#sec-engram">Engram（实验性）：按下标从远端表里读行</a><ol><li><a href="#sec-1">数据模型</a></li><li><a href="#sec-2">一次 fetch：一个内核发出全部读请求，每层一个等待钩子</a></li><li><a href="#sec-3">QP 数按 Little 定律估算</a></li></ol><li><a href="#sec-pp">PP 收发（实验性）：环上相邻 rank 之间的有界槽位队列</a><ol><li><a href="#sec-4">存储布局：四个区，每区若干槽</a></li><li><a href="#sec-5">发送与接收的四步</a></li></ol><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li><code>lb_prefetch_weights</code> 和 <code>lb_reduce_grads</code> 是 NVLink 域内的集合操作：每个 rank 从同一张副本表里挑出“自己的专家被复制到了哪里”，前者把权重推过去，后者把梯度拉回来就地累加。</li>
+    <li>副本表 <code>redundancy_mapping</code> 是 \([R_{\text{nvl}}, S]\) 的 int32 张量，−1 表示空槽，专家号按域内编号“所有者 × 本地专家数 + 本地序号”，rank 不能在自己的槽里放自己的专家。</li>
+    <li>冗余权重和梯度必须住在独立的 LB 区：它与 EP 通信区同属一个对称窗口，所以同一偏移就能换算出对端地址，而 EP 区的内容每次 dispatch/combine 都会被覆盖。</li>
+    <li>Engram（实验性）把按层分片的查找表放在各 rank 的 GPU 或 CPU 内存里，<code>fetch</code> 用一个内核发出所有层的 RDMA 读，然后每层给一个等待钩子。</li>
+    <li>PP（实验性）只在环上相邻的两个 rank 之间收发张量，靠固定数量的槽位和 arrival / release 两个计数器做流控。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a> 的 EPBuffer 与 LB 区域布局，以及 <a href="../ep05-comm-substrate/ep05-comm-substrate.html">ep05</a> 的对称内存窗口。本篇新引入：<code>redundancy_mapping</code> 副本表、Engram 远程取数、PP 流水线收发与流控。</p></aside>
+
+<p>前七篇讲的都是全对全：dispatch、combine 和 Bucket 集合通信，每个 rank 都要和很多 rank 交换数据。DeepEP V2.5 还带了三种形状完全不同的原语 <span class="cite">[<a href="#ref-deepep" title="DeepSeek-AI (2025). DeepEP: an efficient expert-parallel communication library. GitHub 仓库；本文引用提交 <code>f6aa38fe06cd4a0489e7730365d4e0114970a2f3</code>。">1</a>]</span>，它们的共同点是<b>点对点</b>：谁和谁通信、搬哪一块，在调用之前就已经由一张表或一组下标决定了。</p>
+
+<ul>
+  <li><b>冗余专家的权重与梯度交换</b>：<code>EPBuffer.lb_prefetch_weights</code> 与 <code>EPBuffer.lb_reduce_grads</code>，是 V2.5 新增的正式接口（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L15">README 第 15 行</a>）。</li>
+  <li><b>Engram 远程取数</b>：<code>EngramBuffer.fetch</code>，用 RDMA 读按下标从远端的表里取行。</li>
+  <li><b>流水线并行（pipeline parallelism，PP）收发</b>：<code>PPBuffer.send</code> / <code>recv</code>。</li>
+</ul>
+
+<p>README 明确把 Engram 和 PP 标为实验性功能（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L33-L41">README 第 33–41 行</a>），本文对它们的描述只代表当前提交的代码。<a href="#tab-compare">表 1</a> 先给出三者的横向对比，后面逐个展开。三者都建立在 NCCL Gin 设备端通信与对称内存窗口之上，这些底座的内部机制见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>，这里只用到两个概念：<b>对称窗口</b>是每个 rank 都以相同布局注册的一段内存，同一偏移在每个 rank 上指向“同一个逻辑位置”；<b>LSA</b>（load/store accessible）团队是能用普通加载/存储指令互相访问显存的 rank 集合，在本文的场景里就是一个 NVLink 域。</p>
+
+<figure id="tab-compare" class="table">
+  <figcaption id="tab-compare-cap"><span class="fig-label">表 1</span><b>三种原语在传输方式、参与者和同步方式上各不相同。</b>依据下文引用的源码整理；“正式 / 实验性”按 README 的标注。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>冗余专家交换</th><th>Engram 取数</th><th>PP 收发</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">所属类</td><td><code>EPBuffer</code></td><td><code>EngramBuffer</code></td><td><code>PPBuffer</code></td></tr>
+      <tr><td class="nowrap">传输</td><td>NVLink：TMA 写或读对端显存</td><td>RDMA 读；FP8 缩放因子走 NVLink</td><td>RDMA 写加远端信号</td></tr>
+      <tr><td class="nowrap">参与者</td><td>NVLink 域内全体 rank</td><td>读任意 rank 的分片</td><td>环上相邻两个 rank</td></tr>
+      <tr><td class="nowrap">执行流</td><td>通信流，返回事件</td><td>当前流，返回每层钩子</td><td>当前流，无返回值</td></tr>
+      <tr><td class="nowrap">状态</td><td>正式</td><td>实验性</td><td>实验性</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<h2 id="sec-lbmap" data-short="副本表">一张副本表决定冗余专家放在哪里</h2>
+
+<p>MoE 训练与推理里，少数“热”专家收到的 token 远多于平均，所在的 GPU 就成了整层的瓶颈。动态冗余专家的思路是把热专家的权重临时复制到别的 GPU 上，让一部分 token 改去副本那里计算。README 提到两个探索这一方向的工作：MoonEP 研究带动态冗余专家、权重预取和梯度归约的在线规划 <span class="cite">[<a href="#ref-moonep" title="MoonshotAI. MoonEP. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。">2</a>]</span>；UltraEP 根据门控之后的当前负载规划复制与 token 重路由，并把专家复制限制在 NVLink 域内 <span class="cite">[<a href="#ref-ultraep" title="Dots-Infra. UltraEP. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。">3</a>, <a href="#ref-ultraeppaper" title="UltraEP 论文，arXiv:2606.04101。链接取自 DeepEP README 第 332 行；作者与标题未经本文核实。">4</a>]</span>。README 说 <code>EPBuffer</code> 暴露的这两个原语就是受它们启发（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L330-L332">README 第 330–332 行</a>）。</p>
+
+<p>分工很清楚：<b>规划在库外</b>。使用者自己决定哪个专家复制到哪里、把 token 改路由到选定的副本、管理专家 GEMM；DeepEP 只负责按计划把字节搬到位（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L337">README 第 337 行</a>）。计划的载体就是 <code>redundancy_mapping</code>，规则如下（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L341-L343">README 第 341–343 行</a>，<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L866-L874"><code>ep.py</code> 第 866–874 行</a>）：</p>
+
+<ul>
+  <li>形状 \([R_{\text{nvl}}, S]\)，\(R_{\text{nvl}}\) 是 NVLink 域内的 rank 数，\(S\) 是每个 rank 的冗余槽数；连续的 CUDA int32 张量，域内每个 rank 上内容完全相同。</li>
+  <li>第 \(r\) 行第 \(c\) 列表示“域内第 \(r\) 号 rank 的第 \(c\) 个冗余槽放哪个专家”，−1 表示空槽，空槽被跳过。</li>
+  <li>专家号是<b>域内编号</b>：所有者在域内的 rank 号 × 本地专家数 + 本地序号，取值在 \([0, R_{\text{nvl}}E_\ell)\)。多机 EP 时每个 NVLink 域各有一张表，全局专家号要由使用者换算。</li>
+  <li>副本只能放到别的 rank 上：一个 rank 的本地专家不能出现在它自己的冗余槽里。域内所有 rank 的本地专家数必须相同。</li>
+</ul>
+
+<p><a href="#fig-lbmap">图 1</a> 是一个 4 卡、每卡 2 个本地专家、2 个冗余槽的例子。热专家 e5 属于 rank 2，表里它出现了两次（rank 0 的槽 0、rank 3 的槽 0），于是有两份副本；rank 0 的槽 1 是 −1。</p>
+
+<figure id="fig-lbmap" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-lbmap-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 32 560 304" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  <defs>
+    <marker id="s1-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="76" y="52" text-anchor="middle">rank 0</text>
+  <text class="d-title" x="208" y="52" text-anchor="middle">rank 1</text>
+  <text class="d-title" x="340" y="52" text-anchor="middle">rank 2</text>
+  <text class="d-title" x="472" y="52" text-anchor="middle">rank 3</text>
+
+  <text class="d-label" x="16" y="70">本地专家（原始权重，普通显存）</text>
+  
+  <rect class="d-box" x="20" y="78" width="52" height="28" rx="3"/><text class="d-text" x="46" y="97" text-anchor="middle">e0</text>
+  <rect class="d-box" x="80" y="78" width="52" height="28" rx="3"/><text class="d-text" x="106" y="97" text-anchor="middle">e1</text>
+  <rect class="d-box" x="152" y="78" width="52" height="28" rx="3"/><text class="d-text" x="178" y="97" text-anchor="middle">e2</text>
+  <rect class="d-box" x="212" y="78" width="52" height="28" rx="3"/><text class="d-text" x="238" y="97" text-anchor="middle">e3</text>
+  <rect class="d-box" x="284" y="78" width="52" height="28" rx="3"/><text class="d-text" x="310" y="97" text-anchor="middle">e4</text>
+  <rect class="d-box accent" x="344" y="78" width="52" height="28" rx="3"/><text class="d-text" x="370" y="97" text-anchor="middle">e5</text>
+  <rect class="d-box" x="416" y="78" width="52" height="28" rx="3"/><text class="d-text" x="442" y="97" text-anchor="middle">e6</text>
+  <rect class="d-box" x="476" y="78" width="52" height="28" rx="3"/><text class="d-text" x="502" y="97" text-anchor="middle">e7</text>
+
+  
+  <path class="d-arrow accent" d="M370 106 V122 H46 V146" marker-end="url(#s1-ah-acc)"/>
+  <path class="d-arrow accent" d="M370 122 H442 V146" marker-end="url(#s1-ah-acc)"/>
+
+  <text class="d-label" x="16" y="140">冗余槽（LB 区）</text>
+  
+  <rect class="d-box orange" x="20" y="148" width="52" height="28" rx="3"/><text class="d-text" x="46" y="167" text-anchor="middle">e5</text>
+  <rect class="d-box soft" x="80" y="148" width="52" height="28" rx="3"/><text class="d-label" x="106" y="167" text-anchor="middle">空</text>
+  <rect class="d-box orange" x="152" y="148" width="52" height="28" rx="3"/><text class="d-text" x="178" y="167" text-anchor="middle">e0</text>
+  <rect class="d-box orange" x="212" y="148" width="52" height="28" rx="3"/><text class="d-text" x="238" y="167" text-anchor="middle">e6</text>
+  <rect class="d-box orange" x="284" y="148" width="52" height="28" rx="3"/><text class="d-text" x="310" y="167" text-anchor="middle">e1</text>
+  <rect class="d-box orange" x="344" y="148" width="52" height="28" rx="3"/><text class="d-text" x="370" y="167" text-anchor="middle">e3</text>
+  <rect class="d-box orange" x="416" y="148" width="52" height="28" rx="3"/><text class="d-text" x="442" y="167" text-anchor="middle">e5</text>
+  <rect class="d-box orange" x="476" y="148" width="52" height="28" rx="3"/><text class="d-text" x="502" y="167" text-anchor="middle">e2</text>
+
+  
+  <text class="d-title" x="16" y="212">redundancy_mapping</text>
+  <text class="d-mono" x="168" y="212">[4, 2] int32</text>
+  <text class="d-label" x="96" y="234" text-anchor="middle">槽 0</text>
+  <text class="d-label" x="144" y="234" text-anchor="middle">槽 1</text>
+  <text class="d-label" x="60" y="257" text-anchor="end">r0</text>
+  <text class="d-label" x="60" y="281" text-anchor="end">r1</text>
+  <text class="d-label" x="60" y="305" text-anchor="end">r2</text>
+  <text class="d-label" x="60" y="329" text-anchor="end">r3</text>
+
+  <rect class="d-cell" x="72" y="240" width="48" height="24" fill="#fcefe6"/><text class="d-mono" x="96" y="257" text-anchor="middle">5</text>
+  <rect class="d-cell" x="120" y="240" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="144" y="257" text-anchor="middle">-1</text>
+  <rect class="d-cell" x="72" y="264" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="96" y="281" text-anchor="middle">0</text>
+  <rect class="d-cell" x="120" y="264" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="144" y="281" text-anchor="middle">6</text>
+  <rect class="d-cell" x="72" y="288" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="96" y="305" text-anchor="middle">1</text>
+  <rect class="d-cell" x="120" y="288" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="144" y="305" text-anchor="middle">3</text>
+  <rect class="d-cell" x="72" y="312" width="48" height="24" fill="#fcefe6"/><text class="d-mono" x="96" y="329" text-anchor="middle">5</text>
+  <rect class="d-cell" x="120" y="312" width="48" height="24" fill="#f2f2f0"/><text class="d-mono" x="144" y="329" text-anchor="middle">2</text>
+
+  
+  <text class="d-title" x="232" y="234">rank 2 自己挑出的任务</text>
+  <text class="d-label" x="232" y="257">条件：专家号 ÷ 本地专家数 = 2</text>
+  <text class="d-mono d-accent-text" x="232" y="281">本地 1 → r0 槽 0</text>
+  <text class="d-mono d-accent-text" x="232" y="305">本地 1 → r3 槽 0</text>
+  <text class="d-label" x="232" y="329">prefetch 按任务推权重，reduce 按任务拉梯度</text>
+</svg></div>
+  <figcaption id="fig-lbmap-cap"><span class="fig-label">图 1</span><b>每个 rank 只认领表里“所有者是自己”的那几项，作为本 rank 的搬运任务。</b>上：4 个 rank 的本地专家（白）与冗余槽（黄，位于 LB 区），橙色箭头是 e5 的两次推送。下左：对应的 <code>redundancy_mapping</code>；下右：rank 2 从中挑出的两条任务。示意图，专家布局为虚构。</figcaption>
+</figure>
+
+<p>内核开头，每个 rank 用一次块内前缀和把整张表扫一遍，把“所有者是自己”的条目压缩成任务列表，每条任务记下本地专家序号、目标 rank 和目标槽号：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L39-L54"><code>// Compact local expert exchanges in mapping order
+int num_found_tasks = 0;
+for (int base = 0; base &lt; kNumRanks * kNumRedundantExperts; base += kNumThreads) {
+    const int i = base + thread_idx;
+    const int expert_idx = i &lt; kNumRanks * kNumRedundantExperts ? redundancy_mapping[i] : -1;
+    const int is_local = expert_idx &gt;= 0 and expert_idx / kNumLocalExperts == rank_idx;
+    // ...
+    if (is_local) {
+        // ...
+        tasks[task_idx] = {
+            .local_expert_idx = expert_idx % kNumLocalExperts,
+            .dst_nvl_rank_idx = i / kNumRedundantExperts,
+            .redundant_expert_idx = i % kNumRedundantExperts
+        };</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L39-L54"><code>layout/ep/eplb.cuh</code> 第 39–54 行</a>（节选）</p>
+
+<p>这段代码说明了副本表各项规则的来由：所有者由“专家号 ÷ 本地专家数”算出，所以专家号必须是域内编号、各 rank 的本地专家数必须相同；表必须在各 rank 上完全相同，否则不同 rank 会挑出互相矛盾的任务；−1 不满足 <code>expert_idx &gt;= 0</code>，自然被跳过。任务列表放在 32 KiB 的共享内存里，每条 12 字节，上限约 2700 条（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L21-L23"><code>eplb.cuh</code> 第 21–23 行</a>）。</p>
+
+<p>虽然构建算法在库外，但可以从代码约束推出它必须回答的三个问题。第一，<b>选哪些专家复制</b>：根据 gate 网络输出的 token-to-expert 分配，统计每个专家在当前批次（或近几个批次的滑动窗口）收到的 token 数，选出负载超过均值的热专家。第二，<b>副本放在哪个 rank 上</b>：约束是 rank 不能持有自己的副本（第 46 行），所以必须是别的 rank；贪心策略是每次把最热专家的副本放到剩余容量最多的 rank 上，直到 S 个槽用完或负载均衡达标。第三，<b>token 怎么重路由</b>：复制之后，gate 网络原本指向热专家所有者的 token 中，有一部分要改成指向副本——Mega Gate 的 <code>to_physical_map</code>（<a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">第 9 篇</a>）和散列分散公式正是为此设计的。UltraEP <span class="cite">[<a href="#ref-ultraep" title="Dots-Infra. UltraEP. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。">3</a>, <a href="#ref-ultraeppaper" title="UltraEP 论文，arXiv:2606.04101。链接取自 DeepEP README 第 332 行；作者与标题未经本文核实。">4</a>]</span> 把这三步做成一个在线规划器，在门控后、dispatch 前的间隙内运行，约束条件包括：S 个槽的硬上限、NVLink 域内通信的带宽预算、以及"不值得为只减少几个 token 的专家开一次 prefetch"的成本阈值。MoonEP <span class="cite">[<a href="#ref-moonep" title="MoonshotAI. MoonEP. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。">2</a>]</span> 的思路类似但增加了跨微批的权重预取调度。DeepEP 本身不涉及这些，它只保证：给定一张合法的 <code>redundancy_mapping</code>，prefetch 和 reduce_grads 能正确搬运。</p>
+
+<p>测试脚本构造副本表的方式也印证了规则：从“除自己以外”的专家里随机抽，再把落在自己区间的编号整体后移一段；生成后断言“一个 rank 绝不持有自己本地专家的副本”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_prefetch_weights.py#L62-L96"><code>test_prefetch_weights.py</code> 第 62–96 行</a>）。另外两个测试都断言 RDMA 域大小为 1，即只在单个 NVLink 域内运行（同文件第 117 行）。</p>
+
+<h2 id="sec-prefetch" data-short="推权重">lb_prefetch_weights：所有者把权重推进对端的冗余槽</h2>
+
+<p>前向专家计算开始之前，每个 rank 调用 <code>lb_prefetch_weights(redundant_expert_weights, expert_weights, redundancy_mapping)</code>。<code>expert_weights</code> 是本 rank 的 \([E_\ell, \ldots]\) 原始权重，可以是普通的 CUDA 分配；<code>redundant_expert_weights</code> 是 \([S, \ldots]\) 的目标，必须位于 LB 区。两者都可以是张量序列（最多 16 对，<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L69">eplb.cuh 第 69 行</a>），这样 FP8 权重和它的缩放因子可以一次搬完，不做任何类型转换。每对张量的尾部形状可以不同，只要“每个专家的字节数”相同且是 32 字节的倍数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L343">README 第 343 行</a>）。</p>
+
+<aside class="sidenote">文档与代码的一处差异：README 和 docstring 要求每专家字节数是 <code>get_num_tma_alignment()</code>（32 字节）的倍数；<code>ep.hpp</code> 里 prefetch 的主机端断言检查的是 16 的倍数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L1014-L1018">第 1014–1018 行</a>），而梯度归约检查的是 32（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/reduce_grads.hpp#L41-L42"><code>reduce_grads.hpp</code> 第 41–42 行</a>）。按 README 满足 32 字节最稳妥。</aside>
+<p>内核（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/prefetch_weights.cuh#L49-L92"><code>prefetch_weights.cuh</code> 第 49–92 行</a>）分四步：建任务列表；全域入口屏障；搬运；全域完成屏障。搬运按 12 KiB 的块进行（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/prefetch_weights.hpp#L29-L35"><code>prefetch_weights.hpp</code> 第 29–35 行</a>），每个 warp 独占一块共享内存，用全局原子计数器领取下一块，领取顺序是“张量 → 块 → 任务”。领到之后，源地址与目的地址这样算：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L127-L135"><code>// Locate task and resolve pointers
+const auto&amp; [redundant_expert_weights, expert_weights, num_bytes_per_expert] = weights[weight_idx];
+const auto&amp; [local_expert_idx, dst_nvl_rank_idx, redundant_expert_idx] = smem_layout.tasks[chunk_idx % num_tasks];
+const int64_t chunk_offset = static_cast&lt;int64_t&gt;(chunk_idx / num_tasks) * kNumBytesPerChunk;
+num_chunk_bytes = static_cast&lt;int&gt;(min(static_cast&lt;int64_t&gt;(kNumBytesPerChunk), num_bytes_per_expert - chunk_offset));
+src_ptr = math::advance_ptr(expert_weights, local_expert_idx * num_bytes_per_expert + chunk_offset);
+dst_ptr = gin.get_sym_ptr&lt;ncclTeamTagLsa&gt;(math::advance_ptr(redundant_expert_weights,
+    redundant_expert_idx * num_bytes_per_expert + chunk_offset), dst_nvl_rank_idx);
+return true;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/eplb.cuh#L127-L135"><code>layout/ep/eplb.cuh</code> 第 127–135 行</a></p>
+
+<p>源地址是本地普通显存里的原始权重；目的地址是把<b>本 rank 自己的</b> <code>redundant_expert_weights</code> 指针加上槽偏移，再经 <code>get_sym_ptr</code> 换算成目标 rank 上对应位置的地址。这个换算之所以成立，前提是各 rank 的冗余张量在对称窗口里的偏移完全相同——下一节会回到这一点。数据通路是“TMA 从本地显存载入共享内存，再用 TMA 存储写到对端显存”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/prefetch_weights.cuh#L71-L86"><code>prefetch_weights.cuh</code> 第 71–86 行</a>）。块号按任务数取模，相邻的块分给不同的任务，因此同一时刻多个 warp 在向不同的对端写；我们推测这样安排是为了让多条 NVLink 同时忙起来。</p>
+
+<p>两道屏障决定了使用约束。入口屏障保证所有 rank 都已到达（对端的 LB 区可写、上一轮的读者已经读完），完成屏障保证所有推送对接收方可见；docstring 说“融合的屏障使冗余权重在返回的事件被等待时对使用者可见”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L860-L864"><code>ep.py</code> 第 860–864 行</a>）。屏障跨整个 NVLink 域，所以<b>域内每个 rank 都必须调用</b>，包括没有分到任何冗余槽、也没有专家被复制的 rank，否则其他 rank 会在屏障上超时。</p>
+
+<p>调用本身是异步的：内核排在通信流上，先等 <code>previous_event</code>（默认等当前计算流），返回一个 <code>EventOverlap</code>，使用权重前调用 <code>.wait()</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L1027-L1040"><code>ep.hpp</code> 第 1027–1040 行</a>）。<code>num_sms=0</code> 时用一个简单的带宽估算：取 NVLink 带宽分别除以单 SM 的读、写带宽，取较大者向上取偶数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L845-L852"><code>ep.py</code> 第 845–852 行</a>），注释说这个预算与副本表无关，环形流量或 rank 偏斜可能在用满这些 SM 之前就先撞上链路瓶颈。估算用到的带宽常数见<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>。</p>
+
+<h2 id="sec-reduce" data-short="拉梯度">lb_reduce_grads：同一张表，反方向拉回梯度并就地累加</h2>
+
+<p>反向时，副本上算出的梯度要加回原专家。<code>lb_reduce_grads(redundant_expert_grads, expert_grads, redundancy_mapping)</code> 是 prefetch 的镜像：同一张表、同一种任务列表，但数据方向反过来。它的输入限制更严：两个张量都必须是二维 FP32，<code>redundant_expert_grads</code> 为 \([S, D]\) 且位于 LB 区，<code>expert_grads</code> 为 \([E_\ell, D]\)，每个专家的全部参数梯度要压平成一行（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L1049-L1066"><code>ep.hpp</code> 第 1049–1066 行</a>）。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/reduce_grads.cuh#L74-L85"><code>while (iterator.next()) {
+    // Load redundant gradients
+    ptx::mbarrier_arrive_and_set_tx(mbarrier, iterator.num_chunk_bytes);
+    ptx::tma_load_1d(tma_buffer, iterator.dst_ptr, mbarrier, iterator.num_chunk_bytes,
+                     /* TODO: why this is faster? */ ptx::L2CacheHint::kEvictNormal);
+    ptx::mbarrier_wait_and_flip_phase(mbarrier, phase);
+
+    // Accumulate and release the shared buffer
+    ptx::tma_store_reduce_add_f32(static_cast&lt;float*&gt;(iterator.src_ptr), tma_buffer, iterator.num_chunk_bytes);
+    ptx::tma_store_commit();
+    ptx::tma_store_wait_read&lt;0&gt;();
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/reduce_grads.cuh#L74-L85"><code>impls/ep/reduce_grads.cuh</code> 第 74–85 行</a></p>
+
+<p>迭代器与 prefetch 完全相同，只是读写对调：从 <code>dst_ptr</code>（对端冗余槽里的梯度）载入，再用 TMA 的归约存储把它<b>加到</b> <code>src_ptr</code>（本地 <code>expert_grads</code>）上。块大小是 24 KiB（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/reduce_grads.hpp#L30-L32"><code>reduce_grads.hpp</code> 第 30–32 行</a>）。于是每个 rank 只写自己的显存，而远端访问全部是读。这与 prefetch 的“只写远端”形成对照，两者共用同一个任务列表：任务永远由<b>所有者</b>执行。我们的理解是，这样安排让累加发生在本地，免去了跨 NVLink 的原子操作；代码和文档没有直接说明动机。</p>
+
+<p>由此得出 README 列出的几条使用规则（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L335">README 第 335 行</a>、<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L380">第 380 行</a>）：</p>
+
+<ul>
+  <li><b>先播种再归约。</b>它是加法而不是覆盖，调用前要让 <code>expert_grads</code> 装着本地的梯度贡献，或者清零。</li>
+  <li><b>冗余梯度不会被清空。</b>归约只读它们，下一次累积前要使用者自己覆盖或清零。测试专门检查了冗余梯度池在归约后保持不变（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_reduce_grads.py#L198-L204"><code>test_reduce_grads.py</code> 第 198–204 行</a>）。</li>
+  <li><b>用前向的同一张表。</b>表不同，梯度就会加到错误的专家上。</li>
+  <li><b>累加顺序不固定。</b>同一个专家有多个副本时，几个 warp 可能同时向同一块本地梯度做归约。测试注释写道，这里用的 <code>cp.reduce.async.bulk</code> 是逐元素的原子加，多个副本到达的先后不固定，所以测试特意用 FP32 能精确表示的小整数造数据，以便用 <code>torch.equal</code> 比较（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_reduce_grads.py#L23-L40">第 23–40 行</a>）。换成真实梯度，结果可能在末位上逐次不同。</li>
+</ul>
+
+<p>README 还提醒了一个容易忽略的时序问题：如果冗余槽在多个层或多个微批之间复用，<b>反向计算之前要把需要的权重重新推一遍</b>——专家的反向要用权重计算输入梯度，而槽里此时可能已经是别的层的专家；同理，在复用梯度槽之前要先完成归约（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L380">README 第 380 行</a>）。</p>
+
+<h2 id="sec-lbmem" data-short="LB 区">冗余张量为什么必须住在单独的 LB 区</h2>
+
+<p>构造 <code>EPBuffer</code> 时用 <code>lb_allocation_plan_or_num_bytes</code> 预留 LB 区，参数可以是一个 <code>BufferAllocator</code> 计划，也可以是对齐到 2 MiB 的字节数；0 表示不要 LB 区（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L273-L276"><code>ep.py</code> 第 273–276 行</a>）。在 C++ 侧，LB 区紧接在 EP 通信区之后，和它一起作为同一块缓冲区交给通信上下文注册，然后只把后半段暴露给 Python：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L82-L86"><code>// Expose only the LB region; the preceding bytes remain reserved for EP communication.
+lb_storage = torch::from_blob(
+    context-&gt;buffer, {num_buffer_bytes + num_lb_buffer_bytes}, [context = context](void*) {},
+    torch::TensorOptions().dtype(torch::kByte).device(torch::kCUDA)
+).narrow(0, num_buffer_bytes, num_lb_buffer_bytes);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L82-L86"><code>csrc/buffers/ep.hpp</code> 第 82–86 行</a>；上下文以 <code>num_buffer_bytes + num_lb_buffer_bytes</code> 为缓冲区大小创建，见<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L73-L77">第 73–77 行</a></p>
+
+<p><a href="#fig-lbmem">图 2</a> 画出了结果：每个 rank 的对称窗口依次是工作区、EP 通信区、LB 区，各 rank 布局相同。<code>BufferAllocator</code> 在构造之前只记录偏移：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/allocator.py#L22-L26"><code>tensor = torch.empty(shape, dtype=dtype, device='meta')
+offset = align(self.num_bytes, self.alignment)
+self.allocations.append((tensor, offset))
+self.num_bytes = align(offset + tensor.nbytes, self.alignment)
+return tensor</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/allocator.py#L22-L26"><code>deep_ep/buffers/allocator.py</code> 第 22–26 行</a></p>
+
+<p>buffer 建好后，<code>materialize</code> 把这些 meta 占位张量原地换成指向 <code>lb_storage</code> 相应偏移的视图（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/allocator.py#L28-L36">第 28–36 行</a>，<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L348-L350"><code>ep.py</code> 第 348–350 行</a>）。对齐常数就是 2 MiB 的分配对齐，所以<b>每个</b>计划中的张量都会被补齐到 2 MiB 的整数倍。</p>
+
+<figure id="fig-lbmem" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-lbmem-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 30 560 186" font-family="sans-serif" role="img" id="s2-root" style="max-width:560px;">
+  <defs>
+    <marker id="s2-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-label" x="80" y="46">对称窗口：每个 rank 的布局与偏移完全相同</text>
+
+  
+  <text class="d-title" x="16" y="79">rank 0</text>
+  <rect class="d-box soft" x="80" y="56" width="56" height="36"/>
+  <text class="d-small" x="108" y="79" text-anchor="middle">工作区</text>
+  <rect class="d-box blue" x="136" y="56" width="200" height="36"/>
+  <text class="d-text" x="236" y="79" text-anchor="middle">EP 通信区 num_bytes</text>
+  <rect class="d-box orange" x="336" y="56" width="96" height="36"/>
+  <text class="d-small" x="384" y="79" text-anchor="middle">冗余权重</text>
+  <rect class="d-box orange" x="432" y="56" width="96" height="36"/>
+  <text class="d-small" x="480" y="79" text-anchor="middle">冗余梯度</text>
+
+  
+  <rect class="d-box" x="80" y="108" width="248" height="28" rx="3"/>
+  <text class="d-small" x="204" y="127" text-anchor="middle">rank 0 的 expert_weights（普通显存）</text>
+  <path class="d-arrow accent" d="M328 122 H384 V152" marker-end="url(#s2-ah-acc)"/>
+  <text class="d-label d-accent-text" x="394" y="130">写到对端同一偏移</text>
+
+  
+  <text class="d-title" x="16" y="177">rank 1</text>
+  <rect class="d-box soft" x="80" y="154" width="56" height="36"/>
+  <text class="d-small" x="108" y="177" text-anchor="middle">工作区</text>
+  <rect class="d-box blue" x="136" y="154" width="200" height="36"/>
+  <text class="d-text" x="236" y="177" text-anchor="middle">EP 通信区 num_bytes</text>
+  <rect class="d-box orange" x="336" y="154" width="96" height="36"/>
+  <text class="d-small" x="384" y="177" text-anchor="middle">冗余权重</text>
+  <rect class="d-box orange" x="432" y="154" width="96" height="36"/>
+  <text class="d-small" x="480" y="177" text-anchor="middle">冗余梯度</text>
+
+  <text class="d-label" x="528" y="208" text-anchor="end">LB 区 = lb_storage（按计划的偏移，2 MiB 对齐）</text>
+</svg></div>
+  <figcaption id="fig-lbmem-cap"><span class="fig-label">图 2</span><b>LB 区和 EP 通信区在同一个对称窗口里，但互不重叠。</b>每个 rank 的窗口布局相同：工作区（灰）、每次 dispatch/combine 都会改写的 EP 通信区（蓝）、由使用者计划的 LB 区（黄）。rank 0 的原始权重在普通显存里；prefetch 把它写到 rank 1 的 LB 区里“与 rank 0 自己的冗余张量相同偏移”的位置。示意图，比例不代表实际大小。</figcaption>
+</figure>
+
+<p>现在可以回答“为什么要单独一块区域”了。理由有三层，前两层可以直接从代码读出，第三层是推断：</p>
+
+<ol>
+  <li><b>必须在对称窗口里。</b>prefetch 和 reduce 都靠 <code>get_sym_ptr</code> 把本地地址换算成对端地址，只有注册进窗口的内存才能这样寻址；原始权重和梯度只在本地访问，所以可以是普通分配（README 第 339 行）。</li>
+  <li><b>各 rank 偏移必须相同。</b>换算的前提是“我的冗余张量在窗口里的偏移，等于对端冗余张量的偏移”。因此 README 要求计划在 NVLink 域内每个 rank 上形状和分配顺序都相同（第 339 行，docstring 第 273–276 行）。</li>
+  <li><b>不能和 EP 通信区共用。</b>EP 通信区是 dispatch 和 combine 的收发缓冲，每次调用都会覆盖（<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">第 2 篇</a>）；而冗余权重从 prefetch 完成一直要活到对应的专家前向与反向结束，中间必然穿插着同一层甚至别的层的 dispatch/combine。放在一起就会被冲掉。代码注释只说“前面的字节保留给 EP 通信”，这一层动机是我们的推断。</li>
+</ol>
+
+<p>测试把这一点推到极端：只为 LB 原语建 buffer 时，EP 通信区只给了最小的 2 MiB（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_prefetch_weights.py#L134-L139"><code>test_prefetch_weights.py</code> 第 134–139 行</a>），说明两块区域的大小彼此独立。测试结束时还特意先删掉指向 LB 区的视图再销毁 buffer，注释说“冗余专家权重池是 buffer 里的视图，所以先释放它们”（同文件第 224–226 行）。<a href="#tab-sizes">表 2</a> 第一部分给出两个 LB 区的算例。</p>
+
+<figure id="tab-sizes" class="table" data-source="computed" data-script="plots/sizes.py">
+  <figcaption id="tab-sizes-cap"><span class="fig-label">表 2</span><b>每个计划张量都按 2 MiB 补齐，小张量的 LB 区会比实际字节数大得多。</b>由 <code>plots/sizes.py</code> 按 <code>allocator.py</code>、<code>engram.hpp</code>、<code>pp.hpp</code> 的公式计算。第二行的专家形状（\(H=7168\)、中间维 2048、FP8 的 W1 与 W2）是我们为举例设定的，不来自仓库。Engram 的 \(P\) 是 RDMA 对端组数，网卡读速率 90 / 45 Mpps 是代码里写死的假设常数，不是测量值。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>对象</th><th>参数</th><th class="num">结果</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">LB 区（README 示例）</td><td>8 个槽，每行 1024 元素，BF16 权重 + FP32 梯度</td><td class="num">4 MiB</td></tr>
+      <tr><td class="nowrap">LB 区（假设的专家）</td><td>4 个槽，FP8 权重 / FP32 梯度</td><td class="num">168 / 672 MiB</td></tr>
+      <tr><td class="nowrap">Engram QP 数</td><td>90 Mpps，\(P\) = 1, 2, 4, 8, 16</td><td class="num">57, 29, 15, 8, 4</td></tr>
+      <tr><td class="nowrap">Engram QP 数</td><td>45 Mpps，\(P\) = 1, 2, 4, 8, 16</td><td class="num">29, 15, 8, 4, 2</td></tr>
+      <tr><td class="nowrap">Engram 存储 / 接收区</td><td>测试默认：每 rank 524288 + 524309 条，隐藏维 256，BF16，T=512，N=24</td><td class="num">514 / 12 MiB</td></tr>
+      <tr><td class="nowrap">PP 存储</td><td>测试默认张量 4096×7168 BF16，在途 4 / 2 个</td><td class="num">896 / 448 MiB</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>README 示例里，8 个槽 × 1024 个 BF16 只有 16 KiB，FP32 梯度 32 KiB，但两次分配各补齐到 2 MiB，LB 区共 4 MiB。真实专家的权重通常是几十 MiB，补齐的浪费可以忽略；FP32 梯度则是同参数量 FP8 权重的 4 倍，规划显存时要单独算进去。</p>
+
+<h2 id="sec-engram" data-short="Engram">Engram（实验性）：按下标从远端表里读行</h2>
+
+<p><code>EngramBuffer</code> 解决的是另一类问题：一张很大的查找表按行分片存在各个 rank 上，每个 token 要按若干个下标取回若干行。README 只给了接口说明：存储可以在 GPU 或 CPU 上，支持多层一起取，用 <code>get_storage_size_hint</code> 和 <code>get_theoretical_config</code> 确定大小与 QP，用 <code>set_config</code> 和 <code>write</code> 填表；<code>fetch(indices)</code> 接受 \([L, T, N]\) 的 int32 下标，返回每层一个完成钩子，用某层数据之前调用对应的钩子（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L382-L386">README 第 382–386 行</a>）。它还要求 NCCL 提供 <code>ncclGinOptFlagsWarpGet</code>（第 41 行）。</p>
+
+<h3 id="sec-1">数据模型</h3>
+
+<p>第 \(l\) 层的表在每个 rank 上有 \(n_l\) 行（<code>num_entries_per_layer[l]</code> 是<b>每 rank</b> 的行数），全局行号 \(g\in[0, R\,n_l)\) 的所有者是 \(\lfloor g/n_l\rfloor\)。每个 rank 的存储分片把各层的行首尾相接；本 rank 的接收区则为每层预留 \(T_{\max}\times N\) 行，第 \(t\) 个 token 的第 \(j\) 个条目落在该层的第 \(tN+j\) 行（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/engram/workspace.cuh#L23-L57"><code>layout/engram/workspace.cuh</code> 第 23–57 行</a>）。所以 <code>hooks[l]()</code> 返回的是一个 \([T, N\cdot\text{hidden}]\) 的视图，每个 token 的 \(N\) 行被拼成一行。测试的下标生成方式是把全局表等分成 \(N\) 段、第 \(j\) 个条目只从第 \(j\) 段里抽（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/engram/test_engram.py#L58-L67"><code>test_engram.py</code> 第 58–67 行</a>），但接口本身没有这个限制。</p>
+
+<p>存储放在哪由构造参数 <code>use_cpu_rdma_storage</code> 决定，<code>write</code> 用 <code>cudaMemcpyAsync</code> 把每层的表拷进本地分片，GPU 和 CPU 两种情况走同一条代码（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L109-L131"><code>engram.hpp</code> 第 109–131 行</a>）。FP8 存储时缩放因子不走 RDMA：<code>write</code> 收到的是全表的缩放因子，每个 rank 只把其中 \(1/R_{\text{nvl}}\) 存进 GPU 缓冲区的尾部，取数时由专门的 warp 经 NVLink 从对应的分片读（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L133-L151">第 133–151 行</a>，<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/engram/engram_fetch.cuh#L208-L254"><code>engram_fetch.cuh</code> 第 208–254 行</a>）。</p>
+
+<h3 id="sec-2">一次 fetch：一个内核发出全部读请求，每层一个等待钩子</h3>
+
+<figure id="fig-engram" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-engram-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 32 560 230" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+  </defs>
+
+  
+  <rect class="d-box" x="16" y="72" width="120" height="48" rx="4"/>
+  <text class="d-title" x="76" y="92" text-anchor="middle">indices</text>
+  <text class="d-mono" x="76" y="110" text-anchor="middle">[L, T, N]</text>
+  <text class="d-label" x="16" y="140">int32 全局条目号</text>
+  <path class="d-arrow" d="M136 96 H182" marker-end="url(#s3-ah)"/>
+
+  
+  <text class="d-title" x="184" y="52">各 rank 的存储分片</text>
+  <rect class="d-box green" x="184" y="64" width="160" height="32" rx="3"/>
+  <text class="d-small" x="264" y="85" text-anchor="middle">rank 0：层 0 | 层 1</text>
+  <rect class="d-box green" x="184" y="104" width="160" height="32" rx="3"/>
+  <text class="d-small" x="264" y="125" text-anchor="middle">rank 1：层 0 | 层 1</text>
+  <rect class="d-box green" x="184" y="144" width="160" height="32" rx="3"/>
+  <text class="d-small" x="264" y="165" text-anchor="middle">rank 2：层 0 | 层 1</text>
+  <text class="d-label" x="184" y="196">GPU 或 CPU 内存，注册给 RDMA</text>
+
+  
+  <text class="d-title" x="392" y="52">本 rank 接收区</text>
+  <rect class="d-box accent" x="392" y="64" width="152" height="40" rx="3"/>
+  <text class="d-text" x="468" y="81" text-anchor="middle">层 0</text>
+  <text class="d-mono" x="468" y="98" text-anchor="middle">[T, N·hidden]</text>
+  <rect class="d-box accent" x="392" y="120" width="152" height="40" rx="3"/>
+  <text class="d-text" x="468" y="137" text-anchor="middle">层 1</text>
+  <text class="d-mono" x="468" y="154" text-anchor="middle">[T, N·hidden]</text>
+  <text class="d-label" x="392" y="180">RDMA 读，每个条目一次</text>
+
+  <path class="d-arrow" d="M344 80 H390" marker-end="url(#s3-ah)"/>
+  <path class="d-arrow" d="M344 120 H366 V140 H390" marker-end="url(#s3-ah)"/>
+  <path class="d-arrow" d="M344 160 H366 V140"/>
+
+  
+  <rect class="d-box soft" x="392" y="212" width="74" height="28" rx="3"/>
+  <text class="d-mono" x="429" y="231" text-anchor="middle">hooks[0]</text>
+  <rect class="d-box soft" x="470" y="212" width="74" height="28" rx="3"/>
+  <text class="d-mono" x="507" y="231" text-anchor="middle">hooks[1]</text>
+  <text class="d-small" x="16" y="228">① fetch()：一个内核发出所有层的读请求后返回</text>
+  <text class="d-small" x="16" y="250">② hooks[l]()：在当前流上等第 l 层的请求完成</text>
+</svg></div>
+  <figcaption id="fig-engram-cap"><span class="fig-label">图 3</span><b>fetch 把”发请求”和”等完成”拆开：前者一次做完所有层，后者按层交给使用者。</b>左：\([L,T,N]\) 的全局条目号；中：各 rank 的存储分片（绿，RDMA 可读，可在 GPU 或 CPU 内存）；右：本 rank 的接收区，每层一块。每个条目是一次 RDMA 读，大小为一行。示意图。</figcaption>
+</figure>
+
+<p><a href="#fig-engram">图 3</a> 画出了整个流程。发请求的内核占满所有 SM（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/engram/engram.hpp#L36-L42"><code>kernels/engram/engram.hpp</code> 第 36–42 行</a>），把 warp 按“RDMA 对端 × QP”分组。每个 warp 扫一段 token，用 ballot 挑出属于自己对端的条目，攒满 32 个就批量发出：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/engram/engram_fetch.cuh#L114-L130"><code>if (lane_idx &lt; batch_size) {
+    const auto request = warp_pending_requests[pending_head + lane_idx];
+    const auto entry_idx = static_cast&lt;int&gt;(request);
+    const auto global_idx = static_cast&lt;int&gt;(request &gt;&gt; 32);
+    const auto peer_local_idx = global_idx - peer_global_idx_begin;
+    const auto intra_peer_rank_idx = peer_local_idx / num_entries_per_rank;
+    const auto local_entry_idx = peer_local_idx % num_entries_per_rank;
+    const auto src_byte_offset = engram_layout_t::get_storage_byte_offset(layer_idx, local_entry_idx);
+    const auto dst_byte_offset = engram_layout_t::get_recv_byte_offset(
+        layer_idx, entry_idx, kNumMaxTokens);
+    gin.get&lt;ncclTeamTagWorld, ncclCoopThread, ncclGin_SegmentMixed&gt;(
+        storage_windows[intra_peer_rank_idx], src_byte_offset,
+        nccl_window, gin.get_sym_offset(math::advance_ptr(fetched, dst_byte_offset)),
+        engram_layout_t::kNumHiddenBytes,
+        rdma_peer_rank,
+        options);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/engram/engram_fetch.cuh#L114-L130"><code>impls/engram/engram_fetch.cuh</code> 第 114–130 行</a></p>
+
+<p>几个细节。其一，每条 RDMA 读的长度就是一行的字节数 <code>kNumHiddenBytes</code>：测试默认隐藏维 256、BF16，每次读只有 512 字节，所以吞吐受网卡每秒能处理的请求数限制，而不是带宽——这也是下面 QP 估算以“每秒读请求数”为输入的原因。其二，RDMA 对端按 NCCL 报告的 <code>ginMinStride</code> 分组：请求总是发给组内第一个 rank（<code>rdma_peer_rank</code>），但源窗口按条目所有者在组内的序号选 <code>storage_windows[intra_peer_rank_idx]</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/engram/engram_fetch.cuh#L91-L107">第 91–107 行</a>）；混合模式下各 rank 的存储通过构造时交换的共享句柄互相可见（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/engram.py#L73-L77"><code>engram.py</code> 第 73–77 行</a>），窗口机制见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>。其三，门铃并不每批都敲：按 <code>flush_depth</code> 均分出的阈值合并请求，最后一批一定敲门铃，然后对每层每个（对端, QP）只做一次 <code>flush_async</code>，把最后一个请求句柄写进 <code>last_gin_requests</code>（第 109–112、173–205 行）。</p>
+
+<p>钩子做的事很简单：在调用时的当前流上启动一个单块小内核，等待该层每个（对端, QP）的最后一个请求完成，然后返回该层的数据视图（FP8 时连同缩放因子）：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L234-L247"><code>std::vector&lt;std::function&lt;pybind11::object()&gt;&gt; hooks;
+for (int i = 0; i &lt; num_layers; ++ i) {
+    hooks.emplace_back([=, this]() -&gt; pybind11::object {
+        launch_engram_fetch_wait(
+            static_cast&lt;ncclGinRequest_t*&gt;(last_gin_requests[i].data_ptr()),
+            context-&gt;dev_comm,
+            context-&gt;window,
+            num_rdma_peers,
+            num_active_gin_contexts,
+            at::cuda::getCurrentCUDAStream()
+        );
+        return use_fp8 ? pybind11::make_tuple(fetched[i], fetched_sf[i]) : pybind11::cast(fetched[i]);
+    });
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L234-L247"><code>csrc/buffers/engram.hpp</code> 第 234–247 行</a></p>
+
+<p>这样分的意义在于：发请求的内核一结束，当前流就可以继续跑别的计算，RDMA 读在后台完成；第 0 层的计算只需等第 0 层的请求，后面各层的读取可以与它重叠。测试分别按正序和逆序调用钩子验证结果（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/engram/test_engram.py#L77-L96"><code>test_engram.py</code> 第 77–96 行</a>），说明钩子之间没有顺序要求。要注意的是，返回的视图直接指向 buffer 的接收区，下一次 <code>fetch</code> 会覆盖它；这一点 README 没写，是从 <code>torch::from_blob</code> 的用法（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L168-L176">第 168–176 行</a>）推出来的。</p>
+
+<h3 id="sec-3">QP 数按 Little 定律估算</h3>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L279-L294"><code>constexpr float kReadRTTSeconds = 10e-6f;
+// ...
+const auto num_qps = std::max(static_cast&lt;int&gt;(std::ceil(
+    nic_read_mpps * 1e6f * kReadRTTSeconds / num_max_read_requests_per_qp / num_rdma_peers)), 1);
+
+const auto num_requests = num_layers * num_max_tokens * num_entries_per_token;
+const auto num_required_slots = math::ceil_div(num_requests, num_qps * num_rdma_peers);
+if (num_required_slots &gt; 32768) {
+    const auto num_min_qps = static_cast&lt;int&gt;(math::ceil_div(num_requests, 32768 * num_rdma_peers) * 1.05);
+    return {num_min_qps, 32768, true};
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L279-L294"><code>csrc/buffers/engram.hpp</code> 第 279–294 行</a>（节选）</p>
+
+<p>公式读作：要让网卡以速率 \(\lambda\) 处理读请求，在一个往返时间 \(\tau\) 内就得有 \(\lambda\tau\) 个请求在途（Little 定律）；每个 QP 最多同时挂 16 个读，再平摊到 \(P\) 个对端组上：</p>
+
+<div class="eq" id="eq-qp">\[ N_{\text{QP}} = \left\lceil \frac{\lambda\,\tau}{16\,P} \right\rceil,\qquad \lambda \in \{90, 45\}\ \text{Mpps},\quad \tau = 10\ \mu\text{s} \]<span class="eq-num">(1)</span></div>
+
+<p>\(\lambda\) 和 \(\tau\) 都是代码里的假设常数：网卡支持快速 RDMA 原子操作时 \(\lambda\) 取 90 Mpps，否则 45（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/engram.py#L140"><code>engram.py</code> 第 140 行</a>），它们不是实测数据。队列深度从默认的 1024 起翻倍，直到装得下“总请求数 ÷（QP 数 × 对端组数）”；如果需要的深度超过 32768，就改为增加 QP 数，并返回 <code>restrict_rd_atomic=True</code>，构造函数据此把 <code>NCCL_GIN_GDAKI_MAX_QP_RD_ATOMIC</code> 设为 8（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/engram.py#L81-L86"><code>engram.py</code> 第 81–86 行</a>）。按<a href="#eq-qp">式 (1)</a>，<a href="#tab-sizes">表 2</a> 列出了不同 \(P\) 下的 QP 数；测试默认参数（2 层、512 个 token、每 token 24 个条目）在 \(P=4\) 时只需 15 个 QP、深度 1024。</p>
+
+<p>Engram 对显存的要求也和 EP 不同：<code>get_storage_size_hint</code> 返回两个数，GPU 接收区按 \(L\cdot T_{\max}\cdot N\) 行算（FP8 时再加缩放因子分片），存储分片按本 rank 全部行数算（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/engram.hpp#L251-L271"><code>engram.hpp</code> 第 251–271 行</a>）。混合模式下要注册的总字节数可能超过单卡显存，构造函数会相应调大 <code>NCCL_WIN_STRIDE</code>，并用环境变量 <code>EP_NUM_MAX_LOCAL_RANKS</code> 估计每个节点的 rank 数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/engram.py#L61-L65"><code>engram.py</code> 第 61–65 行</a>，README 第 407 行）。</p>
+
+<h2 id="sec-pp" data-short="PP">PP 收发（实验性）：环上相邻 rank 之间的有界槽位队列</h2>
+
+<p><code>PPBuffer</code> 提供 <code>send(x, dst_rank_idx)</code> 和 <code>recv(x, src_rank_idx)</code>，README 规定它只在“纯 RDMA 的流水线组”里、相邻 rank 之间使用；构造时用 <code>num_max_tensor_bytes</code> 和 <code>num_max_inflight_tensors</code> 预留收发槽；输入输出必须是连续的 CUDA 张量，指针和大小都 32 字节对齐（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L388-L390">README 第 388–390 行</a>）。主机端断言目标或来源必须是环上的前一个或后一个 rank（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/pp.hpp#L79-L111"><code>pp.hpp</code> 第 79–111 行</a>）。代码没有检查“纯 RDMA”：通信上下文以关闭混合模式的方式创建，所有数据都用 Gin 的 RDMA put 发送（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/pp.hpp#L54-L60">第 54–60 行</a>）；我们的理解是，同一 NVLink 域内的两个 rank 用它也许能跑，但不在设计和测试范围内（README 第 101 行说 PP 测试需要纯 RDMA 的组）。</p>
+
+<h3 id="sec-4">存储布局：四个区，每区若干槽</h3>
+
+<p>存储大小是 \(4\times n\times B_{\max}\)，\(n\) 为在途张量上限，\(B_{\max}\) 为对齐到 64 字节的单张量上限（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/pp.hpp#L44-L49"><code>pp.hpp</code> 第 44–49 行</a>）。四个区分别是：收自前一 rank、收自后一 rank、发往前一 rank 的暂存、发往后一 rank 的暂存，每区 \(n\) 个槽，第 \(i\) 次收发用第 \(i \bmod n\) 个槽（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/pp/pp_send_recv.cuh#L17-L25"><code>pp_send_recv.cuh</code> 第 17–25 行</a>、<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/pp/pp_send_recv.cuh#L124-L130">第 124–130 行</a>）。工作区里为两个方向各维护四个计数器：send_count、recv_count、每个 QP 一个的 arrival、release（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/pp/workspace.cuh#L11-L18"><code>layout/pp/workspace.cuh</code> 第 11–18 行</a>）。</p>
+
+<figure id="fig-pp" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-pp-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 46 560 250" font-family="sans-serif" role="img" id="s4-root" style="max-width:560px;">
+  <defs>
+    <marker id="s4-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s4-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="16" y="91">rank r</text>
+  <text class="d-label" x="130" y="64" text-anchor="middle">收自 r−1</text>
+  <text class="d-label" x="246" y="64" text-anchor="middle">收自 r+1</text>
+  <text class="d-label" x="362" y="64" text-anchor="middle">发往 r−1 暂存</text>
+  <text class="d-label" x="478" y="64" text-anchor="middle">发往 r+1 暂存</text>
+  <g>
+    <rect class="d-cell" x="72" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="101" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="130" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="159" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="188" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="217" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="246" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="275" y="72" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="304" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="333" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="362" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="391" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="420" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="449" y="72" width="29" height="28" fill="#fcefe6"/>
+    <rect class="d-cell" x="478" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="507" y="72" width="29" height="28" fill="#f2f2f0"/>
+    <rect x="72" y="72" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="188" y="72" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="304" y="72" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="420" y="72" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+  </g>
+  <text class="d-title d-accent-text" x="448" y="120" text-anchor="end">①</text>
+
+  
+  <path class="d-arrow accent" d="M463 100 V148 H115 V194" marker-end="url(#s4-ah-acc)"/>
+  <text class="d-label d-accent-text" x="180" y="142">② Gin put（至多 2 个 QP）+ arrival 信号</text>
+  
+  <path class="d-arrow dashed" d="M130 196 V174 H496 V102" marker-end="url(#s4-ah)"/>
+  <text class="d-label" x="200" y="168">④ release 信号：发送方可复用该槽</text>
+
+  
+  <text class="d-title" x="16" y="215">rank r+1</text>
+  <text class="d-title d-accent-text" x="104" y="190" text-anchor="end">③</text>
+  <g>
+    <rect class="d-cell" x="72" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="101" y="196" width="29" height="28" fill="#fcefe6"/>
+    <rect class="d-cell" x="130" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="159" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="188" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="217" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="246" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="275" y="196" width="29" height="28" fill="#e8f1f8"/>
+    <rect class="d-cell" x="304" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="333" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="362" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="391" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="420" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="449" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="478" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect class="d-cell" x="507" y="196" width="29" height="28" fill="#f2f2f0"/>
+    <rect x="72" y="196" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="188" y="196" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="304" y="196" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="420" y="196" width="116" height="28" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+  </g>
+  <text class="d-label" x="130" y="242" text-anchor="middle">收自 r</text>
+  <text class="d-label" x="246" y="242" text-anchor="middle">收自 r+2</text>
+  <text class="d-label" x="362" y="242" text-anchor="middle">发往 r 暂存</text>
+  <text class="d-label" x="478" y="242" text-anchor="middle">发往 r+2 暂存</text>
+
+  <text class="d-small" x="16" y="270">① send：等 release ≥ send_count − n + 1，再用 TMA 把 x 拷进暂存槽</text>
+  <text class="d-small" x="16" y="290">③ recv：等每个 QP 的 arrival ≥ recv_count + 1，再用 TMA 拷进输出张量</text>
+</svg></div>
+  <figcaption id="fig-pp-cap"><span class="fig-label">图 4</span><b>一次 send/recv 就是一个容量为 \(n\) 的生产者–消费者队列，用两个计数器流控。</b>上下两条是相邻的 rank \(r\) 与 \(r{+}1\) 的存储，每条四个区、每区 \(n=4\) 个槽（蓝为接收区，灰为发送暂存区）。橙色实线：\(r\) 把暂存槽里的数据 RDMA 写进 \(r{+}1\) 的“收自 \(r\)”区同号槽，并给 arrival 计数器加一；虚线：\(r{+}1\) 拷出数据后给 \(r\) 的 release 计数器加一。示意图。</figcaption>
+</figure>
+
+<h3 id="sec-5">发送与接收的四步</h3>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/pp/pp_send_recv.cuh#L133-L163"><code>if (ptx::elect_one_sync()) {
+    const auto release_target = send_count - num_max_inflight_tensors + 1;
+    comm::timeout_while&lt;kNumTimeoutCycles&gt;([&amp;](const bool&amp; is_last_check) {
+        if (ptx::ld_acquire_sys(&amp;pp.release[dst_idx_in_local]) &gt;= release_target)
+            return true;
+        // ...
+    });
+    pp_tma_copy&lt;kNumSMs, kNumSmemBytes&gt;(x, send_buffer_ptr, num_x_bytes, sm_idx);
+}
+cooperative_groups::this_grid().sync();
+// ...
+        if (num_bytes &gt; 0) {
+            gin.put&lt;ncclTeamTagWorld&gt;(
+                math::advance_ptr(recv_buffer_ptr, offset), math::advance_ptr(send_buffer_ptr, offset),
+                num_bytes, dst_rank_idx, 0, remote_action);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/pp/pp_send_recv.cuh#L133-L163"><code>impls/pp/pp_send_recv.cuh</code> 第 133–163 行</a>（节选）</p>
+
+<p>对照<a href="#fig-pp">图 4</a> 的编号：</p>
+
+<ol>
+  <li><b>send 等槽。</b>第 \(i\) 次发送（\(i\) 即 send_count）要等对端已经释放了至少 \(i-n+1\) 个槽，也就是在途的未消费张量少于 \(n\) 个；然后各 SM 分段用 TMA 把 <code>x</code> 拷进本地的发送暂存槽，全网格同步。</li>
+  <li><b>send 写对端。</b>用至多 2 个 QP 把暂存槽分段 RDMA 写进对端接收区的同号槽，每段附带一个“给对端的 arrival 计数器加一”的远端动作；某个 QP 没有数据可写时也照样发信号，因为接收方会逐个等每个 QP（第 146–167 行）。QP 数取 <code>min(2, num_allocated_qps)</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/pp/pp_send_recv.hpp#L20-L23"><code>kernels/pp/pp_send_recv.hpp</code> 第 20–23 行</a>）。</li>
+  <li><b>recv 等到达。</b>接收内核等每个 QP 的 arrival 计数都达到 recv_count + 1，再用 TMA 把槽里的数据拷进使用者给的输出张量（第 202–221 行）。</li>
+  <li><b>recv 释放。</b>拷完后给发送方的 release 计数器加一，并把本地 recv_count 加一（第 223–233 行）。</li>
+</ol>
+
+<p>这个协议有两个性质值得注意。第一，send 内核在发出 RDMA 写之后就结束，不等对端收到；但因为数据先拷进了暂存槽，内核结束后 <code>x</code> 立即可以被改写。暂存槽本身要等对端 release 之后才会被第 \(i+n\) 次发送复用，而 release 发生在对端拷出之后，这时 RDMA 写必然已经完成。第二，两个内核都排在调用时的当前流上，没有事件和钩子，并在 GPU 上自旋等待；等不到就在 <code>num_gpu_timeout_secs</code> 后打印超时信息。所以发送方连续发出超过 \(n\) 个张量而接收方迟迟不 recv，或者 recv 排在了对端 send 所依赖的计算之前，都会卡住。测试生成随机收发序列时专门让“第 \(i\) 次发送排在第 \(i-n\) 次接收之后”，注释写的就是“避免死锁”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/pp/test_pp.py#L38-L43"><code>test_pp.py</code> 第 38–43 行</a>）。</p>
+
+<p>按测试默认值（4096×7168 的 BF16 张量、在途 4 个），存储要 896 MiB（<a href="#tab-sizes">表 2</a>），是单个张量的 16 倍，因为四个区各要 4 个槽。如果流水线只沿一个方向传激活、另一个方向传梯度，四个区都会用到；只单向使用时一半空间是闲置的，但接口不提供只开单向的选项。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>实验性功能。</b>Engram 和 PP 在 README 中标为实验性（第 33–41 行）。它们的接口、约束和本文描述的实现都可能在后续提交中改变；PP 的“纯 RDMA 组”要求只在 README 中出现，代码不检查。</li>
+  <li><b>没有性能数据。</b>本文没有引用任何带宽或时延。各测试脚本会打印 GB/s 与 Mpps，但仓库里没有记录结果；Engram 的 90 / 45 Mpps 与 10 μs 是 QP 估算公式里的假设常数，不是测量值。<a href="#tab-sizes">表 2</a> 的数字是把公式代入参数算出的字节数与 QP 数，第二行的专家形状是我们设定的。</li>
+  <li><b>推断。</b>以下是我们根据代码的推断：所有者执行全部任务、归约只写本地，是为了避免跨 NVLink 原子操作；块号按任务数取模是为了让多条链路同时忙；LB 区不能与 EP 区共用的直接原因是 EP 区会被每次通信覆盖；Engram 钩子返回的视图会被下一次 fetch 覆盖；PP 用在 NVLink 域内是否可行。</li>
+  <li><b>文档与代码的出入。</b>prefetch 的每专家字节数，README 要求 32 字节倍数而主机端断言只查 16；本文建议按 README。</li>
+  <li><b>未覆盖。</b>冗余专家的规划算法与 token 重路由（库外，见 MoonEP / UltraEP）；Gin 的 put/get/信号、对称窗口与 LSA 团队的内部实现（<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>）；屏障的实现；SM 估算用到的带宽常数（<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>）；Engram 在上层模型里的具体用途，仓库没有说明，本文也不做猜测。</li>
+</ul>
+
+<h2 id="sec-summary" data-short="小结">小结</h2>
+
+<p>三种原语都把“谁和谁通信”交给调用者事先确定，库只负责高效地搬字节。冗余专家交换以一张全域一致的副本表为契约：每个 rank 只执行自己作为所有者的任务，前向把权重写进对端 LB 区的同一偏移，反向从同一位置读回梯度、在本地累加；LB 区独立于 EP 通信区，是因为它既要可被对称寻址，又要在多次 dispatch/combine 之间保持不变。Engram 把大表分片放在各 rank 的 GPU 或 CPU 内存里，用一个内核发出全部层的 RDMA 读，再按层交出等待钩子，让取数与计算重叠。PP 则是相邻 rank 之间一个容量为 \(n\) 的有界队列，用 arrival 和 release 两个计数器保证既不覆盖未读的数据，也不读到未到的数据。</p>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../ep07-bucket/ep07-bucket.html">Bucket 集合通信</a>
+  ｜ 下一篇：<a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">Hopper 上的 FP8 GEMM</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-deepep">DeepSeek-AI (2025). <a href="https://github.com/deepseek-ai/DeepEP">DeepEP: an efficient expert-parallel communication library</a>. GitHub 仓库；本文引用提交 <code>f6aa38fe06cd4a0489e7730365d4e0114970a2f3</code>。</li>
+  <li id="ref-moonep">MoonshotAI. <a href="https://github.com/MoonshotAI/MoonEP">MoonEP</a>. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。</li>
+  <li id="ref-ultraep">Dots-Infra. <a href="https://github.com/Dots-Infra/UltraEP">UltraEP</a>. GitHub 仓库。本文仅按 DeepEP README 第 332 行的描述引用，未独立核实其内容。</li>
+  <li id="ref-ultraeppaper">UltraEP 论文，<a href="https://arxiv.org/abs/2606.04101">arXiv:2606.04101</a>。链接取自 DeepEP README 第 332 行；作者与标题未经本文核实。</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/">deepseek-ai/DeepEP@f6aa38f</a>。Engram 与 PP 为 README 标注的实验性功能。文中算例表由 <code>plots/sizes.py</code> 按源码公式计算（computed），其中一行专家形状为本文假设；图中的专家布局、槽位为示意（illustrative）。本文不含任何实测性能数据。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

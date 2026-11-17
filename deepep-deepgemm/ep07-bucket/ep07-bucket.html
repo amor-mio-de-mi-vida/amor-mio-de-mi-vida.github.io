@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bucket 集合通信：零 SM 的 all-gather 与 multimem 归约</title>
+<meta name="description" content="DeepEP 精读第 7 篇：BucketBuffer 怎样用复制引擎做零 SM 的 all-gather、用 NVLink multimem 做节点内归约、用 RDMA ring 做跨节点 reduce-scatter 与 all-reduce。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 7 篇</div>
+  <h1>Bucket 集合通信：<br>零 SM 的 all-gather 与 <span class="nobr">multimem 归约</span></h1>
+  <p class="subtitle">DeepEP 的 BucketBuffer 用复制引擎做 all-gather、用 NVLink multimem 做归约、用 RDMA ring 做跨节点 reduce-scatter 与 all-reduce，SM 占用降到个位数甚至零。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 12 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-api">BucketBuffer：多桶、多组、一块缓冲</a><li><a href="#sec-ag">all-gather：复制引擎全权负责</a><ol><li><a href="#sec-1">纯 NVLink 路径</a></li><li><a href="#sec-2">hybrid 路径：SM 发射 RDMA，CE 做 NVLink 转发</a></li><li><a href="#sec-3">chunk 数的自动选取</a></li><li><a href="#sec-4">纯 RDMA 路径</a></li></ol><li><a href="#sec-multimem">NVLink multimem 归约：一条指令读八张卡</a><li><a href="#sec-rs">reduce-scatter：从 multimem 到 RDMA ring</a><ol><li><a href="#sec-5">纯 NVLink 路径</a></li><li><a href="#sec-6">hybrid 路径：multimem + RDMA ring 的三阶段流水线</a></li><li><a href="#sec-7">纯 RDMA 路径</a></li></ol><li><a href="#sec-ar">all-reduce：归约加广播</a><ol><li><a href="#sec-8">纯 NVLink 路径</a></li><li><a href="#sec-9">hybrid 路径：四种 warp 角色</a></li><li><a href="#sec-10">纯 RDMA 路径</a></li></ol><li><a href="#sec-session">session：为未注册张量打开一扇门</a><li><a href="#sec-bf16">BF16 通信精度</a><li><a href="#sec-sms">SM 使用量的解析估算</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>BucketBuffer 提供 all-gather、reduce-scatter、all-reduce 三种集合通信；数据住在 NCCL Gin 注册的对称缓冲区里，一次调用可以操作多个“桶”（同一缓冲区内的不连续区域）。</li>
+    <li>all-gather 在 NVLink 和 hybrid 路径上完全由复制引擎（CE）驱动，SM 使用量为零；仅纯 RDMA 路径需要 SM 内核来发射 put。</li>
+    <li>reduce-scatter 和 all-reduce 的节点内归约通过 <code>multimem.ld_reduce</code> 一条 PTX 指令完成——NVSwitch 把每张卡同一偏移的数据就地求和，不需要先搬到本地再累加。</li>
+    <li>hybrid 路径把每次操作分成等大的 chunk，用一个双项代价模型自动选取 chunk 数，SM 数量也由带宽公式自动计算，最终只需 4–8 个 SM。</li>
+    <li>BucketSession 上下文管理器允许用户对未注册张量做集合通信，内部自动分配缓冲区并拷贝。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../ep05-comm-substrate/ep05-comm-substrate.html">ep05</a> 的 NCCL Gin 与对称内存，以及 <a href="../bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a> 的 NVLink/复制引擎概念。本篇新引入：BucketBuffer 接口、CE 驱动的 all-gather、<code>multimem.ld_reduce</code> 归约、hybrid 双项代价模型。</p></aside>
+
+<p>前六篇讲的 EP dispatch 和 combine 解决的是 all-to-all：每个 token 按路由去到不同的专家。但训练与推理还有另一类通信需求——参数同步、梯度聚合、权重预取——它们是标准的集合通信：all-gather、reduce-scatter、all-reduce。DeepEP <span class="cite">[<a href="#ref-deepepv2" title="DeepSeek-AI. (2025). DeepEP: an efficient expert-parallel communication library. GitHub.">1</a>]</span> 为此提供了一个独立的 <code>BucketBuffer</code>，与 <code>EPBuffer</code> 共用 NCCL Gin 后端和对称内存（见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>），但接口和内核完全不同。</p>
+
+<p>BucketBuffer 的设计目标是<b>最小化 SM 占用</b>。all-gather 能做到 0 个 SM（纯靠复制引擎），reduce-scatter 和 all-reduce 也只需个位数的 SM。本文围绕 CHECKLIST 6a–6e，逐一拆解这三种操作在不同拓扑（NVLink、RDMA、hybrid）上的实现。</p>
+
+<h2 id="sec-api" data-short="BucketBuffer 接口">BucketBuffer：多桶、多组、一块缓冲</h2>
+
+<p><code>BucketBuffer</code> 在初始化时分配一块对称存储（<code>storage</code>），并向一个或多个通信组（<code>ProcessGroup</code>）注册。三种集合操作的输入张量必须位于这块存储内，每个张量就是一个“桶”（bucket）。一次调用可以操作多个桶，内部用一个固定大小的 <code>BucketList</code>（最多 64 个桶）描述每个桶在缓冲区内的偏移和字节数。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L361-L393"><code>def all_gather(self,
+               srcs: Union[torch.Tensor, Sequence[torch.Tensor]],
+               dsts: Optional[Union[torch.Tensor, Sequence[torch.Tensor]]] = None,
+               group: Optional[dist.ProcessGroup] = None,
+               num_sms: Optional[int] = None) -&gt; EventOverlap:
+    """Launch batched all-gather.
+# ...
+
+    # Launch
+    context_idx = self.get_context_idx(group)
+    num_sms = self.get_theoretical_num_sms('all_gather', self.groups[context_idx]) if num_sms is None else num_sms
+    event, epilogue = self.runtime.all_gather(srcs, dsts, context_idx, num_sms)
+
+    # Create handle
+    handle = EventOverlap(event)
+    handle.register_hook_after_wait(lambda: epilogue()[0] if is_packed else epilogue())
+    setattr(handle, 'num_sms', num_sms)
+    return handle
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L361-L393"><code>deep_ep/buffers/bucket.py</code> 第 361–393 行</a>（节选）</p>
+
+<p>三个操作的 Python 签名遵循同一模式：传入一个或一组张量，返回一个 <code>EventOverlap</code> 句柄，调 <code>wait()</code> 取结果。<code>num_sms</code> 传 <code>None</code> 时由 <code>get_theoretical_num_sms</code> 自动估算；all-gather 恒返回 0。<code>EventOverlap</code> 的设计允许通信与计算重叠——用户在调 <code>wait()</code> 之前可以插入不依赖通信结果的计算操作（例如下一层的权重预取或 gate 计算），GPU 的通信内核和计算内核在不同的 SM 上并行执行。这是 BucketBuffer 追求"最小 SM 占用"的直接回报：通信只占个位数的 SM，其余上百个 SM 全部留给计算。</p>
+
+<h2 id="sec-ag" data-short="all-gather">all-gather：复制引擎全权负责</h2>
+
+<p>all-gather 是三种操作中最简单的：每个 rank 持有一个分片，目标是让所有 rank 都拿到完整数据。BucketBuffer 的关键设计决定是<b>不用 SM 内核做数据搬运</b>，而是把 GPU 的复制引擎（copy engine，CE）当成一条独立的 DMA 流水线来用。</p>
+
+<h3 id="sec-1">纯 NVLink 路径</h3>
+
+<p>最简单的情况：所有 rank 在同一个 NVLink 域内。每个 rank 用 CE 把自己的分片推送到域内所有对等 rank 的对称缓冲区中（push 语义，不是 pull），用一对 <code>copy_engine_sync</code> 调用做前后屏障。整个过程不启动任何内核——0 个 SM。</p>
+
+<p>host 端的 <code>launch_all_gather</code> 构造了三个平行数组——<code>dst_ptrs</code>（对端缓冲地址，通过 <code>get_sym_ptr</code> 映射）、<code>src_ptrs</code>（本地分片地址）和 <code>sizes</code>（每个桶的字节数）——覆盖 \((R-1) \times B\) 次拷贝（\(R\) 个 rank、\(B\) 个桶）。CE 操作分三步发射：第一个 <code>copy_engine_sync</code> 等待所有对端发出的就绪信号（确认它们的缓冲区可以被写入），然后 <code>copy_engine_push</code> 批量提交所有拷贝描述符到 CE 队列，最后第二个 <code>copy_engine_sync</code> 在本地写入完成后向所有对端发出完成信号。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/bucket/all_gather.hpp#L62-L108"><code>} else if (context.num_rdma_ranks == 1) {
+    // Pure NVLink
+    auto&amp; workspace = *static_cast&lt;layout::BucketWorkspace*&gt;(context.workspace);
+    auto&amp; signals = workspace.signals[context_idx].copy_engine;
+    EP_HOST_ASSERT(context.num_nvl_ranks &lt;= kNumMaxNVLRanks and
+// ...
+    // Build copy descriptors
+    std::vector&lt;size_t&gt; sizes;
+    std::vector&lt;void*&gt; dst_ptrs, src_ptrs;
+// ...
+    // Out-of-buffer inputs also need a local copy
+// ...
+    // Wait arrival &amp; push &amp; write
+    driver::copy_engine_sync(stream, driver::increase_seq_idx(stream, seq_idx), write_signals, wait_signals);
+    driver::copy_engine_push(stream, dst_ptrs, src_ptrs, sizes);
+    driver::copy_engine_sync(stream, driver::increase_seq_idx(stream, seq_idx), write_signals, wait_signals);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/bucket/all_gather.hpp#L62-L108"><code>csrc/kernels/bucket/all_gather.hpp</code> 第 62–108 行</a>（纯 NVLink all-gather：CE push + 双同步）</p>
+
+<p>信号本身也在对称缓冲区的 workspace 中：每个 rank 有 \(R\) 个 <code>uint64_t</code> 信号槽，第 \(i\) 个槽位由 rank \(i\) 写入。<code>write_signals</code> 指向对端的信号槽（通过 <code>get_sym_ptr</code> 拿到 NVLink 可达地址），<code>wait_signals</code> 指向本地的信号槽。<code>increase_seq_idx</code> 生成递增的序列号——CE 在 wait 时检查信号 \(\geq\) 目标值才放行，在 write 时写入新值。这比 GPU 内核的原子屏障便宜得多：CE 的 signal/wait 完全在硬件复制引擎内部完成，不占用任何 SM 周期。</p>
+
+<h3 id="sec-2">hybrid 路径：SM 发射 RDMA，CE 做 NVLink 转发</h3>
+
+<aside class="sidenote">hybrid 拓扑的例子：2 个 RDMA 节点 × 8 个 NVLink rank，共 16 个 rank。NVLink 域内用 CE，跨节点用 RDMA。</aside>
+<p>当拓扑同时包含 NVLink 和 RDMA 两个域时，CE 负责 NVLink 域内的推送和转发，但跨节点的 RDMA put 必须由 SM 内核通过 NCCL Gin 发射——这是唯一需要 SM 的地方，而且 SM 内核在发完 put 后立即退出，不等完成。</p>
+
+<figure id="fig-ag-hybrid" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-ag-hybrid-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 304" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  <style>#s1-root .d-box{fill:#fff;stroke:#1a1a1a;stroke-width:1.25}#s1-root .d-box.soft{fill:#f2f2f0;stroke:#b8b8b4}#s1-root .d-box.blue{fill:#e8f1f8;stroke:#0072B2}#s1-root .d-box.accent{fill:#fcefe6;stroke:#D55E00;stroke-width:1.5}#s1-root .d-box.green{fill:#e5f4ee;stroke:#009E73}#s1-root .d-arrow{fill:none;stroke:#1a1a1a;stroke-width:1.25}#s1-root .d-arrow.muted{stroke:#a8a8a4}#s1-root .d-arrow.dashed{stroke-dasharray:5 4}#s1-root .d-head{fill:#1a1a1a}#s1-root .d-head.muted{fill:#a8a8a4}#s1-root .d-text{font-family:Inter,"PingFang SC",sans-serif;font-size:14px;fill:#1a1a1a}#s1-root .d-title{font-family:Inter,"PingFang SC",sans-serif;font-size:14px;font-weight:600;fill:#1a1a1a}#s1-root .d-small{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#4a4a4a}#s1-root .d-label{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#767676}</style>
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head muted"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-small" x="16" y="60">SM 内核</text>
+  <text class="d-small" x="16" y="124">RDMA 到达</text>
+  <text class="d-small" x="16" y="188">复制引擎</text>
+  <text class="d-small" x="16" y="252">wait()</text>
+
+  
+  <rect class="d-box" x="120" y="40" width="64" height="32" rx="4"/>
+  <text class="d-small" x="152" y="61" text-anchor="middle">入口屏障</text>
+  <rect class="d-box green" x="192" y="40" width="228" height="32" rx="4"/>
+  <text class="d-small" x="306" y="61" text-anchor="middle">8 个 QP warp 逐 chunk 发 put</text>
+  <text class="d-label" x="428" y="61">退出，不等完成</text>
+
+  
+  <rect class="d-box green" x="200" y="104" width="88" height="32" rx="3"/>
+  <text class="d-small" x="244" y="125" text-anchor="middle">chunk 0</text>
+  <rect class="d-box green" x="288" y="104" width="88" height="32" rx="3"/>
+  <text class="d-small" x="332" y="125" text-anchor="middle">chunk 1</text>
+  <rect class="d-box green" x="376" y="104" width="88" height="32" rx="3"/>
+  <text class="d-small" x="420" y="125" text-anchor="middle">chunk 2</text>
+
+  
+  <rect class="d-box blue" x="120" y="168" width="156" height="32" rx="4"/>
+  <text class="d-small" x="198" y="189" text-anchor="middle">推送本地分片</text>
+  <rect class="d-box accent" x="280" y="168" width="72" height="32" rx="3"/>
+  <text class="d-small" x="316" y="189" text-anchor="middle">转发 c0</text>
+  <rect class="d-box accent" x="368" y="168" width="72" height="32" rx="3"/>
+  <text class="d-small" x="404" y="189" text-anchor="middle">转发 c1</text>
+  <rect class="d-box accent" x="456" y="168" width="72" height="32" rx="3"/>
+  <text class="d-small" x="492" y="189" text-anchor="middle">转发 c2</text>
+
+  
+  <path class="d-arrow muted dashed" d="M284 136 V166" marker-end="url(#s1-ahm)"/>
+  <path class="d-arrow muted dashed" d="M372 136 V166" marker-end="url(#s1-ahm)"/>
+  <path class="d-arrow muted dashed" d="M460 136 V166" marker-end="url(#s1-ahm)"/>
+  <text class="d-label" x="120" y="156">流上等 tail 信号</text>
+
+  
+  <rect class="d-box" x="380" y="232" width="160" height="32" rx="4"/>
+  <text class="d-small" x="460" y="253" text-anchor="middle">1 个 SM 的屏障内核</text>
+
+  
+  <path class="d-arrow muted" d="M120 284 H538" marker-end="url(#s1-ahm)"/>
+  <text class="d-label" x="120" y="300">时间（示意，不按比例）</text>
+</svg></div>
+  <figcaption id="fig-ag-hybrid-cap"><span class="fig-label">图 1</span><b>hybrid all-gather 的三层并行。</b>SM 内核发射 RDMA put 后退出；远端数据按 chunk 到达，CE 流上等待每个 chunk 的 tail 信号后逐 chunk 转发到 NVLink 域内对等 rank；最后由 <code>wait()</code> 里的屏障确认全部完成。示意，不按比例。</figcaption>
+</figure>
+
+<p>具体流程分三层（<a href="#fig-ag-hybrid">图 1</a>）：</p>
+<ol>
+  <li><b>SM 内核</b>：每个 RDMA 对等节点分配一个 CTA，每个 CTA 内 8 个 warp 分别绑定一个 QP（<code>kNumQPsPerChunk = 8</code>）。每个 warp 按 chunk 顺序把本 rank 的分片用 <code>gin.put</code> 推到对端，每推完一个 chunk 通过 <code>WeakVASignalInc</code> 递增远端的 tail 信号。所有 chunk 发完后 SM 内核退出。</li>
+  <li><b>CE 流</b>：先把本 rank 的分片推到 NVLink 域内每个对等 rank（与 SM 内核并行）。然后逐 chunk 等待 RDMA 到达（<code>copy_engine_wait</code> 检查 tail 信号是否达到阈值），再把到达的 chunk 转发到 NVLink 域内每个对等 rank。</li>
+  <li><b>屏障</b>：<code>wait()</code> 时启动一个 1-SM 的屏障内核确认所有数据到位。</li>
+</ol>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/all_gather/hybrid.cuh#L49-L79"><code>// Each warp is responsible for a QP
+if (sm_idx == rdma_rank_idx or warp_idx &gt;= kNumQPsPerChunk)
+    return;
+// ...
+// Issue in order: each QP sends its own part of every chunk and signals once per chunk
+if (ptx::elect_one_sync()) {
+    int chunk_idx = 0;
+    for (int bucket_idx = 0; bucket_idx &lt; num_buckets; ++ bucket_idx) {
+        const auto&amp; [bucket_offset, num_bucket_bytes] = buckets[bucket_idx];
+        const auto shard_ptr = math::advance_ptr(buffer, bucket_offset + rank_idx * num_bucket_bytes);
+// ...
+            // NOTES: always signal even if this QP has nothing to send, so that the CE waits stay uniform
+            const ncclGin_WeakVASignalInc remote_action {
+                .signalWindow = window,
+                .signalOffset = gin.get_sym_offset(signals.tails[warp_idx] + chunk_idx),
+            };
+            if (num_bytes &gt; 0) {
+                const auto ptr = math::advance_ptr(shard_ptr, chunk_offset + qp_offset);
+                gin.put&lt;ncclTeamTagRail&gt;(ptr, ptr, num_bytes, sm_idx, 0, remote_action);
+            } else {
+                gin.signal&lt;ncclTeamTagRail&gt;(sm_idx, remote_action);
+            }
+        }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/all_gather/hybrid.cuh#L49-L79"><code>deep_ep/include/deep_ep/impls/bucket/all_gather/hybrid.cuh</code> 第 49–79 行</a>（节选）</p>
+
+<h3 id="sec-3">chunk 数的自动选取</h3>
+
+<p>hybrid all-gather 把每个分片切成若干等大的 chunk。chunk 太少，CE 要等最慢的 RDMA 到达才能开始转发；chunk 太多，每个 chunk 带来 10 μs 的 CE 启动开销，且单个 QP 的数据量太小影响网卡效率（代码要求每个 chunk 至少 4 MiB）。源码用一个双项代价模型来选取最优 chunk 数：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/bucket/all_gather.hpp#L120-L142"><code>// Choose the number of chunks by estimating the single-stream CE timeline: the CE pushes the local shard, then
+// forwards each chunk wave (one chunk from every RDMA peer) once it lands, paying a launch gap per wave.
+// The chunk is floored so that each QP puts at least 512 KiB, where the NIC efficiency is stable
+constexpr int kNumMinChunkBytes = 4 * 1024 * 1024;
+const auto push_t = num_shard_bytes * (context.num_nvl_ranks - 1) / nvl_bandwidth;
+const auto rdma_t = num_shard_bytes * (context.num_rdma_ranks - 1) / rdma_bandwidth;
+const auto forward_t = push_t * (context.num_rdma_ranks - 1);
+int num_best_chunks = 1;
+float best_t = std::numeric_limits&lt;float&gt;::infinity();
+for (int i = 1; i &lt;= std::min&lt;int64_t&gt;(64, num_shard_bytes / kNumMinChunkBytes); ++ i) {
+    // CE-bound: forward all waves after the local push or the first wave; RDMA-bound: forward the last wave
+    // NOTES: `10e-6` is CE overhead
+    const auto t = std::max(std::max(push_t, rdma_t / i) + forward_t + i * (10e-6f), rdma_t + forward_t / i);
+    if (t &lt; best_t)
+        best_t = t, num_best_chunks = i;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/bucket/all_gather.hpp#L120-L142"><code>csrc/kernels/bucket/all_gather.hpp</code> 第 120–142 行</a>（节选）</p>
+
+<p>代价模型有两项，取较大者（<a href="#fig-chunks">图 2</a> 展示了一组示例参数下的代价曲线）：</p>
+<ul>
+  <li><b>CE 受限项</b>：CE 先完成本地推送或等第一波 RDMA 到达（取较大者），然后串行转发所有 chunk 波次，每波次一个 CE 启动开销。公式：\(\max(\text{push}_t,\;\text{rdma}_t / i) + \text{forward}_t + i \times 10\,\mu\text{s}\)。</li>
+  <li><b>RDMA 受限项</b>：RDMA 传完所有数据后，CE 只需转发最后一波。公式：\(\text{rdma}_t + \text{forward}_t / i\)。</li>
+</ul>
+
+<figure id="fig-chunks" data-kind="data" data-source="computed" data-script="plots/models.py">
+  <div class="fig-body"><svg aria-labelledby="fig-chunks-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 320" font-family="sans-serif" role="img" id="s2-root" style="max-width:560px;">
+  <style>#s2-root .d-small{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#4a4a4a}#s2-root .d-label{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#767676}</style>
+  
+  
+  <path d="M64 204 H536 M64 144 H536 M64 84 H536 M64 24 H536" style="fill:none;stroke:#e4e4e0;stroke-width:1"/>
+  <path d="M64 264 H536" style="fill:none;stroke:#8c8c8c;stroke-width:1"/>
+  <text class="d-label" x="56" y="268" text-anchor="end">4</text>
+  <text class="d-label" x="56" y="208" text-anchor="end">5</text>
+  <text class="d-label" x="56" y="148" text-anchor="end">6</text>
+  <text class="d-label" x="56" y="88" text-anchor="end">7</text>
+  <text class="d-label" x="56" y="28" text-anchor="end">8</text>
+  <text class="d-small" x="22" y="144" text-anchor="middle" transform="rotate(-90 22 144)">模型时间 t（ms，非实测）</text>
+  <path d="M80 264 V269 M167 264 V269 M283 264 V269 M399 264 V269 M515 264 V269" style="fill:none;stroke:#8c8c8c;stroke-width:1"/>
+  <text class="d-label" x="80" y="284" text-anchor="middle">1</text>
+  <text class="d-label" x="167" y="284" text-anchor="middle">4</text>
+  <text class="d-label" x="283" y="284" text-anchor="middle">8</text>
+  <text class="d-label" x="399" y="284" text-anchor="middle">12</text>
+  <text class="d-label" x="515" y="284" text-anchor="middle">16</text>
+  <text class="d-small" x="300" y="308" text-anchor="middle">chunk 数 i</text>
+
+  
+  <polyline points="80,50.41 109,170.61 138,210.28 167,219.74 196,219.14 225,218.54 254,217.94 283,217.34 312,216.74 341,216.14 370,215.54 399,214.94 428,214.34 457,213.74 486,213.14 515,212.54" style="fill:none;stroke:#0072B2;stroke-width:1.3;stroke-dasharray:5 3"/>
+  
+  <polyline points="80,51.01 109,156.71 138,191.94 167,209.56 196,220.13 225,227.18 254,232.21 283,235.98 312,238.92 341,241.27 370,243.19 399,244.79 428,246.15 457,247.31 486,248.32 515,249.20" style="fill:none;stroke:#009E73;stroke-width:1.3;stroke-dasharray:2 3"/>
+  
+  <polyline points="80,50.41 109,156.71 138,191.94 167,209.56 196,219.14 225,218.54 254,217.94 283,217.34 312,216.74 341,216.14 370,215.54 399,214.94 428,214.34 457,213.74 486,213.14 515,212.54" style="fill:none;stroke:#D55E00;stroke-width:2.2"/>
+  <circle cx="196" cy="219.14" r="5" style="fill:#D55E00"/>
+  <text class="d-small" x="206" y="198" style="fill:#b34f00">取最小：i = 5</text>
+
+  <text class="d-small" x="520" y="202" text-anchor="end" style="fill:#0072B2">CE 受限项</text>
+  <text class="d-small" x="520" y="238" text-anchor="end" style="fill:#009E73">RDMA 受限项</text>
+  <text class="d-label" x="72" y="40">实线：两项的较大者，即模型估计的总时间</text>
+</svg></div>
+  <figcaption id="fig-chunks-cap"><span class="fig-label">图 2</span><b>chunk 数的两项代价在 <i>i</i> = 5 处平衡。</b>示例参数：64 MiB 分片、8 NVLink rank、4 RDMA rank、NVLink 400 GB/s、RDMA 50 GB/s。模型时间是代码自带的代价函数，非实测。由 <code>plots/models.py</code> 按 <code>csrc/kernels/bucket/all_gather.hpp</code> 的公式计算。</figcaption>
+</figure>
+
+<h3 id="sec-4">纯 RDMA 路径</h3>
+
+<p>当 NVLink 域只有一个 rank 时（<code>num_nvl_ranks == 1</code>），用 SM 协作内核完成 all-gather：所有 SM 做入口屏障确认本地分片就位，然后每个 warp 负责一批目标 rank，用 <code>gin.put</code> 推送。这是 all-gather 中唯一需要多个 SM 的路径，但 SM 只做发射，不做计算。</p>
+
+<h2 id="sec-multimem" data-short="multimem 归约">NVLink multimem 归约：一条指令读八张卡</h2>
+
+<p>reduce-scatter 和 all-reduce 的核心计算是归约（求和），而 BucketBuffer 在 NVLink 域内的归约方式与 NCCL 的 ring / tree 算法截然不同：它使用 NVIDIA NVSwitch 的<b>多播归约读（multicast reduction load）</b><span class="cite">[<a href="#ref-ptxisa" title="NVIDIA. (2025). PTX ISA Reference. NVIDIA CUDA Toolkit Documentation.">2</a>]</span>——<code>ptx::multimem_ld_reduce_add_f32</code>。</p>
+
+<figure id="fig-multimem" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-multimem-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 292" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <style>#s3-root .d-box{fill:#fff;stroke:#1a1a1a;stroke-width:1.25}#s3-root .d-box.soft{fill:#f2f2f0;stroke:#b8b8b4}#s3-root .d-box.blue{fill:#e8f1f8;stroke:#0072B2}#s3-root .d-box.accent{fill:#fcefe6;stroke:#D55E00;stroke-width:1.5}#s3-root .d-arrow{fill:none;stroke:#1a1a1a;stroke-width:1.25}#s3-root .d-arrow.accent{stroke:#D55E00;stroke-width:1.5}#s3-root .d-head{fill:#1a1a1a}#s3-root .d-head.accent{fill:#D55E00}#s3-root .d-title{font-family:Inter,"PingFang SC",sans-serif;font-size:14px;font-weight:600;fill:#1a1a1a}#s3-root .d-small{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#4a4a4a}#s3-root .d-label{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#767676}#s3-root .d-accent-text{fill:#b34f00}</style>
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-title" x="16" y="24">rank 1 执行 multimem.ld_reduce（shard 1 的多播地址）</text>
+  <text class="d-label" x="16" y="46">一条指令读取 NVLink 域内每张卡同一偏移处的数据，求和后返回给发起者</text>
+
+  
+  <rect class="d-box blue" x="40" y="88" width="480" height="36" rx="4"/>
+  <text class="d-small" x="280" y="111" text-anchor="middle">NVLink 多播对象（DeepEP 中为 buffer_multimem）</text>
+
+  
+  <rect class="d-box" x="40" y="164" width="96" height="72" rx="4"/>
+  <text class="d-small" x="88" y="183" text-anchor="middle">rank 0</text>
+  <rect class="d-box blue" x="52" y="194" width="72" height="30" rx="3"/>
+  <text class="d-label" x="88" y="214" text-anchor="middle">shard 1</text>
+
+  <rect class="d-box" x="168" y="164" width="96" height="72" rx="4"/>
+  <text class="d-small" x="216" y="183" text-anchor="middle">rank 1</text>
+  <rect class="d-box accent" x="180" y="194" width="72" height="30" rx="3"/>
+  <text class="d-label d-accent-text" x="216" y="214" text-anchor="middle">shard 1</text>
+
+  <rect class="d-box" x="296" y="164" width="96" height="72" rx="4"/>
+  <text class="d-small" x="344" y="183" text-anchor="middle">rank 2</text>
+  <rect class="d-box blue" x="308" y="194" width="72" height="30" rx="3"/>
+  <text class="d-label" x="344" y="214" text-anchor="middle">shard 1</text>
+
+  <rect class="d-box" x="424" y="164" width="96" height="72" rx="4"/>
+  <text class="d-small" x="472" y="183" text-anchor="middle">rank 3</text>
+  <rect class="d-box blue" x="436" y="194" width="72" height="30" rx="3"/>
+  <text class="d-label" x="472" y="214" text-anchor="middle">shard 1</text>
+
+  
+  <path class="d-arrow" d="M74 164 V126" marker-end="url(#s3-ah)"/>
+  <path class="d-arrow" d="M202 164 V126" marker-end="url(#s3-ah)"/>
+  <path class="d-arrow" d="M330 164 V126" marker-end="url(#s3-ah)"/>
+  <path class="d-arrow" d="M458 164 V126" marker-end="url(#s3-ah)"/>
+  
+  <path class="d-arrow accent" d="M230 124 V162" marker-end="url(#s3-aha)"/>
+  <text class="d-small d-accent-text" x="240" y="149">Σ</text>
+
+  <text class="d-small" x="16" y="262">reduce-scatter：每个 rank 只算自己那一片，结果 st 到本地</text>
+  <text class="d-small" x="16" y="284">all-reduce：同样读，但用 multimem.st 把结果写回每张卡</text>
+</svg></div>
+  <figcaption id="fig-multimem-cap"><span class="fig-label">图 3</span><b>multimem 归约的工作原理。</b>rank 1 发起一条 <code>multimem.ld_reduce</code> 指令，NVSwitch 从域内每张卡的同一偏移读取数据并求和，把结果返回给发起者。reduce-scatter 用普通 <code>st</code> 写回本地；all-reduce 用 <code>multimem.st</code> 写回每张卡。</figcaption>
+</figure>
+
+<p><a href="#fig-multimem">图 3</a> 画出了这一过程。指令的前提是缓冲区注册了 NCCL 的多播对象（<code>buffer_multimem</code>），它把每张卡上同一偏移映射到同一个多播地址。发起者读这个多播地址时，NVSwitch 自动从每张卡取数据、做 FP32 加法、把和返回。整个域内归约只需一次读+一次写，而不是 \(N-1\) 步的 ring。这种硬件加速归约的延迟优势在小消息场景下最为显著：ring 算法的延迟正比于 \(N-1\)（步数），而 multimem 归约的延迟与参与 rank 数无关——NVSwitch 在一跳内完成所有卡的数据聚合。对于 8 卡 NVLink 域，ring 需要 7 步，而 multimem 只需 1 步。当然，multimem 的前提条件更严格：它要求所有参与缓冲区在对称内存中注册，且 NVSwitch 必须支持多播归约（第三代 NVSwitch 以上）。</p>
+
+<h2 id="sec-rs" data-short="reduce-scatter">reduce-scatter：从 multimem 到 RDMA ring</h2>
+
+<p>reduce-scatter 的语义是：每个 rank 持有完整数据的一份副本，归约后每个 rank 只留下自己负责的那个分片。BucketBuffer 按拓扑分三条路径。</p>
+
+<h3 id="sec-5">纯 NVLink 路径</h3>
+
+<p>最直接的用法：屏障确认数据就位后，每个 SM 读 <code>buffer_multimem</code> 上自己分片偏移处的数据——<code>multimem_ld_reduce_add_f32</code> 一条指令完成域内求和——写回本地缓冲。代码只需一个简洁的 <code>iterate_ld_st</code> 循环：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/reduce_scatter/nvlink.cuh#L36-L56"><code>for (int bucket_idx = 0; bucket_idx &lt; num_buckets; ++ bucket_idx) {
+    const auto&amp; bucket = buckets[bucket_idx];
+    const auto src_offset = bucket.offset + rank_idx * bucket.num_bytes;
+    const auto src = math::advance_ptr&lt;const float4&gt;(buffer_multimem, src_offset);
+    const auto dst = math::advance_ptr&lt;float4&gt;(buffer, src_offset);
+
+    // TODO: merge iterations between buckets
+    utils::iterate_ld_st&lt;kNumSMs, kNumThreads, 8&gt;(
+        global_thread_idx,
+        bucket.get_num_elems&lt;float4&gt;(),
+        src, dst,
+        [](const float4* src_ptr, const int&amp; lhs = 1, const int&amp; rhs = 0) { return ptx::multimem_ld_reduce_add_f32_with_gt_pred(src_ptr, lhs, rhs); },
+        [](float4* dst_ptr, const float4&amp; value, const int&amp; lhs = 1, const int&amp; rhs = 0) { ptx::st_with_gt_pred(dst_ptr, value, lhs, rhs); },
+        [&amp;](const float4&amp; v) { return kWithScale ? ptx::fmul4(v, scale) : v; });
+}
+// ...
+// Ensure no overlapping writes
+comm::gpu_barrier&lt;true, 1, kNumRanks,
+                  kNumSMs, kNumThreads, 1,
+                  kNumTimeoutCycles, comm::kKernelBarrierTag, true, true, false&gt;(
+    gin, barrier_signals, 0, rank_idx, sm_idx, thread_idx);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/reduce_scatter/nvlink.cuh#L36-L56"><code>deep_ep/include/deep_ep/impls/bucket/reduce_scatter/nvlink.cuh</code> 第 36–56 行</a>（节选）</p>
+
+<p>入口屏障确保所有 rank 的数据已就位，出口屏障确保归约完成后才允许后续操作覆盖数据。</p>
+
+<h3 id="sec-6">hybrid 路径：multimem + RDMA ring 的三阶段流水线</h3>
+
+<aside class="sidenote">hybrid reduce-scatter 的 chunk 大小固定为 32 KiB（<code>kNumChunkBytes = 32 * 1024</code>），不像 all-gather 的 chunk 大小需要动态计算。</aside>
+<p>当拓扑同时包含 NVLink 和 RDMA 时，hybrid reduce-scatter 在每个 SM 内启动三组不同角色的 warp，组成一条三阶段流水线（<a href="#fig-hybrid-rs">图 4</a>）：</p>
+
+<figure id="fig-hybrid-rs" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-hybrid-rs-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 304" font-family="sans-serif" role="img" id="s4-root" style="max-width:560px;">
+  <style>#s4-root .d-box{fill:#fff;stroke:#1a1a1a;stroke-width:1.25}#s4-root .d-box.blue{fill:#e8f1f8;stroke:#0072B2}#s4-root .d-box.accent{fill:#fcefe6;stroke:#D55E00;stroke-width:1.5}#s4-root .d-box.green{fill:#e5f4ee;stroke:#009E73}#s4-root .d-arrow{fill:none;stroke:#1a1a1a;stroke-width:1.25}#s4-root .d-arrow.muted{stroke:#a8a8a4}#s4-root .d-arrow.dashed{stroke-dasharray:5 4}#s4-root .d-head{fill:#1a1a1a}#s4-root .d-head.muted{fill:#a8a8a4}#s4-root .d-title{font-family:Inter,"PingFang SC",sans-serif;font-size:14px;font-weight:600;fill:#1a1a1a}#s4-root .d-small{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#4a4a4a}#s4-root .d-label{font-family:Inter,"PingFang SC",sans-serif;font-size:13px;fill:#767676}</style>
+  <defs>
+    <marker id="s4-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s4-ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head muted"/>
+    </marker>
+  </defs>
+
+  
+  <rect class="d-box accent" x="40" y="16" width="504" height="64" rx="4"/>
+  <text class="d-title" x="56" y="42">① 节点内归约 · 8 个 multimem warp</text>
+  <text class="d-small" x="56" y="66">对每个目标节点 d：把发往第 j 号卡的分片在本节点内求和，写回本地缓冲</text>
+  <path class="d-arrow" d="M280 80 V110" marker-end="url(#s4-ah)"/>
+  <text class="d-label" x="292" y="100">named barrier：本组归约完成</text>
+
+  
+  <rect class="d-box green" x="40" y="112" width="504" height="64" rx="4"/>
+  <text class="d-title" x="56" y="138">② 沿 rail 发 RDMA · 每组 1 个 issue warp</text>
+  <text class="d-small" x="56" y="162">等 head 信用 → put 到节点 d 第 j 号卡的环形槽 → 对端 tail 加 1</text>
+  <path class="d-arrow" d="M280 176 V206" marker-end="url(#s4-ah)"/>
+  <text class="d-label" x="292" y="196">tail 达到本代目标</text>
+
+  
+  <rect class="d-box blue" x="40" y="208" width="504" height="80" rx="4"/>
+  <text class="d-title" x="56" y="234">③ 接收端累加 · 2 个 reduce warp（各 64 KiB smem）</text>
+  <text class="d-small" x="56" y="257">按节点循环顺序等 tail，用 TMA 把收到的块读入共享内存</text>
+  <text class="d-small" x="56" y="278">cp.reduce.async.bulk 加到输出分片，再给发送方回 head 信用</text>
+
+  
+  <path class="d-arrow muted dashed" d="M40 248 H24 V144 H38" marker-end="url(#s4-ahm)"/>
+</svg></div>
+  <figcaption id="fig-hybrid-rs-cap"><span class="fig-label">图 4</span><b>hybrid reduce-scatter 的三阶段流水线。</b>① multimem warp 做节点内归约；② issue warp 沿 rail 发 RDMA put 到对端的环形槽位；③ reduce warp 用 TMA 把收到的 chunk 累加到输出分片。虚线箭头表示 head 信用回路。</figcaption>
+</figure>
+
+<ol>
+  <li><b>阶段 ① · multimem warp（8 个 warp，分 2 组，每组 4 个）</b>：对每个目标 RDMA 节点的每个目标 NVLink rank，在本节点内做 multimem 归约——把发往该 rank 的分片在本节点各卡上的副本求和，写回本地缓冲。这一步的输出是“每个 RDMA 目标节点的分片”的节点内归约结果。</li>
+  <li><b>阶段 ② · issue warp（每个 multimem 组配 1 个）</b>：等 named barrier 收到 multimem 组的完成通知后，用 <code>gin.put</code> 把归约后的 chunk 推到目标 RDMA 节点的环形槽位（<code>ChunkView2D</code>），并用 <code>StrongVASignalAdd</code> 递增对端的 tail 计数。发送前先检查 head 信用——如果槽位还没被消费就等，防止覆盖未读数据。</li>
+  <li><b>阶段 ③ · reduce warp（2 个，各 64 KiB 共享内存）</b>：等 tail 达到目标值后，用 TMA 把到达的 chunk 从临时存储读入共享内存，再通过 <code>tma_store_reduce_add_f32</code>（即 <code>cp.reduce.async.bulk</code>）加到本地输出分片上。消费完毕后给发送方回 head 信用（via <code>gin.signal</code>）。</li>
+</ol>
+
+<p>环形信用机制保证了流水线的正确性：tail 表示已到达的 chunk 数，head 表示已消费的 chunk 数。发送方在 head 达标前不会写入同一个槽位，接收方在 tail 达标前不会读取。槽位数由 <code>ChunkStorage::kNumBytes / kNumChunkBytes / kNumRDMARanks</code> 决定，固定为 256 MiB 除以每 chunk 32 KiB 除以 RDMA rank 数。</p>
+
+<h3 id="sec-7">纯 RDMA 路径</h3>
+
+<p>当 NVLink 域只有一个 rank 时，没有 multimem 归约。内核直接分成 issue warp 和 reduce warp 两组：issue warp 把本 rank 数据的每个 chunk 推到所有对端，reduce warp 从所有对端接收并累加。流水线结构与 hybrid 的后两阶段相同，只是少了 multimem 阶段。</p>
+
+<h2 id="sec-ar" data-short="all-reduce">all-reduce：归约加广播</h2>
+
+<p>all-reduce 的语义是每个 rank 持有同样大小的数据副本，归约后每个 rank 都拿到完整的归约结果。BucketBuffer 同样分三条路径实现。</p>
+
+<h3 id="sec-8">纯 NVLink 路径</h3>
+
+<p>与 reduce-scatter 不同的是写回方式：reduce-scatter 用 <code>st</code> 写本地，all-reduce 用 <code>multimem.st</code> 把结果写回每张卡。效果是一步读聚合（multimem_ld_reduce）+ 一步写广播（multimem_st），每个 rank 只处理自己负责的那个分片：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/all_reduce/nvlink.cuh#L36-L57"><code>for (int bucket_idx = 0; bucket_idx &lt; num_buckets; ++ bucket_idx) {
+    // NOTES: the bucket covers the full tensor, each rank owns one shard of it
+    const auto&amp; bucket = buckets[bucket_idx];
+    const auto num_shard_bytes = bucket.num_bytes / kNumRanks;
+    const auto shard_offset = bucket.offset + rank_idx * num_shard_bytes;
+    const auto ptr = math::advance_ptr&lt;float4&gt;(buffer_multimem, shard_offset);
+
+    // TODO: merge iterations between buckets
+    utils::iterate_ld_st&lt;kNumSMs, kNumThreads, 8&gt;(
+        global_thread_idx,
+        num_shard_bytes / static_cast&lt;int64_t&gt;(sizeof(float4)),
+        ptr, ptr,
+        [](const float4* src, const int&amp; lhs = 1, const int&amp; rhs = 0) { return ptx::multimem_ld_reduce_add_f32_with_gt_pred(src, lhs, rhs); },
+        [](float4* dst, const float4&amp; value, const int&amp; lhs = 1, const int&amp; rhs = 0) { ptx::multimem_st_f32_with_gt_pred(dst, value, lhs, rhs); },
+        [&amp;](const float4&amp; v) { return kWithScale ? ptx::fmul4(v, scale) : v; });
+}
+// ...
+// Ensure no overlapping writes
+comm::gpu_barrier&lt;true, 1, kNumRanks,
+                  kNumSMs, kNumThreads, 1,
+                  kNumTimeoutCycles, comm::kKernelBarrierTag, true, true, false&gt;(
+    gin, barrier_signals, 0, rank_idx, sm_idx, thread_idx);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/bucket/all_reduce/nvlink.cuh#L36-L57"><code>deep_ep/include/deep_ep/impls/bucket/all_reduce/nvlink.cuh</code> 第 36–57 行</a>（节选）</p>
+
+<h3 id="sec-9">hybrid 路径：四种 warp 角色</h3>
+
+<p>hybrid all-reduce 是最复杂的路径，在一个 SM 内核里同时运行四种 warp 角色，实现 reduce-scatter + all-gather 的融合：</p>
+<ol>
+  <li><b>multimem warp</b>：做节点内 multimem 归约（与 reduce-scatter 相同）。</li>
+  <li><b>RS issue warp</b>：把归约后的 chunk 沿 rail 发 RDMA put，完成跨节点的 reduce-scatter 阶段。</li>
+  <li><b>reduce warp</b>：接收远端 chunk 并累加，完成归约。</li>
+  <li><b>broadcast warp</b>：归约完成后，用 <code>multimem.st</code>（通过 TMA 的 <code>multimem_cp_async_bulk</code>）把结果广播回所有 RDMA 节点，完成 all-gather 阶段。</li>
+</ol>
+
+<p>这四组 warp 通过 named barrier 和 tail/head 信号流水线协作。broadcast warp 的数量随 RDMA rank 数扩展（<code>kNumBroadcastWarps = align(issue_warps + reduce_warps + ceil_div(rdma_ranks, 32), 4) - issue_warps - reduce_warps</code>），以保证有足够的 lane 覆盖所有远端 rank。</p>
+
+<h3 id="sec-10">纯 RDMA 路径</h3>
+
+<p>类似 reduce-scatter 的纯 RDMA 路径：issue warp 和 reduce warp 两组协作。与 reduce-scatter 不同的是，all-reduce 的 reduce warp 在累加完所有远端 chunk 后还需要把结果广播回所有远端——这一步通过 reduce warp 自身的 put 完成。</p>
+
+<h2 id="sec-session" data-short="session">session：为未注册张量打开一扇门</h2>
+
+<p>BucketBuffer 要求输入张量位于注册的对称缓冲区内。这个限制在实际使用中不方便——用户可能有分散在不同位置的张量需要做集合通信。<code>BucketSession</code> 就是为此设计的上下文管理器。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L19-L42"><code>class BucketSession:
+    """A session in which collective methods can accept unregistered tensors"""
+
+    def __init__(self, buffer: 'BucketBuffer'):
+        self.buffer = buffer
+# ...
+    def __enter__(self) -&gt; 'BucketSession':
+        # NOTES: Users must ensure themselves all the allocated bytes in the buffer can be
+        # safely reused before entering this session.
+        assert not any(name in self.buffer.__dict__ for name in self.collective_methods), \
+            'Nested sessions are not supported'
+        self.num_allocated_bytes = 0
+        self.context_idx = None
+        for name in self.collective_methods:
+            method = partial(self._collective_func, name)
+            setattr(self.buffer, name, method)
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -&gt; None:
+        for name in self.collective_methods:</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L19-L42"><code>deep_ep/buffers/bucket.py</code> 第 19–42 行</a>（节选）</p>
+
+<p>进入 session 时，它把 <code>BucketBuffer</code> 的 <code>all_gather</code>、<code>reduce_scatter</code>、<code>all_reduce</code> 三个方法替换成包装版本（<code>_collective_func</code>）。包装版本的工作是：</p>
+<ol>
+  <li>检查输入张量是否已在缓冲区内；如果不在，从缓冲区的空闲空间分配一块，把数据拷贝过去。</li>
+  <li>调用原始的集合操作。</li>
+  <li>如果输出位置与缓冲区内的目标不同，在 <code>wait()</code> 的 hook 里把结果拷回。</li>
+</ol>
+
+<p>session 还提供 <code>allocate()</code> 方法，让用户直接在缓冲区内分配张量：</p>
+
+<pre><code>with buffer.session() as session:
+    # 在缓冲区内分配，已注册
+    x = session.allocate((num_ranks, hidden), group=group)
+    x[rank_idx].copy_(my_shard)
+    result = buffer.all_gather(x[rank_idx], group=group).wait()</code></pre>
+
+<p>有一个特殊情况：纯 NVLink 的 all-gather 支持 out-of-buffer 输入（<code>accept_unregistered_src = True</code>），因为 CE 可以从任意 CUDA 地址做 push。此时 session 跳过拷贝，直接传原始张量。session 的拷贝开销取决于张量大小和 HBM 带宽：对于 1 GiB 的权重张量，一次 D2D 拷贝在 H800 上约需 0.5 毫秒（HBM 带宽约 2 TB/s）。在训练中每步都做多次集合通信的场景下，这个额外拷贝可能积少成多。因此，对于频繁参与集合通信的张量，建议直接在 BucketBuffer 的对称存储中分配（通过 <code>session.allocate()</code>），避免反复拷贝。</p>
+
+<h2 id="sec-bf16" data-short="BF16 通信">BF16 通信精度</h2>
+
+<p><code>reduce_scatter</code> 接受 <code>comm_precision="bf16"</code> 参数，但仅限纯 RDMA 路径（<code>num_rdma_ranks &gt; 1 and num_nvl_ranks == 1</code>）。启用后，内核增加了 cast warp：</p>
+<ul>
+  <li>发送端的 cast warp 把 FP32 数据转成 BF16 后再发 RDMA，通信量减半。</li>
+  <li>接收端的 reduce warp 收到 BF16 数据后转回 FP32 再累加。</li>
+</ul>
+
+<p>在 reduce-scatter launcher 中，BF16 路径的 chunk 大小加倍（<code>kNumCommBytesPerChunk</code> 是通信字节数，<code>kNumBytesPerChunk = 2 * kNumCommBytesPerChunk</code>），因为同样数量的 FP32 元素在 BF16 下只占一半通信带宽。</p>
+
+<p>为什么只有 RDMA-only reduce-scatter 支持 BF16？multimem 归约在硬件层面只支持 FP32 加法（<code>multimem_ld_reduce_add_f32</code>），所以涉及 NVLink multimem 的路径无法降到 BF16。all-reduce 没有 BF16 变体——源码中的断言 <code>(comm_precision != "bf16" or (num_rdma_ranks &gt; 1 and num_nvl_ranks == 1))</code> 明确了这一限制。</p>
+
+<h2 id="sec-sms" data-short="SM 估算">SM 使用量的解析估算</h2>
+
+<p><code>get_theoretical_num_sms</code> 根据操作类型和拓扑，用 NVLink / RDMA / HBM 带宽计算所需 SM 数。核心思路是：SM 归约的瓶颈在 HBM 读写带宽，需要的 SM 数等于“目标归约带宽 ÷ 每 SM 读（或写）带宽”的上取整。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L236-L293"><code>def get_theoretical_num_sms(self, op: str, group: Optional[dist.ProcessGroup] = None) -&gt; int:
+    context_idx = self.get_context_idx(group)
+    context = self.contexts[context_idx]
+    num_rdma_ranks, num_nvl_ranks = context.get_physical_domain_size()
+
+    if op == 'reduce_scatter':
+        # NVLink
+        if num_rdma_ranks == 1 and num_nvl_ranks &gt; 1:
+            dst_gbs = get_nvlink_gbs() / num_nvl_ranks
+            num_sms = max(dst_gbs / get_sm_read_gbs(), dst_gbs / get_sm_write_gbs())
+            return align(max(6, math.ceil(num_sms)), 2)
+# ...
+        # Hybrid
+        if num_nvl_ranks &gt; 1 and num_rdma_ranks &gt; 1:
+            dst_gbs = min(get_nvlink_gbs() / num_nvl_ranks,
+                          get_rdma_gbs() * num_rdma_ranks / (num_rdma_ranks - 1))
+            # Multimem and local reduction each require one read and one write.
+            num_sms = max(2 * dst_gbs / get_sm_read_gbs(),
+                          2 * dst_gbs / get_sm_write_gbs())
+            return align(max(8, math.ceil(num_sms * 1.2)), 2)
+# ...
+    if op == 'all_reduce':
+        # Hybrid
+        if num_rdma_ranks &gt; 1 and num_nvl_ranks &gt; 1:
+            dst_gbs = min(get_nvlink_gbs() / num_nvl_ranks,
+                          get_rdma_gbs() * num_rdma_ranks / (2 * (num_rdma_ranks - 1)))
+            # Multimem reduction, RDMA reduction and broadcast each require one read and one write.
+            num_sms = max(3 * dst_gbs / get_sm_read_gbs(),
+                          3 * dst_gbs / get_sm_write_gbs())
+            return align(max(6, math.ceil(num_sms)), 2)
+# ...
+
+    if op == 'all_gather':
+        return 0
+
+    raise NotImplementedError</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/bucket.py#L236-L293"><code>deep_ep/buffers/bucket.py</code> 第 236–293 行</a>（节选）</p>
+
+<p>关键观察：</p>
+<ul>
+  <li><b>all-gather 恒返回 0</b>——不需要 SM 做计算，CE 就够了。</li>
+  <li>reduce-scatter NVLink：目标带宽 = NVLink 带宽 / rank 数，SM 数由读或写的较大者决定。</li>
+  <li>reduce-scatter hybrid：因为同时做 multimem 归约和本地归约，读写量翻倍（<code>2 * dst_gbs</code>），再乘 1.2 的余量。</li>
+  <li>all-reduce hybrid：比 reduce-scatter 多一步广播写回（<code>3 * dst_gbs</code>），目标带宽的分母也翻倍。</li>
+</ul>
+
+<figure id="tab-bsm" class="table" data-source="computed" data-script="plots/models.py">
+  <figcaption id="tab-bsm-cap"><span class="fig-label">表 1</span><b>各操作在不同拓扑下的估算 SM 数。</b>带宽参数：NVLink 400 GB/s、RDMA 50 GB/s、每 SM 读 180 GB/s、写 45 GB/s（代码默认值）。由 <code>plots/models.py</code> 按 <code>get_theoretical_num_sms</code> 公式计算，非实测。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>操作</th><th class="num">RDMA rank</th><th class="num">NVLink rank</th><th class="num">SM 数</th></tr></thead>
+    <tbody>
+      <tr class="ours"><td>all-gather</td><td class="num">any</td><td class="num">any</td><td class="num"><strong>0</strong></td></tr>
+      <tr><td>reduce-scatter</td><td class="num">1</td><td class="num">8</td><td class="num">6</td></tr>
+      <tr><td>reduce-scatter</td><td class="num">2</td><td class="num">8</td><td class="num">8</td></tr>
+      <tr><td>reduce-scatter</td><td class="num">2</td><td class="num">1</td><td class="num">6</td></tr>
+      <tr><td>all-reduce</td><td class="num">1</td><td class="num">8</td><td class="num">4</td></tr>
+      <tr><td>all-reduce</td><td class="num">2</td><td class="num">8</td><td class="num">6</td></tr>
+      <tr><td>all-reduce</td><td class="num">2</td><td class="num">1</td><td class="num">6</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p><a href="#tab-bsm">表 1</a> 列出了各操作在不同拓扑下的估算 SM 数。这些数字远低于典型 GPU 的 SM 总数（如 H800 的 132 个）。与 NCCL 的集合通信相比，BucketBuffer 把绝大多数 SM 留给了计算内核。值得注意的是，该估算模型做了几处保守简化：带宽参数用的是 NVLink 和 RDMA 的理论峰值而非实测值，且没有考虑片上缓存命中对有效带宽的提升。因此实际所需 SM 数可能更少，这里的结果是一个安全的上界。</p>
+
+<p>SM 估算公式的另一个隐含假设是所有 SM 的利用率相同。但在 hybrid reduce-scatter 中，multimem warp、issue warp 和 reduce warp 三种角色的负载并不均衡——multimem 归约受限于 NVSwitch 吞吐，issue warp 受限于 RDMA 延迟，reduce warp 受限于 TMA 写带宽。当某一阶段成为瓶颈时，其余 warp 会处于等待状态。代码通过在 SM 估算中取读写带宽的较大者（<code>max(read_sms, write_sms)</code>），并乘以 1.2 的余量系数来部分补偿这种不均衡。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>数据类型</b>：源码中所有集合操作的输入只支持 FP32（<code>torch::kFloat</code>）。BF16 仅限 RDMA-only reduce-scatter 的通信路径。</li>
+  <li><b>缓冲区限制</b>：输入张量必须位于 BucketBuffer 的对称存储内（session 减轻了这一限制，但增加一次拷贝）。</li>
+  <li><b>ChunkStorage 固定 256 MiB</b>：hybrid 路径的环形槽位从这块空间分配，可能限制大规模通信的并发度。</li>
+  <li><b>带宽参数</b>：<code>get_theoretical_num_sms</code> 使用的 NVLink / RDMA 带宽来自环境变量（<code>envs.py</code>），是估计值而非实时测量。</li>
+  <li><b>本文未覆盖的内容</b>：
+    <ul>
+      <li>BucketBuffer 的 <code>barrier</code> 方法和 <code>BufferAllocator</code> 的分配计划。</li>
+      <li><code>EventOverlap</code> 的 hook 机制与计算-通信重叠的具体用法。</li>
+      <li>hybrid all-reduce 的 broadcast warp 内部实现细节。</li>
+      <li>本文没有任何实测性能数字——本地无 GPU。</li>
+    </ul>
+  </li>
+  <li><b>关于 multimem</b>：<code>multimem_ld_reduce_add_f32</code> 只支持 FP32 加法。如果 NVSwitch 未来支持 BF16 multimem，NVLink 路径的 reduce-scatter 和 all-reduce 可能也能降到 BF16——但这是推测，当前源码中没有相关实现。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../ep06-analytic-config/ep06-analytic-config.html">不调参：拓扑探测、SM/QP 公式与 DeepJIT</a>
+  ｜ 下一篇：<a href="../ep08-lb-engram-pp/ep08-lb-engram-pp.html">冗余专家、Engram 与 PP</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-deepepv2">DeepSeek-AI. (2025). <a href="https://github.com/deepseek-ai/DeepEP">DeepEP: an efficient expert-parallel communication library</a>. GitHub.</li>
+  <li id="ref-ptxisa">NVIDIA. (2025). <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA Reference</a>. NVIDIA CUDA Toolkit Documentation.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">deepseek-ai/DeepEP@f6aa38f</a>。本地没有 GPU，文中没有任何实测性能数字。chunk 数代价模型图由 <code>plots/models.py</code> 按源码公式计算（代入示例参数 NVLink 400 GB/s、RDMA 50 GB/s，非实测）；SM 估算表同样由该脚本按 <code>get_theoretical_num_sms</code> 的公式计算。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

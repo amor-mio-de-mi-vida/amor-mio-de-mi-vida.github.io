@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>combine：BF16 归约、bias 与归约尾声</title>
+<meta name="description" content="DeepEP 精读第 3 篇：combine 内核如何把 MoE 专家计算后的 BF16 结果送回源 rank，用 BF16 直加快路径或 FP32 累加通用路径做归约，并在归约尾声中融合 bias 加法。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 3 篇</div>
+  <h1>combine：BF16 归约、<br>bias 与<span class="nobr">归约尾声</span></h1>
+  <p class="subtitle">MoE 专家计算后，combine 内核有三种发送模式把结果送回源 rank；归约核心在 BF16 直加快路径和 FP32 累加通用路径间运行时切换；归约尾声通过 PDL 接力，对每个原始 token 去重、归约、融合 bias 后写出最终输出。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 12 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-overview">combine 在 MoE 流水线中的角色</a><li><a href="#sec-flow">combine_impl 的三种发送模式</a><ol><li><a href="#sec-1">模式一：不归约（单槽位）</a></li><li><a href="#sec-2">模式二：本地归约</a></li><li><a href="#sec-3">模式三：展开全发（expanded send）</a></li><li><a href="#sec-4">rank 布局 vs topk 布局</a></li></ol><li><a href="#sec-reduce">combine_reduce 的双路径归约</a><ol><li><a href="#sec-5">BF16 直加快路径（hadd bypass）</a></li><li><a href="#sec-6">FP32 累加路径</a></li><li><a href="#sec-7">向量类型选择</a></li></ol><li><a href="#sec-bf16">为什么 combine 只走 BF16</a><li><a href="#sec-bias">在归约中插入 bias</a><li><a href="#sec-epilogue">combine_reduce_epilogue：去重、归约与输出</a><ol><li><a href="#sec-8">去重键选择</a></li><li><a href="#sec-9">归约与输出</a></li></ol><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>combine 是 dispatch 的逆操作：读取 dispatch 时保存的 metadata，把 MoE 计算后的 BF16 结果送回源 rank 并归约——token 记录只包含 hidden 和 topk_weights，不携带缩放因子。</li>
+    <li>归约核心 <code>combine_reduce</code> 有两条路径：当无 bias 且有效 top-k 槽位不超过 2 时，用 <code>nv_bfloat162</code> 直接相加（快路径）；否则走 FP32 累加再转回 BF16（通用路径）。</li>
+    <li>combine 只接受 BF16 输入——这不是偶然限制，而是因为 MoE 专家的输出精度是 BF16，combine 通路不需要搬运 FP8 缩放因子。</li>
+    <li>归约尾声通过 PDL 接力，对每个原始 token 从各对端缓冲区读取、去重、归约，并能在归约中融合最多两个 bias 张量，避免一次额外的全量读写。</li>
+  </ul>
+</div>
+
+<!-- ===================== BODY ===================== -->
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 dispatch 的数据流和 handle 机制（<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>）。本篇新引入：BF16 快路径归约、FP32 通用归约、bias 融合、combine 与 dispatch 互为转置。</p></aside>
+
+<h2 id="sec-overview" data-short="全景">combine 在 MoE 流水线中的角色</h2>
+
+<p><a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">上一篇</a>讲了 dispatch 如何把 token 按 top-k 选择发送到拥有对应专家的 rank。MoE 专家计算完成后，结果需要沿 top-k 维度归约并送回源 rank——这就是 combine 的任务。</p>
+
+<p>具体地说，combine 需要做两件事：</p>
+<ol>
+  <li><b>通信</b>：把本 rank 专家计算的结果，按 dispatch 时记录的 <code>src_metadata</code>（源 token 全局索引 + 源 rank/topk 索引），发送到对端的接收缓冲区。</li>
+  <li><b>归约</b>：在接收端，对同一原始 token 的多个 top-k 结果求和（可能附带 gate 权重加权），得到最终的合并输出。</li>
+</ol>
+
+<p>从通信量角度看，combine 的 per-token 记录略小于 dispatch——以 hidden = 7168、FP8、k = 8 为例，dispatch 记录约 7488 字节（hidden + SF + 全部 metadata，对齐后），combine 记录约 7200 字节（hidden + topk_weights，对齐后），差距约 4%。但 combine 的计算量更大——它需要做归约（求和或加权求和），而 dispatch 的发送 warp 只做数据搬运不做计算。这也是为什么 combine 把归约逻辑拆成两个内核，而 dispatch 的拷贝尾声只做展开和填零。注意：如果 dispatch 走 BF16（hidden 翻倍到 14336 字节），dispatch 的记录反而比 combine 更大（约 14464 vs 14400 字节），因为 BF16 dispatch 仍然携带完整的 metadata。</p>
+
+<p>和 dispatch 一样，combine 也分成两个依次执行的内核：</p>
+<ul>
+  <li><b><code>combine_impl</code></b>——主内核。读取 MoE 输出和 dispatch 保存的 metadata，把数据发送到对端缓冲区。</li>
+  <li><b><code>combine_reduce_epilogue_impl</code></b>——归约尾声。通过 PDL 接力，从缓冲区读取各对端发来的数据，做归约（可选融合 bias），写出最终结果。</li>
+</ul>
+
+<aside class="sidenote"><a href="../ep01-epbuffer-api/ep01-epbuffer-api.html">ep01</a> 提到 dispatch 的反向就是 combine、combine 的反向就是 dispatch。这在代码层面体现为：combine 的 <code>topk_weights</code> 参数只在反向传播时非空——它用来把梯度按 gate 权重加权分回各 top-k 分支。</aside>
+
+<p>但 combine 的通信量比 dispatch 小得多。dispatch 的 token 记录包含 hidden + SF + 全部 metadata（topk 索引、权重、源位置、链表）；combine 的 token 记录<b>只有 hidden + topk_weights</b>。我们从 <code>get_combine_token_layout</code> 可以直接看到这个差异：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/combine.hpp#L19-L22"><code>static layout::TokenLayout get_combine_token_layout(
+    const int&amp; hidden, const int&amp; elem_size, const int&amp; num_topk) {
+    return layout::TokenLayout(hidden * elem_size, 0, num_topk, false);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/combine.hpp#L19-L22"><code>csrc/kernels/ep/combine.hpp</code> 第 19–22 行</a>（节选）</p>
+
+<p>SF 字节数为 0，<code>with_metadata = false</code>——combine 不搬运缩放因子，也不需要记录源位置（因为它就是在往源位置发数据）。</p>
+
+
+<h2 id="sec-flow" data-short="发送模式">combine_impl 的三种发送模式</h2>
+
+<p>如<a href="#fig-pipeline">图 1</a> 所示，<code>combine_impl</code> 遍历 dispatch 接收到的每个 token（即本 rank 参与 MoE 计算的 token），根据展开模式和归约策略选择三种发送模式之一。</p>
+
+<figure id="fig-pipeline" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-pipeline-cap" viewBox="0 0 560 360" xmlns="http://www.w3.org/2000/svg" role="img" id="s1-root" style="max-width:560px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text x="280" y="22" text-anchor="middle" class="d-title" style="font-size:15px">combine 的数据流</text>
+
+  
+  <rect x="16" y="48" width="128" height="80" rx="4" class="d-box green"/>
+  <text x="80" y="76" text-anchor="middle" class="d-text">MoE 输出</text>
+  <text x="80" y="96" text-anchor="middle" class="d-small">BF16，展开布局</text>
+  <text x="80" y="114" text-anchor="middle" class="d-mono" style="font-size:11px">本 rank 的专家结果</text>
+
+  
+  <path class="d-arrow" d="M144 88 H172" marker-end="url(#s1-ah)"/>
+  <text x="158" y="80" text-anchor="middle" class="d-label" style="font-size:11px">读 metadata</text>
+
+  
+  <rect x="176" y="40" width="176" height="240" rx="6" class="d-group"/>
+  <text x="264" y="60" text-anchor="middle" class="d-title" style="font-size:14px;fill:#b34f00">combine_impl</text>
+
+  
+  <rect x="188" y="72" width="152" height="40" rx="4" class="d-box"/>
+  <text x="264" y="89" text-anchor="middle" class="d-text" style="font-size:13px">① 不归约：1 个有效槽</text>
+  <text x="264" y="104" text-anchor="middle" class="d-small">TMA load → TMA store</text>
+
+  <rect x="188" y="120" width="152" height="48" rx="4" class="d-box accent"/>
+  <text x="264" y="137" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">② 本地归约：多个槽</text>
+  <text x="264" y="153" text-anchor="middle" class="d-small">combine_reduce → smem</text>
+  <text x="264" y="163" text-anchor="middle" class="d-small">→ TMA store 到对端</text>
+
+  <rect x="188" y="176" width="152" height="48" rx="4" class="d-box"/>
+  <text x="264" y="193" text-anchor="middle" class="d-text" style="font-size:13px">③ 展开全发：不归约</text>
+  <text x="264" y="209" text-anchor="middle" class="d-small">逐 top-k 分别发送</text>
+  <text x="264" y="219" text-anchor="middle" class="d-small">（kDoExpandedSend）</text>
+
+  
+  <rect x="188" y="232" width="152" height="36" rx="4" class="d-box soft"/>
+  <text x="264" y="255" text-anchor="middle" class="d-text" style="font-size:13px">写 topk_weights 到缓冲区</text>
+
+  
+  <path class="d-arrow accent" d="M352 144 H396" marker-end="url(#s1-ah-a)"/>
+  <text x="374" y="132" text-anchor="middle" class="d-label" style="font-size:11px">NVLink /</text>
+  <text x="374" y="145" text-anchor="middle" class="d-label" style="font-size:11px">RDMA</text>
+
+  
+  <rect x="400" y="48" width="144" height="80" rx="4" class="d-box blue"/>
+  <text x="472" y="76" text-anchor="middle" class="d-text">对端接收缓冲区</text>
+  <text x="472" y="96" text-anchor="middle" class="d-small">hidden + weights</text>
+  <text x="472" y="114" text-anchor="middle" class="d-mono" style="font-size:11px">无 SF，无 metadata</text>
+
+  
+  <path class="d-arrow" d="M472 128 V152" marker-end="url(#s1-ah)"/>
+  <text x="504" y="143" text-anchor="middle" class="d-label" style="font-size:11px">PDL</text>
+
+  
+  <rect x="400" y="156" width="144" height="80" rx="4" class="d-box accent"/>
+  <text x="472" y="177" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">归约尾声</text>
+  <text x="472" y="197" text-anchor="middle" class="d-small">去重 + reduce</text>
+  <text x="472" y="213" text-anchor="middle" class="d-small">+ 可选 bias</text>
+  <text x="472" y="229" text-anchor="middle" class="d-small">→ TMA store</text>
+
+  
+  <path class="d-arrow" d="M472 236 V260" marker-end="url(#s1-ah)"/>
+
+  
+  <rect x="400" y="264" width="144" height="48" rx="4" class="d-box green"/>
+  <text x="472" y="285" text-anchor="middle" class="d-text" style="font-size:13px">合并输出</text>
+  <text x="472" y="301" text-anchor="middle" class="d-small">BF16，按原始 token 排列</text>
+
+  
+  <text x="280" y="340" text-anchor="middle" class="d-small">combine 的 token 记录只有 hidden + topk_weights，不带 SF 和源 metadata</text>
+  <text x="280" y="356" text-anchor="middle" class="d-small">（对比 dispatch：hidden + SF + topk_idx + weights + src_global_idx + linked_list_idx）</text>
+</svg></div>
+  <figcaption id="fig-pipeline-cap"><span class="fig-label">图 1</span><b>combine 把 MoE 输出从本 rank 发送到源 rank 的接收缓冲区。</b>token 记录只包含 BF16 hidden 和 topk_weights，不带 SF 和源 metadata。三种发送模式取决于展开布局和归约设置；主内核完成后通过 PDL 触发归约尾声。</figcaption>
+</figure>
+
+<h3 id="sec-1">模式一：不归约（单槽位）</h3>
+
+<p>当展开布局中某个 token 只有一个有效的 top-k 槽位时，不需要归约——直接用 TMA load 把该槽位的 hidden 搬到 smem，再 TMA store 到对端缓冲区。这是最快的路径。</p>
+
+<h3 id="sec-2">模式二：本地归约</h3>
+
+<p>当 <code>kAllowMultipleReduction = true</code> 且有多个有效槽位时，先在本地做归约再发送。代码调用 <code>compute_topk_slots</code> 把有效的 top-k 索引排到数组前部，然后调用 <code>combine_reduce</code> 把多个 BF16 向量归约到 smem 的 TMA 缓冲区里，最后 TMA store 发出。这减少了通信量——发一份归约后的结果，而不是多份原始数据。</p>
+
+<h3 id="sec-3">模式三：展开全发（expanded send）</h3>
+
+<p>当不允许多次归约时（<code>kAllowMultipleReduction = false</code> 且使用展开布局），每个 top-k 槽位的数据分别发送到对端缓冲区的不同位置。归约完全推迟到归约尾声。这种模式下 <code>topk_weights</code> 一定为空（代码中有 <code>EP_DEVICE_ASSERT(topk_weights == nullptr)</code>），因为前向传播不需要加权。</p>
+
+<p>三种模式之后，如果 <code>topk_weights</code> 非空（反向传播），则把权重写到对端缓冲区的 topk_weights 字段。这些权重是 gate 网络输出的 FP32 值，每个 top-k 槽位一个标量，相比 hidden 向量的通信开销可以忽略（8 个 float = 32 字节 vs hidden 的 14336 字节）。最后，对于 RDMA 路径，还需要等待本地 send buffer 的 TMA store 完成后发起 <code>gin.put</code>。</p>
+
+<p>三种模式选定"怎么归约"后，实际的传输路径由网络拓扑决定，逻辑与 <a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">dispatch</a> 完全一致：如果目标 rank 是 NVLink 可达的（<code>gin.is_nvlink_accessible</code>），TMA store 直写对端缓冲区，延迟最低；否则先 TMA store 到本地 send buffer，再 <code>gin.put</code> 发起 RDMA 写。混合模式下，节点内走 NVLink，节点间走 RDMA，同一个 token 的不同 top-k 目标可能走不同路径。代码中的分支是编译期常量 <code>kIsScaleupNVLink</code> 加运行时的 <code>dst_ptr != nullptr</code> 检查——NVLink 路径通过 <code>gin.get_sym_ptr</code> 返回非空的对称内存指针，RDMA 路径返回空指针跳过 NVLink store 改走 <code>gin.put</code>。</p>
+
+<h3 id="sec-4">rank 布局 vs topk 布局</h3>
+
+<p>缓冲区的索引维度由 <code>use_rank_layout</code> 在编译期决定：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L7-L17"><code>
+template &lt;bool kAllowMultipleReduction, int kNumRanks, int kNumTopk&gt;
+constexpr bool use_rank_layout() {
+    if constexpr (not kAllowMultipleReduction)
+        return false;
+    return kNumRanks &lt;= kNumTopk;
+}
+
+template &lt;bool kAllowMultipleReduction, int kNumRanks, int kNumTopk&gt;
+constexpr int get_num_tokens_in_layout() {
+    return use_rank_layout&lt;kAllowMultipleReduction, kNumRanks, kNumTopk&gt;() ? kNumRanks : kNumTopk;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L7-L17"><code>deep_ep/include/deep_ep/impls/ep/combine_utils.cuh</code> 第 7–17 行</a>（布局选择逻辑）</p>
+
+<p>当 <code>kAllowMultipleReduction</code> 为真且 rank 数量 \(R \leq k\)（top-k 值）时，使用 rank 索引布局——缓冲区按 rank 维度切分，每个 rank 在缓冲区中占一个槽位。这适用于 rank 数较少的场景（如 8 GPU 节点内做 NVLink 直连），因为每个 rank 可能持有该 token 的多个专家结果，在 combine_impl 中先本地归约再发送（模式二），接收端只需遍历 \(R\) 个槽位。</p>
+
+<p>当 \(R > k\) 时切换到 topk 索引布局——缓冲区按 top-k 维度切分，每个 top-k 槽位占一个位置。此时 rank 数多于 top-k 数，如果按 rank 索引，大部分槽位是空的（一个 token 最多被 k 个 rank 持有）；按 topk 索引更紧凑，归约尾声只需遍历 \(k\) 个槽位。<code>get_num_tokens_in_layout</code> 根据选择返回 \(R\) 或 \(k\)，决定了 <code>BufferLayout</code> 的第一维大小。</p>
+
+
+<h2 id="sec-reduce" data-short="归约">combine_reduce 的双路径归约</h2>
+
+<p><code>combine_reduce</code> 是 combine 的计算核心（<a href="#fig-reduce-paths">图 2</a>）。它把多个 BF16 向量（来自不同的 top-k 槽位或不同的 rank）归约到一个目标向量。归约有两条路径，在运行时根据条件选择。</p>
+
+<figure id="fig-reduce-paths" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-reduce-paths-cap" viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" role="img" id="s2-root" style="max-width:560px;">
+  <defs>
+    <marker id="s2-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s2-ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text x="280" y="22" text-anchor="middle" class="d-title" style="font-size:15px">combine_reduce 的两条路径</text>
+
+  
+  <rect x="168" y="40" width="224" height="40" rx="20" class="d-box"/>
+  <text x="280" y="65" text-anchor="middle" class="d-text" style="font-size:13px">无 bias 且有效 top-k ≤ 2？</text>
+
+  
+  <path class="d-arrow accent" d="M220 80 V100" marker-end="url(#s2-ah-a)"/>
+  <text x="204" y="95" class="d-label" style="font-size:12px">是</text>
+
+  
+  <rect x="32" y="104" width="224" height="200" rx="6" style="fill:#fcefe6;stroke:#D55E00;stroke-width:1.5;stroke-dasharray:4 3"/>
+  <text x="144" y="126" text-anchor="middle" class="d-title" style="font-size:14px;fill:#b34f00">BF16 直加快路径</text>
+
+  <rect x="48" y="140" width="192" height="36" rx="4" class="d-box accent"/>
+  <text x="144" y="163" text-anchor="middle" class="d-text" style="font-size:13px">读 slot 0 → values_0</text>
+
+  <path class="d-arrow accent" d="M144 176 V190" marker-end="url(#s2-ah-a)"/>
+
+  <rect x="48" y="194" width="192" height="36" rx="4" class="d-box accent"/>
+  <text x="144" y="217" text-anchor="middle" class="d-text" style="font-size:13px">读 slot 1 → values_1</text>
+
+  <path class="d-arrow accent" d="M144 230 V244" marker-end="url(#s2-ah-a)"/>
+
+  <rect x="48" y="248" width="192" height="40" rx="4" class="d-box accent"/>
+  <text x="144" y="268" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">bf162 += bf162</text>
+  <text x="144" y="282" text-anchor="middle" class="d-mono" style="font-size:11px">直接 BF16 相加，无转换</text>
+
+  
+  <path class="d-arrow" d="M340 80 V100" marker-end="url(#s2-ah)"/>
+  <text x="356" y="95" class="d-label" style="font-size:12px">否</text>
+
+  
+  <rect x="304" y="104" width="224" height="200" rx="6" style="fill:#e8f1f8;stroke:#0072B2;stroke-width:1.5;stroke-dasharray:4 3"/>
+  <text x="416" y="126" text-anchor="middle" class="d-title" style="font-size:14px;fill:#005a8c">FP32 累加路径</text>
+
+  <rect x="320" y="140" width="192" height="36" rx="4" class="d-box blue"/>
+  <text x="416" y="163" text-anchor="middle" class="d-text" style="font-size:13px">先累加 bias（可选）</text>
+
+  <path class="d-arrow" d="M416 176 V190" marker-end="url(#s2-ah)"/>
+
+  <rect x="320" y="194" width="192" height="36" rx="4" class="d-box blue"/>
+  <text x="416" y="217" text-anchor="middle" class="d-text" style="font-size:13px">逐 slot 累加到 float2</text>
+
+  <path class="d-arrow" d="M416 230 V244" marker-end="url(#s2-ah)"/>
+
+  <rect x="320" y="248" width="192" height="40" rx="4" class="d-box blue"/>
+  <text x="416" y="268" text-anchor="middle" class="d-text" style="font-size:13px;fill:#005a8c">float2 → bf162 转换</text>
+  <text x="416" y="282" text-anchor="middle" class="d-mono" style="font-size:11px">__float22bfloat162_rn</text>
+
+  
+  <path class="d-arrow" d="M144 304 V318 H264" marker-end="url(#s2-ah)"/>
+  <path class="d-arrow" d="M416 304 V318 H296" marker-end="url(#s2-ah)"/>
+  <text x="280" y="336" text-anchor="middle" class="d-text" style="font-size:13px">写入 smem dst_buffer_ptr</text>
+</svg></div>
+  <figcaption id="fig-reduce-paths-cap"><span class="fig-label">图 2</span><b>combine_reduce 的两条路径。</b>当无 bias 且有效 top-k 槽位不超过 2 时，走 BF16 直加快路径（左），用 <code>nv_bfloat162</code> 的 <code>+=</code> 运算符直接相加；否则走 FP32 累加路径（右），逐槽位用 <code>ptx::accumulate</code> 把 BF16 提升到 FP32 累加，最后转回 BF16。</figcaption>
+</figure>
+
+<h3 id="sec-5">BF16 直加快路径（hadd bypass）</h3>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L67-L110"><code>// We use BF16 add as much as possible, as casting is slow
+const bool enable_hadd_bypass =
+    (bias_0 == nullptr and bias_1 == nullptr) and
+    (kNumValidTopk &lt;= 2 or topk_slot_idx[2] &lt; 0);
+EP_STATIC_ASSERT(kNumValidTopk &gt; 0, "Invalid top-k");
+
+if (enable_hadd_bypass) {
+// ...
+    for (int i = 0; i &lt; kHiddenVec / (kUnrollFactor * 32); ++ i) {
+        // Read values 0
+        const auto slot_0 = topk_slot_idx[0];
+        const auto src_base_ptr_0 = get_src_buffer_ptr_func(slot_0);
+        vec_t values_0[kUnrollFactor] = {};
+        #pragma unroll
+        for (int j = 0; j &lt; kUnrollFactor; ++ j) {
+            values_0[j] = ptx::ldg_with_ge_pred(
+                src_base_ptr_0 + (i * (kUnrollFactor * 32) + j * 32 + lane_idx), slot_0, 0);
+        }
+// ...
+        // Wait buffer releases for the first write
+        if (i == 0)
+            wait_buffer_func();
+
+        // Reduce into shared memory
+        const auto bf162_view_0 = reinterpret_cast&lt;nv_bfloat162*&gt;(values_0);
+        const auto bf162_view_1 = reinterpret_cast&lt;nv_bfloat162*&gt;(values_1);
+        #pragma unroll
+        for (int j = 0; j &lt; kUnrollFactor; ++ j) {
+            #pragma unroll
+            for (int l = 0; l &lt; kNumElemsPerVec / 2; ++ l)
+                bf162_view_0[j * (kNumElemsPerVec / 2) + l] += bf162_view_1[j * (kNumElemsPerVec / 2) + l];
+            dst_buffer_ptr[i * (kUnrollFactor * 32) + j * 32 + lane_idx] = values_0[j];
+        }
+    }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L67-L110"><code>deep_ep/include/deep_ep/impls/ep/combine_utils.cuh</code> 第 67–110 行</a>（节选）</p>
+
+<p>快路径的条件是 <code>enable_hadd_bypass</code>：没有 bias，且有效 top-k 槽位不超过 2（即 <code>topk_slot_idx[2] &lt; 0</code>，意味着第三个槽位无效）。为什么限制在 2 个？BF16 直加只做一次 A + B，结果精度等价于 FP32 加法再截断到 BF16。但如果有 3 个或更多槽位，需要做 (A + B) + C——前一步的 BF16 截断误差会参与下一步的加法，形成误差累积。FP32 累加路径则把所有加法都在 FP32 精度下完成，最后才截断一次，精度更好。所以 2 个槽位是快路径和通用路径在精度上等价的边界。满足时，只需要读两个 BF16 向量，用 <code>nv_bfloat162</code> 的加法直接相加写入 smem——全程不做 BF16→FP32→BF16 的类型转换，节省了转换指令的开销。从指令数角度看，BF16 直加只需 1 条 <code>hadd</code>，而 FP32 累加路径至少需要 3 条指令（BF16→FP32 转换、FP32 加法、FP32→BF16 转换），因此快路径在指令发射上有明显优势。</p>
+
+<p>代码结构是标准的向量化加载模式：每个 lane 处理一个 <code>int4</code>（16 字节 = 8 个 BF16 元素），通过 <code>kUnrollFactor</code> 展开内层循环。<code>ptx::ldg_with_ge_pred</code> 是条件加载——当 <code>slot_idx &lt; 0</code> 时返回全零，避免了分支。</p>
+
+<h3 id="sec-6">FP32 累加路径</h3>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L111-L168"><code>} else {
+    #pragma unroll 1
+    for (int i = 0; i &lt; kHiddenVec / (kUnrollFactor * 32); ++ i) {
+        // Add bias
+        float2 reduced[kUnrollFactor * kNumElemsPerVec / 2] = {};
+// ...
+        #pragma unroll
+        for (int k = 0; k &lt; kNumValidTopk; ++ k) {
+            // We have a limitation on `k` to reduce the branch instruction count
+            if (k &gt;= kNumExpectedTopk and topk_slot_idx[k] &lt; 0)
+                break;
+
+            // Read values
+            const auto src_base_ptr = get_src_buffer_ptr_func(topk_slot_idx[k]);
+            vec_t values[kUnrollFactor] = {};
+            #pragma unroll
+            for (int j = 0; j &lt; kUnrollFactor; ++ j) {
+                values[j] = ptx::ldg_with_ge_pred(
+                    src_base_ptr + (i * (kUnrollFactor * 32) + j * 32 + lane_idx), topk_slot_idx[k], 0);
+            }
+
+            // Reduce
+            const auto bf162_view = reinterpret_cast&lt;nv_bfloat162*&gt;(values);
+            #pragma unroll
+            for (int j = 0; j &lt; kUnrollFactor * kNumElemsPerVec / 2; ++ j)
+                ptx::accumulate(reduced[j], bf162_view[j]);
+        }
+// ...
+        // Cast into shared memory
+        #pragma unroll
+        for (int j = 0; j &lt; kUnrollFactor; ++ j) {
+            vec_t casted_value;
+            auto bf162_view = reinterpret_cast&lt;nv_bfloat162*&gt;(&amp;casted_value);
+            #pragma unroll
+            for (int l = 0; l &lt; kNumElemsPerVec / 2; ++ l)
+                bf162_view[l] = __float22bfloat162_rn(reduced[j * (kNumElemsPerVec / 2) + l]);
+            dst_buffer_ptr[i * (kUnrollFactor * 32) + j * 32 + lane_idx] = casted_value;
+        }
+    }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L111-L168"><code>deep_ep/include/deep_ep/impls/ep/combine_utils.cuh</code> 第 111–168 行</a>（节选）</p>
+
+<p>通用路径用 <code>float2</code> 累加器 <code>reduced[]</code>。如果有 bias，先通过 <code>add_bias</code> lambda 把 bias 向量累加进来（<code>ptx::accumulate</code> 是 BF16→FP32 的融合加法，在 SM100 上编译为 <code>add.rn.f32.bf16</code>）。然后逐 top-k 槽位加载 BF16 向量，同样用 <code>ptx::accumulate</code> 累加。最后用 <code>__float22bfloat162_rn</code> 转回 BF16 写入 smem。</p>
+
+<p>两条路径最终都把结果写到 <code>dst_buffer_ptr</code>（smem 中的 TMA 缓冲区），后续由 TMA store 搬到全局内存或对端。</p>
+
+<h3 id="sec-7">向量类型选择</h3>
+
+<p><code>CombineVecTraits</code> 决定了每次加载/存储的粒度：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L29-L39"><code>template &lt;int kHiddenBytes&gt;
+struct CombineVecTraits {
+#if defined(__CUDA_ARCH__) and (__CUDA_ARCH__ &gt;= 1000)
+    // On SM100+, use `longlong4_t` (32 bytes) if hidden is aligned, otherwise fall back to `int4` (16 bytes)
+    // NOTES: we observe some performance degrade with `longlong4_t`, temporarily disable it
+    static constexpr bool kUseLonglong4 = false;
+    using vec_t = std::conditional_t&lt;kUseLonglong4, longlong4_t, int4&gt;;
+#else
+    using vec_t = int4;
+#endif
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_utils.cuh#L29-L39"><code>deep_ep/include/deep_ep/impls/ep/combine_utils.cuh</code> 第 29–39 行</a>（节选）</p>
+
+<p>在 SM100+（Blackwell）上，<code>longlong4</code>（32 字节）的对齐更好，理论上能减少内存事务数。但代码注释说实测有性能回退（"we observe some performance degrade"），所以 <code>kUseLonglong4 = false</code>，一律使用 <code>int4</code>（16 字节）。这是一个经验性的选择。</p>
+
+
+<h2 id="sec-bf16" data-short="BF16 约束">为什么 combine 只走 BF16</h2>
+
+<p>combine 对输入类型有一个硬断言：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L814-L817"><code>EP_HOST_ASSERT(x.is_cuda() and x.is_contiguous());
+EP_HOST_ASSERT(x.scalar_type() == torch::kBFloat16);
+EP_HOST_ASSERT((x.size(1) * x.element_size()) % sizeof(int4) == 0);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L814-L817"><code>csrc/buffers/ep.hpp</code> 第 814–817 行</a>（节选）</p>
+
+<p>这不仅仅是当前实现的局限——它反映了 MoE 流水线的数据流设计：</p>
+
+<ol>
+  <li><b>MoE 专家输出 BF16</b>：无论 dispatch 发送的是 FP8 还是 BF16，专家内部的计算（GEMM + 激活）输出的是 BF16。所以 combine 的输入天然就是 BF16。</li>
+  <li><b>不需要搬运 SF</b>：既然输入已经是 BF16，就不存在缩放因子需要传输。这就是为什么 <code>get_combine_token_layout</code> 把 SF 字节数设为 0。</li>
+  <li><b>归约精度足够</b>：BF16 的 top-k 归约（典型 k=2 到 8）的精度损失可以接受。快路径直接用 BF16 加法（hadd），通用路径提升到 FP32 再转回——两者的最终输出都是 BF16。从硬件角度看，FP8（E4M3/E5M2）在 GPU 上没有标量加法指令——它只出现在张量核的乘加流水线中。如果要对 FP8 做归约，必须先转为 BF16 或 FP32 再相加，等于白白多一层转换。而 BF16 有原生的 <code>hadd</code> 和 <code>hadd2</code> 指令，归约路径可以直接在 BF16 上操作。</li>
+  <li><b>通信量更小</b>：combine 的 token 记录比 dispatch 小得多。以 hidden = 7168、k = 8 为例，dispatch 的记录约 7360B（hidden + SF + metadata，对齐后），combine 的记录约 7200B（hidden + topk_weights，对齐后）——省掉了 SF 和源 metadata 的传输。</li>
+</ol>
+
+<p>如果未来需要支持 FP8 combine（例如在专家输出端做量化），就需要把 SF 加回 token 记录并修改归约逻辑——代码注释中 <code>launch_combine</code> 里有一句"we don't use <code>num_hidden_bytes</code> due to enable later quantization possibility"，暗示这个扩展在设计考虑之内。</p>
+
+
+<h2 id="sec-bias" data-short="bias 融合">在归约中插入 bias</h2>
+
+<p><code>combine_reduce_epilogue</code> 能在归约中融合最多两个 bias 张量（<code>bias_0</code> 和 <code>bias_1</code>），避免一次额外的逐元素 kernel launch。这两个 bias 是可选参数，在 Python 端调用 <code>combine()</code> 时传入。</p>
+
+<p>bias 的约束在 host 端检查：必须是 2 维、CUDA 连续的 BF16 张量，形状 <code>[num_combined_tokens, hidden]</code>，与输入 <code>x</code> 同 dtype 同形。</p>
+
+<p>在 <code>combine_reduce</code> 中，bias 的融合位置是归约循环<b>之前</b>：</p>
+<ul>
+  <li>如果 <code>bias_0 != nullptr</code>，先把 <code>bias_0</code> 向量读入 <code>float2 reduced[]</code> 累加器。</li>
+  <li>如果 <code>bias_1 != nullptr</code>，再累加 <code>bias_1</code>。</li>
+  <li>然后开始逐 top-k 槽位的归约累加。</li>
+</ul>
+
+<p>这意味着 bias 只加一次——不是每个 top-k 槽位都加。这在数学上等价于 \(\text{output} = \text{bias}_0 + \text{bias}_1 + \sum_{k} \text{expert\_output}_k\)。</p>
+
+<aside class="sidenote">注意：有 bias 时必定走 FP32 累加路径，因为 <code>enable_hadd_bypass</code> 的条件之一是 <code>bias_0 == nullptr and bias_1 == nullptr</code>。</aside>
+
+<p>两个 bias 槽位的设计动机在源码中没有注释说明。推测可能是为了在 MoE 归约后融合多个残差项（如共享专家输出与主路径残差）——但这只是推测，具体用途取决于上层训练框架的接口约定。从性能角度看，在归约中融合 bias 的好处是显而易见的：如果 bias 在归约之后单独做逐元素加法，需要额外一次对整个 <code>[num_combined_tokens, hidden]</code> 张量的全局内存读写——对 hidden = 7168、BF16 精度、4096 个 token 而言，这是约 56 MiB 的额外 HBM 流量。融合之后，bias 在归约循环里顺便加进去，不产生任何额外的内存事务。</p>
+
+<p>融合 bias 还有一个精度上的影响：因为 bias 先被读入 FP32 累加器，所以 bias 与归约结果的加法在 FP32 精度下进行，最后才转回 BF16。如果 bias 单独做逐元素 BF16 加法，精度会稍差——尤其当 bias 值与归约结果在数量级上有较大差异时，BF16 的 7 位尾数可能无法保留足够的精度。因此融合不仅省了一次 HBM 往返，还顺便提高了精度。</p>
+
+
+<h2 id="sec-epilogue" data-short="归约尾声">combine_reduce_epilogue：去重、归约与输出</h2>
+
+<p>归约尾声（<code>combine_reduce_epilogue_impl</code>，<a href="#fig-epilogue">图 3</a>）遍历每个原始 token（<code>num_combined_tokens</code> 个），从各对端写入的缓冲区中读取数据、归约、写出。和 dispatch 尾声一样，它通过 PDL 启动（<code>enable_pdl = true</code>），用 <code>cudaGridDependencySynchronize</code> 等待主内核完成。</p>
+
+<figure id="fig-epilogue" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-epilogue-cap" viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text x="280" y="22" text-anchor="middle" class="d-title" style="font-size:15px">combine_reduce_epilogue 的处理流程</text>
+
+  
+  <text x="72" y="52" text-anchor="middle" class="d-title" style="font-size:14px">接收缓冲区</text>
+
+  <rect x="16" y="64" width="112" height="32" rx="2" class="d-box blue"/>
+  <text x="72" y="85" text-anchor="middle" class="d-text" style="font-size:13px">rank 0 的 hidden</text>
+
+  <rect x="16" y="100" width="112" height="32" rx="2" class="d-box blue"/>
+  <text x="72" y="121" text-anchor="middle" class="d-text" style="font-size:13px">rank 1 的 hidden</text>
+
+  <rect x="16" y="136" width="112" height="32" rx="2" class="d-box blue"/>
+  <text x="72" y="157" text-anchor="middle" class="d-text" style="font-size:13px">rank 2 的 hidden</text>
+
+  <text x="72" y="182" text-anchor="middle" class="d-label">...</text>
+
+  
+  <path class="d-arrow" d="M128 120 H160" marker-end="url(#s3-ah)"/>
+
+  
+  <rect x="164" y="48" width="136" height="40" rx="4" class="d-box"/>
+  <text x="232" y="73" text-anchor="middle" class="d-text" style="font-size:13px">读 topk_idx</text>
+
+  <path class="d-arrow accent" d="M232 88 V104" marker-end="url(#s3-ah-a)"/>
+
+  
+  <rect x="164" y="108" width="136" height="48" rx="4" class="d-box accent"/>
+  <text x="232" y="129" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">去重键选择</text>
+  <text x="232" y="147" text-anchor="middle" class="d-small">按 rank / scaleout 去重</text>
+
+  <path class="d-arrow accent" d="M232 156 V172" marker-end="url(#s3-ah-a)"/>
+
+  
+  <rect x="164" y="176" width="136" height="40" rx="4" class="d-box accent"/>
+  <text x="232" y="201" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">排序有效槽位</text>
+
+  <path class="d-arrow accent" d="M300 196 H340" marker-end="url(#s3-ah-a)"/>
+
+  
+  <rect x="344" y="48" width="200" height="120" rx="6" class="d-box accent"/>
+  <text x="444" y="72" text-anchor="middle" class="d-title" style="font-size:14px;fill:#b34f00">combine_reduce</text>
+
+  
+  <rect x="360" y="84" width="80" height="28" rx="4" class="d-box soft"/>
+  <text x="400" y="103" text-anchor="middle" class="d-text" style="font-size:12px">bias_0</text>
+
+  <rect x="448" y="84" width="80" height="28" rx="4" class="d-box soft"/>
+  <text x="488" y="103" text-anchor="middle" class="d-text" style="font-size:12px">bias_1</text>
+
+  <text x="444" y="134" text-anchor="middle" class="d-text" style="font-size:13px">逐槽归约 → smem</text>
+  <text x="444" y="152" text-anchor="middle" class="d-small">BF16 hadd / FP32 累加</text>
+
+  
+  <path class="d-arrow accent" d="M444 168 V192" marker-end="url(#s3-ah-a)"/>
+
+  
+  <rect x="344" y="196" width="200" height="40" rx="4" class="d-box accent"/>
+  <text x="444" y="221" text-anchor="middle" class="d-text" style="font-size:13px;fill:#b34f00">TMA store → 合并输出</text>
+
+  
+  <path class="d-arrow" d="M444 236 V260" marker-end="url(#s3-ah)"/>
+
+  
+  <rect x="344" y="264" width="200" height="40" rx="4" class="d-box green"/>
+  <text x="444" y="289" text-anchor="middle" class="d-text" style="font-size:13px">combined_x [N, H] BF16</text>
+
+  
+  <rect x="164" y="244" width="136" height="40" rx="4" class="d-box"/>
+  <text x="232" y="262" text-anchor="middle" class="d-text" style="font-size:13px">写 topk_weights</text>
+  <text x="232" y="278" text-anchor="middle" class="d-small">从缓冲区读回权重</text>
+
+  <path class="d-arrow muted" d="M232 216 V240" marker-end="url(#s3-ah)"/>
+
+  
+  <text x="280" y="316" text-anchor="middle" class="d-small">归约尾声通过 PDL 在 combine_impl 完成后零开销启动，遍历每个原始 token 做归约</text>
+</svg></div>
+  <figcaption id="fig-epilogue-cap"><span class="fig-label">图 3</span><b>归约尾声的处理流程。</b>对每个原始 token：读 topk_idx → 选择去重键 → 排序有效槽位 → 调用 combine_reduce（可融合 bias）→ TMA store 输出。最后把 topk_weights 从缓冲区读回写到输出。</figcaption>
+</figure>
+
+<p>归约尾声的内核签名包含大量编译期参数——rank 数、top-k 值、hidden 维度等全部在模板中固化。内核启动前通过 <code>cudaGridDependencySynchronize</code> 等待主内核完成——这是 PDL（Programmatic Dependent Launch）的核心机制：归约尾声由前一个 combine_impl 的 <code>cudaTriggerProgrammaticLaunchCompletion</code> 触发，GPU 调度器自动在主内核退出后启动尾声，省掉了 CPU 端的同步和重新提交开销。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh#L36-L61"><code>// Utils
+const auto sm_idx = static_cast&lt;int&gt;(blockIdx.x);
+const auto warp_idx = ptx::get_warp_idx(), lane_idx = ptx::get_lane_idx();
+const auto global_warp_idx = warp_idx * kNumSMs + sm_idx;   // NOTES: Here we prioritize distributing tasks to different SMs to ensure that the last wave is evenly concentrated on each SM.
+
+// Load buffers from scale-out or scale-up ranks
+extern __shared__ __align__(kNumTMAAlignmentBytes) int8_t smem[];
+const auto comm_token_layout = layout::TokenLayout(kNumHiddenBytes, 0, kNumTopk, false);
+const auto comm_buffer = layout::BufferLayout&lt;false&gt;(
+    comm_token_layout, kNumTokensInLayout, kNumMaxTokensPerRank, recv_buffer);
+
+// Store buffers
+const auto output_token_layout = layout::TokenLayout(kNumHiddenBytes, 0, 0, false);
+const auto output_buffer = layout::BufferLayout&lt;false&gt;(output_token_layout, 1, num_combined_tokens, combined_x);
+const auto tma_buffer = layout::BufferLayout&lt;false&gt;(output_token_layout, kNumWarps, 1, smem)
+    .get_rank_buffer(warp_idx).get_token_buffer(0);
+// ...
+
+// Will block until the main combine kernel has finished and all data are visible
+// NOTES: PDL is used, please do not use `__ldg`
+cudaGridDependencySynchronize();
+
+// Read from buffers and do reduction</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh#L36-L61"><code>deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh</code> 第 36–61 行</a>（归约尾声的初始化与 PDL 同步）</p>
+
+<p>值得一提的是归约尾声的启动模型。<code>combine_reduce_epilogue_impl</code> 通过 PDL 由 <code>combine_impl</code> 触发——主内核在所有 token 发送完成、全局屏障通过后调用 <code>cudaTriggerProgrammaticLaunchCompletion</code>。PDL 的核心优势是省掉了 CPU 端的同步：传统模式下 CPU 需要等主内核结束（<code>cudaEventSynchronize</code> 或流回调）后再提交尾声内核，PDL 让 GPU 调度器在主内核完成后自动启动尾声，中间没有 CPU 往返的延迟——对于大规模通信密集的 MoE 推理，这可以节省数十微秒的 CPU 调度开销。</p>
+
+<p>warp 分配采用 SM 优先的交错模式：<code>global_warp_idx = warp_idx * kNumSMs + sm_idx</code>——先铺满所有 SM 各一个 warp，再回来给每个 SM 第二个 warp，以此类推。这保证了尾波（最后一批 token）尽可能均匀分布在所有 SM 上，而不是集中在少数 SM 上造成长尾。源码注释明确写道："Here we prioritize distributing tasks to different SMs to ensure that the last wave is evenly concentrated on each SM"——这对尾延迟至关重要，因为如果最后一波只落在少数 SM 上，其余上百个 SM 就全在空等。SM 优先索引把尾波均匀打散，使每个 SM 只多做一个 token 的归约，极大减少了 tail latency。</p>
+
+<p>每个 warp 处理一个完整 token 的归约：从各对端缓冲区读取 hidden 数据，调用 <code>combine_reduce</code>，再把结果通过 TMA store 写到 <code>combined_x</code> 输出张量。值得注意的是，归约尾声的共享内存布局与 dispatch 尾声不同：这里 smem 按 warp 数量切分（每个 warp 占一个 TMA 缓冲区），而不是像 dispatch 那样按完整 token 记录切分。这是因为归约尾声每次只输出一个 token 的 hidden（不需要搬运缩放因子和 metadata），单个缓冲区远小于 dispatch 的完整记录，所以可以给更多 warp 各分一个独立的缓冲区，提高并行度。</p>
+
+<p>对每个 token 的处理分几步：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh#L62-L125"><code>for (int token_idx = global_warp_idx; token_idx &lt; num_combined_tokens; token_idx += kNumWarps * kNumSMs) {
+    // Preprocess all indices
+// ...
+    const auto [should_deduplicate, deduplicate_key] = [&amp;]() -&gt; std::pair&lt;bool, int&gt; {
+        if constexpr (kUseExpandedLayout and not kAllowMultipleReduction) {
+            // Activations are never reduced before
+            return {false, 0};
+        } else if constexpr (kNumScaleoutRanks != 1 and not kUseExpandedLayout and not kAllowMultipleReduction) {
+            // Hybrid mode without expanded layout and multiple reduction. Should deduplicate on a per-rank basis
+            return {true, stored_dst_expert_idx &gt;= 0 ? stored_dst_expert_idx / kNumExpertsPerRank : -1};
+        } else {
+            // Should deduplicate on a per-rank (for non-hybrid mode) or a per-scale-rank (for hybrid mode) basis
+            return {true, stored_dst_rank_idx};
+        }
+    }();
+    auto reduce_valid_mask = should_deduplicate ?
+        ptx::gather(ptx::deduplicate(deduplicate_key, lane_idx) and stored_dst_rank_idx &gt;= 0) :
+        ptx::gather(stored_dst_rank_idx &gt;= 0);
+    int topk_slot_idx[kNumTokensInLayout];
+    compute_topk_slots(
+        topk_slot_idx, reduce_valid_mask,
+        [=](const int&amp; idx) {
+            return kUseRankLayout ? ptx::exchange(stored_dst_rank_idx, idx) : idx;
+        }
+    );
+// ...
+    combine_reduce&lt;kHiddenVec, kUnrollFactor, kNumTokensInLayout&gt;(
+        lane_idx, topk_slot_idx, static_cast&lt;combine_vec_t*&gt;(tma_buffer.get_base_ptr()),
+        /* Get source base */ [=](const int&amp; slot_idx) {
+            return static_cast&lt;combine_vec_t*&gt;(
+                comm_buffer.get_rank_buffer(slot_idx).get_token_buffer(token_idx).get_base_ptr());
+        },
+        /* Wait buffer release */ [=]() {
+            ptx::tma_store_wait();
+            __syncwarp();
+        },
+        /* Bias 0 */ bias_0 == nullptr ?
+            nullptr : static_cast&lt;combine_vec_t*&gt;(bias_0_buffer.get_token_buffer(token_idx).get_base_ptr()),
+        /* Bias 1 */ bias_1 == nullptr ?
+            nullptr : static_cast&lt;combine_vec_t*&gt;(bias_1_buffer.get_token_buffer(token_idx).get_base_ptr())
+    );
+    ptx::tma_store_fence();
+    __syncwarp();
+
+    // Issue TMA copy
+    if (ptx::elect_one_sync()) {
+        ptx::tma_store_1d(output_buffer.get_token_buffer(token_idx).get_base_ptr(),
+                          tma_buffer.get_base_ptr(), kNumHiddenBytes);
+        ptx::tma_store_commit();
+    }
+    __syncwarp();</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh#L62-L125"><code>deep_ep/include/deep_ep/impls/ep/combine_reduce_epilogue.cuh</code> 第 62–125 行</a>（节选）</p>
+
+<h3 id="sec-8">去重键选择</h3>
+
+<p>去重的目的是避免重复归约同一份数据。去重键的选择取决于模式：</p>
+<ul>
+  <li><b>展开布局 + 不允许多次归约</b>：不去重（数据从未被归约过）。</li>
+  <li><b>混合模式 + 非展开 + 不允许多次归约</b>：按完整 rank 索引（<code>expert / kNumExpertsPerRank</code>）去重。</li>
+  <li><b>默认</b>：按 <code>stored_dst_rank_idx</code>（NVLink 域内的 rank 或 RDMA 域的 scaleout rank）去重。</li>
+</ul>
+
+<p>去重后，<code>compute_topk_slots</code> 用位操作把有效的槽位索引排到数组前部：遍历 <code>mask</code> 的每一位（<code>__ffs</code> 找最低位），从对应 lane 取出索引。</p>
+
+<h3 id="sec-9">归约与输出</h3>
+
+<p>排好的槽位索引传给 <code>combine_reduce</code>，后者从各对端缓冲区读取 hidden 数据、做归约（可带 bias），写到 smem。然后 TMA store 把结果写到 <code>combined_x</code> 输出张量。这里的 TMA store 只需要一条指令就能搬完整个 hidden 向量（典型 7168 × 2 = 14336 字节），比用 warp 级的循环拷贝高效得多——TMA 引擎是独立于 SM 算力的硬件单元，发射后 warp 可以立即处理下一个 token，不需要等待写入完成。</p>
+
+<p>最后，如果需要 <code>combined_topk_weights</code>（反向传播时），从缓冲区的 topk_weights 字段读回并写到输出。这里用了 <code>ptx::match</code> 和 <code>get_master_lane_idx</code> 来找到每个 rank 的主 lane，确保从正确的缓冲区位置读取权重。</p>
+
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>本文只覆盖直连模式</b>（<code>num_scaleout_ranks == 1</code>）。混合模式（NVLink + RDMA）下的 combine 有额外的 scale-up warp 和 forward warp，转发路径更复杂，见<a href="../ep04-hybrid/ep04-hybrid.html">第 4 篇</a>。</li>
+  <li><b>topk_weights 的加权归约未覆盖</b>：当 <code>topk_weights</code> 非空时（反向传播），combine_impl 会把权重写到缓冲区随数据传输，但归约尾声中没有用权重做加权求和——权重只是被读回写到输出。加权归约发生在 Python 层面还是别处，源码中没有直接证据。</li>
+  <li><b>两个 bias 槽位的设计动机是推测</b>：代码支持 <code>bias_0</code> 和 <code>bias_1</code> 两个独立 bias，但文中关于"可能用于融合多个残差项"是推测，不是代码注释或文档的陈述。</li>
+  <li><b>SM100 上 longlong4 回退是经验结论</b>：<code>CombineVecTraits</code> 中禁用 32 字节向量的注释只说"observe some performance degrade"，没有给出具体数据或原因分析。</li>
+  <li><b><code>use_rank_layout</code> 的条件未详细分析</b>：当 \(R \leq k\) 时用 rank 索引缓冲区，否则用 topk 索引。这个切换的性能动机没有在源码中说明。</li>
+  <li><b>通信底座和屏障细节</b>：<code>NCCLGin</code> 的 <code>put</code>、<code>get_sym_ptr</code>、<code>is_nvlink_accessible</code> 等接口见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>。</li>
+  <li><b>没有性能数据</b>：本地没有 GPU，文中没有任何实测或估算的性能数字。</li>
+</ul>
+
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">直连模式的 dispatch</a>
+  ｜ 下一篇：<a href="../ep04-hybrid/ep04-hybrid.html">NVLink 加 RDMA：混合模式</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-deepep">DeepSeek-AI. (2025). <a href="https://github.com/deepseek-ai/DeepEP">DeepEP: an efficient expert-parallel communication library</a>. GitHub.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">deepseek-ai/DeepEP@f6aa38f</a>。本地没有 GPU，文中没有任何实测性能数字。所有图表为机制示意图（diagram）。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

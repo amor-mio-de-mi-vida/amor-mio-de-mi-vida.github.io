@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU 硬件速查：SM、TMA、张量核与 NVLink</title>
+<meta name="description" content="后续 17 篇精读需要的 GPU 硬件背景：线程层级、内存层级、Hopper 三件套（TMA/WGMMA/mbarrier）、Blackwell 新增（TMEM/UTCCP/dual-CTA）、GEMM 分块基础、NVLink 与 RDMA。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">背景篇 · 第 2 篇</div>
+  <h1>GPU 硬件速查：<br>SM、TMA、张量核与 <span class="nobr">NVLink</span></h1>
+  <p class="subtitle">Hopper 的 TMA + WGMMA + mbarrier 构成 GEMM 流水线的基础，Blackwell 的 TMEM + UTCCP 把累加器和缩放因子搬出寄存器——本篇是后续 17 篇精读的硬件参考。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-29</span>
+    <span data-reading-time>约 8 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-thread">GPU 线程层级：从 thread 到 cluster</a><li><a href="#sec-memory">内存层级：寄存器 → 共享内存 → L2 → HBM</a><li><a href="#sec-hopper">Hopper（SM90）：TMA + WGMMA + mbarrier</a><ol><li><a href="#sec-1">TMA（Tensor Memory Access）</a></li><li><a href="#sec-2">WGMMA（Warpgroup Matrix Multiply-Accumulate）</a></li><li><a href="#sec-3">mbarrier（异步屏障）</a></li></ol><li><a href="#sec-blackwell">Blackwell（SM100）：TMEM、UTCCP 与 dual-CTA</a><li><a href="#sec-gemm">GEMM 分块：为什么要切小块</a><li><a href="#sec-interconnect">NVLink 与 RDMA：节点内 vs 节点间</a><li><a href="#sec-glossary">术语速查</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>GPU 把几千个线程组织成 warp（32 线程）→ warpgroup（4 warp = 128 线程）→ CTA（thread block）→ cluster；每层有不同的同步和共享内存能力。</li>
+    <li>Hopper（SM90）三件套：TMA（硬件异步搬运引擎）、WGMMA（warpgroup 级矩阵乘）、mbarrier（异步屏障）——构成"生产者-消费者"流水线的基础。</li>
+    <li>Blackwell（SM100）新增：TMEM（张量内存，累加器搬出寄存器）、UTCCP（缩放因子搬运通路）、tcgen05.mma（统一 MMA）、dual-CTA（两个 CTA 协作一次 MMA）。</li>
+    <li>GEMM 分块的本质是把大矩阵乘切成小块，让每块 fit 进片上内存；accumulator（累加器）、epilogue（尾声）、Split-K 是后续各篇反复出现的概念。</li>
+    <li>NVLink 提供节点内 \(\sim\)900 GB/s 双向带宽，RDMA 跨节点 \(\sim\)50 GB/s——两者量级差 18 倍，决定了 DeepEP 的直连/混合两条路径。</li>
+  </ul>
+</div>
+
+<p>本篇是后续 17 篇精读的硬件参考。不求全面，只覆盖在系列中<b>反复出现</b>的概念——如果某个术语在源码精读中没解释就用了，回到这里查。</p>
+
+<h2 id="sec-thread" data-short="线程层级">GPU 线程层级：从 thread 到 cluster</h2>
+
+<p>NVIDIA GPU 的执行单元叫 <b>SM</b>（Streaming Multiprocessor）。一块 H100 有 132 个 SM，一块 B200 有 160 个。每个 SM 可以同时运行多个 CTA（也叫 thread block），具体多少取决于寄存器和共享内存的占用。</p>
+
+<p>线程的组织层级从小到大：</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>层级</th><th>线程数</th><th>共享什么</th><th>同步机制</th><th>在源码中怎么出现</th></tr></thead>
+  <tbody>
+    <tr><td><b>thread</b></td><td>1</td><td>自己的寄存器</td><td>—</td><td>每个 CUDA 线程</td></tr>
+    <tr><td><b>warp</b></td><td>32</td><td>隐式锁步执行</td><td><code>__syncwarp</code>、<code>__shfl_sync</code></td><td><code>warp_id = threadIdx.x / 32</code></td></tr>
+    <tr><td><b>warpgroup</b></td><td>128（4 warp）</td><td>同一 SM 的寄存器文件</td><td><code>warpgroup_arrive/wait</code></td><td>WGMMA 和 tcgen05.mma 的执行单位</td></tr>
+    <tr><td><b>CTA / block</b></td><td>可配置（通常 256–1024）</td><td>共享内存（SMEM）</td><td><code>__syncthreads</code>、mbarrier</td><td>grid 中的一个 block</td></tr>
+    <tr><td><b>cluster</b></td><td>多个 CTA（通常 2）</td><td>可以读对方的 SMEM</td><td>cluster barrier</td><td>Hopper 新增，用于 TMA 多播</td></tr>
+  </tbody>
+</table></div>
+
+<p>关键要点：warp 是 GPU 调度的最小单位——32 个线程同时执行同一条指令（SIMT）。<code>__shfl_sync</code> 让 warp 内的线程直接交换寄存器值，不经共享内存——DeepGEMM 的 top-k 选择和 Sinkhorn 归一化全靠它。warpgroup 是 Hopper 引入的概念，WGMMA 指令需要整个 warpgroup 协作发射。</p>
+
+<h2 id="sec-memory" data-short="内存层级">内存层级：寄存器 → 共享内存 → L2 → HBM</h2>
+
+<p>GPU 的内存层级决定了内核的数据搬运策略：</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>存储</th><th>容量（H100 单 SM）</th><th>带宽量级</th><th>延迟</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><b>寄存器</b></td><td>65536 × 32b = 256 KB</td><td>~20 TB/s</td><td>~1 cycle</td><td>累加器、循环变量</td></tr>
+    <tr><td><b>共享内存</b>（SMEM）</td><td>最高 228 KB</td><td>~12 TB/s</td><td>~30 cycle</td><td>TMA 搬入的 tile、barrier</td></tr>
+    <tr><td><b>TMEM</b>（SM100）</td><td>512 列 × 32 × 4B = 64 KB</td><td>专用通路</td><td>~few cycles</td><td>MMA 累加器（Blackwell）</td></tr>
+    <tr><td><b>L2 cache</b></td><td>50 MB（全芯片共享）</td><td>~12 TB/s</td><td>~200 cycle</td><td>跨 SM 复用的权重</td></tr>
+    <tr><td><b>HBM</b></td><td>80 GB（H100）</td><td>3.35 TB/s</td><td>~400 cycle</td><td>权重、激活值、缓冲区</td></tr>
+  </tbody>
+</table></div>
+
+<p>"搬运"是 GPU 编程的核心主题。GEMM 内核的大部分工程就是在安排数据搬运：用 TMA 从 HBM 搬到 SMEM，用 WGMMA 从 SMEM 读到累加器，用尾声把累加器写回 HBM。DeepEP 的 dispatch 内核也在做同样的事——只不过搬运的目标是另一块 GPU 的 HBM。</p>
+
+<h2 id="sec-hopper" data-short="Hopper 三件套">Hopper（SM90）：TMA + WGMMA + mbarrier</h2>
+
+<p>Hopper 对 GEMM 流水线引入了三个关键硬件特性：</p>
+
+<h3 id="sec-1">TMA（Tensor Memory Access）</h3>
+
+<p>TMA 是一个<b>独立于 SM 的硬件搬运引擎</b>。发一条 TMA 指令后，SM 可以继续做别的事——搬运在后台完成。TMA 用一个"描述符"（descriptor）来定义搬运的源地址、形状、步幅和 swizzle 模式，一次搬一个多维 tile（比如 128×64 的 BF16 块）进共享内存。</p>
+
+<p>TMA 的优势是零 SM 占用。传统的 <code>cp.async</code> 搬运需要多个线程协作计算地址和发射拷贝指令，TMA 只需一个线程发一条指令。这就是 DeepGEMM 里"TMA 生产者 warp"只用一个 warp 就能喂饱多个"MMA 消费者 warpgroup"的原因。</p>
+
+<p>TMA 还支持<b>多播</b>（multicast）：同一份数据同时拷贝到 cluster 内多个 CTA 的共享内存。DeepGEMM 用 2-CTA cluster + 多播来共享 B 矩阵的 tile，让两个 CTA 各自算不同的 M 块但共用同一份 B。</p>
+
+<h3 id="sec-2">WGMMA（Warpgroup Matrix Multiply-Accumulate）</h3>
+
+<p>WGMMA 是 Hopper 的张量核指令，需要整个 warpgroup（128 线程）协作发射。一条 WGMMA 指令从共享内存读操作数，在寄存器文件里做矩阵乘累加。</p>
+
+<p>在 FP8 GEMM 的上下文中，WGMMA 每次处理 K = 128 列（这是 FP8 的缩放粒度）。一条 WGMMA 产出一个 \(M \times N\) 的 FP32 部分和，存在寄存器里——这就是 <a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a> 中 <code>accum</code> 寄存器数组的来历。</p>
+
+<p>WGMMA 有一个 <code>.scale_d</code> 字段：值为 1 时做 \(D = D + A \times B\)（累加到已有结果上），值为 0 时做 \(D = A \times B\)（覆盖）。第一个 K 块用 0，后续的用 1。</p>
+
+<h3 id="sec-3">mbarrier（异步屏障）</h3>
+
+<p>mbarrier 是共享内存中的硬件屏障，支持"相位"（phase）机制：生产者完成搬运后调 <code>arrive</code>，消费者调 <code>wait</code> 等待当前相位完成。TMA 搬运完成时会自动在指定的 mbarrier 上做 arrive——这就把"搬运完成"和"可以开始计算"直接关联起来，不需要全局同步。</p>
+
+<p>DeepGEMM 用 <b>full/empty 两组 mbarrier</b> 构成环形缓冲：full barrier 表示"这个 stage 的数据已搬好"，empty barrier 表示"这个 stage 的数据已被消费、可以覆盖"。生产者和消费者交替推进相位——这就是后续各篇中"N 级流水线"的基础机制。</p>
+
+<figure id="fig-pipeline" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-pipeline-cap" viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" font-size="11" role="img" id="s1-root" style="max-width:700px;">
+  <defs>
+    <marker id="s1-pa" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <path d="M0,0 L7,2.5 L0,5" fill="none" stroke="var(--ink-2,#666)" stroke-width="1"/>
+    </marker>
+  </defs>
+
+  
+  <line x1="120" y1="20" x2="680" y2="20" stroke="var(--ink-3,#bbb)" stroke-width="1" marker-end="url(#s1-pa)"/>
+  <text x="685" y="24" fill="var(--ink-3,#999)" font-size="10">时间 →</text>
+
+  
+  <text x="165" y="14" text-anchor="middle" fill="var(--ink-3,#999)" font-size="9">stage 0</text>
+  <text x="275" y="14" text-anchor="middle" fill="var(--ink-3,#999)" font-size="9">stage 1</text>
+  <text x="385" y="14" text-anchor="middle" fill="var(--ink-3,#999)" font-size="9">stage 2</text>
+  <text x="495" y="14" text-anchor="middle" fill="var(--ink-3,#999)" font-size="9">stage 3</text>
+  <text x="605" y="14" text-anchor="middle" fill="var(--ink-3,#999)" font-size="9">stage 0′</text>
+
+  
+  <text x="10" y="60" fill="var(--ink-1,#333)" font-weight="600" font-size="11">TMA</text>
+  <text x="10" y="74" fill="var(--ink-2,#666)" font-size="10">生产者</text>
+
+  <rect x="120" y="40" width="100" height="40" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.2"/>
+  <text x="170" y="58" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">搬 A₀, B₀</text>
+  <text x="170" y="72" text-anchor="middle" fill="#1a73e8" font-size="9">→ SMEM[0]</text>
+
+  <rect x="230" y="40" width="100" height="40" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.2"/>
+  <text x="280" y="58" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">搬 A₁, B₁</text>
+  <text x="280" y="72" text-anchor="middle" fill="#1a73e8" font-size="9">→ SMEM[1]</text>
+
+  <rect x="340" y="40" width="100" height="40" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.2"/>
+  <text x="390" y="58" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">搬 A₂, B₂</text>
+  <text x="390" y="72" text-anchor="middle" fill="#1a73e8" font-size="9">→ SMEM[2]</text>
+
+  <rect x="450" y="40" width="100" height="40" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.2"/>
+  <text x="500" y="58" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">搬 A₃, B₃</text>
+  <text x="500" y="72" text-anchor="middle" fill="#1a73e8" font-size="9">→ SMEM[3]</text>
+
+  <rect x="560" y="40" width="100" height="40" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.2" stroke-dasharray="4,3"/>
+  <text x="610" y="58" text-anchor="middle" fill="var(--ink-2,#888)" font-size="10">搬 A₄, B₄</text>
+  <text x="610" y="72" text-anchor="middle" fill="#1a73e8" font-size="9">→ SMEM[0]</text>
+
+  
+  <g fill="none" stroke="#34a853" stroke-width="1.2">
+    <line x1="170" y1="80" x2="170" y2="105" marker-end="url(#s1-pa)"/>
+    <line x1="280" y1="80" x2="280" y2="105" marker-end="url(#s1-pa)"/>
+    <line x1="390" y1="80" x2="390" y2="105" marker-end="url(#s1-pa)"/>
+    <line x1="500" y1="80" x2="500" y2="105" marker-end="url(#s1-pa)"/>
+  </g>
+  <text x="100" y="100" fill="#34a853" font-size="9" text-anchor="end">full ✓</text>
+
+  
+  <text x="10" y="130" fill="var(--ink-1,#333)" font-weight="600" font-size="11">MMA</text>
+  <text x="10" y="144" fill="var(--ink-2,#666)" font-size="10">消费者</text>
+
+  <rect x="175" y="110" width="100" height="40" rx="5" fill="#e6f4ea" stroke="#34a853" stroke-width="1.2"/>
+  <text x="225" y="128" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">WGMMA A₀×B₀</text>
+  <text x="225" y="142" text-anchor="middle" fill="#34a853" font-size="9">accum += P₀·s</text>
+
+  <rect x="285" y="110" width="100" height="40" rx="5" fill="#e6f4ea" stroke="#34a853" stroke-width="1.2"/>
+  <text x="335" y="128" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">WGMMA A₁×B₁</text>
+  <text x="335" y="142" text-anchor="middle" fill="#34a853" font-size="9">accum += P₁·s</text>
+
+  <rect x="395" y="110" width="100" height="40" rx="5" fill="#e6f4ea" stroke="#34a853" stroke-width="1.2"/>
+  <text x="445" y="128" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">WGMMA A₂×B₂</text>
+  <text x="445" y="142" text-anchor="middle" fill="#34a853" font-size="9">accum += P₂·s</text>
+
+  <rect x="505" y="110" width="100" height="40" rx="5" fill="#e6f4ea" stroke="#34a853" stroke-width="1.2"/>
+  <text x="555" y="128" text-anchor="middle" fill="var(--ink-1,#333)" font-size="10">WGMMA A₃×B₃</text>
+  <text x="555" y="142" text-anchor="middle" fill="#34a853" font-size="9">accum += P₃·s</text>
+
+  
+  <g fill="none" stroke="#ea4335" stroke-width="1.2">
+    <line x1="225" y1="150" x2="225" y2="175" marker-end="url(#s1-pa)"/>
+    <line x1="335" y1="150" x2="335" y2="175" marker-end="url(#s1-pa)"/>
+    <line x1="445" y1="150" x2="445" y2="175" marker-end="url(#s1-pa)"/>
+    <line x1="555" y1="150" x2="555" y2="175" marker-end="url(#s1-pa)"/>
+  </g>
+  <text x="100" y="170" fill="#ea4335" font-size="9" text-anchor="end">empty ✓</text>
+
+  
+  <text x="10" y="210" fill="var(--ink-1,#333)" font-weight="600" font-size="11">SMEM</text>
+  <text x="10" y="224" fill="var(--ink-2,#666)" font-size="10">环形缓冲</text>
+
+  <rect x="120" y="195" width="70" height="30" rx="4" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1"/>
+  <text x="155" y="214" text-anchor="middle" fill="var(--ink-1,#333)" font-size="9">[0]</text>
+
+  <rect x="200" y="195" width="70" height="30" rx="4" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1"/>
+  <text x="235" y="214" text-anchor="middle" fill="var(--ink-1,#333)" font-size="9">[1]</text>
+
+  <rect x="280" y="195" width="70" height="30" rx="4" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1"/>
+  <text x="315" y="214" text-anchor="middle" fill="var(--ink-1,#333)" font-size="9">[2]</text>
+
+  <rect x="360" y="195" width="70" height="30" rx="4" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1"/>
+  <text x="395" y="214" text-anchor="middle" fill="var(--ink-1,#333)" font-size="9">[3]</text>
+
+  <path d="M430,210 C445,210 445,210 440,210" fill="none" stroke="var(--ink-3,#bbb)" stroke-width="1"/>
+  <text x="460" y="214" fill="var(--ink-3,#999)" font-size="9">→ [0]（复用）</text>
+
+  
+  <rect x="120" y="245" width="12" height="12" rx="2" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1"/>
+  <text x="138" y="255" fill="var(--ink-2,#666)" font-size="10">TMA 搬运</text>
+  <rect x="230" y="245" width="12" height="12" rx="2" fill="#e6f4ea" stroke="#34a853" stroke-width="1"/>
+  <text x="248" y="255" fill="var(--ink-2,#666)" font-size="10">MMA 计算</text>
+  <line x1="340" y1="251" x2="358" y2="251" stroke="#34a853" stroke-width="1.2"/>
+  <text x="364" y="255" fill="var(--ink-2,#666)" font-size="10">full barrier</text>
+  <line x1="460" y1="251" x2="478" y2="251" stroke="#ea4335" stroke-width="1.2"/>
+  <text x="484" y="255" fill="var(--ink-2,#666)" font-size="10">empty barrier</text>
+</svg></div>
+  <figcaption id="fig-pipeline-cap"><span class="fig-label">图 1</span><b>Hopper GEMM 的生产者-消费者流水线。</b>TMA 生产者把 A、B tile 搬进共享内存的环形缓冲（4 个 stage），MMA 消费者从中读取并做 WGMMA。full/empty mbarrier 控制双方的节奏。每个周期 TMA 填一个 stage、MMA 消耗一个 stage，形成稳定的流水。</figcaption>
+</figure>
+
+<h2 id="sec-blackwell" data-short="Blackwell 新增">Blackwell（SM100）：TMEM、UTCCP 与 dual-CTA</h2>
+
+<p>Blackwell 在 Hopper 的基础上做了四个影响内核结构的改变：</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>特性</th><th>Hopper（SM90）</th><th>Blackwell（SM100）</th><th>对内核的影响</th></tr></thead>
+  <tbody>
+    <tr><td><b>MMA 指令</b></td><td><code>wgmma</code></td><td><code>tcgen05.mma</code>（UMMA）</td><td>操作数必须都在 SMEM</td></tr>
+    <tr><td><b>累加器</b></td><td>寄存器文件</td><td>TMEM（张量内存）</td><td>尾声需先从 TMEM 读出</td></tr>
+    <tr><td><b>缩放因子</b></td><td>寄存器中手动乘</td><td>TMEM 中 MMA 自动读取</td><td>需要 UTCCP 搬运通路</td></tr>
+    <tr><td><b>CTA 协作</b></td><td>可选 cluster 多播</td><td>dual-CTA MMA（两个 CTA 共用 TMEM）</td><td>M 维加倍</td></tr>
+    <tr><td><b>barrier 组</b></td><td>2 组（full/empty）</td><td>6 组（TMA A/B、UTCCP A/B、full/empty）</td><td>同步更精细</td></tr>
+  </tbody>
+</table></div>
+
+<p><b>TMEM</b>（Tensor Memory）是 SM100 新增的专用存储，每个 SM 有 512 列。MMA 的累加器直接写入 TMEM 而不是寄存器文件——这释放了大量寄存器给其他用途，但尾声必须用 <code>tcgen05.ld</code> 指令把结果从 TMEM 读出到寄存器再写回全局内存。</p>
+
+<p><b>UTCCP</b>（Unified Tensor Core Copy，<code>tcgen05.cp</code>）是专门把缩放因子从 SMEM 拷入 TMEM 的指令。SM100 的块缩放 MMA 要求缩放因子（UE8M0 编码）预先放在 TMEM 的指定列——UTCCP 完成这一步。这比 SM90 多了一个搬运环节，DeepGEMM 因此引入了"UTCCP 转置 warp"这个新角色。</p>
+
+<p><b>Dual-CTA</b>：SM100 允许同一 SM 上的两个 CTA 共享同一块 TMEM 做联合 MMA。其中一个是 leader CTA（负责发射 MMA），另一个提供额外的 SMEM 空间。两个 CTA 合作时 M 维加倍（比如各贡献 64 行，合成 128 行）。</p>
+
+<h2 id="sec-gemm" data-short="GEMM 基础">GEMM 分块：为什么要切小块</h2>
+
+<p>矩阵乘 \(D = A \times B^\top\)（M×K 乘 N×K）的计算量是 \(2MNK\) FLOP。H100 FP8 张量核的峰值算力约 1979 TFLOPS，但 HBM 带宽只有 3.35 TB/s——如果每个 FP8 元素都从 HBM 读一次，实际吞吐会被带宽卡死在几十 TFLOPS。</p>
+
+<p><b>分块</b>（tiling）的核心思想：把 A 和 B 切成 BM×BK 和 BN×BK 的小块，先搬进 SMEM（快），然后在 SMEM 中反复重用——一块 BK=128 的数据被 BM×BN 个输出元素共用，摊薄了搬运代价。这就是"计算密度"或"算术强度"（arithmetic intensity）的来源。</p>
+
+<p>后续各篇反复出现的三个概念：</p>
+
+<dl>
+  <dt>累加器（accumulator）</dt>
+  <dd>存放部分和的寄存器数组。每处理一个 BK 块，MMA 把结果累加进去。K 维遍历完后，累加器里就是最终的 M×N 输出块。在 SM90 上是寄存器，在 SM100 上是 TMEM。</dd>
+
+  <dt>尾声（epilogue）</dt>
+  <dd>K 维遍历完成后的后处理：从累加器读出结果、做类型转换（FP32→BF16/FP8）、乘缩放因子、应用偏置（bias）、写回全局内存。DeepGEMM 的 Mega Gate 和 Mega mHC 把整个门控逻辑或归一化逻辑塞进了尾声。</dd>
+
+  <dt>Split-K</dt>
+  <dd>当 M 和 N 不够大、不足以占满所有 SM 时，把 K 维也拆开：多个 CTA 各算一段 K 的部分和，最后做一次全局归约合并。代价是多了归约开销和 workspace 内存，好处是把空闲的 SM 都用上。Mega mHC 和 Mega Gate 都用 Split-K。</dd>
+</dl>
+
+<h2 id="sec-interconnect" data-short="互联">NVLink 与 RDMA：节点内 vs 节点间</h2>
+
+<p>MoE 的 dispatch/combine 需要 GPU 间通信。两种主要互联：</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>互联</th><th>范围</th><th>双向带宽（H100）</th><th>延迟</th><th>编程接口</th></tr></thead>
+  <tbody>
+    <tr><td><b>NVLink</b></td><td>同节点 8 卡</td><td>~900 GB/s</td><td><1 μs</td><td>对称指针直写、TMA store</td></tr>
+    <tr><td><b>RDMA</b>（InfiniBand）</td><td>跨节点</td><td>~50 GB/s</td><td>数 μs</td><td>NCCL Gin put/get/signal</td></tr>
+  </tbody>
+</table></div>
+
+<p>NVLink 的特殊之处是<b>对称内存窗口</b>（symmetric memory）：同一 NVLink 域的 8 块 GPU 在相同的虚拟地址偏移处分配一段内存，拿到对端的指针后可以像访问本地内存一样读写——SM 发出一条 store 指令，NVLink 硬件把数据送到对端 GPU 的 HBM。这就是 <a href="../ep05-comm-substrate/ep05-comm-substrate.html">ep05</a> 中 <code>get_sym_ptr</code> 返回的那个指针。</p>
+
+<p>RDMA 没有这种透明的指针访问。跨节点通信需要经过 NIC（网卡），用消息传递接口（DeepEP 中是 NCCL 的 Gin API）显式发送和接收。延迟更高、带宽更低，但这是跨节点的唯一选择。</p>
+
+<p>这两种互联的带宽差（18×）直接决定了 DeepEP 的架构：同节点走"直连模式"（一跳 NVLink），跨节点走"混合模式"（RDMA 到代理节点 + NVLink 转发）。<a href="../ep04-hybrid/ep04-hybrid.html">ep04</a> 详细拆解这两条路径。</p>
+
+<h2 id="sec-glossary" data-short="术语速查">术语速查</h2>
+
+<p>以下术语在系列中频繁出现。括号里是首次详细讨论的篇目。</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>术语</th><th>含义</th><th>首次详讨</th></tr></thead>
+  <tbody>
+    <tr><td>TMA</td><td>Tensor Memory Access，硬件异步搬运引擎</td><td>本篇 / dg01</td></tr>
+    <tr><td>WGMMA</td><td>Warpgroup Matrix Multiply-Accumulate，SM90 张量核指令</td><td>dg01</td></tr>
+    <tr><td>tcgen05.mma / UMMA</td><td>SM100 的统一 MMA 指令</td><td>dg02</td></tr>
+    <tr><td>TMEM</td><td>Tensor Memory，SM100 的专用累加器存储</td><td>dg02</td></tr>
+    <tr><td>UTCCP</td><td>Unified Tensor Core Copy，SF 从 SMEM 拷入 TMEM</td><td>dg02</td></tr>
+    <tr><td>mbarrier</td><td>共享内存异步屏障，支持相位切换</td><td>dg01</td></tr>
+    <tr><td>PDL</td><td>Programmatic Dependent Launch，内核链式启动（零开销接力）</td><td>ep02</td></tr>
+    <tr><td>UE8M0</td><td>只有指数的 8 位缩放因子格式，值为 \(2^e\)</td><td>dg03</td></tr>
+    <tr><td>对称内存</td><td>NVLink 域内各 GPU 在相同虚拟偏移分配的内存窗口</td><td>ep05</td></tr>
+    <tr><td>Split-K</td><td>把 K 维拆成多份并行计算，最后归约</td><td>dg09</td></tr>
+    <tr><td>epilogue</td><td>GEMM 累加完成后的后处理（类型转换、缩放、写回）</td><td>dg01</td></tr>
+    <tr><td>持久化内核</td><td>grid = SM 数，每个 CTA 循环取任务（不退出）</td><td>dg04</td></tr>
+    <tr><td>swizzle</td><td>共享内存地址重排，避免 bank conflict</td><td>dg01</td></tr>
+    <tr><td>swap-AB</td><td>交换 A、B 操作数角色，把可变的 M 映射到 UMMA 的 N 维</td><td>dg02</td></tr>
+    <tr><td>Gin API</td><td>NCCL 提供的设备端通信接口（put/get/signal/wait）</td><td>ep05</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../bg01-moe-ep-background/bg01-moe-ep-background.html">MoE 与专家并行：为什么要搬数据</a>
+  ｜ 下一篇：<a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+  <li id="ref-ptx_isa">NVIDIA (2025). <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA 8.7</a>. NVIDIA Corporation.</li>
+  <li id="ref-h100_wp">NVIDIA (2022). NVIDIA H100 Tensor Core GPU Architecture Whitepaper.</li>
+  <li id="ref-b200_wp">NVIDIA (2024). NVIDIA Blackwell Architecture Technical Brief.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  本篇是硬件背景介绍。带宽和容量数字引自 NVIDIA 官方白皮书和文档，实际值因配置而异。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

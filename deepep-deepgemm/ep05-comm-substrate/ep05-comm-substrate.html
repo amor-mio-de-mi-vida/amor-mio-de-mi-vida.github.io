@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通信底座：NCCL Gin、对称内存窗口与内存序</title>
+<meta name="description" content="DeepEP 精读第 5 篇：所有 EP 内核共用一套通信基础设施——NCCLGin 封装了 NCCL 的设备端 Gin API 并自动选择 NVLink 直写或 RDMA 消息传递，对称内存窗口让同域 GPU 用指针互访，ptx.cuh 提供从 acquire/release 到 system-scope fence 的完整内存序词汇，而屏障层级从 gpu_barrier 逐层分派到 nvlink_barrier 和 gin_barrier。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 5 篇</div>
+  <h1>通信底座：NCCL Gin、对称内存窗口与内存序</h1>
+  <p class="subtitle">DeepEP 的所有 EP 内核共用一套通信基础设施：NCCLGin 封装了 NCCL 的设备端 Gin API 并根据 team 类型自动选择 NVLink 直写或 RDMA 消息传递；对称内存窗口让同一 NVLink 域的 GPU 用指针直接互访；ptx.cuh 提供了从 acquire/release load/store 到 system-scope fence 的完整内存序词汇。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 13 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-gin-api">NCCLGin：一层薄封装</a><li><a href="#sec-red-add-rel"><code>red_add_rel</code>：一个接口，两套实现</a><li><a href="#sec-sym-mem">对称内存与窗口</a><ol><li><a href="#sec-1">对称内存的分配与约束</a></li><li><a href="#sec-2"><code>is_nvlink_accessible</code>：域判断的三条分支</a></li></ol><li><a href="#sec-qp">QP 映射与资源共享</a><ol><li><a href="#sec-3">屏障标签体系</a></li></ol><li><a href="#sec-barrier">屏障与内存序</a><ol><li><a href="#sec-4"><code>gpu_barrier</code>：顶层入口</a></li><li><a href="#sec-5"><code>nvlink_barrier</code>：两阶段翻符号</a></li><li><a href="#sec-6"><code>gin_barrier</code>：flush + signal/wait</a></li></ol><li><a href="#sec-ptx"><code>ptx.cuh</code>：内存序词汇表</a><ol><li><a href="#sec-7">Fence</a></li><li><a href="#sec-8">Load / Store</a></li><li><a href="#sec-9">原子操作</a></li><li><a href="#sec-10">TMA 操作</a></li><li><a href="#sec-11">Warp 级原语</a></li><li><a href="#sec-12">超时机制</a></li></ol><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr"><p class="tldr-title">TL;DR</p>
+<ul>
+<li>DeepEP 的所有 EP 内核共用一套通信基础设施：<code>NCCLGin</code> 封装了 NCCL 的 Gin API，暴露 <code>put</code>、<code>get</code>、<code>signal</code>/<code>wait_signal</code>、<code>red_add_rel</code> 等操作，并根据 team 类型自动选择 NVLink 直写或 RDMA 消息传递。</li>
+<li>对称内存窗口（<code>nccl_window</code>）让同一 NVLink 域的 GPU 能用指针直接读写对端内存——<code>get_sym_ptr</code> 返回 NVLink 映射地址，而对 RDMA 对端返回 <code>nullptr</code>，强制走 Gin 路径。</li>
+<li><code>ptx.cuh</code> 提供了完整的内存序词汇：<code>ld_acquire_sys</code>、<code>st_release_sys</code>、<code>red_add_rel_{gpu,sys}</code>、<code>fence_acq_rel_sys</code>、<code>tma_store_fence</code>（即 <code>fence.proxy.async</code>）；屏障层级从 <code>gpu_barrier</code> 到 <code>nvlink_barrier</code> 和 <code>gin_barrier</code> 逐层分派。</li>
+</ul></div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 NVLink 对称内存和 RDMA 的基本概念（<a href="../bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a>）和 dispatch/combine 的通信路径（<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>、<a href="../ep04-hybrid/ep04-hybrid.html">ep04</a>）。本篇新引入：NCCLGin 封装、get_sym_ptr、内存序词汇（acquire/release/fence）、屏障层级。</p></aside>
+
+<h2 id="sec-gin-api">NCCLGin：一层薄封装</h2>
+
+<p>DeepEP 不直接调用 NCCL 的设备端 API，而是通过 <code>comm::NCCLGin</code> 结构体做一层薄封装。它在设备端构造，持有三个关键成员：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L22-L38"><code>ncclTeam team_world, team_lsa, team_rail;
+uint64_t lsa_base_ptr;
+
+// TODO(NCCL): QP index should just be a hint or the users maintain the mapping?
+__device__ __forceinline__
+NCCLGin(const ncclDevComm_t&amp; nccl_dev_comm, const ncclWindow_t&amp; nccl_window,
+        const int&amp; qp_idx = 0,
+        const ncclGinResourceSharingMode&amp; resource_sharing_mode = NCCL_GIN_RESOURCE_SHARING_GPU):
+    nccl_dev_comm(nccl_dev_comm), nccl_window(nccl_window),
+    gin(ncclGin(nccl_dev_comm, qp_idx, resource_sharing_mode)),
+    team_world(ncclTeamWorld(nccl_dev_comm)), team_lsa(ncclTeamLsa(nccl_dev_comm)), team_rail(ncclTeamRail(nccl_dev_comm)) {
+    // TODO: what if we only have 1 NVLink rank
+    lsa_base_ptr = reinterpret_cast&lt;uint64_t&gt;(ncclGetLsaPointer(nccl_window, 0, team_lsa.rank));
+}
+
+template &lt;typename team_t&gt;
+__device__ __forceinline__ bool is_nvlink_accessible(const int&amp; dst_rank_idx) const {</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L22-L38"><code>deep_ep/include/deep_ep/comm/handle.cuh</code> 第 22–38 行</a>（节选）</p>
+
+<p>构造函数接受 <code>nccl_dev_comm</code>（NCCL 设备端通信句柄）、<code>nccl_window</code>（对称内存窗口）和 <code>qp_idx</code>（QP 编号）。构造时立即初始化三个 team：<code>team_world</code>（全局）、<code>team_lsa</code>（NVLink 域）、<code>team_rail</code>（RDMA 域），并计算本地对称内存基地址 <code>lsa_base_ptr</code>。</p>
+
+<p>如<a href="#fig-gin-api">图 1</a> 所示，<code>NCCLGin</code> 暴露的 API 可以分为三类：</p>
+<ul>
+<li><strong>数据搬运</strong>：<code>put</code>（RDMA 写入对端窗口）、<code>put_value</code>（写入单个值）、<code>get</code>（RDMA 读取对端窗口）。</li>
+<li><strong>信号</strong>：<code>signal</code>（发送信号到对端的指定 slot）、<code>wait_signal</code>（等待某个 slot 的信号到达指定值，带超时和 trap）、<code>flush</code>/<code>flush_async</code>（刷新 QP 中的待发请求）。</li>
+<li><strong>双路径操作</strong>：<code>red_add_rel</code>（原子加，NVLink 用 PTX、RDMA 用 Gin signal）、<code>get_sym_ptr</code>（返回对端的对称指针或 nullptr）。</li>
+</ul>
+
+<p>所有带 team 模板参数的方法都通过编译时分派选择具体路径。例如 <code>put&lt;ncclTeamTagRail&gt;</code> 走 RDMA，<code>put&lt;ncclTeamTagLsa&gt;</code> 虽然也调用 <code>gin.put</code>，但实际上走的是 NVLink。这种编译时分派的好处是零运行时开销：模板实例化后每条路径的分支全部被消除，生成的 PTX 只包含对应域类型的指令序列。</p>
+
+<p>值得注意的是 <code>flush</code> 和 <code>flush_async</code> 的区别：<code>flush</code> 是同步操作，等待 QP 中所有挂起的请求完成后才返回；<code>flush_async</code> 只把请求推给 NIC 但不等待完成。屏障实现中通常先 <code>flush</code> 所有 QP（确保数据已发出），再执行 signal/wait 协议。在流水线重叠的场景下——例如混合 dispatch 中 scale-out warp 边发送边预载入下一个 token——用的是隐式的 QP 排序语义而非显式 flush，因为同一 QP 上的请求保证按序完成。</p>
+
+<div class="callout key"><p class="callout-title">Gin 的序保证：DeepEP 依赖的三条合约</p>
+<p>DeepEP 内核的正确性依赖 Gin 的三条隐式序合约（<code>handle.cuh</code>）：</p>
+<ol>
+<li><b>同 QP 有序交付</b>：同一 QP 上的 <code>put</code> 按发射顺序到达远端。ep02–ep04 的 forward warp 因此不需要每发一个 token 就 flush——只要 tail 信号在数据之后到达即可。</li>
+<li><b><code>put</code> + <code>remote_action</code> 因果性</b>：<code>gin.put(..., remote_action)</code> 保证 remote_action（如 <code>VASignalAdd</code> 递增 tail）在数据写入对端显存之后才执行。收端看到 tail 增长时，对应的数据保证已就位。</li>
+<li><b><code>waitSignal</code> 的 acquire 语义</b>：<code>gin.waitSignal(..., memory_order_acquire)</code> 返回时，发端在 signal 之前的所有写入对等待线程可见。这与 PTX 的 <code>ld_acquire_sys</code> 类似但走 NIC 路径，因此能跨节点生效。</li>
+</ol>
+<p><code>put</code> 的实现传入了 <code>cuda::thread_scope_thread</code>（本地序）和 <code>cuda::thread_scope_device</code>（远端序）。本地 scope 为 thread 意味着 put 不对本 GPU 的其他线程提供可见性保证——如果本地线程需要依赖 put 的完成，必须显式 <code>flush</code>（或 <code>flush_async</code> + <code>wait</code>）。远端 scope 为 device 意味着数据到达后对远端整个 GPU 可见，不需要额外 fence。<code>waitSignal</code> 内部用滚动的 shadow 计数器追踪期望值：每次调用递增 shadow 并等待实际信号追上——这让 signal 可以无限复用同一 slot 而不需要重置。</p>
+</div>
+
+<figure id="fig-gin-api" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-gin-api-cap" viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg" role="img" id="s1-root" style="max-width:680px;">
+<defs>
+  <marker id="s1-ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+</defs>
+
+
+<text x="340" y="24" text-anchor="middle" class="d-title" style="font-size:15px">NCCLGin：一层薄封装与双路径分派</text>
+
+
+<rect x="120" y="44" width="440" height="312" rx="6" class="d-box accent"/>
+<text x="340" y="70" text-anchor="middle" class="d-title" style="font-size:15px;fill:var(--c-verm)">NCCLGin</text>
+<text x="340" y="90" text-anchor="middle" class="d-mono" style="font-size:11px">nccl_dev_comm + nccl_window + qp_idx</text>
+
+
+
+<rect x="140" y="108" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="200" y="131" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">put</text>
+
+<rect x="280" y="108" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="340" y="131" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">put_value</text>
+
+<rect x="420" y="108" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="480" y="131" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">get</text>
+
+
+<rect x="140" y="156" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="200" y="179" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">signal</text>
+
+<rect x="280" y="156" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="340" y="179" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">wait_signal</text>
+
+<rect x="420" y="156" width="120" height="36" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="480" y="179" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-green)">flush</text>
+
+
+<rect x="140" y="204" width="200" height="36" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="240" y="227" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-verm)">red_add_rel</text>
+
+<rect x="360" y="204" width="180" height="36" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="450" y="227" text-anchor="middle" class="d-mono" style="font-size:13px;fill:var(--c-blue)">get_sym_ptr</text>
+
+
+<path d="M240 240 V260" class="d-arrow" marker-end="url(#s1-ah4)"/>
+
+<rect x="80" y="264" width="160" height="44" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="160" y="282" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">NVLink 可达</text>
+<text x="160" y="299" text-anchor="middle" class="d-mono" style="font-size:11px">red.release.{gpu,sys}</text>
+
+<rect x="280" y="264" width="160" height="44" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="360" y="282" text-anchor="middle" class="d-small" style="fill:var(--c-green)">RDMA 对端</text>
+<text x="360" y="299" text-anchor="middle" class="d-mono" style="font-size:11px">gin.signal(VASignalAdd)</text>
+
+<path d="M200 260 L160 264" class="d-arrow" stroke="var(--c-blue)" marker-end="url(#s1-ah4)"/>
+<path d="M280 260 L360 264" class="d-arrow" stroke="var(--c-green)" marker-end="url(#s1-ah4)"/>
+
+
+<path d="M450 240 V260" class="d-arrow" marker-end="url(#s1-ah4)"/>
+<rect x="480" y="264" width="160" height="44" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="560" y="282" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">NVLink 可达</text>
+<text x="560" y="299" text-anchor="middle" class="d-mono" style="font-size:11px">ncclGetLsaPointer</text>
+
+<text x="450" y="340" text-anchor="middle" class="d-small" style="fill:var(--c-green)">RDMA: 返回 nullptr</text>
+<text x="450" y="356" text-anchor="middle" class="d-label" style="font-size:11px">调用者必须改走 gin.put</text>
+</svg></div>
+  <figcaption id="fig-gin-api-cap"><span class="fig-label">图 1</span><b><code>NCCLGin</code> 的 API 面与双路径分派。</b>大多数方法直接委托给底层 <code>ncclGin</code>；<code>red_add_rel</code> 和 <code>get_sym_ptr</code> 根据对端是否 NVLink 可达选择不同实现——这是混合模式（<a href="../ep04-hybrid/ep04-hybrid.html">第 4 篇</a>）能统一处理两种域的关键。</figcaption>
+</figure>
+
+<h2 id="sec-red-add-rel"><code>red_add_rel</code>：一个接口，两套实现</h2>
+
+<p><code>red_add_rel</code> 是 DeepEP 通信层中最能体现"双路径"设计的函数。它的语义是"对远端某个地址做原子加，并带 release 语义"，但背后是两套完全不同的实现：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L97-L116"><code>__device__ __forceinline__
+void red_add_rel(dtype_t* sym_ptr, const dtype_t&amp; value, const int&amp; dst_rank_idx,
+                 const int&amp; extra_options = 0) const {
+    const auto dst_ptr = get_sym_ptr&lt;team_t&gt;(sym_ptr, dst_rank_idx);
+    // Use symmetric pointers as much as possible, RDMA otherwise
+    if (dst_ptr != nullptr) {
+        if (std::is_same_v&lt;team_t, ncclTeamTagRail&gt; or dst_ptr == sym_ptr) {
+            ptx::red_add_rel_gpu(dst_ptr, value);
+        } else {
+            ptx::red_add_rel_sys(dst_ptr, value);
+        }
+    } else {
+        EP_DEVICE_ASSERT((not std::is_same_v&lt;team_t, ncclTeamTagLsa&gt;));
+        EP_DEVICE_ASSERT((std::is_same_v&lt;dtype_t, int64_t&gt;) or (std::is_same_v&lt;dtype_t, uint64_t&gt;));
+        // TODO(NCCL): support all dtypes
+        gin.signal(TEAM_WORLD_RAIL(), dst_rank_idx,
+                   ncclGin_VASignalAdd(nccl_window, reinterpret_cast&lt;int64_t&gt;(sym_ptr) - lsa_base_ptr, static_cast&lt;uint64_t&gt;(value)),
+                   ncclCoopThread(),
+                   ncclGin_None(),
+                   cuda::thread_scope_thread,</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L97-L116"><code>deep_ep/include/deep_ep/comm/handle.cuh</code> 第 97–116 行</a>（节选）</p>
+
+<p>当 <code>get_sym_ptr</code> 返回非空指针（NVLink 可达）时，直接使用 PTX 的 <code>red.release.gpu</code> 或 <code>red.release.sys</code> 做原子加——这是纯硬件操作，延迟极低。当返回 nullptr（RDMA 对端）时，改为发 <code>gin.signal</code> 并附带 <code>ncclGin_VASignalAdd</code> 载荷——这实际上是一条 RDMA 消息，由对端的网卡固件解释执行。</p>
+
+<p>gpu scope 和 sys scope 的选择也有讲究：同一 rank（<code>dst_ptr == sym_ptr</code>）或 Rail team 内（只有同一 rank 才 NVLink 可达）用 <code>red.release.gpu</code>；其他 NVLink 对端用 <code>red.release.sys</code>——因为跨 GPU 的 NVLink 写需要 system-scope 才能对对方 GPU 可见。这个区分不仅仅是正确性问题，还有性能影响：<code>red.release.gpu</code> 只需要刷新本 GPU 的 L2 写缓冲，而 <code>red.release.sys</code> 需要等 NVLink fabric 确认所有远端 GPU 的 L2 都已收到数据。在 8 卡 NVLink 域内，一次 sys-scope release 的延迟大约是 gpu-scope 的 3-5 倍——因此代码在可以用 gpu scope 的地方绝不多用 sys scope。</p>
+
+<div class="callout key"><p class="callout-title">为什么不总用 Gin？</p>
+<p>对 NVLink 对端来说，PTX 原子操作的延迟远低于 Gin 的消息传递路径（后者需要经过 QP、WQE 队列、网卡固件）。DeepEP 的策略是"NVLink 能走就走 NVLink，只在不得已时走 Gin"——<code>put_value</code> 也是同样的逻辑：NVLink 可达时直接 <code>st_relaxed_sys</code>，否则 <code>gin.putValue</code>。</p>
+</div>
+
+<h2 id="sec-sym-mem">对称内存与窗口</h2>
+
+<figure id="fig-sym-mem" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-sym-mem-cap" viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" role="img" id="s2-root" style="max-width:560px;">
+<defs>
+  <marker id="s2-ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+  <marker id="s2-ah5-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="var(--c-blue)"/>
+  </marker>
+</defs>
+
+
+<text x="280" y="24" text-anchor="middle" class="d-title" style="font-size:15px">对称内存窗口与地址翻译</text>
+
+
+<rect x="24" y="48" width="232" height="240" rx="6" class="d-group"/>
+<text x="140" y="68" text-anchor="middle" class="d-title" style="font-size:14px">GPU 0 (NVLink rank 0)</text>
+
+
+<rect x="40" y="84" width="200" height="120" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1.5"/>
+<text x="140" y="104" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">nccl_window 映射区</text>
+
+<rect x="52" y="112" width="176" height="24" rx="2" fill="white" stroke="var(--c-blue)" stroke-width="0.5"/>
+<text x="140" y="129" text-anchor="middle" class="d-mono" style="font-size:11px">lsa_base_ptr (offset 0)</text>
+
+<rect x="52" y="144" width="176" height="24" rx="2" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="140" y="161" text-anchor="middle" class="d-mono" style="font-size:11px;fill:var(--c-verm)">ptr (offset = ptr - base)</text>
+
+<rect x="52" y="176" width="176" height="16" rx="2" fill="var(--c-gray-bg)" stroke="var(--c-gray)" stroke-width="0.5"/>
+
+<text x="140" y="224" text-anchor="middle" class="d-mono" style="font-size:11px">get_sym_offset(ptr)</text>
+<text x="140" y="242" text-anchor="middle" class="d-mono" style="font-size:11px">= ptr - lsa_base_ptr</text>
+
+<text x="140" y="274" text-anchor="middle" class="d-label" style="font-size:11px">ncclGetLsaPointer(window,</text>
+<text x="140" y="286" text-anchor="middle" class="d-label" style="font-size:11px">0, team_lsa.rank)</text>
+
+
+<rect x="304" y="48" width="232" height="240" rx="6" class="d-group"/>
+<text x="420" y="68" text-anchor="middle" class="d-title" style="font-size:14px">GPU 1 (NVLink rank 1)</text>
+
+
+<rect x="320" y="84" width="200" height="120" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1.5"/>
+<text x="420" y="104" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">nccl_window 映射区</text>
+
+<rect x="332" y="112" width="176" height="24" rx="2" fill="white" stroke="var(--c-blue)" stroke-width="0.5"/>
+<text x="420" y="129" text-anchor="middle" class="d-mono" style="font-size:11px">lsa_base_ptr (offset 0)</text>
+
+<rect x="332" y="144" width="176" height="24" rx="2" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="420" y="161" text-anchor="middle" class="d-mono" style="font-size:11px;fill:var(--c-verm)">same offset -> dst_ptr</text>
+
+<rect x="332" y="176" width="176" height="16" rx="2" fill="var(--c-gray-bg)" stroke="var(--c-gray)" stroke-width="0.5"/>
+
+<text x="420" y="224" text-anchor="middle" class="d-mono" style="font-size:11px">get_sym_ptr(ptr, dst=1)</text>
+<text x="420" y="242" text-anchor="middle" class="d-mono" style="font-size:11px">= ncclGetLsaPointer(</text>
+<text x="420" y="258" text-anchor="middle" class="d-mono" style="font-size:11px">  window, offset, 1)</text>
+
+
+<path d="M230 156 H318" class="d-arrow" stroke="var(--c-blue)" stroke-width="2.5" marker-end="url(#s2-ah5-blue)"/>
+<text x="274" y="148" text-anchor="middle" class="d-small" style="fill:var(--c-blue);font-size:12px">NVLink</text>
+<text x="274" y="178" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-blue)">同一 offset</text>
+
+
+<text x="280" y="310" text-anchor="middle" class="d-small" style="font-size:12px">RDMA 对端不在 NVLink 域内，get_sym_ptr 返回 nullptr，改走 gin.put（传 offset）</text>
+</svg></div>
+  <figcaption id="fig-sym-mem-cap"><span class="fig-label">图 2</span><b>对称内存窗口的地址翻译。</b>所有 NVLink 域内的 GPU 共享同一 <code>nccl_window</code>，同一 offset 映射到各 GPU 的对应位置。<code>get_sym_ptr</code> 把本地指针翻译成对端地址；RDMA 对端没有 NVLink 映射，返回 nullptr。</figcaption>
+</figure>
+
+<p>如<a href="#fig-sym-mem">图 2</a> 所示，"对称内存"（symmetric memory）是 NCCL 提供的一种机制：同一 NVLink 域内的所有 GPU 在各自的显存中分配一块相同大小的区域，用同一个 <code>nccl_window</code> 句柄管理。关键操作是 <code>ncclGetLsaPointer(window, offset, rank)</code>：给定窗口、偏移和目标 rank，返回该 rank 对应位置的 NVLink 直通指针——GPU 可以像访问本地内存一样读写这个指针指向的位置。</p>
+
+<p><code>NCCLGin</code> 在此之上封装了两个操作：</p>
+<ul>
+<li><code>get_sym_offset(ptr)</code>：计算指针相对于本地 <code>lsa_base_ptr</code> 的偏移量。</li>
+<li><code>get_sym_ptr&lt;team_t&gt;(ptr, dst_rank_idx)</code>：核心翻译函数。</li>
+</ul>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L64-L87"><code>template &lt;typename team_t, typename dtype_t = void*&gt;
+__device__ __forceinline__
+dtype_t* get_sym_ptr(dtype_t* ptr, const int&amp; dst_rank_idx) const {
+    IS_TEAM_RAIL({
+        return team_rail.rank == dst_rank_idx ? ptr : nullptr;
+    })
+
+    IS_TEAM_WORLD_LSA({
+        constexpr bool kIsTeamLSA = (std::is_same_v&lt;team_t, ncclTeamTagLsa&gt;);
+
+        // Team world and not accessible by symmetric pointers
+        if (not is_nvlink_accessible&lt;team_t&gt;(dst_rank_idx))
+            return nullptr;
+
+        // Translate into NVLink rank index
+        const auto dst_nvl_rank_idx = kIsTeamLSA ?
+            dst_rank_idx : (dst_rank_idx - team_rail.rank * team_lsa.nRanks);
+
+        // Local rank bypass
+        // TODO(NCCL): support this
+        if (dst_nvl_rank_idx == team_lsa.rank)
+            return ptr;
+
+        // Get base ptr</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L64-L87"><code>deep_ep/include/deep_ep/comm/handle.cuh</code> 第 64–87 行</a>（节选）</p>
+
+<p>对于 <code>ncclTeamTagRail</code>，只有同一 rank 才返回原指针（<code>team_rail.rank == dst_rank_idx</code>），否则返回 nullptr——因为 RDMA rail 内没有 NVLink 连接。对于 <code>ncclTeamTagLsa</code> 或 <code>ncclTeamTagWorld</code>，先用 <code>is_nvlink_accessible</code> 判断，然后调用 <code>ncclGetLsaPointer</code> 翻译。</p>
+
+<p>这就是 DeepEP 混合模式的核心抽象：所有内核只需要调用 <code>get_sym_ptr</code>——返回非空就可以直写，返回 nullptr 就走 <code>gin.put</code> 传 offset。直连模式和混合模式的数据路径差异，全部隐藏在这个分支里。</p>
+
+<h3 id="sec-1">对称内存的分配与约束</h3>
+
+<p>对称窗口在 <code>EPBuffer</code>（或 <code>BucketBuffer</code>）的构造函数中一次性创建。Python 端先计算所需字节数（按 2 MiB 对齐，来自 <code>calculate_ep_buffer_size</code>），然后把 NCCL comm 句柄和字节数传给 C++ 运行时，运行时通过 NCCL 的窗口注册接口在每张 GPU 上分配等大的区域。所有 rank 必须传入相同的 <code>num_bytes</code>——否则 <code>get_sym_offset</code> 的偏移翻译会错位。分配后窗口大小不可变：如果需要更多空间，必须销毁并重建 buffer。</p>
+
+<p>窗口内部由 <code>BufferAllocator</code> 做二级规划：它在初始化时按固定对齐粒度（<code>get_num_allocation_alignment()</code>）规划所有张量的偏移，然后一次性物化到窗口存储上。LB（负载均衡）区域与 EP 通信缓冲区分开计数（<code>num_lb_bytes</code> 是独立参数），但由同一运行时管理。这种"大块预分配 + 内部规划"设计避免了运行时动态分配的开销和碎片化，代价是必须在初始化时确定最大通信规模——<code>num_max_tokens_per_rank</code> 和 <code>hidden</code> 决定了缓冲区的上限。</p>
+
+<h3 id="sec-2"><code>is_nvlink_accessible</code>：域判断的三条分支</h3>
+
+<p><code>get_sym_ptr</code> 的关键前置函数是 <code>is_nvlink_accessible</code>。它根据 team 类型判断目标 rank 是否可以通过 NVLink 直写到达：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L38-L54"><code>__device__ __forceinline__ bool is_nvlink_accessible(const int&amp; dst_rank_idx) const {
+    IS_TEAM_LSA({
+        return true;
+    })
+
+    IS_TEAM_WORLD({
+        // TODO(NCCL): optimize this function's cycles
+        // return ncclTeamRankIsMember(team_lsa, team_world, dst_rank_idx);
+        return team_rail.rank * team_lsa.nRanks &lt;= dst_rank_idx and
+               dst_rank_idx &lt; (team_rail.rank + 1) * team_lsa.nRanks;
+    })
+
+    IS_TEAM_RAIL({
+        // TODO(NCCL): some ranks may be connected by NVLink, e.g., "2 + 2 + 4"
+        return team_rail.rank == dst_rank_idx;
+    })
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L38-L54"><code>deep_ep/include/deep_ep/comm/handle.cuh</code> 第 38–54 行</a>（节选）</p>
+
+<p>对 LSA team（NVLink 域内），所有 rank 都 NVLink 可达，直接返回 true。对 World team，使用一个简单的范围检查：<code>team_rail.rank × lsa_nRanks</code> 到 <code>(team_rail.rank + 1) × lsa_nRanks</code> 之间的 rank 属于同一 NVLink 域——这利用了 DeepEP 的 rank 编排约定：同一节点的 GPU 连续编号。代码注释中标注了一个 <code>TODO</code>：未来可能调用 <code>ncclTeamRankIsMember</code> 来做更准确的判断。对 Rail team（RDMA 域），只有同一 rank 才可达——因为 rail team 的不同 rank 之间只有 RDMA 连接，没有 NVLink。</p>
+
+<h2 id="sec-qp">QP 映射与资源共享</h2>
+
+<p>NCCL Gin 的每个通信请求需要绑定一个 QP（Queue Pair）。<code>get_qp_mode</code> 函数根据 SM 数和 QP 数决定映射策略：</p>
+
+<ul>
+<li><strong>只有 1 个 QP</strong>：所有 SM 共享，使用 <code>NCCL_GIN_RESOURCE_SHARING_GPU</code>（单 SM 时退化为 CTA）。</li>
+<li><strong>SM 数 &le; QP 数</strong>：每个 SM 独占若干 QP，按 stride 分配（例如 3 个 SM 和 10 个 QP：SM 0 用 0/3/6/9，SM 1 用 1/4/7，SM 2 用 2/5/8），使用 <code>NCCL_GIN_RESOURCE_SHARING_CTA</code>。</li>
+<li><strong>SM 数 > QP 数</strong>：所有 SM 共享所有 QP，按全局 channel index 取模，使用 <code>NCCL_GIN_RESOURCE_SHARING_GPU</code>。</li>
+</ul>
+
+<p>如果 block 里有 notify warps（<code>kWithNotifyWarps = true</code>），QP 0 预留给 notify warp，数据 channel 从 QP 1 开始分配。完整的映射函数展示了所有分支：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L56-L86"><code>template &lt;int kNumSMs, int kNumQPs, int kNumChannelsPerSM, bool kWithNotifyWarps = false&gt;
+__device__ __forceinline__ std::pair&lt;int, ncclGinResourceSharingMode&gt; get_qp_mode(
+    const int&amp; sm_idx, const int&amp; channel_in_sm_idx, const bool&amp; is_notify_warp = false) {
+    constexpr auto kSharingCTA = NCCL_GIN_RESOURCE_SHARING_CTA;
+    constexpr auto kSharingGrid = kNumSMs == 1 ? NCCL_GIN_RESOURCE_SHARING_CTA : NCCL_GIN_RESOURCE_SHARING_GPU;
+
+    // Only one QP
+    if constexpr (kNumQPs == 1)
+        return {0, kSharingGrid};
+
+    // The notify warp always use 1 SM and 1 QP
+    if (is_notify_warp)
+        return {0, kSharingCTA};
+
+    // Data channels
+    constexpr int kQPStartIdx = static_cast&lt;int&gt;(kWithNotifyWarps);
+    constexpr int kNumAvailableQPs = kNumQPs - kQPStartIdx;
+    if constexpr (kNumSMs &lt;= kNumAvailableQPs) {
+        // A single SM uses an entire QP
+        // e.g., 3 SMs and 10 QPs
+        // SM 0: 0 3 6 9
+        // SM 1: 1 4 7
+        // SM 2: 2 5 8
+        const int num_qps_in_sm = (kNumAvailableQPs / kNumSMs) + (sm_idx &lt; (kNumAvailableQPs % kNumSMs));
+        return {kQPStartIdx + sm_idx + (channel_in_sm_idx % num_qps_in_sm) * kNumSMs, kSharingCTA};
+    } else {
+        // All SMs share all QPs
+        const auto global_channel_idx = sm_idx * kNumChannelsPerSM + channel_in_sm_idx;
+        return {kQPStartIdx + (global_channel_idx % kNumAvailableQPs), kSharingGrid};
+    }
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L56-L86"><code>deep_ep/include/deep_ep/comm/barrier.cuh</code> 第 56–86 行</a>（get_qp_mode：QP 分配的三路策略）</p>
+
+<p>第 60 行值得注意：当只有 1 个 SM 时，<code>kSharingGrid</code> 退化为 <code>NCCL_GIN_RESOURCE_SHARING_CTA</code>——因为单 SM 下 GPU scope 和 CTA scope 等价，CTA scope 的同步开销更低。第 79–80 行的 stride 分配确保相邻的 channel 请求落在不同的 QP 上，避免同一 QP 上的请求排队。</p>
+
+<p>QP 的数量直接影响 RDMA 的聚合带宽。每个 QP 对应网卡上的一条独立工作队列，QP 之间可以并行地向不同目标发送数据。如果只有 1 个 QP，所有 RDMA 请求串行排队，带宽受限于单条队列的吞吐。反之，QP 太多也有代价：每个 QP 在 NIC 上占用寄存器和缓冲空间，且网卡的硬件调度器在大量 QP 之间轮询的开销会增加。DeepEP 的分析式配置（<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>）通过拓扑探测和带宽公式自动选择 QP 数量，目标是在网卡的队列深度限制内最大化聚合 RDMA 带宽。</p>
+
+<h3 id="sec-3">屏障标签体系</h3>
+
+<p>Gin 的 signal/wait 使用整数 tag 区分不同的信号通道。DeepEP 预定义了 10 个 tag，分配给不同的内核阶段：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L16-L25"><code>static constexpr int kDeviceBarrierTag = 0;
+static constexpr int kKernelBarrierTag = 1;
+static constexpr int kDispatchTag0 = 2;
+static constexpr int kDispatchTag1 = 3;
+static constexpr int kCombineTag0 = 4;
+static constexpr int kCombineTag1 = 5;
+static constexpr int kHybridDispatchTag0 = 6;
+static constexpr int kHybridDispatchTag1 = 7;
+static constexpr int kHybridCombineTag0 = 8;
+static constexpr int kHybridCombineTag1 = 9;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L16-L25"><code>deep_ep/include/deep_ep/comm/barrier.cuh</code> 第 16–25 行</a>（屏障 tag 预定义）</p>
+
+<p>每种 EP 操作（dispatch、combine、hybrid dispatch、hybrid combine）各占两个 tag（tag0 和 tag1），对应该操作在内核执行过程中的两次全局屏障点（通常是数据搬运前和归约前）。<code>kDeviceBarrierTag</code> 和 <code>kKernelBarrierTag</code> 预留给设备级和内核级的初始化屏障。标签不能复用，否则不同阶段的信号会互相干扰——这也是为什么标签按固定值硬编码而非动态分配。</p>
+
+<h2 id="sec-barrier" data-short="屏障层级">屏障与内存序</h2>
+
+<figure id="fig-barrier" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-barrier-cap" viewBox="0 0 560 420" xmlns="http://www.w3.org/2000/svg" role="img" id="s3-root" style="max-width:560px;">
+<defs>
+  <marker id="s3-ah6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+</defs>
+
+
+<text x="280" y="24" text-anchor="middle" class="d-title" style="font-size:15px">屏障层级：从 gpu_barrier 到底层原语</text>
+
+
+<rect x="140" y="44" width="280" height="52" rx="4" class="d-box accent"/>
+<text x="280" y="68" text-anchor="middle" class="d-title" style="font-size:14px;fill:var(--c-verm)">gpu_barrier</text>
+<text x="280" y="86" text-anchor="middle" class="d-mono" style="font-size:11px">tma_store_commit + wait -> grid sync</text>
+
+
+<path d="M210 96 V116" class="d-arrow" marker-end="url(#s3-ah6)"/>
+<path d="M350 96 V116" class="d-arrow" marker-end="url(#s3-ah6)"/>
+
+
+<rect x="80" y="120" width="200" height="44" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1.5"/>
+<text x="180" y="140" text-anchor="middle" class="d-text" style="font-size:13px;fill:var(--c-blue)">scaleup_barrier</text>
+<text x="180" y="156" text-anchor="middle" class="d-label" style="font-size:11px">SM 0 执行</text>
+
+
+<rect x="300" y="120" width="200" height="44" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1.5"/>
+<text x="400" y="140" text-anchor="middle" class="d-text" style="font-size:13px;fill:var(--c-green)">scaleout_barrier</text>
+<text x="400" y="156" text-anchor="middle" class="d-label" style="font-size:11px">SM 1..N-1 执行</text>
+
+
+<path d="M130 164 V184" class="d-arrow" marker-end="url(#s3-ah6)"/>
+<path d="M230 164 V184" class="d-arrow" marker-end="url(#s3-ah6)"/>
+
+
+<rect x="24" y="188" width="200" height="80" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="124" y="210" text-anchor="middle" class="d-text" style="font-size:13px;fill:var(--c-blue)">nvlink_barrier</text>
+<text x="124" y="228" text-anchor="middle" class="d-small" style="font-size:11px">if kIsScaleupNVLink</text>
+<text x="124" y="244" text-anchor="middle" class="d-mono" style="font-size:10px">red_add_rel_sys(signal)</text>
+<text x="124" y="258" text-anchor="middle" class="d-mono" style="font-size:10px">ld_acquire_sys(signal)</text>
+
+<text x="124" y="290" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-blue)">两阶段翻符号计数</text>
+<text x="124" y="302" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-blue)">phase 0: +1, wait N</text>
+<text x="124" y="314" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-blue)">phase 1: -1, wait 0</text>
+
+
+<rect x="240" y="188" width="108" height="60" rx="4" fill="var(--c-gray-bg)" stroke="var(--c-gray)" stroke-width="1"/>
+<text x="294" y="210" text-anchor="middle" class="d-text" style="font-size:12px">gin_barrier</text>
+<text x="294" y="228" text-anchor="middle" class="d-small" style="font-size:10px">else (World team)</text>
+<text x="294" y="242" text-anchor="middle" class="d-mono" style="font-size:10px">signal / wait QP 0</text>
+
+
+<path d="M400 164 V184" class="d-arrow" marker-end="url(#s3-ah6)"/>
+<rect x="336" y="188" width="200" height="80" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="436" y="210" text-anchor="middle" class="d-text" style="font-size:13px;fill:var(--c-green)">gin_barrier</text>
+<text x="436" y="228" text-anchor="middle" class="d-small" style="font-size:11px">(Rail team)</text>
+<text x="436" y="246" text-anchor="middle" class="d-mono" style="font-size:10px">flush all QPs</text>
+<text x="436" y="260" text-anchor="middle" class="d-mono" style="font-size:10px">signal / wait on QP 0</text>
+
+
+<rect x="80" y="340" width="400" height="60" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="280" y="362" text-anchor="middle" class="d-small" style="fill:var(--c-verm);font-size:12px">World team 的 gin_barrier 需额外 fence_acq_rel_sys()</text>
+<text x="280" y="380" text-anchor="middle" class="d-label" style="font-size:11px">因为屏障可能混合 NVLink 直写和 Gin signal</text>
+<text x="280" y="394" text-anchor="middle" class="d-label" style="font-size:11px">发布前需 system-scope fence 确保 NVLink 写可见</text>
+</svg></div>
+  <figcaption id="fig-barrier-cap"><span class="fig-label">图 3</span><b>屏障层级结构。</b><code>gpu_barrier</code> 先做 TMA store commit/wait 和 grid sync，然后把 scale-up 和 scale-out 屏障分配到不同 SM 并行执行。NVLink 域用 <code>nvlink_barrier</code>（两阶段翻符号），RDMA 域用 <code>gin_barrier</code>（flush + signal/wait）。World team 的 <code>gin_barrier</code> 需额外 <code>fence_acq_rel_sys</code>。</figcaption>
+</figure>
+
+<p>如<a href="#fig-barrier">图 3</a> 所示，DeepEP 的屏障层级从高到低：</p>
+
+<h3 id="sec-4"><code>gpu_barrier</code>：顶层入口</h3>
+
+<p><code>gpu_barrier</code> 是所有 EP 内核调用的顶层屏障。它先执行 <code>tma_store_commit</code> + <code>tma_store_wait</code> 确保所有 TMA store 完成，然后做 <code>cooperative_groups::this_grid().sync()</code> 同步所有 SM。之后根据配置把 scale-up 和 scale-out 屏障分配到不同 SM 并行执行：</p>
+
+<ul>
+<li><strong>都需要</strong>（<code>do_scaleup &amp;&amp; do_scaleout</code>）：SM 0 跑 <code>scaleup_barrier</code>，SM 1..N-1 跑 <code>scaleout_barrier</code>。代码注释说"这有点 hacky"——因为 scaleout barrier 内部会做一次 flush + grid sync，所以 SM 0 也需要额外的 grid sync 来配合。</li>
+<li><strong>只需要一个</strong>：所有 SM 跑对应的屏障。</li>
+</ul>
+
+<p>屏障使用预定义的 tag 区分不同调用点：<code>kHybridDispatchTag0/1</code>、<code>kHybridCombineTag0/1</code> 等，避免同一内核中不同阶段的屏障信号互相干扰。</p>
+
+<h3 id="sec-5"><code>nvlink_barrier</code>：两阶段翻符号</h3>
+
+<p><code>nvlink_barrier</code> 是 NVLink 域内的屏障实现。它使用一个简洁的两阶段翻符号协议：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L92-L124"><code>const int&amp; rank_idx, const int&amp; sm_idx, const int&amp; thread_idx) {
+// This barrier only uses 1 SM
+if (kNumSMs &gt; 1 and sm_idx &gt; 0)
+    return;
+
+// Read the current barrier phase first
+const auto counter_ptr = signals.get_nvl_barrier_counter_ptr();
+const int status = static_cast&lt;int&gt;((*counter_ptr) &amp; 3);
+const int phase = status &amp; 1, sign = status &gt;&gt; 1;
+const auto signal_ptr = signals.get_nvl_barrier_signal_ptr(phase);
+
+for (int i = thread_idx; i &lt; kNumRanks; i += kNumThreads) {
+    const auto dst_ptr = gin.get_sym_ptr&lt;ncclTeamTagLsa&gt;(signal_ptr, i);
+    ptx::red_add_rel_sys(dst_ptr, sign ? -1 : 1);
+}
+// ...
+__syncwarp();
+
+// Check timeout
+const auto target = sign ? 0 : kNumRanks;
+timeout_while&lt;kNumTimeoutCycles&gt;(thread_idx == 0, [=](const bool&amp; is_last_check) {
+    const auto signal = ptx::ld_acquire_sys&lt;int&gt;(signal_ptr);
+    if (signal == target)
+        return true;
+
+    if (is_last_check) {
+        printf("DeepEP NVLink barrier timeout, tag: %d, nvl: %d, thread: %d, "
+               "status: %d, signal: %d, phase: %d, target: %d, counter: %llu\n",</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L92-L124"><code>deep_ep/include/deep_ep/comm/barrier.cuh</code> 第 92–124 行</a>（节选）</p>
+
+<p>工作原理：所有 rank 对同一个 <code>signal_ptr</code> 做 <code>red_add_rel_sys</code>（原子加 +1 或 -1），然后轮询等待信号值到达目标。phase 0 时加 +1 等待 N（rank 数），phase 1 时加 -1 等待 0——如此交替。<code>counter_ptr</code> 记录当前 phase 和 sign，每次屏障后递增。由于 counter 是 64 位无符号数，需要 <code>2^64 / 10^6 / 3600 / 24 / 365 = 571000</code> 年才会溢出（假设每微秒一次屏障），注释特意说明了这一点。</p>
+
+<p>两阶段翻符号的设计解决了经典的"屏障复用"问题。如果只用单调递增的计数器，连续两次屏障之间可能出现"快 rank 已完成第二次屏障的写入，慢 rank 还在读第一次屏障的值"的竞态。交替加减让两次屏障使用不同的目标值（N 和 0），信号值在两次屏障之间是单调的，因此不需要额外的清零步骤。这比经典的 sense-reversing barrier 更简洁，因为它复用了同一个信号地址。</p>
+
+<p>实现上还有一个细节：第 93-95 行限制只用 1 个 SM 执行 NVLink 屏障（<code>kNumSMs &gt; 1 and sm_idx &gt; 0</code> 时直接返回）。这是因为所有 rank 的屏障写入都落在同一个 <code>signal_ptr</code> 上——如果本地有多个 SM 同时做 <code>red_add_rel_sys</code>，本方 rank 会贡献多次，打破了"每个 rank 贡献 1"的语义。而 <code>gin_barrier</code> 中 flush 阶段则让所有 SM 并行参与（第 148-149 行），因为 flush 操作是幂等的：每个 warp flush 自己负责的 QP，不会重复。</p>
+
+<h3 id="sec-6"><code>gin_barrier</code>：flush + signal/wait</h3>
+
+<p><code>gin_barrier</code> 用于 RDMA 域（或 World team 的非 NVLink 部分）。它分三步：</p>
+<ol>
+<li><strong>Flush 所有 QP</strong>：所有 SM 的 warp 并行地 flush 所有已分配的 QP，确保之前的 RDMA 请求都已发出。Flush 操作本身是幂等的——对同一个 QP 多次 flush 等价于一次——因此让所有 SM 都参与只会增加覆盖速度，不会产生竞态。每个 warp 按 <code>warp_idx % num_qps</code> 的轮转方式选择要 flush 的 QP，保证了负载均匀分配。在实践中，QP 的数量通常远少于可用 warp 数，因此大多数 warp 在每个 QP 上只做一次 flush，整个过程在几十个时钟周期内完成。这也是为什么 <code>gin_barrier</code> 的总延迟主要由 signal/wait 决定，而非 flush 阶段——flush 几乎总是在 signal 发出前就已经结束了。因此 flush 的代价可以视为被 signal 的网络往返延迟完全遮盖，对总体吞吐量没有可观测的影响，属于零开销的安全保障措施。</li>
+<li><strong>World team fence</strong>：如果 team 是 <code>ncclTeamTagWorld</code>，额外调用 <code>ptx::fence_acq_rel_sys()</code>——因为 world team 的屏障可能混合 NVLink 直写和 Gin signal，在发布屏障前需要 system-scope fence 确保 NVLink 写对所有 GPU 可见。这个 fence 是 world team 独有的：LSA team 内所有操作都走 NVLink，NVLink 写入的可见性由 <code>fence.proxy.async</code> 保证；Rail team 内所有操作都走 Gin，Gin 的 flush 已提供了充分的 ordering。只有 World team 混用两条路径，需要一个 system-scope 的全局栅栏来统一它们的内存序。</li>
+<li><strong>Signal/wait on QP 0</strong>：SM 0 在 QP 0 上向所有 rank 发 <code>signal</code>，然后 <code>wait_signal</code> 等待所有 rank 的信号。</li>
+</ol>
+
+<h2 id="sec-ptx"><code>ptx.cuh</code>：内存序词汇表</h2>
+
+<p><code>common/ptx.cuh</code> 是 DeepEP 的 PTX 内联汇编库，提供了 GPU 编程所需的全套内存序原语。按功能分类：</p>
+
+<h3 id="sec-7">Fence</h3>
+<ul>
+<li><code>fence_acquire_gpu()</code>：<code>fence.acquire.gpu</code>——确保之前的读取对当前 GPU 可见。</li>
+<li><code>fence_acq_rel_sys()</code>：<code>fence.acq_rel.sys</code>——system-scope 的完整内存屏障，用于 world team 的 gin_barrier。</li>
+<li><code>tma_store_fence()</code>：<code>fence.proxy.async.shared::cta</code>——TMA（Tensor Memory Accelerator）代理操作的 fence，确保共享内存写入对后续 TMA store 可见。TMA 的异步复制走的是与普通 load/store 不同的"代理"路径，普通的内存序指令（如 <code>__threadfence()</code>）不能保证对 TMA 操作可见，必须用 <code>fence.proxy.async</code> 这条专门的代理 fence。这是 Hopper 引入 TMA 后新增的内存序需求——在 Ampere 及以前的 <code>cp.async</code> 中，共享内存的 <code>arrive</code>/<code>wait</code> 机制隐含了所需的序。</li>
+</ul>
+
+<h3 id="sec-8">Load / Store</h3>
+<ul>
+<li><code>ld_acquire_sys&lt;T&gt;(ptr)</code>：<code>ld.acquire.sys.L1::no_allocate</code>——system-scope acquire load，不分配 L1 cache line。这是 forward warp 轮询 tail 的标准操作。</li>
+<li><code>st_release_sys&lt;T&gt;(ptr, val)</code>：<code>st.release.sys</code>——发布写入，确保之前的操作对读到此值的线程可见。</li>
+<li><code>st_relaxed_sys&lt;T&gt;(ptr, val)</code> / <code>st_relaxed_gpu</code>：宽松写入（no ordering），用于 <code>put_value</code> 的 NVLink 路径。</li>
+<li><code>ld_volatile&lt;T&gt;(ptr)</code>：<code>ld.volatile</code>——用于全网格归约的轮询（不需要 acquire 语义，只需要看到最新值）。</li>
+</ul>
+
+<h3 id="sec-9">原子操作</h3>
+<ul>
+<li><code>red_add_rel_sys(ptr, val)</code> / <code>red_add_rel_gpu</code>：<code>red.release.{sys,gpu}.global.add</code>——带 release 语义的原子加，是 <code>NCCLGin::red_add_rel</code> 的 NVLink 路径的底层实现。</li>
+<li><code>red_add(ptr, val)</code>：<code>red.gpu.global.add</code>——不带 release 的原子加，用于同一 GPU 内的全网格归约。</li>
+</ul>
+
+<h3 id="sec-10">TMA 操作</h3>
+<ul>
+<li><code>tma_load_1d</code>：<code>cp.async.bulk.shared::cluster.global</code>——从全局内存异步载入到共享内存，用 mbarrier 跟踪完成。</li>
+<li><code>tma_store_1d</code>：<code>cp.async.bulk.global.shared::cta</code>——从共享内存异步写入全局内存。</li>
+<li><code>tma_store_commit</code> / <code>tma_store_wait&lt;N&gt;</code>：提交和等待 TMA store 完成。</li>
+</ul>
+
+<h3 id="sec-11">Warp 级原语</h3>
+<ul>
+<li><code>deduplicate(value, lane_idx)</code>：用 <code>__match_any_sync</code> 找到所有持有相同值的 lane，只保留 highest lane——dispatch 的去重操作依赖此原语。</li>
+<li><code>warp_inclusive_sum</code> / <code>warp_exclusive_sum</code>：warp 内前缀和，用于 notify 阶段的计数聚合。</li>
+<li><code>exchange(value, src_lane)</code>：<code>__shfl_sync</code>——从指定 lane 读取值，forward warp 的 round-robin 和 slot 分配都依赖它。</li>
+</ul>
+
+<h3 id="sec-12">超时机制</h3>
+
+<p><code>comm::timeout_while</code> 是所有轮询操作的包装。它的实现比简单的循环多了两个关键设计：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L30-L49"><code>template &lt;int64_t kNumTimeoutCycles, typename func_t&gt;
+__device__ __forceinline__ void timeout_while(const bool&amp; condition, const func_t&amp; func,
+                                              int64_t start_clock = 0) {
+    // User may share a start clock for multiple waits
+    if (start_clock == 0)
+        start_clock = clock64();
+
+    while (condition) {
+        const bool timeout = clock64() - start_clock &gt;= kNumTimeoutCycles;
+        if (func(timeout))
+            break;
+
+        if (timeout) {
+            // Wait another 1 second to let all threads print information and trap
+            start_clock = clock64();
+            while (clock64() - start_clock &lt; kNumOneSecCycles) {}
+            ptx::trap();
+        }
+    }
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/barrier.cuh#L30-L49"><code>deep_ep/include/deep_ep/comm/barrier.cuh</code> 第 30–49 行</a>（timeout_while：超时检测与诊断）</p>
+
+<p>第 34–35 行允许调用者共享一个起始时钟——这在连续做多次 <code>wait_signal</code> 时很重要：如果每次 wait 都重置起始时钟，总超时就是"每次 wait 的超时之和"而非"整段等待的超时"。第 39 行的回调函数返回 true 时可以提前跳出循环（用于条件改变时的 early break）。超时后不会立即 trap，而是先等一秒（<code>kNumOneSecCycles ≈ 2 × 10⁹</code>，假设 GPU 时钟约 2 GHz）——这个等待让同一 grid 内所有已超时的线程都有机会 printf 出诊断信息（rank、期望值、实际值），然后才 <code>ptx::trap()</code> 统一终止内核。如果没有这个等待，先 trap 的线程可能导致 printf 缓冲区被截断。</p>
+
+<p>超时诊断在大规模训练中至关重要。当一个 rank 挂起或网络链路出现问题时，其他 rank 的 forward warps 会在 <code>wait_signal</code> 处卡住，最终触发超时。诊断信息包括当前 rank 的 ID、等待的目标 rank、期望的信号值和实际读到的值——这让运维人员可以快速定位是哪条 NVLink 或 RDMA 链路出了问题。默认超时时间约 60 秒（<code>kNumTimeoutCycles ≈ 120 × 10⁹</code>），足够覆盖正常通信的最大延迟，又不会让故障排查等太久。</p>
+
+<h2 id="sec-limits">局限与未覆盖</h2>
+
+<ul>
+<li><strong>Gin 内部不可见</strong>：<code>NCCLGin</code> 只是 NCCL Gin API 的封装，Gin 内部如何管理 WQE（Work Queue Entry）、如何调度 NIC 硬件队列、如何处理拥塞——这些都不在 DeepEP 的代码中，本文无法讨论。</li>
+<li><strong>NCCL 版本依赖</strong>：代码使用了 <code>ncclGin</code>、<code>ncclWindow_t</code>、<code>ncclTeamTagLsa</code> 等 NCCL 的设备端 API，这些是 NCCL 较新版本的特性。具体的版本要求未在仓库中明确标注。</li>
+<li><strong>5d-5f 未覆盖</strong>：拓扑探测与带宽估算（5d）、SM/QP 数量的分析公式（取代自动调参）、DeepJIT 的运行时编译机制（5e）、RDMA 服务等级 SL（5f）——这些在<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>讨论。</li>
+<li><strong><code>wait_signal</code> 的 shadow pointer</strong>：<code>wait_signal</code> 内部使用滚动计数器和 shadow pointer 追踪信号预期值，其宽度跟随 shadow counter 类型。这是 NCCL Gin 的实现细节，DeepEP 代码中只暴露了调用方式。</li>
+<li><strong>无性能数据</strong>：本地没有 GPU，文中没有任何实测性能数字。NVLink vs RDMA 路径的延迟差异只是定性描述。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../ep04-hybrid/ep04-hybrid.html">NVLink 加 RDMA：混合模式的转发路径</a>
+  ｜ 下一篇：<a href="../ep06-analytic-config/ep06-analytic-config.html">不调参：拓扑探测、SM/QP 公式与 DeepJIT</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">deepseek-ai/DeepEP@f6aa38f</a>。本地没有 GPU，文中没有任何实测性能数字。所有图示均为代码结构示意图（diagram）。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

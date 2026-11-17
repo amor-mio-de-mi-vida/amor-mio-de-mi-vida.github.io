@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一个 EPBuffer 走完训练与推理：容量、展开布局、handle 与延迟尾声</title>
+<meta name="description" content="DeepEP V2.5 的 EPBuffer 接口精读：缓冲区大小怎么算、展开布局与 expert_alignment、do_cpu_sync 与 GPU 端前缀和、handle 重放、延迟尾声，以及 dispatch 与 combine 为何互为反向。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 1 篇</div>
+  <h1>一个 EPBuffer 走完训练与推理：<br>容量、展开布局、handle 与<span class="nobr">延迟尾声</span></h1>
+  <p class="subtitle">EPBuffer 按最坏情况一次分配；dispatch 把 token 排成按专家对齐的展开布局，并返回一个记住路由的 handle——推理靠 GPU 端前缀和省掉 CPU 同步，训练靠 handle 在反向里重放；延迟尾声则把拷贝推迟到真正需要结果的那一刻。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 26 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-lib-overview">DeepEP 库概览：四个 Buffer，一套通信底座</a><li><a href="#sec-intuition">直觉：把 token 送出去，再收回来</a><li><a href="#sec-buffer">缓冲区按最坏情况一次分配，大小由 dispatch 与 combine 的较大者决定</a><ol><li><a href="#sec-1">一个 token 槽有多大</a></li><li><a href="#sec-2">生命周期：构造和销毁都是集合操作</a></li></ol><li><a href="#sec-expand">展开布局：每个（token, 本地专家）对一行，按专家分段并对齐</a><ol><li><a href="#sec-3">行号由原子加分配，前缀和兼作计数器</a></li><li><a href="#sec-4">为什么要对齐，以及它和 DeepGEMM 的关系</a></li></ol><li><a href="#sec-cpusync">do_cpu_sync：用一次 CPU 等待换精确的张量大小</a><ol><li><a href="#sec-5">关掉同步后，下游怎样知道哪些行有效</a></li></ol><li><a href="#sec-handle">handle 记住了路由：缓存 dispatch 跳过计数，只重放槽位</a><ol><li><a href="#sec-6">为什么 topk_idx 在 handle 用完前不能改</a></li></ol><li><a href="#sec-defer">延迟尾声：通信先发出去，拷贝等到 wait() 再做</a><ol><li><a href="#sec-7">previous_event 与 allocate_on_comm_stream</a></li></ol><li><a href="#sec-backward">dispatch 与 combine 互为转置：反向传播的推导</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li><code>EPBuffer</code> 的通信区只按 MoE 形状算一次：取 dispatch 与 combine 所需字节数的较大者，再向上对齐到 2 MiB；开 FP8 dispatch 后，决定大小的往往是仍为 BF16 的 combine。</li>
+    <li>展开布局给每个（token, 本地专家）对一行，按专家分段并补齐到 <code>expert_alignment</code>；它的 GPU 端前缀和与 DeepGEMM 的 PSUM 分组格式逐项吻合。</li>
+    <li><code>do_cpu_sync=False</code> 时输出按最坏情况分配，有效区间只能从 GPU 上的 <code>psum_num_recv_tokens_per_expert</code> 读出；这就是解码路径的用法。</li>
+    <li><code>EPHandle</code> 保存了一次路由的全部槽位；拿它重放 dispatch 会跳过计数和 CPU 同步，因此 <code>topk_idx</code> 在 handle 用完之前不能改。</li>
+    <li>dispatch 是一个 0/1 选择矩阵 \(S\)，combine 是它的转置，所以二者在反向中互换角色，并且都能复用前向的 handle。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>本篇假设你了解 MoE 的 dispatch/combine 语义（<a href="../bg01-moe-ep-background/bg01-moe-ep-background.html">bg01</a>）和基本的 CUDA 编程概念。本篇新引入：EPBuffer 内存布局、展开布局（expanded layout）、cached dispatch、延迟尾声。</p></aside>
+
+<h2 id="sec-lib-overview" data-short="DeepEP 概览">DeepEP 库概览：四个 Buffer，一套通信底座</h2>
+
+<p>在进入代码之前，先看 DeepEP 作为一个软件库长什么样。DeepEP 是一个 Python + CUDA 库，用户在 Python 层创建缓冲区对象、调用通信方法，底层由 CUDA 内核通过 NVLink 或 RDMA 完成实际的数据搬运。</p>
+
+<p>库的核心是<b>四种缓冲区</b>，每种负责一类通信模式（<a href="#tab-buffers">表 1</a>）：</p>
+
+<figure id="tab-buffers" class="table">
+  <figcaption id="tab-buffers-cap"><span class="fig-label">表 1</span><b>DeepEP 的四种缓冲区各管一类通信。</b>本系列按顺序拆解每一种。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>缓冲区类</th><th>通信模式</th><th>典型用途</th><th>精读篇目</th></tr></thead>
+    <tbody>
+      <tr><td><code>EPBuffer</code></td><td>全对全（dispatch/combine）</td><td>MoE 的 token 路由</td><td>ep01–ep06</td></tr>
+      <tr><td><code>BucketBuffer</code></td><td>集合通信（all-gather / reduce-scatter / all-reduce）</td><td>参数同步、梯度聚合</td><td>ep07</td></tr>
+      <tr><td><code>EngramBuffer</code></td><td>远程点对点读（RDMA get）</td><td>按下标从远端取行（实验性）</td><td>ep08</td></tr>
+      <tr><td><code>PPBuffer</code></td><td>环形点对点收发</td><td>流水线并行的 send/recv（实验性）</td><td>ep08</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>四种缓冲区共用同一套<b>通信底座</b>：NCCL Gin 设备端 API + 对称内存窗口（<a href="../ep05-comm-substrate/ep05-comm-substrate.html">ep05</a> 详解）。"对称"意味着每个 GPU 在同一偏移处看到的是同一个逻辑位置，内核可以直接用远程指针读写对端显存，不需要经过 CPU。</p>
+
+<p><b>典型调用流程</b>（以 MoE 前向为例）：</p>
+
+<ol>
+  <li><b>初始化</b>：创建 <code>EPBuffer</code>，传入 MoE 形状参数（专家数、hidden 维、top-k）→ 库自动计算所需显存并注册对称内存，只做一次。</li>
+  <li><b>Gate</b>：模型对每个 token 算出 top-k 专家编号和权重（<code>topk_idx</code>、<code>topk_weights</code>）。这一步不在 DeepEP 里。</li>
+  <li><b>Dispatch</b>：调用 <code>buffer.dispatch(x, topk_idx, ...)</code> → token 被送到各专家所在的 GPU，返回展开后的激活张量和一个 <code>EPHandle</code>。</li>
+  <li><b>专家计算</b>：把展开后的激活喂给 DeepGEMM 的分组 GEMM（<a href="../dg04-moe-grouped/dg04-moe-grouped.html">dg04</a>）→ 每个专家并行计算。</li>
+  <li><b>Combine</b>：调用 <code>buffer.combine(expert_output, handle)</code> → 结果按路由权重加权求和，写回每个 token 原来的位置。</li>
+</ol>
+
+<p>反向传播时 dispatch 和 combine 互换角色，并复用前向的 handle，不再重新计算路由。</p>
+
+<p>本篇从 <code>EPBuffer</code> 开始——它是最核心的一个，覆盖了 MoE 的 dispatch 和 combine 两条路径，训练和推理都从它进入。后续七篇逐层深入：ep02–ep04 拆内核，ep05 看通信底座，ep06 看资源估算，ep07–ep08 看其余三种缓冲区。</p>
+
+<p>混合专家（Mixture of Experts，MoE）层在专家并行（expert parallelism，EP）下要做两次全对全通信：分发（dispatch）把每个 token 送到它选中的专家所在的 GPU，合并（combine）把专家输出按路由权重加回 token 原来的位置。DeepEP V2.5 把训练、推理预填充和推理解码用到的这两种通信统一进了一个类 <code>EPBuffer</code>，README 的说法是“高吞吐与低延迟 API 统一成单个 <code>EPBuffer</code> 接口，并提供面向分组专家 GEMM 的展开布局” <span class="cite">[<a href="#ref-deepep" title="DeepSeek-AI (2025). DeepEP: an efficient expert-parallel communication library. GitHub 仓库；本文引用提交 <code>f6aa38fe06cd4a0489e7730365d4e0114970a2f3</code>。">1</a>]</span>。</p>
+
+<p>这一篇只讲接口和语义：一个 <code>EPBuffer</code> 占多少显存、dispatch 吐出来的张量长什么样、<code>do_cpu_sync</code> 开关换来了什么、handle 里存了什么、“延迟尾声”到底推迟了哪一步，以及为什么 dispatch 的反向恰好是 combine。内核内部怎样收发，留给<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">第 2 篇（直连 dispatch）</a>、<a href="../ep03-combine/ep03-combine.html">第 3 篇（combine）</a>和<a href="../ep04-hybrid/ep04-hybrid.html">第 4 篇（混合模式）</a>。</p>
+
+<p>全文用一个运行例子：单机 8 卡（\(R=8\)）、\(E=256\) 个专家（每卡 \(E_\ell=32\) 个）、每 token 选 \(k=8\) 个专家、隐藏维 \(H=7168\)；训练与预填充时每卡最多 \(T=4096\) 个 token，解码时 \(T=128\)；下游 GEMM 的分组对齐取 DeepGEMM 的默认值 128。</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>符号</th><th>含义</th><th>代码中的名字</th></tr></thead>
+  <tbody>
+    <tr><td>\(R\)</td><td>EP 组的 rank 数</td><td><code>num_ranks</code></td></tr>
+    <tr><td>\(E,\ E_\ell\)</td><td>专家总数；每个 rank 的本地专家数 \(E/R\)</td><td><code>num_experts</code>, <code>num_local_experts</code></td></tr>
+    <tr><td>\(k\)</td><td>每 token 选中的专家数</td><td><code>num_topk</code></td></tr>
+    <tr><td>\(H\)</td><td>隐藏维</td><td><code>hidden</code></td></tr>
+    <tr><td>\(T\)</td><td>每个 rank 一次最多发出的 token 数</td><td><code>num_max_tokens_per_rank</code></td></tr>
+    <tr><td>\(a\)</td><td>每个本地专家收到的行数要对齐到的倍数</td><td><code>expert_alignment</code></td></tr>
+    <tr><td>\(B_d,\ B_c\)</td><td>dispatch / combine 缓冲区里一个 token 槽的字节数</td><td><code>TokenLayout::get_num_bytes</code></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="sec-intuition" data-short="直觉：分发与合并">直觉：把 token 送出去，再收回来</h2>
+
+<p>在读代码之前，先用一个最简单的画面理解 dispatch 与 combine 的语义。假设有 4 张 GPU，每张各管 2 个专家。某个 token 被 gate 选中了第 3 号和第 7 号专家——第 3 号在 GPU 1，第 7 号在 GPU 3。</p>
+
+<ul>
+  <li><b>dispatch</b>：token 的隐藏向量从它所在的 GPU 被<b>复制</b>到 GPU 1 和 GPU 3，各放进一个缓冲区里等待专家计算。方向是"从 token 所在处<b>扇出</b>到多个专家所在处"。</li>
+  <li><b>combine</b>：两个专家各自产出一个向量后，这些向量按路由权重做<b>加权求和</b>，结果写回 token 所在的 GPU。方向是"从多个专家所在处<b>扇入</b>回 token 原来的位置"。</li>
+</ul>
+
+<p>dispatch 可以看作一个 0/1 的选择矩阵 \(S\)（哪个 token 去哪个专家），combine 就是 \(S^\top\) 加上权重——这就是后面说"二者在反向中互换角色"的原因。理解了"扇出-计算-扇入"这个三拍节奏，下面的缓冲区大小计算和句柄复用就好跟了。</p>
+
+<h2 id="sec-buffer" data-short="缓冲区大小">缓冲区按最坏情况一次分配，大小由 dispatch 与 combine 的较大者决定</h2>
+
+<p>先看构造。README 建议每个 EP 组创建一个 <code>EPBuffer</code> 并反复复用，所有 rank 必须对 <code>num_max_tokens_per_rank</code> 取同一个值，并且这个容量要覆盖训练、预填充、解码里最大的那一批（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L105-L109">README 第 105–109 行</a>）。构造函数的参数分成三组（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L242-L261"><code>ep.py</code> 第 242–261 行</a>）：</p>
+
+<ul>
+  <li><b>决定通信区大小的</b>：要么直接给 <code>num_bytes</code>（不含工作区，必须是 2 MiB 的倍数），要么给 MoE 形状 <code>num_max_tokens_per_rank</code>、<code>hidden</code>、<code>num_topk</code>、<code>use_fp8_dispatch</code>，由库来算。</li>
+  <li><b>拓扑与算法开关</b>：<code>allow_hybrid_mode</code>（多机时是否走 NVLink + RDMA 两级转发，见<a href="../ep04-hybrid/ep04-hybrid.html">第 4 篇</a>）、<code>allow_multiple_reduction</code>（combine 是否允许多次归约，见<a href="../ep03-combine/ep03-combine.html">第 3 篇</a>）、<code>deterministic</code>、<code>prefer_overlap_with_compute</code>（倾向少用 SM）、<code>sl_idx</code> 与 <code>num_allocated_qps</code>（RDMA 服务等级与队列对数量，见<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>）。</li>
+  <li><b>生命周期</b>：<code>num_cpu_timeout_secs</code>（默认 300 秒）、<code>num_gpu_timeout_secs</code>（默认 100 秒）、<code>explicitly_destroy</code>，以及专家负载均衡用的独立内存区 <code>lb_allocation_plan_or_num_bytes</code>（见<a href="../ep08-lb-engram-pp/ep08-lb-engram-pp.html">第 8 篇</a>）。</li>
+</ul>
+
+<aside class="sidenote"><code>num_allocated_qps=0</code> 时自动取值：允许混合模式时为 65（网卡支持快速 RDMA 原子操作）或 129，否则为 17（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L327-L335"><code>ep.py</code> 第 327–335 行</a>）。多出来的那 1 个队列对留给计数用的 notify warp。</aside>
+<p>静态方法 <code>get_buffer_size_hint</code> 与构造函数调用的是同一个 C++ 函数 <code>calculate_ep_buffer_size</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L373-L399"><code>ep.py</code> 第 373–399 行</a>），所以“先问大小、再决定要不要重建”不会和实际分配有出入。README 的 <code>get_buffer</code> 例子正是这样做的：已有 buffer 的 <code>num_bytes</code> 不小于新需求就直接复用（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L133-L140">README 第 133–140 行</a>）。这个函数本身做三件事：查拓扑、分别算 dispatch 和 combine 需要的字节数、取较大者对齐到 2 MiB。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L262-L282"><code>const auto [num_rdma_ranks, num_nvl_ranks] = comm::get_physical_domain_size(nccl_comm);
+const auto [num_scaleout_ranks, num_scaleup_ranks] = comm::get_logical_domain_size(nccl_comm, allow_hybrid_mode);
+const auto is_scaleup_nvlink = num_scaleup_ranks == num_nvl_ranks;
+// ...
+const auto elem_size = use_fp8_dispatch ? sizeof(__nv_fp8_e4m3) : sizeof(nv_bfloat16);
+const auto num_sf_packs = use_fp8_dispatch ? math::ceil_div(hidden, 32) : 0; // An approximation for number of SF packs
+const auto num_dispatch_bytes = get_dispatch_buffer_size(
+    num_max_tokens_per_rank, hidden, num_sf_packs, num_topk, elem_size,
+    num_scaleout_ranks, num_scaleup_ranks,
+    is_scaleup_nvlink);
+// ...
+const auto num_combine_bytes = get_combine_buffer_size(
+    num_max_tokens_per_rank, hidden, num_topk,
+    num_scaleout_ranks, num_scaleup_ranks,
+    is_scaleup_nvlink, allow_multiple_reduction);
+// ...
+return math::align&lt;int64_t&gt;(std::max(num_dispatch_bytes, num_combine_bytes), kNumAllocationAlignmentBytes);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L262-L282"><code>csrc/buffers/ep.hpp</code> 第 262–282 行</a>（节选）</p>
+
+<p>这里有三个容易忽略的细节。第一，“scale-up 域是不是 NVLink”由逻辑域与物理域是否一致决定：单机时两者都是 8 卡，<code>is_scaleup_nvlink</code> 为真；多机但关掉混合模式时，逻辑 scale-up 域是全部 16 卡，而 NVLink 只连 8 卡，于是为假，直连内核要额外准备一块发送缓冲给 RDMA 用。第二，<code>num_topk=0</code> 是允许的，此时按 32 算（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L259-L260">第 259–260 行</a>的注释说很多内核限制 \(k\le 32\)），得到的是偏大的上界。第三，FP8 的缩放因子按每 32 个元素一个 4 字节包估算，代码注释称之为近似；若按 1×128 分块缩放，实际只需要四分之一。</p>
+
+<h3 id="sec-1">一个 token 槽有多大</h3>
+
+<p>dispatch 和 combine 的缓冲区都由“token 槽”拼成。一个槽依次放隐藏向量、缩放因子和元数据，各自对齐到 32 字节（TMA 的对齐要求），总长再对齐到 64 字节（RDMA 的对齐要求）：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/token.cuh#L25-L37"><code>num_metadata_bytes(num_topk * (sizeof(int) + sizeof(float)) +
+                   (with_metadata ? (1 + num_topk) * sizeof(int) : 0)),
+// ...
+const auto num_data_bytes = math::align&lt;int&gt;(
+    math::align(num_hidden_bytes, kNumTMAAlignmentBytes) +
+    math::align(num_sf_bytes, kNumTMAAlignmentBytes) +
+    math::align(num_metadata_bytes, kNumTMAAlignmentBytes), kNumRDMAAlignmentBytes);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/layout/ep/token.cuh#L25-L37"><code>layout/ep/token.cuh</code> 第 25–37 行</a>（节选）；对齐常数见 <a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/common/compiled.cuh#L64-L69"><code>compiled.cuh</code> 第 64–69 行</a></p>
+
+<p>dispatch 槽带完整元数据：\(k\) 个专家号和 \(k\) 个权重（各 4 字节），再加 1 个源 token 全局编号和 \(k\) 个链表下标。代入运行例子：BF16 时隐藏向量 \(7168\times 2=14336\) 字节，元数据 \(8\cdot 8+9\cdot 4=100\) 字节、对齐后 128，合计 \(B_d=14464\) 字节；combine 槽只带 \(k\) 个专家号和权重（64 字节），\(B_c=14400\) 字节。FP8 时隐藏向量 7168 字节，缩放因子按 \(\lceil 7168/32\rceil\times 4=896\) 字节估算，\(B_d=8192\) 字节。</p>
+
+<p>单机直连时，dispatch 的接收区为每个源 rank 预留 \(T\) 个槽，NVLink 写对端不需要发送缓冲；combine 的接收区按 \(\min(R,k)\) 份预留（允许多次归约时）。于是</p>
+
+<div class="eq" id="eq-size">\[ \text{dispatch} = R\,T\,B_d,\qquad \text{combine} = \min(R,k)\,T\,B_c,\qquad \text{hint} = \operatorname{align}_{2\,\mathrm{MiB}}\big(\max(\text{dispatch},\ \text{combine})\big) \]<span class="eq-num">(1)</span></div>
+
+<p>多机时公式更长（混合模式要给 scale-out 的发送与接收另算，每个 scale-out 对端还要多留 1280 个槽，对应按通道切分时每个通道向上取整的余量；见<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L183-L247"><code>ep.hpp</code> 第 183–247 行</a>），但思路相同：都是“最坏情况下每个来源可能塞满 \(T\) 个 token”。<a href="#tab-size">表 2</a> 把五种配置代进<a href="#eq-size">式 (1)</a> 及其多机版本。</p>
+
+<figure id="tab-size" class="table" data-source="computed" data-script="plots/size_hint.py">
+  <figcaption id="tab-size-cap"><span class="fig-label">表 2</span><b>FP8 dispatch 把 dispatch 区缩小了约 43%，但通信区大小几乎不变，因为 combine 仍是 BF16。</b>\(H=7168\)，\(k=8\)，默认 <code>allow_multiple_reduction=True</code>；单位 MiB（\(2^{20}\) 字节），hint 已对齐到 2 MiB。由 <code>plots/size_hint.py</code> 按 <code>ep.hpp</code> 与 <code>token.cuh</code> 的公式计算，不含工作区与 LB 区，未在 GPU 上实测。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>配置</th><th>模式</th><th class="num">dispatch</th><th class="num">combine</th><th class="num">hint</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">1×8，BF16，T=4096</td><td>直连（NVLink）</td><td class="num"><strong>452</strong></td><td class="num">450</td><td class="num">452</td></tr>
+      <tr class="ours"><td class="nowrap">1×8，FP8，T=4096</td><td>直连（NVLink）</td><td class="num">256</td><td class="num"><strong>450</strong></td><td class="num">450</td></tr>
+      <tr><td class="nowrap">1×8，BF16，T=128</td><td>直连（NVLink）</td><td class="num"><strong>14.125</strong></td><td class="num">14.0625</td><td class="num">16</td></tr>
+      <tr><td class="nowrap">2×8，BF16，T=4096</td><td>混合</td><td class="num">1108.81</td><td class="num"><strong>1160.16</strong></td><td class="num">1162</td></tr>
+      <tr><td class="nowrap">2×8，BF16，T=4096</td><td>直连（关混合）</td><td class="num">960.5</td><td class="num"><strong>1350</strong></td><td class="num">1350</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>表里有两点值得记住。其一，FP8 dispatch 把每个槽从 14464 字节缩到 8192 字节，但 combine 输入必须是 BF16（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L816"><code>ep.hpp</code> 第 816 行</a>的断言），所以总大小只从 452 MiB 降到 450 MiB。其二，两机 16 卡时，关掉混合模式反而更费显存：直连 combine 要为 16 个对端各留一份发送区（900 MiB），而混合模式的 scale-out 部分只按 2 个对端预留。</p>
+
+<aside class="sidenote">每次 dispatch 和 combine 都会按本次调用的 <code>num_max_tokens_per_rank</code>、<code>hidden</code>、<code>num_topk</code> 重算所需字节数，并断言不超过 <code>num_bytes</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L543-L547"><code>ep.hpp</code> 第 543–547 行</a>、<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L865-L868">第 865–868 行</a>）。所以用 BF16 形状建的 buffer 可以跑同形状的 FP8 dispatch，反过来则可能断言失败。</aside>
+<p>构造函数实际申请的 GPU 内存比 hint 多两块：前面一块工作区（存放计数、屏障信号等，大小由 <code>EPWorkspaceLayout</code> 决定并对齐到 2 MiB），后面一块可选的 LB 区；另外还有一块映射到设备地址空间的锁页主机内存，供 CPU 读取接收计数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L69-L91"><code>ep.hpp</code> 第 69–91 行</a>）。<code>print_memory_usage()</code> 会分别打印工作区、通信区和 RDMA 存储的大小（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/base.hpp#L37-L49"><code>base.hpp</code> 第 37–49 行</a>）。</p>
+
+<p>把各层加在一起，一个 <code>EPBuffer</code> 在 GPU 上的总占用可以分解为：</p>
+
+<ol>
+  <li><b>工作区</b>（<code>EPWorkspaceLayout</code>）：原子计数器、屏障信号、RDMA 队列指针等控制数据。大小由 rank 数和队列对数量决定，对齐到 2 MiB。元素只是 32/64 位整数，相比通信区可忽略。</li>
+  <li><b>通信区</b>：即 <code>get_buffer_size_hint</code> 返回的值，<a href="#eq-size">式 (1)</a> 给出公式，<a href="#tab-size">表 2</a> 列出了各配置的具体大小。这是占用的大头。</li>
+  <li><b>LB 区</b>（可选）：由 <code>BufferAllocator</code> 管理，按 2 MiB 对齐的若干子区拼成，供 <code>redundancy_mapping</code>、梯度缓冲等使用。不传 <code>lb_allocation_plan_or_num_bytes</code> 则不分配。</li>
+  <li><b>锁页主机内存</b>：每个 scale-up 对端各占一小块（存放 <code>num_recv_tokens</code> 和 per-expert 计数），映射到 GPU 地址空间，供 CPU 同步和 notify warp 使用。</li>
+</ol>
+
+<p><code>print_memory_usage()</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/base.hpp#L37-L49"><code>base.hpp</code> 第 37–49 行</a>）把工作区、通信区和 RDMA 存储分开报告，是调优显存预算的入口。</p>
+
+<h3 id="sec-2">生命周期：构造和销毁都是集合操作</h3>
+
+<p>V2.5 把原来的 <code>ElasticBuffer</code> 拆成 <code>EPBuffer</code>、<code>EngramBuffer</code>、<code>PPBuffer</code>、<code>BucketBuffer</code> 四个类，共享 <code>BufferBase</code> 的生命周期（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L11-L16">README 第 11–16 行</a>）。对使用者有三条约束：</p>
+
+<ul>
+  <li>构造结束前，Python 端会 <code>torch.cuda.synchronize()</code> 后做一次 <code>group.barrier()</code>，所以组内每个 rank 都要同时构造（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L360-L363"><code>ep.py</code> 第 360–363 行</a>）。</li>
+  <li><code>destroy()</code> 先在当前流上做一次全组 GPU 屏障“等所有 GPU 上的工作完成”，再释放主机工作区和 NCCL 上下文（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L102-L120"><code>ep.hpp</code> 第 102–120 行</a>），同样要求组内同时调用。README 因此要求替换 buffer 前先结束所有未完成的操作。</li>
+  <li><code>explicitly_destroy=False</code> 时由析构函数代劳；设为 <code>True</code> 却忘了调用，析构时会打印“可能泄漏资源”的提示（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/base.hpp#L18-L29"><code>base.hpp</code> 第 18–29 行</a>）。测试脚本统一用显式销毁，因为它们会反复重建 buffer。</li>
+</ul>
+
+<p><code>BufferAllocator</code> 只和 LB 区有关：它先用 meta 张量记下一串对齐到 2 MiB 的偏移，buffer 建好后再把这些占位张量换成指向 LB 区的视图（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/allocator.py#L10-L36"><code>allocator.py</code></a>）。细节放到<a href="../ep08-lb-engram-pp/ep08-lb-engram-pp.html">第 8 篇</a>。</p>
+
+<h2 id="sec-expand" data-short="展开布局">展开布局：每个（token, 本地专家）对一行，按专家分段并对齐</h2>
+
+<p>dispatch 有两种输出布局。<b>非展开</b>布局下，一个 token 不论选中本 rank 的几个专家，都只占一行；<code>recv_topk_idx</code> 告诉你这一行该交给哪些本地专家（不在本 rank 的位置填 −1），下游要自己再做一次按专家的重排。<b>展开</b>布局（<code>do_expand=True</code>）则直接给每个（token, 本地专家）对一行，并把同一专家的行排在一起，正好是分组 GEMM 想要的“连续布局”。<a href="#fig-expand">图 1</a> 用一个只有 3 个本地专家、对齐为 4 的小例子画出两者。</p>
+
+<figure id="fig-expand" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-expand-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 20 560 352" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  
+  <text class="d-title" x="24" y="44">非展开：每个 token 一行</text>
+  <text class="d-label" x="24" y="60">token 到达本 rank 一次</text>
+
+  <rect class="d-box" x="40" y="72" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="86" text-anchor="middle">A</text>
+  <text class="d-mono" x="100" y="86">e0 e1</text>
+  <rect class="d-box" x="40" y="90" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="104" text-anchor="middle">B</text>
+  <text class="d-mono" x="100" y="104">e0</text>
+  <rect class="d-box" x="40" y="108" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="122" text-anchor="middle">C</text>
+  <text class="d-mono" x="100" y="122">e0 e2</text>
+  <rect class="d-box" x="40" y="126" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="140" text-anchor="middle">D</text>
+  <text class="d-mono" x="100" y="140">e0 e2</text>
+  <rect class="d-box" x="40" y="144" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="158" text-anchor="middle">E</text>
+  <text class="d-mono" x="100" y="158">e1 e2</text>
+  <rect class="d-box" x="40" y="162" width="48" height="18" rx="2"/>
+  <text class="d-text" x="64" y="176" text-anchor="middle">F</text>
+  <text class="d-mono" x="100" y="176">e0</text>
+
+  <text class="d-label" x="24" y="208">右列：recv_topk_idx</text>
+  <text class="d-label" x="24" y="226">中的本地专家</text>
+  <text class="d-small" x="24" y="262">每专家实际行数</text>
+  <text class="d-mono" x="24" y="280">[5, 2, 3]</text>
+  <text class="d-small" x="24" y="310">非展开 psum（含对齐）</text>
+  <text class="d-mono" x="24" y="328">[8, 12, 16]</text>
+
+  
+  <text class="d-title" x="272" y="44">展开：每个 (token, 专家) 一行</text>
+  <text class="d-label" x="272" y="60">expert_alignment = 4</text>
+
+  
+  <rect class="d-box blue" x="312" y="72" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="86" text-anchor="middle">A</text>
+  <rect class="d-box blue" x="312" y="90" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="104" text-anchor="middle">B</text>
+  <rect class="d-box blue" x="312" y="108" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="122" text-anchor="middle">C</text>
+  <rect class="d-box blue" x="312" y="126" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="140" text-anchor="middle">D</text>
+  <rect class="d-box blue" x="312" y="144" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="158" text-anchor="middle">F</text>
+  <rect class="d-box soft" x="312" y="162" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="176" text-anchor="middle">0</text>
+  <rect class="d-box soft" x="312" y="180" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="194" text-anchor="middle">0</text>
+  <rect class="d-box soft" x="312" y="198" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="212" text-anchor="middle">0</text>
+
+  
+  <rect class="d-box green" x="312" y="216" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="230" text-anchor="middle">A</text>
+  <rect class="d-box green" x="312" y="234" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="248" text-anchor="middle">E</text>
+  <rect class="d-box soft" x="312" y="252" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="266" text-anchor="middle">0</text>
+  <rect class="d-box soft" x="312" y="270" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="284" text-anchor="middle">0</text>
+
+  
+  <rect class="d-box purple" x="312" y="288" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="302" text-anchor="middle">C</text>
+  <rect class="d-box purple" x="312" y="306" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="320" text-anchor="middle">D</text>
+  <rect class="d-box purple" x="312" y="324" width="64" height="18" rx="2"/>
+  <text class="d-text" x="344" y="338" text-anchor="middle">E</text>
+  <rect class="d-box soft" x="312" y="342" width="64" height="18" rx="2"/>
+  <text class="d-label" x="344" y="356" text-anchor="middle">0</text>
+
+  
+  <text class="d-label" x="304" y="86" text-anchor="end">0</text>
+  <text class="d-label" x="304" y="176" text-anchor="end">5</text>
+  <text class="d-label" x="304" y="230" text-anchor="end">8</text>
+  <text class="d-label" x="304" y="266" text-anchor="end">10</text>
+  <text class="d-label" x="304" y="302" text-anchor="end">12</text>
+  <text class="d-label" x="304" y="356" text-anchor="end">15</text>
+
+  
+  <path class="d-arrow accent" d="M304 162 H384"/>
+  <path class="d-arrow accent" d="M304 252 H384"/>
+  <path class="d-arrow accent" d="M304 342 H384"/>
+  <text class="d-mono d-accent-text" x="392" y="166">psum[0] = 5</text>
+  <text class="d-mono d-accent-text" x="392" y="256">psum[1] = 10</text>
+  <text class="d-mono d-accent-text" x="392" y="346">psum[2] = 15</text>
+
+  
+  <text class="d-title" x="392" y="96">e0</text>
+  <text class="d-small" x="416" y="96">5 行 + 3 空隙</text>
+  <text class="d-label" x="392" y="206">起点 align(5, 4) = 8</text>
+  <text class="d-title" x="392" y="234">e1</text>
+  <text class="d-small" x="416" y="234">2 + 2</text>
+  <text class="d-label" x="392" y="284">起点 align(10, 4) = 12</text>
+  <text class="d-title" x="392" y="306">e2</text>
+  <text class="d-small" x="416" y="306">3 + 1</text>
+</svg></div>
+  <figcaption id="fig-expand-cap"><span class="fig-label">图 1</span><b>展开布局把同一 token 复制到它选中的每个本地专家段里，每段末尾补零到对齐边界。</b>左：6 个 token 到达本 rank，右列是它们在本 rank 选中的专家。右：16 行的展开张量，蓝、绿、粉分别是专家 e0、e1、e2 的有效行，灰色是对齐空隙（<code>do_zero_padding=True</code> 时清零）；橙线标出 <code>psum_num_recv_tokens_per_expert</code> 的三个值。示意图，计数为虚构。</figcaption>
+</figure>
+
+<p>展开模式下张量形状也随之改变（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L671-L709"><code>ep.hpp</code> 第 671–709 行</a>）：<code>recv_x</code> 是 \([N_{\text{exp}}, H]\)，\(N_{\text{exp}}\) 为各专家对齐后行数之和；<code>recv_topk_weights</code> 变成一维，每行一个路由权重；<code>recv_topk_idx</code> 不再返回（为 <code>None</code>），因为行所在的段已经说明了专家号。每个源 token 的各个副本落在哪一行，记录在 handle 的 <code>recv_src_metadata[:, 2:]</code> 里，combine 靠它把副本找回来。</p>
+
+<h3 id="sec-3">行号由原子加分配，前缀和兼作计数器</h3>
+
+<p>计数在 dispatch 主内核里完成：notify warp 汇总所有源 rank 发来的“每个本地专家收到几个 token”，记下未对齐的真实值，再把计数对齐到 \(a\)（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L203-L219"><code>dispatch.cuh</code> 第 203–219 行</a>），最后由一个 warp 写出排他前缀和（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L250-L256">第 250–256 行</a>）。于是专家 \(i\) 的段起点 \(s_i=\sum_{j&lt;i}\operatorname{align}(c_j, a)\) 已经对齐。拷贝尾声里，每个到达的 token 对它的每个本地专家做一次原子加，拿到的旧值就是它的行号：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch_copy_epilogue.cuh#L113-L123"><code>// Calculate target indices in the tensor
+constexpr int kMetadataStride = 2 + kNumTopk;
+int dst_tensor_idx = -1;
+if (not kDoExpand and ptx::elect_one_sync()) {
+    dst_tensor_idx = i;
+} else if (kDoExpand and kCachedMode and lane_idx &lt; kNumTopk) {
+    // Cached expand mode: read pre-computed dst_tensor_idx from metadata
+    dst_tensor_idx = recv_src_metadata[i * kMetadataStride + 2 + lane_idx];
+} else if (kDoExpand and not kCachedMode and dst_expert_idx &gt;= 0) {
+    dst_tensor_idx = atomicAdd(psum_num_recv_tokens_per_expert + dst_expert_idx, 1);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch_copy_epilogue.cuh#L113-L123"><code>impls/ep/dispatch_copy_epilogue.cuh</code> 第 113–123 行</a></p>
+
+<p>这一步一石二鸟：原子加之后，<code>psum_num_recv_tokens_per_expert[i]</code> 从段起点 \(s_i\) 变成了 \(s_i+c_i\)，即“前面各专家对齐后的累计行数，加上本专家的真实行数”。<code>EPHandle</code> 的文档把这条性质写得很明白：\(\text{psum}[i]-\operatorname{align}(\text{psum}[i-1],a)\) 是专家 \(i\) 的真实行数，\(\operatorname{align}(\text{psum}[i],a)\) 是专家 \(i{+}1\) 的起点（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L47-L53"><code>ep.py</code> 第 47–53 行</a>）。在<a href="#fig-expand">图 1</a> 中，计数 \(c=(5,2,3)\)，起点 \((0,8,12)\)，尾声结束后 psum 为 \((5,10,15)\)；非展开模式下同一个张量则是对齐后计数的包含前缀和 \((8,12,16)\)（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L711-L720"><code>ep.hpp</code> 第 711–720 行</a>）。</p>
+
+<div class="callout warn">
+  <p class="callout-title">常见误解</p>
+  <p>psum 在 dispatch 主内核结束时还只是起点，要等拷贝尾声的原子加做完才变成上面说的“起点 + 真实计数”。在延迟尾声模式下，这意味着必须先 <code>wait()</code> 再读 handle 里的 psum。</p>
+</div>
+
+<h3 id="sec-4">为什么要对齐，以及它和 DeepGEMM 的关系</h3>
+
+<p>分组 GEMM 以 \(BM\) 行为一块切 M 轴，如果某个专家的段跨进了下一个专家的块，一个 tile 就要同时乘两套权重。DeepGEMM 的做法是要求每个专家段对齐到块大小 <span class="cite">[<a href="#ref-deepgemm" title="DeepSeek-AI (2025). DeepGEMM: clean and efficient BLAS kernel library on GPU. GitHub 仓库；本文引用提交 <code>5081f8513af57e61696de4f4f04b0e707ffb503e</code>。">2</a>]</span>：README 说连续布局里“每个专家段必须对齐到 GEMM 的 M 块大小，即 <code>get_mk_alignment_for_contiguous_layout()</code>”（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L76-L78">DeepGEMM README 第 76–78 行</a>）。这个值默认是 128，可以用 setter 改；在 SM100 上，<code>get_theoretical_mk_alignment_for_contiguous_layout</code> 返回 256（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/runtime.hpp#L12-L18"><code>runtime.hpp</code> 第 12–18 行</a>、<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/runtime.hpp#L57-L64">第 57–64 行</a>）。DeepEP 的 README 因此建议把 <code>expert_alignment</code> 设成前者（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L160">README 第 160 行</a>）。</p>
+
+<p>对齐值 \(a\) 的选择是显存浪费与 GEMM 效率之间的权衡。每个有 \(c_i\) 个 token 的专家段被补到 \(\operatorname{align}(c_i, a)\) 行，最坏浪费 \(a{-}1\) 行。\(E_\ell\) 个本地专家共浪费至多 \((a{-}1)\cdot E_\ell\) 行，乘以 BF16 隐藏向量的行宽即为额外显存：运行例子中 \(a=128,\;E_\ell=32\) 时最坏浪费 \(127\times 32\times 7168\times 2\approx 55\) MiB；SM100 的 \(a=256\) 翻倍到约 111 MiB。解码时 token 少，多数专家的段长远小于 \(a\)，大部分行是空隙——这就是 <a href="#tab-capacity">表 3</a> 里最坏情况远大于平均有效行数的根源。减小 \(a\) 可以节省显存，但会破坏 GEMM 的块对齐假设：一个 tile 可能跨越专家边界，需要同时加载两套权重矩阵，DeepGEMM 不支持这种模式。因此唯一安全的 \(a\) 值是 GEMM 的 M 块大小或其倍数。</p>
+
+<p>更巧的是前缀和的格式。DeepGEMM 的 M 分组连续 GEMM 接受两种分组描述：长度为 \(M\) 的“每行属于哪组”（空隙填 −1），或打开 <code>use_psum_layout</code> 后长度为组数的前缀和（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/gemm.hpp#L212-L220"><code>gemm.hpp</code> 第 212–220 行</a>）。它的测试这样构造后者：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/generators.py#L395-L408"><code>start = 0
+for i, (actual_m, aligned_m) in enumerate(zip(actual_ms, aligned_ms)):
+    actual_end = start + actual_m
+    aligned_end = start + aligned_m
+    if use_psum_layout:
+        grouped_layout[i] = actual_end
+    else:
+        grouped_layout[start: actual_end] = i
+        grouped_layout[actual_end: aligned_end] = -1
+    valid_mask[start:actual_end] = True
+    # ...
+    start = aligned_end</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/generators.py#L395-L408">DeepGEMM <code>tests/generators.py</code> 第 395–408 行</a>（节选）</p>
+
+<p><code>grouped_layout[i] = actual_end</code>，下一组从 <code>aligned_end</code> 开始——这与 DeepEP 展开模式的 psum 定义逐项相同。从两边代码对照看，DeepEP 输出的 <code>psum_num_recv_tokens_per_expert</code> 可以直接作为 DeepGEMM PSUM 布局的分组张量；两个仓库里我们没有找到把二者连起来的示例代码，这是我们的推断。PSUM 布局在 GEMM 侧怎样跳过空隙行，见<a href="../dg04-moe-grouped/dg04-moe-grouped.html">GEMM 第 4 篇</a>和<a href="../dg03-sf-formats/dg03-sf-formats.html">GEMM 第 3 篇</a>。</p>
+
+<aside class="sidenote">FP8 dispatch 时，<code>use_tma_aligned_col_major_sf=True</code> 让接收到的缩放因子按列主序存放，并把行数对齐到 4 个包（16 字节），注释称这是“为下一个 GEMM 输入准备的 TMA 对齐布局”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L688-L699"><code>ep.hpp</code> 第 688–699 行</a>）。</aside>
+<p>还有两个与展开布局相关的开关。<code>do_zero_padding=True</code> 会在拷贝尾声末尾把每段的对齐空隙清零：隐藏向量、权重和缩放因子都写 0（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch_copy_epilogue.cuh#L232-L325"><code>dispatch_copy_epilogue.cuh</code> 第 232–325 行</a>），它只能与 <code>do_expand=True</code> 同用（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L316-L317"><code>ep.hpp</code> 第 316–317 行</a>）。测试逐个专家检查 \([\text{psum}[i], \operatorname{align}(\text{psum}[i],a))\) 区间全为零（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_ep.py#L430-L435"><code>test_ep.py</code> 第 430–435 行</a>）。另一个是 <code>deterministic=True</code>：原子加分配的行号顺序取决于 warp 的到达先后，每次可能不同；打开后会在尾声之后按源 token 的全局编号对每个专家段内部重新排序，并相应改写 <code>recv_src_metadata[:, 2:]</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L174-L205"><code>ep.py</code> 第 174–205 行</a>）。</p>
+
+<h2 id="sec-cpusync" data-short="CPU 同步">do_cpu_sync：用一次 CPU 等待换精确的张量大小</h2>
+
+<p>dispatch 结束前，接收端并不知道自己会收到多少行，而 PyTorch 张量必须在分配时给出形状。<code>do_cpu_sync</code> 决定这个矛盾怎么解（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L162">README 第 162 行</a>）。</p>
+
+<p><b>打开时</b>（默认），主内核的 notify warp 把每个源 rank 发来的 token 数和每个本地专家的对齐计数写进一块映射到 GPU 地址空间的锁页主机内存（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L222-L229"><code>dispatch.cuh</code> 第 222–229 行</a>），CPU 在尾声里忙等这些值就绪，然后按精确大小分配输出。<b>关闭时</b>，CPU 不等，直接按最坏情况分配：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L610-L669"><code>} else if (do_cpu_sync) {
+    // ...
+    pybind11::gil_scoped_release release;
+    // ...
+    const auto start_cpu_time = std::chrono::high_resolution_clock::now();
+    while (true) {
+        // ...
+        if (std::chrono::duration_cast&lt;std::chrono::seconds&gt;(now - start_cpu_time).count() &gt; context-&gt;num_cpu_timeout_secs)
+            throw EPExceptionWithLineInfo("Dispatch CPU wait", get_buffer_info());
+    }
+} else {
+    // Non-cached mode without CPU sync, allocate with the worst case
+    num_recv_tokens = num_max_tokens_per_rank * context-&gt;num_ranks;
+    num_expanded_tokens = context-&gt;num_ranks * num_max_tokens_per_rank * std::min(num_topk, num_local_experts);
+    num_expanded_tokens += (expert_alignment - 1) * num_local_experts;
+    num_expanded_tokens = math::align(num_expanded_tokens, expert_alignment);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L610-L669"><code>csrc/buffers/ep.hpp</code> 第 610–669 行</a>（节选）</p>
+
+<p>CPU 同步的代价有三部分。一是 CPU 线程被阻塞到对端的计数到达为止，期间不能继续向 GPU 排后面的内核；代码在忙等前释放了 GIL，注释说这是为了不卡住其他 Python 线程（例如 KV 传输）。二是它要求一次真实的主机–设备往返，这与 CUDA graph 捕获不相容——我们的理解是，这正是解码路径要关掉它的主要原因，README 只说“解码时用 GPU 端计数”。三是超时：默认 300 秒等不到就抛异常并打印各计数的当前值，便于排查卡住的 rank。</p>
+
+<p>最坏情况的公式也有道理：每个源 rank 最多发来 \(T\) 个 token，一个 token 到一个 rank 只会到一次（发送端已按 rank 去重），到达后最多展开成 \(\min(k,E_\ell)\) 行，每个专家段最多再补 \(a-1\) 行空隙：</p>
+
+<div class="eq" id="eq-worst">\[ N_{\text{exp}}^{\max} = \operatorname{align}_a\!\big(R\,T\,\min(k, E_\ell) + (a-1)\,E_\ell\big) \]<span class="eq-num">(2)</span></div>
+
+<figure id="tab-capacity" class="table" data-source="computed" data-script="plots/size_hint.py">
+  <figcaption id="tab-capacity-cap"><span class="fig-label">表 3</span><b>不做 CPU 同步时，解码的展开输出要按约 12 倍于平均有效行数的容量分配。</b>“最坏情况行数”按<a href="#eq-worst">式 (2)</a> 计算（\(E=256\)，\(k=8\)，\(a=128\)）；“平均有效行数”是均衡路由下每 rank 收到的（token, 专家）对数 \(T k\)，不含对齐空隙；最后一列是 BF16 <code>recv_x</code> 按最坏情况分配的大小。由 <code>plots/size_hint.py</code> 计算。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>场景</th><th class="num">R</th><th class="num">T</th><th class="num">E/R</th><th class="num">最坏情况行数</th><th class="num">平均有效行数</th><th class="num">recv_x (MiB)</th></tr></thead>
+    <tbody>
+      <tr class="ours"><td>解码，单机</td><td class="num">8</td><td class="num">128</td><td class="num">32</td><td class="num">12,288</td><td class="num">1,024</td><td class="num">168</td></tr>
+      <tr><td>解码，两机</td><td class="num">16</td><td class="num">128</td><td class="num">16</td><td class="num">18,432</td><td class="num">1,024</td><td class="num">252</td></tr>
+      <tr class="ref"><td>训练，单机</td><td class="num">8</td><td class="num">4,096</td><td class="num">32</td><td class="num">266,240</td><td class="num">32,768</td><td class="num">3,640</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p><a href="#tab-capacity">表 3</a> 说明了两种模式的分工：解码时 \(T\) 小，按最坏情况多分配一百多 MiB 换来无需 CPU 往返；训练和预填充时 \(T\) 大，最坏情况要 3.6 GiB 而平均只用八分之一，CPU 同步的代价反而值得付。这也是 README 把 <code>do_cpu_sync=True</code> 标为“训练与预填充常用”的原因。</p>
+
+<h3 id="sec-5">关掉同步后，下游怎样知道哪些行有效</h3>
+
+<p>CPU 不知道计数，handle 里的 <code>num_recv_tokens</code> 和 <code>num_expanded_tokens</code> 就只是上界（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L96-L98"><code>ep.py</code> 第 96–98 行</a>的注释写着“没有 CPU 同步时可能不准”），CPU 侧的 <code>num_recv_tokens_per_expert_list</code> 为空。唯一可信的信息在 GPU 上：</p>
+
+<ul>
+  <li><code>psum_num_recv_tokens_per_scaleup_rank[-1]</code> 是收到的 token 总数。拷贝尾声自己就这么做：当传入的行数等于最坏值 \(R\,T\) 时，改从这个张量读真实值（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch_copy_epilogue.cuh#L63-L65"><code>dispatch_copy_epilogue.cuh</code> 第 63–65 行</a>）。</li>
+  <li><code>psum_num_recv_tokens_per_expert</code> 给出每个专家段的真实终点，下游 GEMM 必须用它确定有效区间（README 第 162 行原话）。按上一节的分析，它可以原样作为 DeepGEMM PSUM 布局的输入；GEMM 只计算 \([s_i, \text{psum}[i])\) 内的行，最后一个专家段之后的大片容量既不读也不写。</li>
+</ul>
+
+<p>竞态安全性也值得点明。<code>psum_num_recv_tokens_per_expert</code> 在 dispatch 主内核中被 notify warp 初始化为排他前缀和（各段起点），在拷贝尾声中被每个 token 的 <code>atomicAdd</code> 就地递增到最终值。两者的先后由 CUDA 流序保证：尾声内核在主内核完成后才启动（同一流上串行，或延迟模式下 <code>wait()</code> 先等主内核事件再在计算流上启动尾声）。下游 GEMM 在 <code>wait()</code> 返回后排入计算流，与尾声在同一条流上串行，因此一定能看到所有 <code>atomicAdd</code> 的最终结果。这就是 GPU 端计数无需额外 fence 的原因——CUDA 的同流有序执行已经提供了充分的序。</p>
+
+<p>README 特意提醒：<code>do_zero_padding=True</code> 只清零专家之间的对齐空隙，<b>不会</b>让最后一段之后的未用容量变成有效数据（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L287">README 第 287 行</a>）。那一段内存是 <code>torch.empty</code> 得到的，内容未定义；如果你的专家计算按整块容量做逐元素运算，又不按 psum 截断，就会读到垃圾。</p>
+
+<h2 id="sec-handle" data-short="handle 与缓存">handle 记住了路由：缓存 dispatch 跳过计数，只重放槽位</h2>
+
+<p>每次非缓存的 dispatch 都会返回一个 <code>EPHandle</code>。它的字段可以分成三类（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L27-L62"><code>ep.py</code> 第 27–62 行</a>）：</p>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>类别</th><th>字段</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td class="nowrap">调用配置</td><td><code>do_expand</code>、<code>num_experts</code>、<code>expert_alignment</code>、<code>num_max_tokens_per_rank</code>、<code>num_sms</code></td><td>重放时必须与 handle 一致；combine 默认沿用 <code>num_sms</code></td></tr>
+    <tr><td class="nowrap">路由本身</td><td><code>topk_idx</code>、<code>dst_buffer_slot_idx</code></td><td>原始的 \([T_{\text{local}}, k]\) 专家号（按引用保存）；每个 token 在每个目标 rank 接收区里的槽位（同一 rank 只在第一个选中它的位置记录，其余为 −1）</td></tr>
+    <tr><td class="nowrap">接收侧布局</td><td><code>recv_src_metadata</code>、两个 psum、<code>num_unaligned_recv_tokens_per_expert</code>、<code>num_recv_tokens_per_expert_list</code></td><td>\([N_{\text{recv}}, k+2]\)：第 0 列是源 token 全局编号 \(r\cdot T+t\)，第 1 列是来源位置，后 \(k\) 列是展开行号</td></tr>
+    <tr><td class="nowrap">仅混合模式</td><td><code>token_metadata_at_forward</code>、<code>channel_linked_list</code></td><td>转发 rank 上每个通道的元数据与链表，见<a href="../ep04-hybrid/ep04-hybrid.html">第 4 篇</a></td></tr>
+  </tbody>
+</table></div>
+
+<p>把 handle 传回 <code>dispatch(handle=...)</code> 就是“缓存 dispatch”。它和普通 dispatch 的差别在主机端和内核里各有一处。主机端：<code>topk_idx</code> 必须传 <code>None</code>（改用 handle 里的那份），不允许 CPU 同步，<code>num_experts</code>、<code>expert_alignment</code>、<code>num_max_tokens_per_rank</code> 必须与 handle 一致（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L652-L663"><code>ep.py</code> 第 652–663 行</a>）；输出大小直接取 handle 里存的计数（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L604-L609"><code>ep.hpp</code> 第 604–609 行</a>）。内核里：notify warp 的数量设为 0，整个计数与前缀和阶段被跳过（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/dispatch.hpp#L62-L65"><code>dispatch.hpp</code> 第 62–65 行</a>），每个 token 的目标槽位直接从 <code>dst_buffer_slot_idx</code> 读出，而不是再做一次原子加：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L332-L347"><code>// Deduplicate ranks and assign slots
+int stored_dst_slot_idx = -1;
+if constexpr (kReuseSlotIndices) {
+    if (lane_idx &lt; kNumTopk)
+        stored_dst_slot_idx = __ldg(dst_buffer_slot_idx + token_idx * kNumTopk + lane_idx);
+    stored_dst_slot_idx = stored_dst_slot_idx &gt;= 0 ?
+        (stored_dst_slot_idx - rank_idx * kNumMaxTokensPerRank) : -1;
+} else {
+    if (ptx::deduplicate(stored_dst_rank_idx, lane_idx) and stored_dst_rank_idx &gt;= 0)
+        stored_dst_slot_idx = atomicAdd(workspace_layout.get_scaleup_atomic_sender_counter() + stored_dst_rank_idx, 1);
+    // ...
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L332-L347"><code>impls/ep/dispatch.cuh</code> 第 332–347 行</a>（节选）</p>
+
+<p>接收端的拷贝尾声也不再分配行号，而是从 <code>recv_src_metadata[:, 2:]</code> 读出上次的展开行号（上一节摘录里的 <code>kCachedMode</code> 分支）。所以缓存 dispatch 产生的布局与原 dispatch 逐行相同，测试直接用 <code>torch.equal</code> 比较二者的接收数据、<code>dst_buffer_slot_idx</code> 和 psum（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_ep.py#L441-L450"><code>test_ep.py</code> 第 441–450 行</a>）。数据可以换——测试里缓存 dispatch 传的仍是同一个 <code>x</code>，但接口只要求形状一致，训练反向正是用它来发送梯度；变的只能是“发什么”，不能是“发到哪”。</p>
+
+<h3 id="sec-6">为什么 topk_idx 在 handle 用完前不能改</h3>
+
+<p>槽位表 <code>dst_buffer_slot_idx</code> 只记录“发到目标 rank 的第几个槽”，并不记录目标是哪个 rank。上面的摘录里，目标 rank 号 <code>stored_dst_rank_idx</code> 仍由 <code>topk_idx</code> 现算（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/dispatch.cuh#L313-L322"><code>dispatch.cuh</code> 第 313–322 行</a>）；随 token 一起发出的元数据里也带着 <code>topk_idx</code>，接收端靠它判断该 token 属于哪些本地专家。combine 同样要用 <code>handle.topk_idx</code> 来决定把结果加回哪里（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L821-L835"><code>ep.py</code> 第 821–835 行</a>）。一旦 <code>topk_idx</code> 变了，“新的目标 rank”配上“旧的槽位”，数据会写进别的 token 的槽里，且不会报错。为此 handle 只保存引用，并在每次访问时检查 PyTorch 的版本计数器：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L103-L111"><code># `topk_idx` cannot change in the handle
+self._topk_idx = topk_idx
+self._topk_idx_version = None if topk_idx.is_inference() else topk_idx._version
+
+@property
+def topk_idx(self) -&gt; torch.Tensor:
+    assert self._topk_idx_version is None or self._topk_idx._version == self._topk_idx_version, \
+        '`topk_idx` must not be modified while the EP handle is in use'
+    return self._topk_idx</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L103-L111"><code>deep_ep/buffers/ep.py</code> 第 103–111 行</a></p>
+
+<p>这个检查有盲区，文档自己列了出来：通过 <code>.data</code> 或裸指针的写入不会增加版本号；在 inference mode 下创建的张量没有版本计数器，根本不检查（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L39-L42"><code>ep.py</code> 第 39–42 行</a>）。推理服务通常整体跑在 inference mode 下，这时只能靠调用者自觉。另外，缓存模式不支持在线负载统计 <code>cumulative_local_expert_recv_stats</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/dispatch.hpp#L55-L57"><code>dispatch.hpp</code> 第 55–57 行</a>），因为计数阶段被跳过了。</p>
+
+<div class="callout key">
+  <p class="callout-title">什么时候能复用 handle</p>
+  <p>只在“路由完全相同”时：训练里同一层前向的 handle 用于该层的两次反向通信。README 明说，新的路由决策需要一次新的 dispatch，解码本身并不会让旧的 handle 变得可复用（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L162">README 第 162 行</a>）。</p>
+</div>
+
+<p>更具体地，以下任一条件成立时，上一个 handle 就不能再传给 dispatch，必须跑一次完整的（非缓存）dispatch 拿新的 handle：</p>
+
+<ul>
+  <li><b>路由变了</b>：新的 forward pass 产生了不同的 <code>topk_idx</code>——最常见的场景。每个 micro-batch 的 gate 输出通常不同，所以前向生成的 handle 只在该层的反向中用两次（发送梯度和合并梯度各一次）。</li>
+  <li><b>形状参数变了</b>：<code>num_experts</code>、<code>expert_alignment</code> 或 <code>num_max_tokens_per_rank</code> 与 handle 创建时不同。代码在缓存 dispatch 入口逐项检查并断言（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L652-L663"><code>ep.py</code> 第 652–663 行</a>）。</li>
+  <li><b>EPBuffer 被重建了</b>：handle 内的指针（如 <code>recv_src_metadata</code>）指向旧 buffer 的显存，旧 buffer 销毁后这些指针悬空，缓存 dispatch 会段错误或读到垃圾。</li>
+  <li><b>张量被原地修改</b>：即使值没变，<code>.data.copy_()</code> 或裸指针写入不增加版本计数器，检查会放过——语义上 handle 已失效但代码检测不到（上文已提到这个盲区）。</li>
+</ul>
+
+<h2 id="sec-defer" data-short="延迟尾声">延迟尾声：通信先发出去，拷贝等到 wait() 再做</h2>
+
+<p>每次 dispatch 都由两个内核组成：在通信流上运行的主内核（计数、发送、等数据到齐），和把接收缓冲里的 token 搬进输出张量的<b>拷贝尾声</b>（copy epilogue）；combine 对应的是主内核加<b>归约尾声</b>（reduce epilogue）。尾声之前还有主机端的工作：如果开了 CPU 同步，要先忙等计数；然后按计数分配输出张量。<code>defer_epilogue=True</code> 把这三件事——CPU 等待、分配、尾声内核——一起推迟到使用者调用 <code>wait()</code> 的那一刻：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L770-L780"><code>// Defer epilogue: record the created tensors only, and return intermediately
+// NOTES: CPU sync will be deferred, too
+if (defer_epilogue) {
+    EP_HOST_ASSERT(async_with_compute_stream);
+    const auto event = stream_control_epilogue(
+        tensors_to_record, compute_stream, allocate_on_comm_stream, true);
+    std::function&lt;pybind11::object()&gt; epilogue_hook = [epilogue = std::move(epilogue)]() mutable {
+        return epilogue(at::cuda::getCurrentCUDAStream(), std::nullopt);
+    };
+    return pybind11::make_tuple(pybind11::none(), event, epilogue_hook);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L770-L780"><code>csrc/buffers/ep.hpp</code> 第 770–780 行</a></p>
+
+<p>Python 层把这个钩子挂到返回的 <code>EventOverlap</code> 上（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/buffers/ep.py#L749-L753"><code>ep.py</code> 第 749–753 行</a>）。<code>wait()</code> 先让当前流等待主内核结束的事件，再调用钩子，钩子的返回值就是 dispatch 的四元组或 combine 的二元组：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/utils/event.py#L46-L53"><code>assert self.event is not None
+self.event.current_stream_wait()
+
+# Call epilogue hook
+result = None
+if self.hook_after_wait is not None:
+    result = self.hook_after_wait()
+    self.hook_after_wait = None</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/utils/event.py#L46-L53"><code>deep_ep/utils/event.py</code> 第 46–53 行</a></p>
+
+<p>注意最后一行：钩子执行一次就被清空，第二次 <code>wait()</code> 返回 <code>None</code>。README 的说法是“结果由第一次 wait 产生，请保留它”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L287">第 287 行</a>）。由此还能推出一个代码里没有写明的陷阱：<code>EventOverlap</code> 也支持 <code>with</code> 语法，退出时会调用同一个 <code>current_stream_wait()</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/utils/event.py#L98-L106"><code>event.py</code> 第 98–106 行</a>），这会把延迟尾声跑掉而丢弃结果；对延迟模式的事件，应当显式调用 <code>wait()</code>。</p>
+
+<p><a href="#fig-defer">图 2</a> 画出了 README 推荐的用法在两条流上的排布：先发起通信，CPU 立刻返回去排独立的计算，等到专家计算真正需要输入时再 <code>wait()</code>。</p>
+
+<figure id="fig-defer" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-defer-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 20 560 240" font-family="sans-serif" role="img" id="s2-root" style="max-width:560px;">
+  <defs>
+    <marker id="s2-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s2-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-label" x="176" y="40">① 调用 dispatch，立刻返回</text>
+  <path class="d-arrow muted dashed" d="M172 30 V62"/>
+  <text class="d-label d-accent-text" x="360" y="36">② .wait()</text>
+  <text class="d-label" x="360" y="54">分配输出、跑尾声</text>
+
+  
+  <text class="d-title" x="16" y="84">计算流</text>
+  <text class="d-label" x="16" y="100">current</text>
+  <text class="d-title" x="16" y="176">通信流</text>
+  <text class="d-label" x="16" y="192">comm</text>
+
+  
+  <rect class="d-box soft" x="96" y="64" width="72" height="36" rx="4"/>
+  <text class="d-text" x="132" y="87" text-anchor="middle">门控</text>
+  <rect class="d-box" x="208" y="64" width="128" height="36" rx="4"/>
+  <text class="d-text" x="272" y="87" text-anchor="middle">独立计算</text>
+  <rect class="d-box accent" x="360" y="64" width="88" height="36" rx="4"/>
+  <text class="d-text" x="404" y="87" text-anchor="middle">拷贝尾声</text>
+  <rect class="d-box green" x="464" y="64" width="80" height="36" rx="4"/>
+  <text class="d-text" x="504" y="87" text-anchor="middle">专家 GEMM</text>
+
+  
+  <rect class="d-box blue" x="184" y="156" width="152" height="36" rx="4"/>
+  <text class="d-text" x="260" y="179" text-anchor="middle">dispatch 主内核</text>
+
+  
+  <path class="d-arrow" d="M168 82 H176 V174 H182" marker-end="url(#s2-ah)"/>
+  <path class="d-arrow accent" d="M336 174 H348 V82 H358" marker-end="url(#s2-ah-acc)"/>
+  <text class="d-label" x="184" y="214">通信流先等计算流（或 previous_event）</text>
+
+  
+  <path class="d-arrow muted" d="M96 238 H540" marker-end="url(#s2-ah)"/>
+  <text class="d-label" x="544" y="256" text-anchor="end">时间</text>
+</svg></div>
+  <figcaption id="fig-defer-cap"><span class="fig-label">图 2</span><b>延迟尾声把拷贝从通信流挪到计算流，放在独立计算之后、专家 GEMM 之前。</b>蓝框是通信流上的 dispatch 主内核，它与计算流上的“独立计算”重叠；橙色箭头是 <code>wait()</code> 建立的依赖：计算流等主内核的事件，然后在计算流上分配输出并运行拷贝尾声。CPU 同步（若开启）也发生在 ② 处。示意图，框长不代表实际耗时。</figcaption>
+</figure>
+
+<p>和另外两种模式对比更清楚（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L152-L181"><code>ep.hpp</code> 第 152–181 行</a>、<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L782-L786">第 782–786 行</a>）：</p>
+
+<ul>
+  <li><code>async_with_compute_stream=False</code>：主内核和尾声都排在通信流上，然后计算流立即等待通信流。调用返回时数据可以直接用，但计算流在这期间没有可重叠的工作。</li>
+  <li><code>async_with_compute_stream=True</code>、不延迟：主内核和尾声仍都在通信流上，返回张量和事件；使用前要 <code>event.current_stream_wait()</code>。若开了 CPU 同步，CPU 在 dispatch 调用内部就被卡住，等不到计数就不能去排后面的计算。</li>
+  <li>延迟：只有主内核在通信流上；CPU 立即返回。到 <code>wait()</code> 时，如果主内核已经结束、计数已写入主机内存，CPU 的忙等会立即结束。</li>
+</ul>
+
+<aside class="sidenote">尾声内核以全部 SM 启动（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L723-L743"><code>ep.hpp</code> 第 723–743 行</a>的注释写着“Launch copy kernels with full SMs”），而主内核只用估算出的少量 SM（见<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>）。</aside>
+<p>延迟带来的好处，代码和文档能直接证实的有两条：CPU 不必在通信调用里阻塞；combine 的 <code>bias</code> 可以是在通信发起之后才算出来的张量（例如共享专家的输出），因为 bias 指针直到尾声执行时才解析——代码注释说“在这里解析指针，以便在延迟尾声里保留 bias 张量”（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L936-L940"><code>ep.hpp</code> 第 936–940 行</a>，README 第 289 行）。还有一条是我们的推测：用满 SM 的尾声如果留在通信流上，会和计算流上的独立计算抢 SM；挪到计算流上、排在独立计算之后，两者就串行而不互相干扰。</p>
+
+<h3 id="sec-7">previous_event 与 allocate_on_comm_stream</h3>
+
+<p>默认情况下，通信流在开始前等待计算流上“此刻之前”的全部工作（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L122-L133"><code>ep.hpp</code> 第 122–133 行</a>）。如果独立计算已经先排进了计算流，这种等待就把重叠吃掉了。<code>previous_event</code> 让通信只等一个更早的事件：在排独立计算之前用 <code>EPBuffer.capture()</code> 在计算流上记一个事件，再把它传进来（README 第 289 行）。这时必须同时打开 <code>allocate_on_comm_stream</code>：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L141-L148"><code>if (previous_event.has_value())
+    EP_HOST_ASSERT(allocate_on_comm_stream);
+
+// Allocate all tensors on communication stream if set
+// NOTES: do not allocate tensors upfront!
+const auto compute_stream = stream_control_prologue(previous_event);
+if (allocate_on_comm_stream)
+    at::cuda::setCurrentCUDAStream(comm::get_comm_stream());</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L141-L148"><code>csrc/buffers/ep.hpp</code> 第 141–148 行</a></p>
+
+<p>上方几行注释给的理由是：<code>previous_event</code> 意味着重叠的计算内核先被排进去了，为了“不使用计算流上的内存”，必须在通信流上分配。我们对它的理解是：PyTorch 的缓存分配器按流管理空闲块，计算流上刚被释放的块可能仍被那些已排队、尚未执行的计算内核使用；通信流只等了更早的事件，若从计算流的池里拿内存，就可能与它们写同一块地址。把分配切到通信流，就避开了这种跨流复用。两个流之间的张量生命周期则靠 <code>record_stream</code> 维持；设置 <code>EP_AVOID_RECORD_STREAM=1</code> 时改为把张量挂在事件对象上，此时事件本身必须活到通信结束（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/buffers/ep.hpp#L159-L170"><code>ep.hpp</code> 第 159–170 行</a>，README 第 402 行）。</p>
+
+<h2 id="sec-backward" data-short="反向">dispatch 与 combine 互为转置：反向传播的推导</h2>
+
+<p>README 的训练示例里，<code>dispatch_backward</code> 调用的是 <code>combine</code>，<code>combine_backward</code> 调用的是 <code>dispatch</code>，两者都只接收前向保存的 handle：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L204-L250"><code>def dispatch_backward(grad_recv_x: torch.Tensor,
+                      grad_recv_topk_weights: torch.Tensor,
+                      handle: EPHandle,
+                      bias: Optional[torch.Tensor] = None) -&gt; Tuple[torch.Tensor, torch.Tensor, EventOverlap]:
+    """The backward pass of MoE dispatch is actually a combine."""
+    # ...
+    combined_grad_x, combined_grad_topk_weights, event = _buffer.combine(
+        grad_recv_x,
+        handle=handle,
+        bias=bias,
+        topk_weights=grad_recv_topk_weights,
+# ...
+    """The backward pass of MoE combine is actually a dispatch."""
+    # ...
+    grad_x, _, _, _, event = _buffer.dispatch(
+        grad_combined_x,
+        handle=handle,</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L204-L250"><code>README.md</code> 第 204–250 行</a>（节选）</p>
+
+<p>为什么成立，用一点线性代数就能看清。以展开模式为例，把全组所有 token 叠成 \(x\in\R^{N\times H}\)，把某个 rank 收到的展开行叠成 \(r\in\R^{M\times H}\)。dispatch 只做复制和搬运，不做任何算术，所以它是一个线性映射：</p>
+
+<div class="eq" id="eq-dispatch">\[ r = S\,x,\qquad S\in\{0,1\}^{M\times N},\qquad S_{m,t}=1 \iff \text{第 } m \text{ 行是 token } t \text{ 的副本} \]<span class="eq-num">(3)</span></div>
+
+<p>\(S\) 的每一行恰好有一个 1（每行来自唯一的 token），每一列有几个 1 取决于该 token 选中了本 rank 的几个专家。专家计算把第 \(m\) 行变成 \(z_m=w_m\,f_{e(m)}(r_m)\)，其中 \(e(m)\) 是该行所在段的专家、\(w_m\) 是一维 <code>recv_topk_weights</code> 的第 \(m\) 项——README 规定路由权重由专家计算在 combine 之前乘上，combine 只求和（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/README.md?plain=1#L279">README 第 279 行</a>）。于是 combine 是</p>
+
+<div class="eq" id="eq-combine">\[ y_t = \sum_{m:\ S_{m,t}=1} z_m + b_t \quad\Longleftrightarrow\quad y = S^{\top} z + b \]<span class="eq-num">(4)</span></div>
+
+<p>其中 \(b\) 是可选的 <code>bias</code>（如共享专家输出或残差）。对线性映射求梯度，就是乘它的转置：</p>
+
+<div class="eq" id="eq-grad">\[ \frac{\partial L}{\partial x} = S^{\top}\frac{\partial L}{\partial r},\qquad \frac{\partial L}{\partial z} = S\,\frac{\partial L}{\partial y},\qquad \frac{\partial L}{\partial b}=\frac{\partial L}{\partial y} \]<span class="eq-num">(5)</span></div>
+
+<p><a href="#eq-grad">式 (5)</a> 的左式说：一个 token 的输入梯度是它所有副本梯度之和——这正是 combine 做的事（\(S^\top\) 作用）。中式说：输出梯度要原样复制给该 token 的每个副本——这正是 dispatch 做的事（\(S\) 作用）。用<a href="#fig-expand">图 1</a> 的数字检查：token A 在 rank 0 上有两个副本，第 0 行（e0）和第 8 行（e1）；前向 combine 给出 \(y_A=z_0+z_8+(\text{其他 rank 上的副本})\)，于是 \(\partial L/\partial z_0=\partial L/\partial z_8=\partial L/\partial y_A\)，由 dispatch 把 \(\partial L/\partial y_A\) 送到这两行；反过来 \(\partial L/\partial x_A=\partial L/\partial r_0+\partial L/\partial r_8+\cdots\)，由 combine 把各行梯度加回 A 的原位置。</p>
+
+<figure id="fig-roles" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-roles-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 32 560 244" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-label" x="44" y="48">前向（从左往右）</text>
+  <text class="d-label" x="44" y="264">反向（从右往左）</text>
+
+  
+  <text class="d-math" x="18" y="84" text-anchor="middle">x</text>
+  <path class="d-arrow" d="M30 78 H42" marker-end="url(#s3-ah)"/>
+  <rect class="d-box" x="44" y="56" width="136" height="44" rx="4"/>
+  <text class="d-text" x="112" y="73" text-anchor="middle">dispatch</text>
+  <text class="d-math" x="112" y="93" text-anchor="middle">r = Sx</text>
+  <path class="d-arrow" d="M180 78 H214" marker-end="url(#s3-ah)"/>
+  <rect class="d-box soft" x="216" y="56" width="112" height="44" rx="4"/>
+  <text class="d-text" x="272" y="73" text-anchor="middle">专家计算</text>
+  <text class="d-small" x="272" y="92" text-anchor="middle">含路由加权</text>
+  <path class="d-arrow" d="M328 78 H358" marker-end="url(#s3-ah)"/>
+  <rect class="d-box" x="360" y="56" width="144" height="44" rx="4"/>
+  <text class="d-text" x="432" y="73" text-anchor="middle">combine</text>
+  <text class="d-math" x="432" y="93" text-anchor="middle">y = S<tspan class="d-sub" dy="-7">⊤</tspan><tspan dy="7">z + b</tspan></text>
+  <path class="d-arrow" d="M504 78 H516" marker-end="url(#s3-ah)"/>
+  <text class="d-math" x="534" y="84" text-anchor="middle">y</text>
+
+  
+  <path class="d-arrow accent" d="M112 100 V126" marker-end="url(#s3-ah-acc)"/>
+  <rect class="d-box accent" x="64" y="128" width="96" height="36" rx="4"/>
+  <text class="d-title" x="112" y="151" text-anchor="middle">EPHandle</text>
+  <path class="d-arrow accent dashed" d="M160 146 H432 V102" marker-end="url(#s3-ah-acc)"/>
+  <path class="d-arrow accent dashed" d="M432 146 V194" marker-end="url(#s3-ah-acc)"/>
+  <path class="d-arrow accent dashed" d="M112 164 V194" marker-end="url(#s3-ah-acc)"/>
+  <text class="d-label d-accent-text" x="184" y="140">handle：槽位与计数</text>
+
+  
+  <text class="d-math" x="534" y="224" text-anchor="middle">∂y</text>
+  <path class="d-arrow" d="M516 218 H506" marker-end="url(#s3-ah)"/>
+  <rect class="d-box" x="360" y="196" width="144" height="44" rx="4"/>
+  <text class="d-mono" x="432" y="213" text-anchor="middle">dispatch(handle)</text>
+  <text class="d-math" x="432" y="233" text-anchor="middle">∂z = S ∂y</text>
+  <path class="d-arrow" d="M360 218 H330" marker-end="url(#s3-ah)"/>
+  <rect class="d-box soft" x="216" y="196" width="112" height="44" rx="4"/>
+  <text class="d-text" x="272" y="223" text-anchor="middle">专家反向</text>
+  <path class="d-arrow" d="M216 218 H182" marker-end="url(#s3-ah)"/>
+  <rect class="d-box" x="44" y="196" width="136" height="44" rx="4"/>
+  <text class="d-mono" x="112" y="213" text-anchor="middle">combine(handle)</text>
+  <text class="d-math" x="112" y="233" text-anchor="middle">∂x = S<tspan class="d-sub" dy="-7">⊤</tspan><tspan dy="7">∂r</tspan></text>
+  <path class="d-arrow" d="M44 218 H30" marker-end="url(#s3-ah)"/>
+  <text class="d-math" x="18" y="224" text-anchor="middle">∂x</text>
+</svg></div>
+  <figcaption id="fig-roles-cap"><span class="fig-label">图 3</span><b>一层 MoE 的四次通信里，只有前向 dispatch 需要计数；其余三次都复用它产生的 handle。</b>上排前向：dispatch 施加 \(S\)，combine 施加 \(S^\top\)。下排反向从右往左：combine 的反向是带 handle 的 dispatch（施加 \(S\)），dispatch 的反向是带 handle 的 combine（施加 \(S^\top\)）。橙色虚线表示 handle 的复用。</figcaption>
+</figure>
+
+<p><a href="#fig-roles">图 3</a> 把这件事和 handle 联系起来。<a href="#eq-dispatch">式 (3)</a> 中的 \(S\) 完全由路由决定，前向 dispatch 已经把它“物化”在 handle 里：槽位表决定 \(S\) 的列怎样映射到各 rank，<code>recv_src_metadata</code> 决定行号。所以 <code>combine_backward</code> 用的是带 handle 的缓存 dispatch，不需要再计数、也不需要 CPU 同步（README 第 281 行：“缓存 dispatch 重放保存的展开布局，不再做接收计数的 CPU 同步”）；<code>dispatch_backward</code> 用的 combine 本来就要 handle。这也是 handle 必须在整个反向结束前保持有效、<code>topk_idx</code> 不能被改的根本原因。</p>
+
+<p>路由权重的梯度走的是同一条路。在展开模式下，<code>recv_topk_weights[m]</code> 是 \(W_{t,j}\) 的一个副本，而且每个 \((t,j)\) 至多出现在一行，所以它的梯度也是“按原路送回”。README 的 <code>dispatch_backward</code> 把 <code>grad_recv_topk_weights</code> 作为 combine 的 <code>topk_weights</code> 传入，取回的 <code>combined_grad_topk_weights</code> 形状为 \([N_{\text{local}}, k]\)；测试验证了 combine 返回的权重与原始 <code>topk_weights</code> 逐位相等（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_ep.py#L514-L518"><code>test_ep.py</code> 第 514–518 行</a>），说明权重确实被一对一地送回原位置。测试注释还提醒，展开模式下 combine 要带 <code>topk_weights</code> 需要 <code>allow_multiple_reduction=True</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/tests/ep/test_ep.py#L229-L231">第 229–231 行</a>）。</p>
+
+<aside class="sidenote">非展开模式的推导相同，只是 \(S\) 的粒度变成“（token, 目标 rank）”：一个 token 到一个 rank 只占一行，本地多个专家的扇出与求和由使用者在 rank 内完成，combine 再把各 rank 的部分和加起来。</aside>
+<p>两点实现上的不对称值得一提。其一，精度：反向 combine 的输入（即各副本的梯度）必须是 BF16，与前向 combine 同一条断言；反向 dispatch 则可以像前向一样发送 FP8 数据加缩放因子，README 的 <code>combine_backward</code> 签名接受二元组。其二，<code>dispatch_backward</code> 也接受 <code>bias</code>。按<a href="#eq-combine">式 (4)</a> 的形式，它会被加到 \(\partial L/\partial x\) 上；我们推测用途是把 \(x\) 经由其他路径（残差、共享专家）得到的梯度在同一个尾声里合并，README 没有展开说明。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>没有实测。</b>本文所有字节数（<a href="#tab-size">表 2</a>、<a href="#tab-capacity">表 3</a>）都是把源码公式代入示例参数算出来的，脚本为 <code>plots/size_hint.py</code>；没有 GPU 上的测量，也不涉及任何时延或带宽。“延迟尾声能隐藏多少时间”取决于独立计算的长短，仓库没有给出数据，本文也不给。</li>
+  <li><b>推断与事实的界线。</b>以下几点是我们根据代码推断的，仓库没有直接说明：解码关闭 CPU 同步与 CUDA graph 捕获的关系；DeepEP 的 psum 可原样喂给 DeepGEMM 的 PSUM 布局（两侧格式一致，但没有官方串联示例）；把尾声留到计算流上可避免与独立计算抢 SM；<code>allocate_on_comm_stream</code> 防止的是跨流复用缓存块；<code>dispatch_backward</code> 中 <code>bias</code> 的用途；以及对延迟事件使用 <code>with</code> 会丢失结果。</li>
+  <li><b>文档与代码的细微差异。</b>hint 对 FP8 缩放因子按每 32 元素一个包估算，偏大于 1×128 缩放的实际需要，代码注释自称近似；<code>num_topk=0</code> 时按 32 计算。这些都只会让 hint 偏大，不会偏小。</li>
+  <li><b>没讲的部分。</b>dispatch 主内核如何计数、去重、经 TMA 和 NVLink/RDMA 发送（第 2 篇）；combine 的归约顺序、多次归约与 <code>bias</code> 的加法细节（第 3 篇）；混合模式的转发、通道与链表（第 4 篇）；SM 数和 QP 数的估算公式（第 6 篇）；<code>deterministic</code> 模式的完整排序规则只点到为止。</li>
+  <li><b>版本。</b>本文对应 DeepEP 提交 <code>f6aa38f</code>（V2.5 之后）。V1 的接口和低延迟内核已被完全移除（README 第 18 行），旧文章里关于 <code>Buffer</code>、<code>low_latency_dispatch</code> 的描述不适用于这里。</li>
+</ul>
+
+<h2 id="sec-summary" data-short="小结">小结</h2>
+
+<p>一个 <code>EPBuffer</code> 要回答的问题是：在不知道路由结果的前提下，怎样让通信既能被提前发起、又能交出分组 GEMM 直接可用的输出。DeepEP V2.5 的回答分四层。容量按最坏情况一次算定，由 dispatch 与 combine 中较大的一方决定。输出采用按专家分段、对齐的展开布局，段边界由一个兼作原子计数器的前缀和给出，格式与 DeepGEMM 的 PSUM 布局一致。要不要为精确大小付一次 CPU 等待，由 <code>do_cpu_sync</code> 交给使用者：训练和预填充付，解码不付而改用 GPU 端前缀和。最后，一次路由的全部信息存进 handle，供反向的两次通信原样重放；这在数学上之所以成立，是因为 dispatch 和 combine 互为转置。</p>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../p00-overview/p00-overview.html">导读：两个库，一条 MoE 流水线</a>
+  ｜ 下一篇：<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">直连模式的 dispatch</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-deepep">DeepSeek-AI (2025). <a href="https://github.com/deepseek-ai/DeepEP">DeepEP: an efficient expert-parallel communication library</a>. GitHub 仓库；本文引用提交 <code>f6aa38fe06cd4a0489e7730365d4e0114970a2f3</code>。</li>
+  <li id="ref-deepgemm">DeepSeek-AI (2025). <a href="https://github.com/deepseek-ai/DeepGEMM">DeepGEMM: clean and efficient BLAS kernel library on GPU</a>. GitHub 仓库；本文引用提交 <code>5081f8513af57e61696de4f4f04b0e707ffb503e</code>。</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/">deepseek-ai/DeepEP@f6aa38f</a> 与 <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/">deepseek-ai/DeepGEMM@5081f85</a>。文中两张表的字节数与行数由 <code>plots/size_hint.py</code> 按源码公式计算（computed），未在 GPU 上实测；图中的 token 计数与时间轴为示意（illustrative），不代表实测。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

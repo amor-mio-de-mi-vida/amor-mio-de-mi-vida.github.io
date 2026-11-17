@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NVLink 加 RDMA：混合模式的转发路径</title>
+<meta name="description" content="DeepEP 精读第 4 篇：当 EP 组跨越多个 NVLink 域时，dispatch 如何用 scale-out warp 经 RDMA 到达代理节点、再由 forward warp 经 NVLink 直通指针完成最后一跳——三种 warp 角色、两层去重与批量 tail 发布构成完整的混合转发路径。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepEP 精读 · 第 4 篇</div>
+  <h1>NVLink 加 RDMA：混合模式的转发路径</h1>
+  <p class="subtitle">当 EP 组跨越多个 NVLink 域时，dispatch 把 token 先用 RDMA 送到目标域的代理节点，再由转发 warp 经 NVLink 直通指针写进最终接收缓冲；三种 warp 角色、两层去重、批量 tail 发布与 per-channel 链表构成了一条完整的混合转发路径。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 14 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-why">为什么需要混合模式</a><li><a href="#sec-launch">选择直连还是混合</a><li><a href="#sec-warp-roles">三种 warp 角色</a><li><a href="#sec-notify">Notify 阶段：两级归约</a><li><a href="#sec-scaleout">Scale-out warps：TMA 加载与 RDMA 发送</a><ol><li><a href="#sec-1">去重、slot 分配与本地旁路</a></li><li><a href="#sec-2"><code>ptx::deduplicate</code> 的三步流水线</a></li><li><a href="#sec-3">TMA 与 RDMA 流水线重叠</a></li><li><a href="#sec-4">批量 tail 发布</a></li></ol><li><a href="#sec-forward">Forward warps：NVLink 直通转发</a><ol><li><a href="#sec-5">Metadata 与链表</a></li></ol><li><a href="#sec-combine">Hybrid combine：反向重放</a><ol><li><a href="#sec-6">Scale-up warps</a></li><li><a href="#sec-7">Forward warps（重放）</a></li></ol><li><a href="#sec-domain">域的区分：team 与 rank 映射</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr"><p class="tldr-title">TL;DR</p>
+<ul>
+<li>当 EP 组跨越多个 NVLink 域时，DeepEP 用混合模式：scale-out warp 经 RDMA 把 token 送到目标域的代理节点，forward warp 再经 NVLink 直通指针写进最终接收缓冲——两跳完成一次跨域 dispatch。</li>
+<li>block 内三种 warp 角色各司其职：notify warps 做两级计数归约，scale-out warps 做 RDMA 发送，forward warps 做 NVLink 转发。去重在两层分别发生：发送端按 scale-out 域，转发端按 scale-up rank。</li>
+<li>tail 发布以 <code>kScaleoutUpdateInterval = 6</code> 为间隔批量进行，per-channel 链表和 <code>token_metadata_at_forward</code> 让 combine 能沿 dispatch 的原路"反向重放"。</li>
+</ul></div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解直连 dispatch 的计数-布局-发送流程（<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">ep02</a>）和 NVLink/RDMA 的带宽量级（<a href="../bg02-gpu-hardware-primer/bg02-gpu-hardware-primer.html">bg02</a>）。本篇新引入：scale-out/scale-up 域、notify/scale-out/forward 三种 warp 角色、两跳转发、反向重放。</p></aside>
+
+<h2 id="sec-why">为什么需要混合模式</h2>
+
+<p><a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">第 2 篇</a>介绍的直连模式假设所有 rank 在同一个 NVLink 域内，dispatch 内核可以用 <code>gin.put</code> 或 TMA 直写把数据一步送达目标 rank。但实际的大规模训练集群中，一个 EP 组往往横跨多个 NVLink 域（scale-up domain），域间只有 RDMA 可达。一个 token 要从 scale-out 域 0 的 rank 0 到达 scale-out 域 1 的 rank 3，就需要两跳：先经 RDMA 到域 1 的某个 rank（"代理节点"），再经 NVLink 分发到域内的最终目标。</p>
+
+<p>DeepEP 用一个简单的编码区分两个域：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L60-L61"><code>const auto rank_idx = scaleout_rank_idx * kNumScaleupRanks + scaleup_rank_idx;
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L60-L61"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 60–61 行</a>（节选）</p>
+
+<p>全局 rank 由 <code>scaleout_rank_idx * kNumScaleupRanks + scaleup_rank_idx</code> 得出。相应地，专家到域的映射有两个除数：<code>kNumExpertsPerScaleout = kNumExperts / kNumScaleoutRanks</code>（scale-out 域内的专家数）和 <code>kNumExpertsPerRank = kNumExperts / kNumRanks</code>（每个 rank 的专家数）。一个 token 的 <code>topk_idx</code> 先除以 <code>kNumExpertsPerScaleout</code> 判断它属于哪个 scale-out 域，再除以 <code>kNumExpertsPerRank</code> 判断域内的哪个 rank。</p>
+
+<p>一个 token 的路由决策因此分三种情况：</p>
+<ol>
+  <li><b>目标专家在本 rank</b>：token 不参与跨 rank 通信，直接在本地计算。</li>
+  <li><b>目标专家在同一 NVLink 域的其他 rank</b>：scale-out warp 执行本地旁路（local bypass，下文第 425 行），TMA 直写入本域的 <code>scaleout_recv_buffer</code>；forward warp 用 NVLink 对称指针将数据转发到域内目标 rank。单跳，延迟在微秒级以下。</li>
+  <li><b>目标专家在另一 NVLink 域</b>：scale-out warp 经 RDMA <code>gin.put</code> 发送到目标域的代理节点；目标域的 forward warp 用 NVLink 转发到域内最终 rank。两跳，延迟为 RDMA 往返（数微秒）加 NVLink 转发（亚微秒）。</li>
+</ol>
+<p>三种情况在同一个 token 的不同 top-k 选择中可以同时发生——比如 top-8 中 3 个专家在本域、5 个在两个远端域，那么 scale-out warp 会为本域做一次旁路、为两个远端域各做一次 RDMA put。去重保证每种目标只发一份数据。</p>
+
+<h2 id="sec-launch">选择直连还是混合</h2>
+
+<p>路径的选择发生在 host 端的 <code>launch_dispatch</code> 函数里：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/dispatch.hpp#L86-L102"><code>
+// Compile
+std::string header_name, func_name;
+if (num_scaleout_ranks == 1) {
+    header_name = "dispatch";
+    func_name = std::format("dispatch_impl&lt;{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}&gt;",
+        is_scaleup_nvlink,
+        do_cpu_sync,
+// ...
+        num_scaleup_ranks,
+        hidden * elem_size, num_sf_packs,
+        num_max_tokens_per_rank,
+        num_experts, num_topk, expert_alignment,
+        num_qps, num_timeout_cycles);
+} else {</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/csrc/kernels/ep/dispatch.hpp#L86-L102"><code>csrc/kernels/ep/dispatch.hpp</code> 第 86–102 行</a>（节选）</p>
+
+<p>当 <code>num_scaleout_ranks == 1</code>（只有一个 scale-out 域，即所有 rank 在 NVLink 域内）时走直连的 <code>dispatch_impl</code>；否则进入 <code>hybrid_dispatch_impl</code>。混合模式下 warp 预算分成三份：<code>kNumNotifyWarps</code>（固定 4 个 warp，cached 模式下为 0）、<code>num_scaleout_warps = num_channels_per_sm</code>、<code>num_forward_warps = num_channels_per_sm</code>，后两者总是相等。内核以 cooperative launch + cluster 模式运行。</p>
+
+<h2 id="sec-warp-roles">三种 warp 角色</h2>
+
+<figure id="fig-warp-roles" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-warp-roles-cap" viewBox="0 0 560 360" xmlns="http://www.w3.org/2000/svg" role="img" id="s1-root" style="max-width:560px;">
+<defs>
+  <marker id="s1-ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+</defs>
+
+
+<text x="280" y="24" text-anchor="middle" class="d-title" style="font-size:15px">hybrid_dispatch_impl 的三种 warp 角色</text>
+
+
+<rect x="16" y="44" width="528" height="296" rx="6" class="d-group"/>
+<text x="280" y="64" text-anchor="middle" class="d-label">一个 SM（cooperative launch，每 SM 结构相同）</text>
+
+
+<rect x="40" y="80" width="168" height="240" rx="4" fill="var(--c-gray-bg)" stroke="var(--c-gray)" stroke-width="1.5"/>
+<text x="124" y="102" text-anchor="middle" class="d-title" style="font-size:14px">Notify warps</text>
+<text x="124" y="120" text-anchor="middle" class="d-mono" style="font-size:11px">kNumNotifyWarps = 4</text>
+
+<rect x="52" y="134" width="144" height="24" rx="3" class="d-box soft"/>
+<text x="124" y="151" text-anchor="middle" class="d-small" style="font-size:11px">smem atomicAdd 计数</text>
+
+<rect x="52" y="166" width="144" height="24" rx="3" class="d-box soft"/>
+<text x="124" y="183" text-anchor="middle" class="d-small" style="font-size:11px">全网格 red_add 归约</text>
+
+<rect x="52" y="198" width="144" height="24" rx="3" class="d-box soft"/>
+<text x="124" y="215" text-anchor="middle" class="d-small" style="font-size:11px">RDMA 广播 + NVLink 分发</text>
+
+<rect x="52" y="230" width="144" height="24" rx="3" class="d-box soft"/>
+<text x="124" y="247" text-anchor="middle" class="d-small" style="font-size:11px">等待归约 + 前缀和</text>
+
+<text x="124" y="278" text-anchor="middle" class="d-label" style="font-size:11px">仅 SM 0 执行后半段</text>
+<text x="124" y="296" text-anchor="middle" class="d-label" style="font-size:11px">输出：per-rank / per-expert</text>
+<text x="124" y="310" text-anchor="middle" class="d-label" style="font-size:11px">前缀和 psum</text>
+
+
+<rect x="228" y="80" width="168" height="240" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1.5"/>
+<text x="312" y="102" text-anchor="middle" class="d-title" style="font-size:14px;fill:var(--c-green)">Scale-out warps</text>
+<text x="312" y="120" text-anchor="middle" class="d-mono" style="font-size:11px">1 warp = 1 channel</text>
+
+<rect x="240" y="134" width="144" height="24" rx="3" fill="white" stroke="var(--c-green)" stroke-width="1"/>
+<text x="312" y="151" text-anchor="middle" class="d-small" style="font-size:11px">TMA 载入 token</text>
+
+<rect x="240" y="166" width="144" height="24" rx="3" fill="white" stroke="var(--c-green)" stroke-width="1"/>
+<text x="312" y="183" text-anchor="middle" class="d-small" style="font-size:11px">按 scaleout rank 去重</text>
+
+<rect x="240" y="198" width="144" height="24" rx="3" fill="white" stroke="var(--c-green)" stroke-width="1"/>
+<text x="312" y="215" text-anchor="middle" class="d-small" style="font-size:11px">TMA 存入 send buffer</text>
+
+<rect x="240" y="230" width="144" height="24" rx="3" fill="white" stroke="var(--c-green)" stroke-width="1"/>
+<text x="312" y="247" text-anchor="middle" class="d-small" style="font-size:11px">gin.put RDMA 发送</text>
+
+<rect x="240" y="262" width="144" height="24" rx="3" fill="white" stroke="var(--c-green)" stroke-width="1"/>
+<text x="312" y="279" text-anchor="middle" class="d-small" style="font-size:11px">批量 tail 发布 (间隔 6)</text>
+
+<text x="312" y="308" text-anchor="middle" class="d-label" style="font-size:11px;fill:var(--c-green)">本地域 bypass：直接 TMA</text>
+
+
+<rect x="356" y="80" width="180" height="240" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1.5"/>
+<text x="446" y="102" text-anchor="middle" class="d-title" style="font-size:14px;fill:var(--c-verm)">Forward warps</text>
+<text x="446" y="120" text-anchor="middle" class="d-mono" style="font-size:11px">1 warp = 1 channel</text>
+
+<rect x="366" y="134" width="160" height="24" rx="3" fill="white" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="446" y="151" text-anchor="middle" class="d-small" style="font-size:11px">轮询 signaled_tail</text>
+
+<rect x="366" y="166" width="160" height="24" rx="3" fill="white" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="446" y="183" text-anchor="middle" class="d-small" style="font-size:11px">round-robin 选 peer</text>
+
+<rect x="366" y="198" width="160" height="24" rx="3" fill="white" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="446" y="215" text-anchor="middle" class="d-small" style="font-size:11px">TMA 载入到达 token</text>
+
+<rect x="366" y="230" width="160" height="24" rx="3" fill="white" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="446" y="247" text-anchor="middle" class="d-small" style="font-size:11px">按 scaleup rank 去重</text>
+
+<rect x="366" y="262" width="160" height="24" rx="3" fill="white" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="446" y="279" text-anchor="middle" class="d-small" style="font-size:11px">NVLink TMA 写出</text>
+
+<text x="446" y="308" text-anchor="middle" class="d-label" style="font-size:11px;fill:var(--c-verm)">记录 metadata + linked list</text>
+</svg></div>
+  <figcaption id="fig-warp-roles-cap"><span class="fig-label">图 1</span><b>每个 SM 的 warp 分工。</b>notify warps 做全局计数归约（仅 SM 0 执行后半段）；scale-out warps 把本地 token 经 RDMA 送到目标 scale-out 域；forward warps 从 recv buffer 轮询到达的 token 并经 NVLink 直通指针转发到域内 rank。</figcaption>
+</figure>
+
+<p>如<a href="#fig-warp-roles">图 1</a> 所示，<code>hybrid_dispatch_impl</code> 的核心结构是一个三路 <code>if-else</code>，按 <code>warp_idx</code> 把 block 内的 warp 分成三种角色：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L107-L109"><code>if (warp_idx &lt; kNumNotifyWarps) {
+    // Assign shared memory
+    constexpr int kNumAlignedElems = kNumSmemBytesForNotify / sizeof(int);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L107-L109"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 107–109 行</a>（notify warps 分支入口）</p>
+
+<p>其中 <code>warp_idx < kNumNotifyWarps</code> 进入 notify 分支（第 107 行），<code>warp_idx < kNumNotifyWarps + kNumScaleoutWarps</code> 进入 scale-out 分支（第 329 行），其余进入 forward 分支（第 461 行）。三种角色并行执行，通过 workspace 里的信号量和 tail 计数器进行协调。</p>
+
+<h2 id="sec-notify">Notify 阶段：两级归约</h2>
+
+<p>notify warps 的工作与直连模式类似（见<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">第 2 篇</a>的三步归约），但多了一层 scale-out 归约——因为跨域的计数需要经 RDMA 广播到所有 scale-out 对端，再由对端的 SM 0 分发到域内各 rank。整个 notify 阶段对延迟极其敏感：它在关键路径上——发送 warp 必须等 notify 完成才能获得准确的目标槽位偏移。流程如下：</p>
+
+<ol>
+<li><strong>共享内存本地计数</strong>：每个 SM 的 notify warps 遍历本地 token，对 <code>expert_count</code> 做 <code>atomicAdd_block</code>（按专家编号），对 <code>rank_count</code> 先做 <code>ptx::deduplicate</code> 去重再累加。</li>
+<li><strong>全网格归约</strong>：用 <code>ptx::red_add</code> 把打包的 <code>(1&lt;&lt;32)|count</code> 写入 <code>notify_reduction</code> workspace（第 140-143 行）。SM 0 轮询等待所有 SM 到达，解码并写入 <code>scaleout_rank_expert_count</code> 发送缓冲。</li>
+<li><strong>RDMA 广播</strong>：SM 0 的线程向每个 scale-out 对端发送两次 <code>gin.put</code>——分别是 per-rank 计数和 per-expert 计数（第 179-188 行）。</li>
+<li><strong>NVLink 分发</strong>：SM 0 等待所有 scale-out 对端的计数到达，归约后写入域内各 scale-up peer 的 rank 级和 expert 级计数器。rank 级用 <code>gin.put_value</code>（一次性写入完整值），expert 级用 <code>gin.red_add_rel</code>（原子加，因为多个 scale-out 域可能同时写同一个 rank 的同一个专家）。</li>
+<li><strong>前缀和</strong>：warp 0 做 per-rank inclusive prefix sum，warp 1 做 per-expert exclusive prefix sum。</li>
+</ol>
+
+<h2 id="sec-scaleout" data-short="Scale-out 发送">Scale-out warps：TMA 加载与 RDMA 发送</h2>
+
+<figure id="fig-hybrid-overview" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-hybrid-overview-cap" viewBox="0 0 560 440" xmlns="http://www.w3.org/2000/svg" role="img" id="s2-root" style="max-width:560px;">
+<defs>
+  <marker id="s2-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+  <marker id="s2-ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+  </marker>
+  <marker id="s2-ah-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="var(--c-blue)"/>
+  </marker>
+  <marker id="s2-ah-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="var(--c-green)"/>
+  </marker>
+</defs>
+
+
+<text x="280" y="28" text-anchor="middle" class="d-title" style="font-size:16px">混合 dispatch 的两跳转发路径</text>
+
+
+<rect x="16" y="52" width="252" height="368" rx="8" class="d-group"/>
+<text x="142" y="74" text-anchor="middle" class="d-label">Scale-out 域 0</text>
+
+
+<rect x="32" y="92" width="100" height="108" rx="4" class="d-box blue"/>
+<text x="82" y="118" text-anchor="middle" class="d-text" style="fill:var(--c-blue)">Rank 0</text>
+<text x="82" y="138" text-anchor="middle" class="d-small">(su 0)</text>
+<text x="82" y="160" text-anchor="middle" class="d-mono" style="font-size:11px">source</text>
+<text x="82" y="178" text-anchor="middle" class="d-label" style="font-size:10px">so warp</text>
+
+
+<rect x="156" y="92" width="100" height="108" rx="4" class="d-box soft"/>
+<text x="206" y="118" text-anchor="middle" class="d-text">Rank 1</text>
+<text x="206" y="138" text-anchor="middle" class="d-small">(su 1)</text>
+
+
+<path d="M134 145 H154" class="d-arrow" stroke="var(--c-blue)" marker-end="url(#s2-ah-blue)"/>
+<text x="144" y="136" text-anchor="middle" class="d-label" style="font-size:9px;fill:var(--c-blue)">NVL</text>
+
+
+<rect x="292" y="52" width="252" height="368" rx="8" class="d-group"/>
+<text x="418" y="74" text-anchor="middle" class="d-label">Scale-out 域 1</text>
+
+
+<rect x="308" y="92" width="100" height="108" rx="4" class="d-box accent"/>
+<text x="358" y="118" text-anchor="middle" class="d-text" style="fill:var(--c-verm)">Rank 2</text>
+<text x="358" y="138" text-anchor="middle" class="d-small">(su 0)</text>
+<text x="358" y="160" text-anchor="middle" class="d-mono" style="font-size:11px">forward</text>
+<text x="358" y="178" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-verm)">转发代理</text>
+
+
+<rect x="432" y="92" width="100" height="108" rx="4" class="d-box green"/>
+<text x="482" y="118" text-anchor="middle" class="d-text" style="fill:var(--c-green)">Rank 3</text>
+<text x="482" y="138" text-anchor="middle" class="d-small">(su 1)</text>
+<text x="482" y="160" text-anchor="middle" class="d-mono" style="font-size:11px">dst expert</text>
+
+
+<path d="M410 145 H430" class="d-arrow" stroke="var(--c-blue)" marker-end="url(#s2-ah-blue)"/>
+<text x="420" y="136" text-anchor="middle" class="d-label" style="font-size:9px;fill:var(--c-blue)">NVL</text>
+
+
+<path d="M132 178 C 200 220, 260 240, 308 240" class="d-arrow" stroke="var(--c-green)" stroke-width="2.5" stroke-dasharray="6 3" marker-end="url(#s2-ah-green)"/>
+<rect x="168" y="224" width="108" height="24" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="222" y="241" text-anchor="middle" class="d-small" style="fill:var(--c-green);font-size:12px">RDMA gin.put</text>
+<circle cx="152" cy="218" r="12" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1.5"/>
+<text x="152" y="222" text-anchor="middle" class="d-title" style="font-size:13px;fill:var(--c-green)">1</text>
+
+
+<path d="M408 240 H440 V198" class="d-arrow" stroke="var(--c-blue)" stroke-width="2.5" marker-end="url(#s2-ah-blue)"/>
+<rect x="400" y="252" width="128" height="24" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="464" y="269" text-anchor="middle" class="d-small" style="fill:var(--c-blue);font-size:12px">NVLink get_sym_ptr</text>
+<circle cx="424" cy="232" r="12" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1.5"/>
+<text x="424" y="236" text-anchor="middle" class="d-title" style="font-size:13px;fill:var(--c-blue)">2</text>
+
+
+<rect x="24" y="308" width="240" height="80" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="144" y="328" text-anchor="middle" class="d-text" style="font-size:13px;fill:var(--c-verm)">两跳转发</text>
+<text x="144" y="348" text-anchor="middle" class="d-small" style="font-size:11px">第一跳：RDMA 到目标域 recv buffer</text>
+<text x="144" y="366" text-anchor="middle" class="d-small" style="font-size:11px">第二跳：NVLink 直通到最终 rank</text>
+<text x="144" y="382" text-anchor="middle" class="d-small" style="font-size:11px">（forward warp 做转发代理）</text>
+
+<rect x="292" y="308" width="240" height="80" rx="4" fill="var(--c-gray-bg)" stroke="var(--c-gray)" stroke-width="1"/>
+<text x="412" y="328" text-anchor="middle" class="d-text" style="font-size:13px">域的编码</text>
+<text x="412" y="348" text-anchor="middle" class="d-mono" style="font-size:11px">rank = so * N_su + su</text>
+<text x="412" y="366" text-anchor="middle" class="d-mono" style="font-size:11px">expert/(E/R) -> rank</text>
+<text x="412" y="382" text-anchor="middle" class="d-mono" style="font-size:11px">expert/(E/N_so) -> scaleout</text>
+</svg></div>
+  <figcaption id="fig-hybrid-overview-cap"><span class="fig-label">图 2</span><b>混合 dispatch 的两跳路径。</b>token 从域 0 的 rank 0 经 RDMA 到域 1 的 rank 2（forward warp 所在的代理节点），再经 NVLink 直通指针到 rank 3 的最终接收缓冲。编码关系：<code>rank = scaleout * N_su + scaleup</code>。</figcaption>
+</figure>
+
+<p>如<a href="#fig-hybrid-overview">图 2</a> 所示，每个 scale-out warp 是一个独立的 channel，负责把自己分到的 token 发送到对端 scale-out 域。一个 token 的发送流程：</p>
+
+<ol>
+<li><strong>TMA 载入</strong>：从全局内存载入 hidden（<code>tma_load_1d</code>）和 SF（<code>cp_async_ca</code>）到共享内存的 TMA buffer。</li>
+<li><strong>按 scale-out 域去重</strong>：用 <code>ptx::deduplicate(stored_dst_scaleout_rank_idx, lane_idx)</code> 去重——一个 token 可能被 top-k 选到属于同一 scale-out 域的多个专家，但只需要发送一份数据。</li>
+<li><strong>TMA 存入 send buffer</strong>：如果目标不全是本地域，先写入 <code>scaleout_send_buffer</code>（第 426-428 行）。本地域直接 bypass——TMA 直写入 <code>scaleout_recv_buffer</code>（第 433-436 行）。</li>
+<li><strong>gin.put RDMA 发送</strong>：对远端 scale-out rank 发起 <code>gin.put&lt;ncclTeamTagRail&gt;</code>（第 446-451 行），同时预载入下一个 token 以重叠 TMA 与 RDMA 操作。</li>
+</ol>
+
+<h3 id="sec-1">去重、slot 分配与本地旁路</h3>
+
+<p>scale-out warp 的每次迭代处理一个 token 的所有 top-k 目的地。由于一个 token 可能有多个 top-k 专家映射到同一个 scale-out 域，不去重会发出冗余的 RDMA 写。去重和 slot 分配在一条 warp 管线中完成：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L408-L453"><code>// Deduplicate ranks and assign slots
+int stored_dst_slot_idx = -1;
+const auto stored_old_slot_idx = ptx::exchange(
+    stored_scaleout_tail, stored_dst_scaleout_rank_idx &gt;= 0 ? stored_dst_scaleout_rank_idx : 0);
+if (ptx::deduplicate(stored_dst_scaleout_rank_idx, lane_idx) and stored_dst_scaleout_rank_idx &gt;= 0)
+    stored_dst_slot_idx = stored_old_slot_idx;
+
+// Update scale-out tail
+const auto scaleout_rank_mask = ptx::reduce_or(stored_dst_scaleout_rank_idx &gt;= 0 ? (1u &lt;&lt; stored_dst_scaleout_rank_idx) : 0u);
+stored_scaleout_tail += (scaleout_rank_mask &gt;&gt; lane_idx) &amp; 1;
+
+// ...
+// Local rank can be bypassed
+if (stored_dst_slot_idx &gt;= 0 and stored_dst_scaleout_rank_idx == scaleout_rank_idx) {
+    ptx::tma_store_1d(scaleout_recv_buffer.get_token_buffer(stored_dst_slot_idx).get_base_ptr(),
+                      tma_buffer.get_base_ptr(), tma_buffer.get_num_bytes&lt;false&gt;());
+}
+ptx::tma_store_commit();
+ptx::tma_store_wait();
+__syncwarp();
+
+// Preload the next token (overlapping with the IBGDA issues)
+preload_next_token(token_idx + kNumChannels);
+
+// Issue IBGDA requests
+if (stored_dst_slot_idx &gt;= 0 and stored_dst_scaleout_rank_idx != scaleout_rank_idx) {
+    gin.put&lt;ncclTeamTagRail&gt;(
+            scaleout_recv_buffer.get_token_buffer(stored_dst_slot_idx).get_base_ptr(),
+            scaleout_send_buffer.get_token_buffer(token_idx).get_base_ptr(),
+            tma_buffer.get_num_bytes&lt;false&gt;(),
+            stored_dst_scaleout_rank_idx,
+            ncclGinOptFlagsAggregateRequests);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L408-L453"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 408–453 行</a>（去重、slot 分配与 RDMA 发送）</p>
+
+<p>第 410–411 行用 <code>ptx::exchange</code> 获取每个 lane 所指向的 scale-out 域当前的 tail 值——这是 <code>__shfl_sync</code>，lane 用目标 scale-out rank 做索引读取另一个 lane 保存的计数器。第 412 行 <code>ptx::deduplicate</code> 找到同一 scale-out 域的最高 lane，只有它拿到 slot（<code>stored_dst_slot_idx</code>），其余 lane 为 -1。第 416–417 行用 warp-level <code>reduce_or</code> 算出本轮涉及哪些 scale-out 域的位掩码，然后 popcount 推进 tail。</p>
+
+<p>第 425 行的本地旁路（local bypass）是一个重要优化：如果 <code>scaleout_rank_mask</code> 中除了本地域没有其他位被置位，就不需要写 send buffer——因为本地域的数据不走 RDMA，直接从 TMA buffer 复制到 recv buffer（第 433–436 行）。只有当 token 要发往远端域时才写 send buffer（第 426–428 行），RDMA <code>gin.put</code> 从 send buffer 读取。这样在大部分 token 都目标本地域的场景下，可以跳过 send buffer 的 TMA store，减少一次显存写操作。</p>
+
+<h3 id="sec-2"><code>ptx::deduplicate</code> 的三步流水线</h3>
+
+<p>上面的 <code>ptx::deduplicate</code> 调用在 ptx.cuh 中由三条 PTX 指令组成：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/common/ptx.cuh#L519-L546"><code>__device__ __forceinline__ unsigned match(const int&amp; value) {
+    return __match_any_sync(0xffffffff, value);
+}
+// ...
+__device__ __forceinline__ int get_master_lane_idx(const unsigned&amp; mask) {
+    // Equivalent to `31 - __clz(mask)`
+    int highest_idx;
+    asm volatile("bfind.u32 %0, %1;" : "=r"(highest_idx) : "r"(mask));
+    return highest_idx;
+}
+// ...
+__device__ __forceinline__ bool deduplicate(const int&amp; value, const int&amp; lane_idx) {
+    return get_master_lane_idx(match(value)) == lane_idx;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/common/ptx.cuh#L519-L546"><code>deep_ep/include/deep_ep/common/ptx.cuh</code> 第 519–546 行</a>（match → bfind → deduplicate 三级流水线）</p>
+
+<p>整个流程：</p>
+<ol>
+<li><strong><code>match(value)</code></strong>（第 519 行）：封装 PTX <code>match.any.sync.b32</code>。在全部 32 个 lane 之间做广播比较——返回一个 32 位掩码，bit <var>i</var> 为 1 当且仅当 lane <var>i</var> 持有与调用者相同的 <code>value</code>。单条 PTX 指令，延迟约 2 个周期，不涉及共享内存。</li>
+<li><strong><code>get_master_lane_idx(mask)</code></strong>（第 537 行）：封装 PTX <code>bfind.u32</code>，返回掩码中<strong>最高位</strong>的位置（等价于 <code>31 - __clz(mask)</code>）。为什么选最高位而不是最低位？答案是实现简洁性——<code>bfind.u32</code> 是单周期 PTX 指令，直接返回零基 MSB 索引；若用 <code>__ffs</code> 取最低位则返回值需减 1 才得到零基索引。两者在去重正确性上完全等价，<code>bfind</code> 只是更自然的原语选择。</li>
+<li><strong><code>deduplicate(value, lane_idx)</code></strong>（第 544 行）：组合前两步——<code>match</code> 找出所有持有相同值的 lane 集合，<code>get_master_lane_idx</code> 取编号最高的 lane 作为 master，只有 <code>master == lane_idx</code> 的 lane 返回 <code>true</code>。其余同值 lane 返回 <code>false</code>，后续 <code>stored_dst_slot_idx</code> 保持 -1，TMA store 和 RDMA put 的条件判断自然跳过。</li>
+</ol>
+
+<p>以 top-8 场景为例：假设 lane 0、2、5 指向 scale-out rank 1，lane 1、3 指向 rank 2。<code>match(1)</code> 在前三个 lane 上返回掩码 <code>0b...00100101</code>（bit 0、2、5），<code>bfind</code> 取最高位得 5——只有 lane 5 获得发送权并拿到 slot。整个去重只需三条 warp-level 指令（<code>match.any.sync</code> + <code>bfind.u32</code> + 比较），不涉及共享内存原子操作，总延迟不超过 10 个周期。</p>
+
+<h3 id="sec-3">TMA 与 RDMA 流水线重叠</h3>
+
+<p>scale-out warp 的性能关键在于 TMA 加载与 RDMA 发送的重叠。在第 442 行发出 RDMA <code>gin.put</code> 后，紧接着预加载下一个 token（<code>preload_next_token(token_idx + kNumChannels)</code>，第 442 行）——<code>tma_load_1d</code> 是异步操作，与 RDMA 发送并行执行。这意味着当 NIC 在发送当前 token 时，DMA 引擎已经在从全局内存加载下一个 token 到共享内存。每个 channel 的 TMA buffer 只有单缓冲（不是双缓冲），所以预加载只能在上一个 token 的 TMA store 和 RDMA put 都完成之后才开始——这限制了 overlap 的深度，但在 RDMA 延迟较高的场景下仍然有效。</p>
+
+<h3 id="sec-4">批量 tail 发布</h3>
+
+<p>forward warp 需要知道 recv buffer 里有多少新到达的 token。scale-out warp 通过 <code>scaleout_channel_signaled_tail</code> 发布进度，但 <code>st.release.sys</code>（system-scope release store）代价很高，因此不是每发一个 token 就发布一次，而是每隔 <code>kScaleoutUpdateInterval = 6</code> 个 token 批量发布：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L338-L351"><code>const auto update_scaleout_tail = [&amp;](const bool&amp; finish_flag = false) {
+    if (lane_idx &lt; kNumScaleoutRanks and
+        (stored_scaleout_tail &gt;= stored_old_scaleout_tail + kScaleoutUpdateInterval or finish_flag)) {
+        const auto signaled_tail = math::pack2&lt;int, int64_t&gt;(finish_flag, stored_scaleout_tail);
+        const auto ptr = workspace_layout.get_scaleout_channel_signaled_tail_ptr(channel_idx, scaleout_rank_idx);
+        const auto old_signaled_tail = math::pack2&lt;int, int64_t&gt;(0, stored_old_scaleout_tail);
+
+        // NOTES: the "release" scope will be `sys` for the local rank (we may involve NVLink so not `gpu`)
+        // For RDMA requests, "release" is ensured by "atomic"
+        gin.red_add_rel&lt;ncclTeamTagRail&gt;(ptr, signaled_tail - old_signaled_tail, lane_idx);
+        stored_old_scaleout_tail = stored_scaleout_tail;
+    }
+    __syncwarp();
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L338-L351"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 338–351 行</a>（节选）</p>
+
+<p>发布值是一个打包的 int64：高位是 finish flag，低位是 tail 位置。使用 <code>gin.red_add_rel&lt;ncclTeamTagRail&gt;</code> 做增量更新——如果对端是 NVLink 可达的，退化为 PTX 的 <code>red.release.sys</code>；否则发 Gin signal（详见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>）。循环结束后再 flush 一次未发送的 tail。</p>
+
+<h2 id="sec-forward" data-short="Forward 转发">Forward warps：NVLink 直通转发</h2>
+
+<p>forward warp 的核心循环是一个 <code>while</code> 循环，用 <code>wip_mask</code>（work-in-progress mask）追踪还有哪些 scale-out 对端有未处理的数据：</p>
+
+<ol>
+<li><strong>轮询 tail</strong>：用 <code>ptx::ld_acquire_sys</code> 读取 <code>scaleout_channel_signaled_tail</code>，解包得到 (finish_flag, tail_idx)。</li>
+<li><strong>Round-robin 选 rank</strong>：在 <code>wip_mask</code> 中轮转选择下一个有数据的 scale-out rank，避免饥饿。具体做法是：以当前 <code>recv_scaleout_rank_idx + 1</code> 为起点，先看 <code>wip_mask</code> 中起点以上的最低位（<code>ptx::ffs(hi_mask)</code>），如果没有就回绕到 <code>wip_mask</code> 的最低位。这保证了每轮循环都从上次停下的位置开始扫描，不会总是优先处理编号最小的 rank。每次只处理一个 chunk（最多 <code>kNumSlotsPerForwardChunk = 6</code> 个 token），然后切换到下一个 rank。chunk 的大小是一个折中：太大会让某个 rank 长时间独占 warp 导致其他 rank 的数据排队，太小会增加轮询开销。6 个 token 恰好对应一次 <code>kScaleoutUpdateInterval</code> 的发布粒度。</li>
+<li><strong>TMA 载入</strong>：从 <code>scaleout_recv_buffer</code> 载入到达的 token 到共享内存。</li>
+<li><strong>按 scale-up rank 去重</strong>：用 <code>ptx::deduplicate(stored_dst_scaleup_rank_idx, lane_idx)</code>——这是第二层去重。一个 token 的多个 top-k 专家可能属于域内的同一个 scale-up rank，同样只需要转发一份。</li>
+<li><strong>NVLink 直通写出</strong>：这是关键步骤——forward warp 不使用 <code>gin.put</code>，而是通过 <code>gin.get_sym_ptr&lt;ncclTeamTagLsa&gt;</code> 获取目标 scale-up rank 上的接收缓冲的 NVLink 直通指针，然后 TMA 直写：</li>
+</ol>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L590-L596"><code>if (stored_dst_slot_idx &gt;= 0) {
+    const auto dst_ptr = gin.get_sym_ptr&lt;ncclTeamTagLsa&gt;(
+        scaleup_buffer.get_token_buffer(stored_dst_slot_idx).get_base_ptr(),
+        stored_dst_scaleup_rank_idx);
+    ptx::tma_store_1d(dst_ptr, tma_buffer.get_base_ptr(), tma_buffer.get_num_bytes&lt;false&gt;());
+    ptx::tma_store_commit();
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L590-L596"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 590–596 行</a>（节选）</p>
+
+<p>这就是 NVLink 的性能优势所在：forward warp 拿到的是对端 GPU 内存的直接映射地址，TMA store 不经过 Gin 协议栈，延迟更低、带宽更高。与 scale-out warp 的 RDMA 路径相比，NVLink 直写省掉了 Gin 的 WQE 入队、NIC 固件调度和远端 PCIe 写入开销，在 8 卡 NVLink 域内的单次写入延迟通常在微秒级以下，而 RDMA 路径的往返延迟则在数微秒量级。</p>
+
+<p>forward warp 的循环退出条件（<code>wip_mask</code>）也值得分析。每个 lane 对应一个 scale-out 对端（<code>lane_idx &lt; kNumScaleoutRanks</code>），只要 <code>stored_scaleout_tail_idx &gt; stored_scaleout_old_tail_idx</code>（还有未处理的 token）或 <code>stored_finish_flag == 0</code>（对端还没结束），该 lane 的 bit 就为 1。当所有 lane 都完成后 <code>wip_mask</code> 清零，循环退出。在循环内部，<code>ptx::exchange</code>（即 <code>__shfl_sync</code>）让每个 lane 能读到任意其他 lane 的状态——这是 warp 级协调的核心：forward warp 的 32 个线程不是各自独立轮询，而是共享所有对端的进度信息，通过 <code>wip_mask</code> 和 round-robin 协同决策下一步处理哪个 rank。</p>
+
+<h3 id="sec-5">Metadata 与链表</h3>
+
+<p>forward warp 在转发时记录两组元数据，供 combine 阶段反向重放：</p>
+<ul>
+<li><code>token_metadata_at_forward</code>：形状 <code>[kNumChannels, N+1, 2+2*kNumTopk]</code>，记录每个转发 token 的 <code>src_token_global_idx</code>、是否为 chunk 末尾 token、每个 top-k 的目标 scale-up rank 和 slot index。以 <code>src_token_global_idx = -1</code> 作终止符（第 634-635 行）。</li>
+<li><code>channel_linked_list</code>（通过 <code>transform_linked_list_idx</code>）：per-channel、per-scaleup-rank 的链表。dispatch 结束后，<code>channel_scaleup_tail</code> 存储每个 (channel, scaleup_rank) 对的链表终止位置。</li>
+</ul>
+
+<h2 id="sec-combine" data-short="Hybrid Combine">Hybrid combine：反向重放</h2>
+
+<figure id="fig-combine-replay" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-combine-replay-cap" viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" role="img" id="s3-root" style="max-width:560px;">
+<defs>
+  <marker id="s3-ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+  </marker>
+  <marker id="s3-ah3-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+  </marker>
+</defs>
+
+
+<text x="280" y="24" text-anchor="middle" class="d-title" style="font-size:15px">hybrid combine：反向重放 dispatch</text>
+
+
+<rect x="16" y="48" width="304" height="272" rx="6" class="d-group"/>
+<text x="168" y="70" text-anchor="middle" class="d-label">Scale-up warps（沿链表遍历）</text>
+
+<rect x="32" y="84" width="272" height="48" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="168" y="105" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">从 channel_linked_list 读 token index</text>
+<text x="168" y="122" text-anchor="middle" class="d-mono" style="font-size:11px">channel_linked_list[ch][ll_idx][su_rank]</text>
+
+<path d="M168 132 V146" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="32" y="148" width="272" height="40" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="168" y="173" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">从 scaleup_buffer 经 NVLink 读 BF16 数据</text>
+
+<path d="M168 188 V202" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="32" y="204" width="272" height="40" rx="4" class="d-box accent"/>
+<text x="168" y="229" text-anchor="middle" class="d-small" style="fill:var(--c-verm)">本地归约（combine_reduce）或直接转发</text>
+
+<path d="M168 244 V258" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="32" y="260" width="272" height="40" rx="4" fill="var(--c-blue-bg)" stroke="var(--c-blue)" stroke-width="1"/>
+<text x="168" y="280" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">st_release_sys 更新 channel_scaleup_tail</text>
+
+
+<rect x="296" y="48" width="248" height="272" rx="6" class="d-group"/>
+<text x="420" y="70" text-anchor="middle" class="d-label">Forward warps（重放 metadata）</text>
+
+<rect x="308" y="84" width="224" height="48" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="420" y="105" text-anchor="middle" class="d-small" style="fill:var(--c-verm)">从 metadata_at_forward 读元数据</text>
+<text x="420" y="122" text-anchor="middle" class="d-mono" style="font-size:11px">src_idx, dst_rank, dst_slot</text>
+
+<path d="M420 132 V146" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="308" y="148" width="224" height="40" rx="4" fill="var(--c-verm-bg)" stroke="var(--c-verm)" stroke-width="1"/>
+<text x="420" y="173" text-anchor="middle" class="d-small" style="fill:var(--c-verm)">等待 scaleup tail 到达</text>
+
+<path d="M420 188 V202" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="308" y="204" width="224" height="40" rx="4" class="d-box accent"/>
+<text x="420" y="229" text-anchor="middle" class="d-small" style="fill:var(--c-verm)">归约 scaleup peers BF16</text>
+
+<path d="M420 244 V258" class="d-arrow" marker-end="url(#s3-ah3)"/>
+
+<rect x="308" y="260" width="224" height="40" rx="4" fill="var(--c-green-bg)" stroke="var(--c-green)" stroke-width="1"/>
+<text x="420" y="280" text-anchor="middle" class="d-small" style="fill:var(--c-green)">TMA + gin.put RDMA 回送</text>
+
+
+<path d="M260 224 H294" class="d-arrow dashed" stroke="var(--c-verm)" marker-end="url(#s3-ah3-accent)"/>
+<text x="277" y="216" text-anchor="middle" class="d-label" style="font-size:10px;fill:var(--c-verm)">tail</text>
+</svg></div>
+  <figcaption id="fig-combine-replay-cap"><span class="fig-label">图 3</span><b>hybrid combine 的两路 warp 结构。</b>scale-up warps 沿 channel_linked_list 从各 scale-up peer 读取已归约的 BF16 数据，写入 send buffer；forward warps 根据 dispatch 时记录的 token_metadata_at_forward 重放路径，等待 scale-up tail 到达后归约并经 RDMA 回送源 rank。</figcaption>
+</figure>
+
+<p>如<a href="#fig-combine-replay">图 3</a> 所示，<code>hybrid_combine_impl</code> 结构上也是两路 warp：scale-up warps 和 forward warps。</p>
+
+<h3 id="sec-6">Scale-up warps</h3>
+
+<p>scale-up warps 的任务是沿着 dispatch 阶段建立的链表，遍历本 channel 的所有 token：</p>
+<ol>
+<li>从 <code>channel_linked_list</code> 读取 token index（第 160-167 行）。</li>
+<li>根据 <code>src_metadata</code> 确定 token 的源信息（scaleout rank、slot index）。</li>
+<li>从 <code>scaleup_buffer</code> 经 NVLink 对称指针读取 BF16 数据；如果多个 top-k 指向同一 rank，调用 <code>combine_reduce</code> 做本地归约。</li>
+<li>TMA 写入 send buffer，并通过 <code>st_release_sys</code> 发布 <code>channel_scaleup_tail</code>（同样以 <code>kNumScaleupUpdateInterval = 3</code> 间隔批量更新）。</li>
+</ol>
+
+<h3 id="sec-7">Forward warps（重放）</h3>
+
+<p>forward warps 按照 <code>token_metadata_at_forward</code> 的顺序依次处理每个 token：</p>
+<ol>
+<li>读取 metadata：<code>src_token_global_idx</code>、<code>is_token_last_in_chunk</code>、per-topk 的 <code>src_scaleup_rank_idx</code> 和 <code>src_slot_idx</code>。</li>
+<li>等待 tail 到达：对每个涉及的 scale-up rank，用 <code>ld_acquire_sys</code> 轮询 <code>channel_scaleup_tail</code>。</li>
+<li>归约：从 scaleup_buffer 按 slot index 读取各 scale-up peer 的数据，调用 <code>combine_reduce</code> 归约到 smem。</li>
+<li>回送 RDMA：TMA 写入 send buffer，然后 <code>gin.put&lt;ncclTeamTagRail&gt;</code> 发回源 scale-out rank。</li>
+</ol>
+
+<p>forward warps 之所以能重放 dispatch 的路径，关键在于 dispatch 阶段的 forward warps 记录了完整的路由元数据：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L609-L635"><code>            const auto metadata_ptr = token_metadata_at_forward +
+                num_tokens_processed * kNumForwardMetadataDims;
+
+            // Source token index and last token index flag
+            if (ptx::elect_one_sync()) {
+                metadata_ptr[0] = tma_buffer.get_src_token_global_idx_ptr()[0];
+                metadata_ptr[1] = slot_idx == (end_slot_idx - 1);
+// ...
+            if (lane_idx &lt; kNumTopk) {
+                metadata_ptr[2 + lane_idx] = stored_dst_scaleup_rank_idx;
+                metadata_ptr[2 + kNumTopk + lane_idx] = stored_dst_slot_idx;
+                dst_slot_idx_ptr[lane_idx] = stored_dst_slot_idx;
+            }
+        }
+// ...
+if (not kReuseSlotIndices and ptx::elect_one_sync())
+    token_metadata_at_forward[num_tokens_processed * kNumForwardMetadataDims] = -1;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh#L609-L635"><code>deep_ep/include/deep_ep/impls/ep/hybrid_dispatch.cuh</code> 第 609–635 行</a>（dispatch 阶段记录 metadata）</p>
+
+<p>每处理一个 token，dispatch 的 forward warp 记录 <code>kNumForwardMetadataDims = 2 + 2*kNumTopk</code> 个 int：前两个是 <code>src_token_global_idx</code>（源 token 全局索引，由 scale-out warp 在发送时嵌入 token buffer 的 metadata 区）和 <code>is_token_last_in_chunk</code>（是否为 chunk 末尾，控制 RDMA 的 <code>AggregateRequests</code> 聚合标志）；随后是 per-topk 的目标 scale-up rank 和 slot 位置。整个数组以 <code>src_token_global_idx = -1</code> 作为终止哨兵（第 634 行）。</p>
+
+<p>combine 的 forward warps 按同样顺序逐 token 遍历这个数组（hybrid_combine.cuh 第 392 行起），但增加了两个关键步骤。第一步是<strong>等待 scale-up tail</strong>：对当前 token 涉及的每个 scale-up rank，forward warp 用 <code>ld_acquire_sys</code> 轮询 <code>channel_scaleup_tail</code>，直到 scale-up warps 的归约进度追上当前 token。这是两路 warp 之间的唯一同步点——scale-up warps 每隔 <code>kNumScaleupUpdateInterval = 3</code> 个 token 发布一次 tail，所以 forward warp 最多空等 2 个 token 的处理时间。第二步是<strong>再次去重</strong>（<code>ptx::deduplicate</code>），语义与 dispatch 不同：dispatch 去重防止"同一 scale-up rank 重复转发"，combine 去重防止"同一 scale-up rank 的数据被 <code>combine_reduce</code> 重复累加"。</p>
+
+<p>combine forward warp 还有两条代码路径。当 <code>kAllowMultipleReduction = true</code>（第 496-572 行）时，forward warp 对同一 token 的多个 scale-up peer 数据调用 <code>combine_reduce</code> 归约到共享内存的 TMA buffer，然后一次 TMA store + RDMA put 发回源 rank——这减少了跨域 RDMA 次数。当 <code>kAllowMultipleReduction = false</code>（第 454-495 行）时，每个 top-k 的 scale-up 数据被逐一 TMA load → TMA store → RDMA put，不做归约——这在 topk 值较小时可能更高效，因为避免了归约的寄存器压力和同步开销。选择哪条路径由编译时的模板参数决定。</p>
+
+<p>循环结束后，forward warps 还需要等待所有 scaleout 对端的 combine 完成：发送 tail signal，然后等待对端的 tail signal 到达（第 590-620 行），确保 recv buffer 数据完整后才能进入下一次 combine。</p>
+
+<p>hybrid combine 的一个微妙之处是数据类型的变化。dispatch 时，hidden 数据是 FP8（或 BF16），scale factor 跟随其后。但 combine 阶段的数据一律是 BF16——因为专家计算的输出已经是 BF16 精度。这意味着 combine 的 per-token 字节数比 dispatch 大（FP8 dispatch 时翻倍），scale-up 和 scale-out buffer 的 slot 大小也需要相应调整。DeepEP 的缓冲区大小计算（<a href="../ep01-epbuffer-api/ep01-epbuffer-api.html">第 1 篇</a>的 <code>calculate_buffer_size</code>）取 dispatch 和 combine 所需的最大值，因此 BF16 combine 经常成为缓冲区大小的决定因素。</p>
+
+<p>hybrid combine 与直连模式 combine 的另一个关键差异在于路径复杂度。直连模式的 combine 只需一跳——接收端遍历缓冲区中各 rank 的数据做归约即可。hybrid combine 需要两跳：scale-up warps 先从域内各 rank 收集 BF16 数据做本地归约，写入跨域 send buffer；forward warps 再沿 dispatch 时记录的路径反向传输，经 RDMA 回到源域。这意味着 hybrid combine 至少经历两跳传输延迟（scale-up 归约 + scale-out 回送），路径比直连模式多一跳——而且 forward warps 的每一步都要等 scale-up warps 的 tail 信号，两跳之间无法完全流水。设计者通过 <code>kNumScaleupUpdateInterval = 3</code> 的批量 tail 发布来平衡延迟与信号开销：粒度为 3 意味着 forward warp 最多空等 2 个 token 的时间，但避免了每个 token 一次 <code>st.release.sys</code> 的高代价。</p>
+
+<p>此外，hybrid combine 的 forward warps 在结束后还需要执行一轮跨域的完成握手（第 590–620 行）。这是因为缓冲区在下一次 dispatch 时会被覆盖——如果源 rank 还没读完上一轮的 combine 数据就开始新一轮 dispatch，数据就会被损坏。完成握手确保所有 scale-out 对端都已读取完毕，才允许释放接收缓冲区。直连模式通过 <code>gpu_barrier</code> 一步完成这个同步；hybrid 模式需要跨域的 Gin signal 往返，延迟更高。</p>
+
+<h2 id="sec-domain">域的区分：team 与 rank 映射</h2>
+
+<aside class="sidenote"><code>ncclTeamTagLsa</code> 的 "LSA" 即 Local Switch Attached，NVLink 域内的节点。</aside>
+<p>混合模式的正确性取决于精确地区分"NVLink 可达"和"RDMA 可达"。DeepEP 通过 NCCL 的 team 机制实现：</p>
+<ul>
+<li><code>ncclTeamTagLsa</code>：NVLink 域（scale-up 域），<code>is_nvlink_accessible</code> 恒返回 <code>true</code>。<code>get_sym_ptr</code> 返回 NVLink 直通指针。</li>
+<li><code>ncclTeamTagRail</code>：RDMA 域（scale-out 域），<code>is_nvlink_accessible</code> 恒返回 <code>false</code>（同一 RDMA rank 除外）。只能走 Gin 操作。</li>
+<li><code>ncclTeamTagWorld</code>：全局域，按 <code>team_rail.rank * team_lsa.nRanks &lt;= dst &lt; (team_rail.rank + 1) * team_lsa.nRanks</code> 判断是否在本域内。</li>
+</ul>
+
+<p>这套 team 映射在通信层是统一的——<code>gin.put&lt;team_t&gt;</code>、<code>gin.red_add_rel&lt;team_t&gt;</code>、<code>gin.get_sym_ptr&lt;team_t&gt;</code> 的行为都由 team 类型决定。混合 dispatch 中：scale-out warps 用 <code>ncclTeamTagRail</code> 走 RDMA，forward warps 用 <code>ncclTeamTagLsa</code> 走 NVLink，notify warps 两者都用。屏障也分为两级：scale-up barrier 和 scale-out barrier 可以并行执行（由 <code>gpu_barrier</code> 调度，详见<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>）。</p>
+
+<div class="callout key"><p class="callout-title">两次去重的意义</p>
+<p>一个 token 的 top-k 选择可能映射到多个专家，而多个专家可能位于同一目标域或同一 rank。如果不去重就会产生冗余传输。混合 dispatch 在两层分别去重：scale-out warps 按 <code>scaleout_rank_idx</code> 去重（一个 token 到同一域只发一份），forward warps 按 <code>scaleup_rank_idx</code> 去重（域内同一 rank 只转发一份）。两层去重都使用 <code>__match_any_sync</code>，不依赖输入顺序。直连模式只需要一层去重（只有 scale-up rank）。</p>
+</div>
+
+<p>此外，forward warps 检查 <code>kScaleoutUpdateInterval</code>（固定为 6）来决定何时从 scale-out 缓冲区拉取新数据。这个间隔不是随意选择的——它平衡了两个矛盾目标：间隔太短会导致 forward warp 频繁检查（浪费 SM 周期在空轮询上），间隔太长会增加 scale-out 数据在缓冲区中的驻留时间，推迟 NVLink 转发的启动时机。实际效果是 forward warp 每处理 6 个本地 token 就检查一次远端数据是否到达，这在 DeepSeek 的 8 卡 NVLink 域配置下大致对应一轮 scale-out RDMA 传输的延迟。</p>
+
+<h2 id="sec-limits">局限与未覆盖</h2>
+
+<ul>
+<li><strong>2+2+4 拓扑未支持</strong>：代码中有 <code>TODO(NCCL): some ranks may be connected by NVLink, e.g., "2 + 2 + 4"</code>（<a href="https://github.com/deepseek-ai/DeepEP/blob/f6aa38fe06cd4a0489e7730365d4e0114970a2f3/deep_ep/include/deep_ep/comm/handle.cuh#L56-L58">handle.cuh 第 56-58 行</a>），说明当前 <code>ncclTeamTagRail</code> 假设 rail 内不存在 NVLink 连接——如果存在非对称的 NVLink 拓扑（如两个 2-GPU NVLink 域和一个 4-GPU NVLink 域组成一个 8-GPU 组），现有分派逻辑可能不正确。在这种拓扑下，部分 rail 对端之间有 NVLink 直连，理应走 NVLink 而非 RDMA，但 <code>is_nvlink_accessible</code> 对 rail team 恒返回 false，导致白白浪费 RDMA 带宽。</li>
+<li><strong>去重不依赖输入排序</strong>：<code>ptx::deduplicate</code> 的底层是 <code>__match_any_sync</code>——它在整个 warp 内广播比较，返回所有持有相同值的 lane 的位掩码。这意味着去重对 <code>topk_idx</code> 的排列顺序没有任何要求：无论 top-k 选择以什么顺序排列，<code>__match_any_sync</code> 都能正确找到所有指向同一 scale-out 域的 lane。代码中没有对 <code>topk_idx</code> 做预排序——Python 包装 <code>dispatch</code> 中的 <code>deterministic_sort</code> 只用于输出的确定性排列，不影响内核的去重逻辑。</li>
+  <li><strong>模板参数爆炸</strong>：<code>hybrid_dispatch_impl</code> 有 16 个模板参数（加上默认计算的更多），每种配置需要 JIT 编译一份内核。代码注释 <code>TODO(NCCL): so many params, plans to optimize?</code> 说明开发者意识到这一问题。</li>
+<li><strong>copy epilogue 未展开</strong>：dispatch 结束后的 <code>dispatch_copy_epilogue_impl</code>（负责从 scaleup_buffer 构建展开布局、零填充等）在<a href="../ep02-direct-dispatch/ep02-direct-dispatch.html">第 2 篇</a>已详细讨论，此处不再重复。混合模式下 copy epilogue 通过 PDL（<code>cudaTriggerProgrammaticLaunchCompletion</code>）与 dispatch 内核衔接。</li>
+<li><strong>无性能数据</strong>：本地没有 GPU，文中没有任何实测性能数字。</li>
+<li><strong>combine_reduce 细节</strong>：BF16 归约的 hadd bypass、topk_weights 加权等细节见<a href="../ep03-combine/ep03-combine.html">第 3 篇</a>。</li>
+<li><strong>通信底座细节</strong>：NCCLGin、对称内存窗口、屏障、ptx.cuh 内存序原语等通信基础设施在<a href="../ep05-comm-substrate/ep05-comm-substrate.html">第 5 篇</a>详细展开。</li>
+<li><strong>配置与拓扑</strong>：SM/QP 数量的估算公式、拓扑探测、DeepJIT 编译机制等在<a href="../ep06-analytic-config/ep06-analytic-config.html">第 6 篇</a>讨论。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../ep03-combine/ep03-combine.html">combine：BF16 归约</a>
+  ｜ 下一篇：<a href="../ep05-comm-substrate/ep05-comm-substrate.html">通信底座：Gin、对称内存与内存序</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepEP/tree/f6aa38fe06cd4a0489e7730365d4e0114970a2f3">deepseek-ai/DeepEP@f6aa38f</a>。本地没有 GPU，文中没有任何实测性能数字。所有图示均为代码结构示意图（diagram）。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,3513 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配置怎么选、内核何时编：启发式、DeepJIT 与局部性域</title>
+<meta name="description" content="DeepGEMM 精读第 5 篇：host 侧的启发式怎样从形状枚举出块大小、级数和 multicast，配置怎样变成源码串交给 DeepJIT 编译并缓存，以及局部性域怎样让权重就近读取。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 5 篇</div>
+  <h1>配置怎么选、内核何时编：<br>启发式、DeepJIT 与<span class="nobr">局部性域</span></h1>
+  <p class="subtitle">DeepGEMM 不做自动调参：host 侧枚举一个小候选集、按代价模型或字典序排出最优、拼成源码串让 DeepJIT 编译并缓存。局部性域则把权重和 SM 各切成两半。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 14 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-flow">从形状到内核：五步流水线</a><li><a href="#sec-heuristics">启发式怎么选配置</a><ol><li><a href="#sec-1">SM100 的 M 分组：只有一个候选</a></li><li><a href="#sec-2">SM90 的候选空间：从几百到十几个</a></li><li><a href="#sec-3">SM90 的代价模型：L1/L2 周期估算</a></li><li><a href="#sec-4">SM100 的比较：六级字典序</a></li></ol><li><a href="#sec-stages">共享内存与流水线级数</a><li><a href="#sec-knobs">三个运行期旋钮</a><ol><li><a href="#sec-5">tc_util：张量核利用率上限</a></li><li><a href="#sec-6">PDL：流水线描述符加载</a></li><li><a href="#sec-7">确定性模式</a></li></ol><li><a href="#sec-deepjit">DeepJIT：编译缓存与惰性初始化</a><ol><li><a href="#sec-8">缓存键：五段内容的 FNV-1a</a></li><li><a href="#sec-9">磁盘缓存的原子发布</a></li><li><a href="#sec-10">compiled_dims：不是所有维度都编进内核</a></li><li><a href="#sec-11">惰性初始化</a></li></ol><li><a href="#sec-locality">局部性域与 mlopart</a><ol><li><a href="#sec-12">localize()：把权重切成两半</a></li><li><a href="#sec-13">MLOPart 子进程</a></li><li><a href="#sec-14">probe：用指针追逐测延迟</a></li><li><a href="#sec-15">balance：让两域 SM 数相等</a></li></ol><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>DeepGEMM 不做自动调参（autotuning）：host 侧为每个 GEMM 形状枚举一个小候选集（SM100 的 M 分组只有 1 个候选），逐条淘汰不合法的、按代价模型或字典序排出最优的那一个，全程不碰 GPU。</li>
+    <li>流水线级数由"共享内存容量减去固定开销，除以每级字节"算出，块越大级数越少——但 SM90 要求至少 3 级（小矩阵至少 4 级），否则候选被淘汰。</li>
+    <li>配置最终变成一段 C++ 源码串，喂给 DeepJIT 编译；缓存键由 FNV-1a 对"签名 + 编译器版本 + 选项 + hook + 源码（含递归 include）"五段内容的哈希决定，先查内存 map，再查磁盘目录，未命中才真正编译。</li>
+    <li>局部性域把权重和 SM 各切成两半：<code>localize()</code> 用 MLOPart 子进程在两个域分别 <code>cuMemCreate</code>，再把 fd 导回主进程 <code>cuMemMap</code>；SM 的归属由指针追逐探测的中位延迟决定，之后还要平衡使两域 SM 数相等。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a>–<a href="../dg04-moe-grouped/dg04-moe-grouped.html">dg04</a> 的内核结构与分组 GEMM 调度。本篇新引入：候选枚举与淘汰启发式、DeepJIT 编译与 FNV-1a 缓存键、局部性域（locality domain）与 <code>MLOPart</code>。</p></aside>
+
+<p><a href="../dg04-moe-grouped/dg04-moe-grouped.html">上一篇</a>讲了调度器怎样把 tile 分给 SM，但那些 tile 有多大——<code>BLOCK_M</code>、<code>BLOCK_N</code>、<code>BLOCK_K</code>、multicast、swap-AB——是谁定的？为什么同一组形状参数在 SM90 和 SM100 上会选出不同的块大小和级数？选好之后内核又是怎样从一串 C++ 源码变成能 launch 的 <code>CUfunction</code> 的？这就是本篇要回答的三个问题。</p>
+
+<p>最后一节讲一个看起来不相关、但在 Mega MoE（<a href="../dg08-mega-moe/dg08-mega-moe.html">第 8 篇</a>）里被用到的基础设施：局部性域（locality domain）——它把 HBM 的物理位置和 SM 的物理位置对应起来，使权重就近读取。</p>
+
+<h2 id="sec-flow" data-short="五步流水线">从形状到内核：五步流水线</h2>
+
+<p><a href="#fig-flow">图 1</a> 画出了从 GEMM 描述到可执行内核的完整路径。它不经过任何 GPU 上的计时循环，也没有搜索算法——所有决策都在 host 侧的 C++ 代码里完成。</p>
+
+<figure id="fig-flow" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-flow-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 392" font-family="sans-serif" role="img" id="s1-root" style="max-width:480px;">
+  <defs>
+    <marker id="s1-ahf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ahf-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <rect class="d-box" x="60" y="12" width="360" height="42" rx="4"/>
+  <text class="d-title" x="240" y="30" text-anchor="middle">GemmDesc</text>
+  <text class="d-small" x="240" y="47" text-anchor="middle">m, n, k, G · dtype · major · num_sms · expected_*</text>
+  <path class="d-arrow" d="M240 54 V68" marker-end="url(#s1-ahf)"/>
+
+  <rect class="d-box" x="60" y="70" width="360" height="58" rx="4"/>
+  <text class="d-title" x="240" y="89" text-anchor="middle">get_layout_candidates</text>
+  <text class="d-small" x="240" y="106" text-anchor="middle">枚举 swap-AB × BLOCK_M × BLOCK_N × cluster</text>
+  <text class="d-label" x="240" y="121" text-anchor="middle">按 swizzle、multicast 整除、TMEM 容量逐条淘汰</text>
+  <path class="d-arrow" d="M240 128 V142" marker-end="url(#s1-ahf)"/>
+
+  <rect class="d-box" x="60" y="144" width="360" height="58" rx="4"/>
+  <text class="d-title" x="240" y="163" text-anchor="middle">compare（SM100：六级字典序）</text>
+  <text class="d-small" x="240" y="180" text-anchor="middle">单波 → cluster 更大 → 波数更少 → 末波利用率更高</text>
+  <text class="d-label" x="240" y="195" text-anchor="middle">SM90 不同：直接比 L1 / L2 的估算周期数</text>
+  <path class="d-arrow accent" d="M240 202 V216" marker-end="url(#s1-ahf-acc)"/>
+
+  <rect class="d-box accent" x="60" y="218" width="360" height="38" rx="4"/>
+  <text class="d-title" x="240" y="242" text-anchor="middle">Layout：swap_ab, BLOCK_M/N/K, cluster_m/n</text>
+  <path class="d-arrow" d="M240 256 V270" marker-end="url(#s1-ahf)"/>
+
+  <rect class="d-box" x="60" y="272" width="360" height="58" rx="4"/>
+  <text class="d-title" x="240" y="291" text-anchor="middle">storage / pipeline / launch 三步推导</text>
+  <text class="d-small" x="240" y="308" text-anchor="middle">load/store 块 · swizzle 模式 · num_stages · smem</text>
+  <text class="d-label" x="240" y="323" text-anchor="middle">级数 = (smem 容量 − 固定开销) ÷ 每级字节，上限 32</text>
+  <path class="d-arrow" d="M240 330 V344" marker-end="url(#s1-ahf)"/>
+
+  <rect class="d-box soft" x="60" y="346" width="360" height="42" rx="4"/>
+  <text class="d-title" x="240" y="364" text-anchor="middle">填进模板实参 → jit-&gt;compile(tag, source)</text>
+  <text class="d-label" x="240" y="381" text-anchor="middle">配置只影响这串源码；相同源码命中同一份缓存</text>
+</svg></div>
+  <figcaption id="fig-flow-cap"><span class="fig-label">图 1</span><b>从 GemmDesc 到可执行内核的五步流水线。</b>GemmDesc 携带 m、n、k、组数、dtype、major、<code>num_sms</code>、<code>tc_util</code> 和 <code>expected_*</code> 等字段。枚举和淘汰产生一组 Layout 候选，compare 选出最优，再推导 storage/pipeline/launch 三组配置。最终配置被拼成模板实参和源码串，交给 <code>jit→compile</code> 编译；相同源码命中同一份缓存。</figcaption>
+</figure>
+
+<p>五步由 <code>get_best_config</code> 串起来（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/common.hpp#L18-L47"><code>heuristics/common.hpp</code> 第 18–47 行</a>）：先调 <code>ArchSpec::get_layout_candidates</code> 枚举候选，逐个调 <code>get_layout_info</code> 算代价，用 <code>ArchSpec::compare</code> 选最好的那个；然后依次调 <code>get_storage_config</code>、<code>get_pipeline_config</code>、<code>get_launch_config</code> 把剩下的配置填满。两个架构走同一套函数签名，但候选空间和比较逻辑完全不同。</p>
+
+<h2 id="sec-heuristics" data-short="枚举与比较">启发式怎么选配置</h2>
+
+<h3 id="sec-1">SM100 的 M 分组：只有一个候选</h3>
+
+<p>SM100 对 M 分组的三种布局（contiguous、PSUM contiguous、masked）的候选集只有一个元素——所有参数在枚举阶段就定死了：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L34-L46"><code>// Always enable swap A/B (and multicasting if possible) for m-grouped GEMMs
+if (desc.gemm_type == GemmType::MGroupedContiguous or
+    desc.gemm_type == GemmType::MGroupedContiguousWithPsumLayout or
+    desc.gemm_type == GemmType::MGroupedMasked) {
+    const bool swap_ab = true;
+    const auto block_n = 128;
+    const auto block_m = heuristics_runtime-&gt;get_mk_alignment_for_contiguous_layout();
+    const auto cluster_m = 1;
+    const auto cluster_n = ceil_div(desc.n, block_n) % 2 == 0 and desc.num_sms % 2 == 0 ? 2 : 1;
+    const auto layout = Layout{swap_ab, block_m, block_n, block_k, cluster_m, cluster_n};
+    std::vector&lt;Layout&gt; candidates = {layout};
+    return candidates;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L34-L46"><code>csrc/jit_kernels/heuristics/sm100.hpp</code> 第 34–46 行</a>（节选）</p>
+
+<p><code>swap_ab</code> 恒为 <code>true</code>；<code>block_n</code> 固定 128（swap-AB 后它是 UMMA 的 M 维，在 SM100 上只能是 128）；<code>block_m</code> 等于 <code>mk_alignment_for_contiguous_layout()</code>，默认 128、SM100 理论值 256（见<a href="../dg04-moe-grouped/dg04-moe-grouped.html">上一篇</a>）；<code>cluster_n</code> 在 N 能被 256 整除且 SM 数为偶数时开到 2，否则 1。这意味着 M 分组 GEMM 在 SM100 上<b>不存在配置选择</b>——候选集只有一个元素，<code>compare</code> 根本不会被调用。</p>
+
+<h3 id="sec-2">SM90 的候选空间：从几百到十几个</h3>
+
+<p>SM90 的枚举空间大得多：<code>block_m</code> 对 Normal/Batched/K 分组有 {64, 128} 加可选的 {16, 32, 256}，<code>block_n</code> 从 16/24 枚举到 160/192/256（步长取 <code>lcm(16, block_n_multiple_of)</code>），cluster 有 1×1、1×2、2×1 三种，最后还要过一系列合法性过滤器。过滤条件有八条之多（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L61-L100"><code>sm90.hpp</code> 第 61–100 行</a>）：</p>
+
+<figure id="tab-filters" class="table">
+  <figcaption id="tab-filters-cap"><span class="fig-label">表 1</span><b>SM90 候选过滤的八条规则，每条淘汰不合法或性能差的候选。</b>按源码中判断顺序排列（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L61-L108"><code>sm90.hpp</code> 第 61–108 行</a>）。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>#</th><th>条件</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>cluster_m × cluster_n ≤ 2</code></td><td>硬件限制：SM90 的 cluster 最多 16 个 CTA，DeepGEMM 只用到 2</td></tr>
+      <tr><td>2</td><td><code>num_sms % cluster_size == 0</code></td><td>否则余出的 SM 无法组成 cluster，空闲浪费</td></tr>
+      <tr><td>3</td><td>1D2D 内核：<code>block_n > block_k</code> 时 <code>block_n % (block_n - block_k) == 0</code> 或 <code>block_k % (block_n - block_k) == 0</code></td><td>循环展开要求——1D2D 的 scale-B 在 N 维上按 <code>block_k</code> 分组，不整除时无法对齐</td></tr>
+      <tr><td>4</td><td>masked/PSUM 布局：<code>⌈N/block_n⌉ % cluster_size == 0</code></td><td>multicast 要求 N 块数能被 cluster 均分，否则 TMA multicast 出界</td></tr>
+      <tr><td>5</td><td><code>block_m ≤ 128</code> 或 <code>block_n ≤ 128</code>（不能同时大于 128）</td><td>两者都超过 128 时寄存器不够——每个线程要持有的累加器行数和列数之积超出 255 regs</td></tr>
+      <tr><td>6</td><td>A、B 的 swizzle 模式均 ≥ 64 字节</td><td>32 字节 swizzle 的共享内存 bank 利用率只有一半，性能差</td></tr>
+      <tr><td>7</td><td>K 分组 > 4 时禁用 multicast</td><td>启发式：组多时每组的 tile 数少，multicast 的收益被波效率的损失抵消</td></tr>
+      <tr><td>8</td><td>流水线级数 ≥ 3；BM × BN < 128 × 192 时 ≥ 4</td><td>级数太少藏不住 TMA 延迟；小 tile 的 MMA 快，需要更深的流水线</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<h3 id="sec-3">SM90 的代价模型：L1/L2 周期估算</h3>
+
+<p>SM90 过滤后的候选之间要比大小。它的 <code>compare</code> 只有一行：<code>a.num_cycles &lt; b.num_cycles</code>——谁的估算周期小谁赢。<code>num_cycles</code> 在 <code>get_layout_info</code> 里算出：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L141-L180"><code>    return {
+        load_block_m, load_block_n,
+        store_block_m, store_block_n,
+        swizzle_mode_a, swizzle_mode_b, swizzle_mode_cd
+    };
+}
+
+static PipelineConfig get_pipeline_config(const GemmDesc&amp; desc, const Layout&amp; layout, const StorageConfig&amp; storage_config) {
+    constexpr int kNumMaxStages = 16;
+
+    // TODO: consider swap AB
+    // C/D for TMA stores
+    // NOTES: 1024 is for TMA swizzling alignment requirement
+    const int smem_cd =
+        align(layout.block_m * layout.block_n * static_cast&lt;int&gt;(c10::elementSize(desc.cd_dtype)), 1024);
+    const int smem_barriers = kNumMaxStages * 8 * 2;
+
+// ...
+    // Calculate SF A/B per stages
+    const int smem_sfa_per_stage = desc.kernel_type == KernelType::KernelNoSF ?
+        0 : align(layout.block_m * static_cast&lt;int&gt;(sizeof(float)), 128);
+    const int smem_sfb_per_stage = desc.kernel_type != KernelType::Kernel1D1D ?
+        0 : align(layout.block_n * static_cast&lt;int&gt;(sizeof(float)), 128);
+
+    // Extra SFB sizes for 1D2D kernels
+    const int use_uniform_sfb = layout.block_k % layout.block_n == 0 ? 1 : 2;
+    const int smem_extra_sfb = desc.kernel_type != KernelType::Kernel1D2D ?
+        0 : align&lt;int&gt;(ceil_div(desc.k, layout.block_k) * static_cast&lt;int&gt;(sizeof(float)) * use_uniform_sfb, 8);
+
+    // Extra tensormap for 1D1D kernels
+    const int smem_tensormap =
+        desc.gemm_type == GemmType::KGroupedContiguous ? 4 * static_cast&lt;int&gt;(sizeof(CUtensorMap)) : 0;
+
+    // Calculate stages
+    const int smem_extra = smem_cd + smem_barriers + smem_extra_sfb + smem_tensormap;
+    const int smem_per_stage = smem_a_per_stage + smem_b_per_stage + smem_sfa_per_stage + smem_sfb_per_stage;
+    const int num_stages = std::min(</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L141-L180"><code>csrc/jit_kernels/heuristics/sm90.hpp</code> 第 141–180 行</a>（节选）</p>
+
+<p>这不是一个精确的性能模型，而是一个只含搬运代价的相对量——HBM 带宽和张量核算力对每个候选都一样，因此不建模（代码注释原话）。它考虑两层片上带宽：L2→SMEM 和 L1（SMEM↔寄存器 + 张量核），对每个 tile 估算各层的搬运字节，乘以块数，分别除以带宽常量，取两者最大值，再除以波效率。下面逐步拆解。</p>
+
+<h4>带宽常量</h4>
+
+<p>代码用两个常量表示全芯片的每周期吞吐（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L162-L163"><code>sm90.hpp</code> 第 162–163 行</a>）：</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>量</th><th>公式</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td>\(B_{\mathrm{L2}}\)</td><td><code>min(64 · N<sub>SM</sub>,  8×10⁶ / 1.3×10³)</code></td><td>L2 → SMEM 全芯片吞吐（B/cycle）</td></tr>
+    <tr><td>\(B_{\mathrm{L1}}\)</td><td><code>128 · N<sub>SM</sub></code></td><td>SMEM ↔ 寄存器 / 张量核（B/cycle）</td></tr>
+  </tbody>
+</table></div>
+
+<p>第一项的两个分支：<code>64 · N<sub>SM</sub></code> 是"每个 SM 每周期从 L2 取 64 字节"；<code>8 × 10⁶ / 1300 ≈ 6154</code> 是 L2 自身的聚合带宽上限——SM 数再多也超不过它。以 \(N_{\mathrm{SM}} = 132\) 为例，\(64 \times 132 = 8448\) 被截到 6154，L2 是全局瓶颈。L1 一侧没有截断，\(128 \times 132 = 16896\)。</p>
+
+<aside class="sidenote">这两个常量旁的注释只标了单位，没给来源。局限节已说明本文原样引用、不做正确性判断。</aside>
+
+<h4>每块搬运量：四项</h4>
+
+<p>对一个 \((\text{BM}, \text{BN})\) 的输出 tile，沿 K 维做 \(K/\text{BK}\) 次 MMA；代码把搬运量拆成四项（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm90.hpp#L170-L175"><code>sm90.hpp</code> 第 170–175 行</a>）：</p>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>变量</th><th>公式（字节）</th><th>层级</th><th>含义</th></tr></thead>
+  <tbody>
+    <tr><td>\(D_{\text{L2,AB}}\)</td><td>\(K\!\left(\dfrac{\text{BM}}{c_N} + \dfrac{\text{BN}}{c_M}\right)\!s\)</td><td>L2→SMEM</td><td>A、B 块；multicast 时 cluster 内共享，流量除以 cluster 大小</td></tr>
+    <tr><td>\(D_{\text{L1,AB}}\)</td><td>\(K(\text{BM} + \text{BN})\,s\)</td><td>SMEM→RF</td><td>每个 CTA 仍要完整读一遍 SMEM 里的 A、B</td></tr>
+    <tr><td>\(D_{\text{L1,TC}}\)</td><td>\(K\!\bigl(\max(64, \text{BM}) + \text{BN}\bigr)\!s + \text{BM}\!\cdot\!\text{BN}\!\cdot\!s_{\text{CD}}\)</td><td>SMEM↔TC</td><td>WGMMA 从 SMEM 读 A（至少 64 行）和 B，再把累加器写回 SMEM</td></tr>
+    <tr><td>\(D_{\text{CD}}\)</td><td>\(\text{BM}\!\cdot\!\text{BN}\!\cdot\!s_{\text{CD}}\!\cdot\!(1 + [\text{accum}])\)</td><td>L1↔L2</td><td>写输出；若 <code>with_accumulation</code> 还要先读旧值</td></tr>
+  </tbody>
+</table></div>
+
+<p>其中 \(s\) 是 A/B 元素字节数（FP8 为 1、BF16 为 2），\(s_{\text{CD}}\) 是输出元素字节数，\(c_M, c_N\) 是 cluster 的 M、N 维。\(\max(64, \text{BM})\) 来自 WGMMA 一次读 64 行——BM = 16 或 32 的小 tile 仍要从 SMEM 读 64 行。</p>
+
+<h4>周期估算公式</h4>
+
+<p>设一共 \(P\) 个输出 tile（\(P = \lceil M/\text{BM}\rceil \cdot \lceil N/\text{BN}\rceil \cdot G\)，\(G\) 为组数），\(W = \lceil P/N_{\mathrm{SM}}\rceil\) 个波。代码先算每层的全局搬运周期，取较大者，再按波效率放大：</p>
+
+<div class="eq" id="eq-cycles">\[ \begin{aligned} C_{\mathrm{L2}} &= (D_{\text{L2,AB}} + D_{\text{CD}}) \cdot P \;/\; B_{\mathrm{L2}} \\ C_{\mathrm{L1}} &= (D_{\text{L1,AB}} + D_{\text{L1,TC}} + D_{\text{CD}}) \cdot P \;/\; B_{\mathrm{L1}} \\ \eta &= P \;/\; (W \cdot N_{\mathrm{SM}}) \\ C &= \max(C_{\mathrm{L2}},\; C_{\mathrm{L1}}) \;/\; \eta \end{aligned} \]<span class="eq-num">(1)</span></div>
+
+<p>波效率 \(\eta \in (0, 1]\)：末波只有 \(P \bmod N_{\mathrm{SM}}\) 个 SM 有活干，效率低于 1 就放大总代价。</p>
+
+<p>当 cluster 大于 1 但波数 \(W = 1\) 时，multicast 没有收益——同一波里每个 CTA 都在干活，没有"别的波可以共享"这回事——代码直接把 \(C\) 设成最大值，相当于淘汰所有 cluster > 1 的单波候选。</p>
+
+<h4>数值示例</h4>
+
+<p>以 FP8 1D1D 内核（\(s = 1, s_{\text{CD}} = 4, \text{BK} = 128\)）为例，取两个典型候选：BM = BN = 128（cluster 1×1）和 BM = 128, BN = 64（cluster 1×2），\(M = N = 4096, K = 7168, N_{\mathrm{SM}} = 132\)，不累加。<a href="#tab-cycles">表 2</a> 列出各项。</p>
+
+<figure id="tab-cycles" class="table" data-source="computed">
+  <figcaption id="tab-cycles-cap"><span class="fig-label">表 2</span><b>两个候选在同一组形状参数下的代价模型输出。</b>\(M = N = 4096, K = 7168\), FP8 1D1D, \(N_{\mathrm{SM}} = 132\), 不累加。\(D\) 项单位为字节/块，\(C\) 项单位为周期（越小越好）。由 <code>sm90.hpp</code> 的公式手算。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>量</th><th class="num">BM=BN=128, 1×1</th><th class="num">BM=128 BN=64, 1×2</th></tr></thead>
+    <tbody>
+      <tr><td>每 CTA 的 \(D_{\text{L2,AB}}\)</td><td class="num">\(7168 \times 256 = 1{,}835{,}008\)</td><td class="num">\(7168 \times 128 = 917{,}504\)</td></tr>
+      <tr><td>每 CTA 的 \(D_{\text{L1,AB}}\)</td><td class="num">\(7168 \times 256 = 1{,}835{,}008\)</td><td class="num">\(7168 \times 192 = 1{,}376{,}256\)</td></tr>
+      <tr><td>每 CTA 的 \(D_{\text{L1,TC}}\)</td><td class="num">\(7168 \times 256 + 65536 = 1{,}900{,}544\)</td><td class="num">\(7168 \times 192 + 32768 = 1{,}409{,}024\)</td></tr>
+      <tr><td>每 CTA 的 \(D_{\text{CD}}\)</td><td class="num">\(128 \times 128 \times 4 = 65{,}536\)</td><td class="num">\(128 \times 64 \times 4 = 32{,}768\)</td></tr>
+      <tr><td>\(P\)（tile 数）</td><td class="num">\(32 \times 32 = 1024\)</td><td class="num">\(32 \times 64 = 2048\)</td></tr>
+      <tr><td>\(W\)（波数），\(\eta\)</td><td class="num">8, 0.970</td><td class="num">16, 0.970</td></tr>
+      <tr><td>\(C_{\mathrm{L2}}\)</td><td class="num">\(\approx 3.17 \times 10^8\)</td><td class="num">\(\approx 3.17 \times 10^8\)</td></tr>
+      <tr><td>\(C_{\mathrm{L1}}\)</td><td class="num">\(\approx 2.33 \times 10^8\)</td><td class="num">\(\approx 3.50 \times 10^8\)</td></tr>
+      <tr class="ours"><td>\(C = \max / \eta\)</td><td class="num">\(\approx \mathbf{3.27 \times 10^8}\)</td><td class="num">\(\approx 3.61 \times 10^8\)</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>这个例子里第一个候选胜出：128×128 的 L2 流量和 128×64（cluster 1×2）一样（multicast 让 L2 的 A 流量减半，但 tile 少一倍所以总量不变），而 L1 层因为 tile 大、总块数少，反而更低。这也说明 cluster multicast 不总是赢——它减少 L2 流量但不减少 L1 流量，只有当 L2 是瓶颈时才有收益。代码里"单波时禁掉 multicast"是这一权衡的极端情形。</p>
+
+<h3 id="sec-4">SM100 的比较：六级字典序</h3>
+
+<p>SM100 的 <code>compare</code> 走一个完全不同的路径——不算周期，而是按六级字典序排：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L192-L220"><code>
+static int get_num_tma_store_stages(const GemmDesc&amp; desc, const Layout&amp; layout) {
+    // With single-stage TMA stores, each SM keeps at most one bulk store in
+    // flight. This paces the store traffic and improves the achieved DRAM
+    // throughput when C/D flushes dominate DRAM traffic; it also frees up
+    // shared memory for the A/B mainloop and halves the C/D smem read/write
+    // footprint. Only enabled for k-grouped GEMMs.
+    if (desc.get_mma_kind() == MmaKind::BF16 or layout.swap_ab or
+        not is_k_grouped_contiguous(desc.gemm_type))
+        return 2;
+
+    const int num_k_blocks_per_group = desc.k / std::max(desc.num_groups, 1) / layout.block_k;
+    const int min_k_blocks = desc.cd_dtype != torch::kFloat ? 16 :
+                             desc.with_accumulation ? 24 : 32;
+    return num_k_blocks_per_group &gt;= min_k_blocks ? 1 : 2;
+}
+
+static PipelineConfig get_pipeline_config(const GemmDesc&amp; desc, const Layout&amp; layout, const StorageConfig&amp; storage_config) {
+    constexpr int kNumMaxStages = 32;
+
+    // C/D for TMA stores
+    const int num_tma_store_stages = get_num_tma_store_stages(desc, layout);
+    const int smem_cd = (layout.swap_ab ? storage_config.store_block_m * storage_config.store_block_n * c10::elementSize(desc.cd_dtype)
+                                        : storage_config.store_block_m * storage_config.swizzle_cd_mode) * num_tma_store_stages;
+
+    // TODO: remove SF barriers for BF16 GEMMs
+    // A/B-and-SF-transpose full, SF-TMA full, empty, and tensor memory full/empty/overlap barriers
+    // NOTES: some shapes may only have 1 epilogue stage, but we still allocate space for 2 stages
+    // NOTES: the last barrier is for tensor core utilization control</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L192-L220"><code>csrc/jit_kernels/heuristics/sm100.hpp</code> 第 192–220 行</a>（节选）</p>
+
+<figure id="tab-sm100-compare" class="table">
+  <figcaption id="tab-sm100-compare-cap"><span class="fig-label">表 3</span><b>SM100 的六级字典序比较规则。</b>前一级平局才看下一级（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/sm100.hpp#L192-L220"><code>sm100.hpp</code> 第 192–220 行</a>）。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>优先级</th><th>准则</th><th>选谁赢</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>单波 vs 多波</td><td>单波</td><td>只需一波即 \(\lceil P/N_{\mathrm{SM}}\rceil = 1\)：所有 SM 都有活干，不存在尾效应</td></tr>
+      <tr><td>2</td><td>cluster 大小</td><td>更大</td><td>更大的 cluster 意味着 TMA multicast，L2 流量减半</td></tr>
+      <tr><td>3</td><td>波数</td><td>更少</td><td>波数越多、末波空闲 SM 越可能出现</td></tr>
+      <tr><td>4</td><td>末波利用率</td><td>更高</td><td>\(\text{last\_wave\_util} = P \bmod N_{\mathrm{SM}}\)：末波有活干的 SM 越多越好</td></tr>
+      <tr><td>5</td><td>BM + BN</td><td>更小</td><td>BM + BN 小 → C/D 写回缓冲占的 SMEM 少 → 能分给流水线更多级</td></tr>
+      <tr><td>6</td><td>BM × BN</td><td>更小</td><td>BM + BN 相同时，如 64+192 vs 128+128，乘积小意味着 tile 更"窄"，TMEM 列更少</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>SM100 的 <code>get_layout_info</code> 里 <code>num_cycles</code> 被留成了 0（源码注释标注为 <code>TODO: calculate expected cycles</code>），所以目前所有比较都是离散的、不含任何浮点估算——SM100 还没有周期代价模型。这也解释了为什么 SM100 的 M 分组只给一个候选：候选集只有一个时，六级字典序根本不会被调用。</p>
+
+<h2 id="sec-stages" data-short="流水线级数">共享内存与流水线级数</h2>
+
+<p>选定 <code>block_m</code>、<code>block_n</code>、<code>block_k</code> 之后，流水线级数 <code>num_stages</code> 由共享内存容量决定：</p>
+
+<div class="eq" id="eq-stages">\[ \text{num\_stages} = \min\!\left(\left\lfloor\frac{\text{smem\_cap} - \text{smem\_ex}}{\text{smem\_stage}}\right\rfloor,\; S_{\max}\right) \]<span class="eq-num">(2)</span></div>
+
+<p>其中 <code>smem_capacity</code> 在 SM90 和 SM100 上都是 232448 字节（227 KiB）。<code>smem_extra</code> 包括 C/D 的写回缓冲、屏障（mbarrier）数组、SF 的额外存储和 tensor map 缓冲；<code>smem_per_stage</code> 是一级流水线里 A、B 块加上各自 SF 块的字节数。上限 <code>kNumMaxStages</code> 在 SM90 上是 16，SM100 上是 32。</p>
+
+<figure id="fig-stages" data-kind="data" data-source="computed" data-script="plots/stages.py">
+  <div class="fig-body"><svg aria-labelledby="fig-stages-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 518.39952 212.39952" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s2-root" style="max-width:691px;">
+ 
+ <defs>
+  <style type="text/css">#s2-root *{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="s2-figure_1">
+  <g id="s2-patch_1">
+   <path d="M 0 212.39952 
+L 518.39952 212.39952 
+L 518.39952 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="s2-axes_1">
+   <g id="s2-patch_2">
+    <path d="M 10.2 174.19952 
+L 257.995235 174.19952 
+L 257.995235 21.8 
+L 10.2 21.8 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="s2-matplotlib.axis_1">
+    <g id="s2-xtick_1">
+     <g id="s2-line2d_1">
+      <defs>
+       <path id="s2-md0f79781a5" d="M 0 0 
+L 0 3.5 
+" style="stroke: #767676; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="10.2" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_1">
+      
+      <g style="fill: #4a4a4a" transform="translate(7.2 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-13" d="M 1920 4659 
+C 1370 4659 960 4422 685 3936 
+C 442 3526 320 2976 320 2285 
+C 320 1594 442 1043 685 634 
+C 960 154 1370 -90 1920 -90 
+C 2464 -90 2874 154 3155 634 
+C 3398 1043 3520 1594 3520 2285 
+C 3520 2976 3398 3526 3155 3936 
+C 2874 4422 2464 4659 1920 4659 
+z
+M 1920 4211 
+C 2330 4211 2624 3994 2803 3552 
+C 2931 3245 3002 2822 3002 2285 
+C 3002 1754 2931 1331 2803 1018 
+C 2624 582 2330 358 1920 358 
+C 1510 358 1216 582 1037 1018 
+C 909 1331 845 1754 845 2285 
+C 845 2822 909 3245 1037 3552 
+C 1216 3994 1510 4211 1920 4211 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-13"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_2">
+     <g id="s2-line2d_2">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="64.780448" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_2">
+      
+      <g style="fill: #4a4a4a" transform="translate(58.780448 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-18" d="M 672 4570 
+L 429 2048 
+L 928 2048 
+C 1018 2227 1158 2368 1338 2458 
+C 1510 2554 1702 2598 1920 2598 
+C 2253 2598 2515 2502 2701 2298 
+C 2893 2099 2995 1818 2995 1453 
+C 2995 1133 2886 870 2682 666 
+C 2470 461 2208 358 1888 358 
+C 1606 358 1370 429 1190 563 
+C 986 717 870 941 845 1229 
+L 326 1229 
+C 358 813 531 480 851 237 
+C 1133 19 1478 -90 1882 -90 
+C 2330 -90 2714 51 3021 326 
+C 3347 621 3514 998 3514 1459 
+C 3514 1952 3373 2336 3104 2618 
+C 2835 2893 2483 3027 2048 3027 
+C 1837 3027 1645 2995 1466 2918 
+C 1267 2842 1101 2726 973 2573 
+L 947 2573 
+L 1101 4102 
+L 3328 4102 
+L 3328 4570 
+L 672 4570 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-18"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(60 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_3">
+     <g id="s2-line2d_3">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="119.360897" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_3">
+      
+      <g style="fill: #4a4a4a" transform="translate(111.356209 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-14" d="M 1472 4570 
+C 1318 4397 1139 4243 922 4102 
+C 704 3974 486 3885 282 3827 
+L 282 3302 
+C 710 3430 1069 3635 1357 3930 
+L 1357 0 
+L 1882 0 
+L 1882 4570 
+L 1472 4570 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_4">
+     <g id="s2-line2d_4">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="173.941345" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_4">
+      
+      <g style="fill: #4a4a4a" transform="translate(165.936657 189.79952) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-18" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_5">
+     <g id="s2-line2d_5">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="228.521793" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_5">
+      
+      <g style="fill: #4a4a4a" transform="translate(219.521793 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-15" d="M 1984 4659 
+C 1523 4659 1146 4506 864 4198 
+C 582 3898 435 3488 435 2976 
+L 960 2976 
+C 966 3379 1062 3686 1242 3891 
+C 1408 4109 1651 4211 1965 4211 
+C 2259 4211 2496 4134 2662 3981 
+C 2829 3827 2912 3616 2912 3334 
+C 2912 3040 2790 2765 2560 2515 
+C 2438 2387 2202 2202 1843 1946 
+C 1357 1613 1030 1338 851 1133 
+C 544 794 397 416 397 0 
+L 3443 0 
+L 3443 467 
+L 1043 467 
+C 1126 774 1459 1126 2042 1517 
+C 2515 1837 2829 2086 2989 2253 
+C 3283 2573 3437 2931 3437 3328 
+C 3437 3725 3296 4051 3027 4294 
+C 2752 4538 2406 4659 1984 4659 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-15"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-text_6">
+     
+     <g style="fill: #4a4a4a" transform="translate(95.982774 203.79952) scale(0.1 -0.1)">
+      <defs>
+       <path id="s2-PingFangSC-Regular-648" d="M 666 3930 
+L 666 3482 
+L 1830 3482 
+L 1830 1939 
+L 346 1939 
+L 346 1491 
+L 6054 1491 
+L 6054 1939 
+L 4570 1939 
+L 4570 3482 
+L 5741 3482 
+L 5741 3930 
+L 4570 3930 
+L 4570 5235 
+L 4102 5235 
+L 4102 3930 
+L 2298 3930 
+L 2298 5261 
+L 1830 5261 
+L 1830 3930 
+L 666 3930 
+z
+M 2298 1939 
+L 2298 3482 
+L 4102 3482 
+L 4102 1939 
+L 2298 1939 
+z
+M 2298 1267 
+C 1773 704 1120 205 346 -218 
+L 666 -627 
+C 1446 -179 2106 352 2643 954 
+L 2298 1267 
+z
+M 4154 1254 
+L 3821 934 
+C 4614 384 5235 -134 5690 -621 
+L 6048 -256 
+C 5536 243 4909 749 4154 1254 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-541" d="M 1286 3872 
+L 1286 2579 
+L 5120 2579 
+L 5120 3872 
+L 1286 3872 
+z
+M 4678 2976 
+L 1728 2976 
+L 1728 3475 
+L 4678 3475 
+L 4678 2976 
+z
+M 3130 5242 
+L 2605 5158 
+C 2714 5018 2816 4858 2912 4691 
+L 422 4691 
+L 422 4256 
+L 5978 4256 
+L 5978 4691 
+L 3418 4691 
+C 3328 4896 3232 5075 3130 5242 
+z
+M 282 960 
+L 282 538 
+L 3085 538 
+L 3085 77 
+C 3085 -141 2982 -250 2790 -250 
+C 2586 -250 2304 -237 1946 -218 
+L 2067 -640 
+L 2970 -640 
+C 3347 -640 3539 -442 3539 -58 
+L 3539 538 
+L 6118 538 
+L 6118 960 
+L 3539 960 
+L 3539 1082 
+C 4237 1350 4858 1606 5395 1856 
+L 5395 2189 
+L 902 2189 
+L 902 1773 
+L 4486 1773 
+C 3949 1549 3482 1363 3085 1210 
+L 3085 960 
+L 282 960 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-656" d="M 3181 2605 
+C 3782 1990 4275 1408 4646 858 
+L 4992 1210 
+C 4538 1818 3981 2438 3315 3066 
+C 3366 3277 3405 3507 3437 3750 
+L 5267 3750 
+L 5267 179 
+C 5267 -26 5165 -134 4960 -134 
+L 3981 -109 
+L 4109 -570 
+L 5114 -570 
+C 5523 -570 5734 -352 5734 77 
+L 5734 4198 
+L 3488 4198 
+C 3514 4518 3533 4870 3533 5248 
+L 3066 5248 
+C 3066 4877 3046 4525 3014 4198 
+L 672 4198 
+L 672 -634 
+L 1139 -634 
+L 1139 3750 
+L 2963 3750 
+C 2918 3456 2861 3187 2790 2938 
+C 2560 2227 2086 1638 1370 1165 
+L 1677 787 
+C 2419 1274 2918 1875 3181 2605 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-a02" d="M 493 4576 
+L 493 4128 
+L 2048 4128 
+C 1632 3226 1037 2432 256 1747 
+L 544 1382 
+C 787 1600 1011 1824 1229 2061 
+L 1229 -646 
+L 1677 -646 
+L 1677 2611 
+C 2022 3072 2317 3578 2554 4128 
+L 6003 4128 
+L 6003 4576 
+L 2726 4576 
+C 2797 4781 2861 4986 2925 5197 
+L 2458 5254 
+C 2394 5024 2317 4800 2234 4576 
+L 493 4576 
+z
+M 2176 1600 
+L 2176 1158 
+L 4032 1158 
+L 4032 96 
+C 4032 -96 3930 -198 3738 -198 
+C 3475 -198 3232 -192 3002 -186 
+L 3123 -621 
+L 3923 -621 
+C 4301 -621 4493 -429 4493 -51 
+L 4493 1158 
+L 6093 1158 
+L 6093 1600 
+L 4493 1600 
+L 4493 2003 
+C 4928 2291 5318 2598 5664 2918 
+L 5664 3347 
+L 2669 3347 
+L 2669 2918 
+L 5075 2918 
+C 4742 2637 4397 2400 4032 2195 
+L 4032 1600 
+L 2176 1600 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-481" d="M 5440 5293 
+C 5158 4883 4941 4442 4781 3974 
+C 4589 3424 4499 2867 4499 2298 
+C 4499 1741 4589 1184 4781 634 
+C 4941 173 5158 -269 5440 -685 
+L 5888 -685 
+C 5632 -256 5427 186 5280 640 
+C 5088 1203 4998 1760 4998 2304 
+C 4998 2854 5088 3405 5280 3968 
+C 5427 4429 5632 4870 5888 5293 
+L 5440 5293 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-2e" d="M 3443 4570 
+L 986 2195 
+L 986 4570 
+L 461 4570 
+L 461 0 
+L 986 0 
+L 986 1600 
+L 1696 2272 
+L 3712 0 
+L 4416 0 
+L 2061 2611 
+L 4128 4570 
+L 3443 4570 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-4c" d="M 819 4557 
+C 710 4557 621 4525 544 4448 
+C 467 4384 435 4294 435 4179 
+C 435 4070 467 3981 544 3904 
+C 621 3834 710 3795 819 3795 
+C 928 3795 1018 3834 1094 3904 
+C 1171 3981 1210 4070 1210 4179 
+C 1210 4294 1171 4384 1094 4448 
+C 1018 4525 928 4557 819 4557 
+z
+M 563 3309 
+L 563 0 
+L 1075 0 
+L 1075 3309 
+L 563 3309 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-25" d="M 461 4570 
+L 461 0 
+L 2490 0 
+C 2957 0 3328 96 3597 275 
+C 3910 493 4070 826 4070 1274 
+C 4070 1581 3981 1824 3814 2016 
+C 3648 2208 3418 2336 3117 2387 
+C 3347 2464 3533 2586 3674 2752 
+C 3808 2938 3878 3162 3878 3418 
+C 3878 3776 3757 4058 3514 4262 
+C 3264 4467 2925 4570 2502 4570 
+L 461 4570 
+z
+M 986 4128 
+L 2381 4128 
+C 2701 4128 2944 4070 3110 3942 
+C 3277 3814 3360 3622 3360 3366 
+C 3360 3104 3270 2906 3104 2771 
+C 2938 2643 2694 2573 2374 2573 
+L 986 2573 
+L 986 4128 
+z
+M 986 2138 
+L 2445 2138 
+C 2797 2138 3066 2074 3251 1933 
+C 3443 1792 3546 1574 3546 1280 
+C 3546 986 3430 762 3206 621 
+C 3014 506 2765 442 2445 442 
+L 986 442 
+L 986 2138 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-482" d="M 512 5293 
+C 768 4870 966 4429 1120 3968 
+C 1306 3405 1402 2854 1402 2304 
+C 1402 1760 1306 1203 1120 640 
+C 966 186 768 -256 512 -685 
+L 960 -685 
+C 1235 -269 1453 173 1619 634 
+C 1805 1184 1901 1741 1901 2298 
+C 1901 2867 1805 3424 1619 3974 
+C 1453 4442 1235 4883 960 5293 
+L 512 5293 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s2-PingFangSC-Regular-648"/>
+      <use xlink:href="#s2-PingFangSC-Regular-541" transform="translate(100 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-656" transform="translate(200 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-a02" transform="translate(300 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-481" transform="translate(400 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(500 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-4c" transform="translate(569 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-25" transform="translate(594.59375 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-482" transform="translate(662.296875 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s2-matplotlib.axis_2"/>
+   <g id="s2-patch_3">
+    <path d="M 10.2 123.39968 
+L 45.131487 123.39968 
+L 45.131487 72.59984 
+L 10.2 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #8c8c8c; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_4">
+    <path d="M 45.131487 123.39968 
+L 46.014155 123.39968 
+L 46.014155 72.59984 
+L 45.131487 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #b5b5b5; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_5">
+    <path d="M 46.014155 123.39968 
+L 82.037251 123.39968 
+L 82.037251 72.59984 
+L 46.014155 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #d55e00; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_6">
+    <path d="M 82.037251 123.39968 
+L 118.060347 123.39968 
+L 118.060347 72.59984 
+L 82.037251 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #e8956b; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_7">
+    <path d="M 118.060347 123.39968 
+L 154.083443 123.39968 
+L 154.083443 72.59984 
+L 118.060347 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #d55e00; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_8">
+    <path d="M 154.083443 123.39968 
+L 190.106538 123.39968 
+L 190.106538 72.59984 
+L 154.083443 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #e8956b; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_9">
+    <path d="M 190.106538 123.39968 
+L 226.129634 123.39968 
+L 226.129634 72.59984 
+L 190.106538 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #d55e00; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_10">
+    <path d="M 226.129634 123.39968 
+L 257.995235 123.39968 
+L 257.995235 72.59984 
+L 226.129634 72.59984 
+z
+" clip-path="url(#s2-p05925deda4)" style="fill: #f2f2f0; stroke: #ffffff; stroke-width: 0.8; stroke-linejoin: miter"/>
+   </g>
+   <g id="s2-patch_11">
+    <path d="M 10.2 174.19952 
+L 10.2 21.8 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s2-patch_12">
+    <path d="M 10.2 174.19952 
+L 257.995235 174.19952 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s2-text_7">
+    
+    <g style="fill: #4a4a4a" transform="translate(12.064806 66.259856) scale(0.09 -0.09)">
+     <defs>
+      <path id="s2-PingFangSC-Regular-26" d="M 2432 4659 
+C 1728 4659 1178 4422 794 3936 
+C 442 3501 269 2944 269 2266 
+C 269 1587 435 1037 781 614 
+C 1158 147 1702 -90 2413 -90 
+C 2899 -90 3322 51 3674 326 
+C 4051 621 4288 1037 4390 1568 
+L 3885 1568 
+C 3795 1171 3610 870 3341 666 
+C 3085 474 2778 378 2413 378 
+C 1875 378 1472 557 1190 909 
+C 922 1242 794 1696 794 2266 
+C 794 2835 928 3290 1197 3635 
+C 1485 4006 1894 4192 2426 4192 
+C 2784 4192 3085 4109 3334 3936 
+C 3590 3757 3757 3501 3821 3168 
+L 4326 3168 
+C 4262 3622 4058 3987 3712 4256 
+C 3366 4525 2938 4659 2432 4659 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-12" d="M 2509 5248 
+L 237 -640 
+L 698 -640 
+L 2963 5248 
+L 2509 5248 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-27" d="M 461 4570 
+L 461 0 
+L 2048 0 
+C 2765 0 3315 211 3699 627 
+C 4064 1024 4250 1581 4250 2285 
+C 4250 3002 4077 3558 3738 3942 
+C 3366 4365 2822 4570 2099 4570 
+L 461 4570 
+z
+M 986 4115 
+L 2016 4115 
+C 2618 4115 3053 3962 3334 3648 
+C 3597 3354 3731 2899 3731 2285 
+C 3731 1690 3584 1235 3302 928 
+C 3002 614 2554 454 1958 454 
+L 986 454 
+L 986 4115 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-3" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-16" d="M 1965 4659 
+C 1530 4659 1178 4538 909 4288 
+C 627 4038 461 3693 422 3251 
+L 941 3251 
+C 973 3558 1075 3795 1254 3962 
+C 1427 4128 1664 4205 1971 4205 
+C 2266 4205 2502 4134 2669 3981 
+C 2822 3840 2906 3642 2906 3386 
+C 2906 3130 2822 2931 2662 2790 
+C 2502 2656 2272 2586 1965 2586 
+L 1613 2586 
+L 1613 2176 
+L 1984 2176 
+C 2304 2176 2547 2106 2726 1952 
+C 2906 1798 2995 1587 2995 1312 
+C 2995 1043 2899 819 2720 640 
+C 2522 454 2259 358 1933 358 
+C 1645 358 1408 442 1216 595 
+C 992 781 870 1056 858 1414 
+L 326 1414 
+C 365 902 544 512 870 243 
+C 1146 26 1498 -90 1933 -90 
+C 2406 -90 2790 45 3085 314 
+C 3373 576 3520 915 3520 1331 
+C 3520 1600 3443 1824 3290 2003 
+C 3149 2182 2944 2310 2675 2394 
+C 3174 2560 3424 2906 3424 3418 
+C 3424 3802 3290 4102 3027 4326 
+C 2758 4550 2400 4659 1965 4659 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s2-PingFangSC-Regular-26"/>
+     <use xlink:href="#s2-PingFangSC-Regular-12" transform="translate(72.796875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-27" transform="translate(122.796875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(193.390625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-16" transform="translate(226.6875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(286.6875 0)"/>
+    </g>
+   </g>
+   <g id="s2-text_8">
+    
+    <g style="fill: #1a1a1a" transform="translate(86.567988 138.681658) scale(0.095 -0.095)">
+     <defs>
+      <path id="s2-PingFangSC-Regular-1546" d="M 2227 710 
+C 1664 486 1005 307 256 173 
+L 314 -275 
+C 1030 -141 1664 45 2227 275 
+L 2227 710 
+z
+M 1446 5235 
+C 1178 4506 858 3853 493 3283 
+C 435 3200 371 3142 301 3117 
+L 416 2694 
+C 787 2739 1158 2790 1530 2848 
+C 1171 2272 864 1869 608 1626 
+C 550 1574 480 1530 397 1498 
+L 518 1082 
+C 1139 1158 1792 1293 2470 1498 
+L 2470 1914 
+C 2010 1773 1542 1658 1082 1574 
+C 1478 2016 1971 2758 2573 3795 
+L 2170 3942 
+C 2035 3706 1907 3482 1786 3264 
+C 1478 3213 1171 3174 864 3142 
+C 1210 3616 1549 4256 1882 5062 
+L 1446 5235 
+z
+M 3194 4531 
+L 3194 4186 
+C 3181 2118 2758 621 1926 -314 
+L 2266 -614 
+C 2912 115 3334 1158 3526 2509 
+C 3725 1856 4019 1267 4403 749 
+C 4038 365 3584 38 3046 -224 
+L 3302 -646 
+C 3853 -378 4326 -45 4710 365 
+C 5030 -6 5421 -339 5869 -634 
+L 6157 -250 
+C 5709 32 5318 346 4986 704 
+C 5446 1312 5741 2061 5875 2944 
+L 5875 3200 
+L 5062 3200 
+C 5165 3610 5267 4102 5370 4678 
+L 5370 4966 
+L 2560 4966 
+L 2560 4531 
+L 3194 4531 
+z
+M 4672 1069 
+C 4134 1754 3782 2566 3622 3501 
+C 3635 3718 3642 3949 3642 4186 
+L 3642 4531 
+L 4896 4531 
+C 4762 3770 4640 3194 4525 2797 
+L 5414 2797 
+C 5286 2138 5043 1562 4672 1069 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-105e" d="M 2214 2554 
+C 3315 2618 4339 2701 5280 2810 
+C 5382 2643 5485 2483 5574 2323 
+L 5952 2592 
+C 5722 2989 5395 3443 4960 3968 
+L 4582 3744 
+C 4736 3552 4877 3366 5018 3181 
+C 4288 3091 3558 3027 2822 2989 
+C 3053 3238 3315 3629 3616 4160 
+L 5952 4160 
+L 5952 4576 
+L 4269 4576 
+C 4179 4845 4090 5088 3987 5306 
+L 3520 5229 
+C 3622 5030 3718 4813 3808 4576 
+L 2022 4576 
+L 2022 4160 
+L 3142 4160 
+C 2758 3526 2451 3136 2208 2982 
+C 2182 2970 2150 2957 2112 2944 
+L 2214 2554 
+z
+M 838 5139 
+L 506 4819 
+C 928 4525 1254 4250 1498 3987 
+L 1824 4314 
+C 1555 4589 1229 4864 838 5139 
+z
+M 685 3610 
+L 358 3290 
+C 787 2957 1126 2643 1370 2349 
+L 1696 2682 
+C 1427 2989 1088 3302 685 3610 
+z
+M 1338 1907 
+C 1094 1126 813 371 480 -371 
+L 909 -557 
+C 1216 160 1491 928 1747 1747 
+L 1338 1907 
+z
+M 3520 2259 
+L 3520 -512 
+L 3987 -512 
+L 3987 2259 
+L 3520 2259 
+z
+M 2483 2266 
+C 2458 1510 2387 960 2266 621 
+C 2138 275 1920 -19 1613 -269 
+L 1907 -634 
+C 2266 -339 2528 13 2682 422 
+C 2822 813 2906 1427 2931 2266 
+L 2483 2266 
+z
+M 5530 -576 
+C 5786 -563 5946 -493 6022 -378 
+C 6099 -250 6138 96 6138 659 
+L 5734 813 
+C 5734 474 5722 224 5696 70 
+C 5683 -70 5619 -141 5504 -154 
+L 5222 -154 
+C 5139 -141 5101 -90 5101 6 
+L 5101 2259 
+L 4659 2259 
+L 4659 -77 
+C 4659 -410 4838 -576 5210 -576 
+L 5530 -576 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-fdc" d="M 435 3603 
+L 435 3155 
+L 2061 3155 
+C 1728 1965 1126 1043 250 397 
+L 544 19 
+C 1530 749 2182 1824 2515 3238 
+L 2515 3603 
+L 435 3603 
+z
+M 5389 4218 
+C 4966 3667 4499 3174 3981 2746 
+C 3789 3104 3622 3488 3488 3898 
+L 3488 5254 
+L 3014 5254 
+L 3014 102 
+C 3014 -90 2925 -192 2758 -192 
+C 2515 -192 2253 -179 1984 -160 
+L 2080 -614 
+L 2918 -614 
+C 3296 -614 3488 -410 3488 -13 
+L 3488 2899 
+C 3962 1786 4762 800 5875 -58 
+L 6157 358 
+C 5350 896 4691 1568 4192 2381 
+C 4736 2803 5261 3328 5760 3942 
+L 5389 4218 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-485" d="M 1190 762 
+C 1062 762 966 730 890 653 
+C 813 582 774 486 774 365 
+C 774 256 813 160 890 83 
+C 966 6 1056 -32 1165 -32 
+C 1229 -32 1280 -19 1306 -6 
+C 1306 -160 1254 -301 1165 -435 
+C 1062 -563 928 -659 762 -717 
+L 762 -1030 
+C 1030 -960 1254 -819 1421 -614 
+C 1587 -397 1670 -147 1670 134 
+C 1670 320 1626 467 1542 582 
+C 1453 704 1331 762 1190 762 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-faf" d="M 1664 4237 
+L 5856 4237 
+L 5856 4678 
+L 1914 4678 
+C 1990 4832 2067 4998 2144 5165 
+L 1677 5274 
+C 1325 4467 877 3821 326 3322 
+L 621 2963 
+C 1018 3322 1363 3750 1664 4237 
+z
+M 2694 1670 
+L 2483 1370 
+C 2918 1216 3347 1005 3770 736 
+L 3987 1069 
+C 3597 1306 3168 1504 2694 1670 
+z
+M 1062 275 
+L 4800 275 
+C 4787 186 4781 122 4768 96 
+C 4710 -45 4621 -141 4506 -186 
+C 4390 -218 4256 -237 4102 -237 
+C 3859 -237 3584 -224 3277 -211 
+L 3418 -640 
+C 3699 -640 3955 -634 4173 -634 
+C 4480 -634 4717 -589 4870 -499 
+C 5037 -397 5146 -250 5203 -51 
+C 5216 0 5235 109 5248 275 
+L 5984 275 
+L 5984 704 
+L 5280 704 
+C 5293 986 5312 1350 5331 1798 
+L 6157 1798 
+L 6157 2234 
+L 5350 2234 
+L 5395 3706 
+L 1421 3706 
+C 1408 3213 1382 2720 1338 2234 
+L 256 2234 
+L 256 1798 
+L 1293 1798 
+C 1235 1286 1158 774 1062 275 
+z
+M 4838 704 
+L 1594 704 
+C 1658 1037 1709 1402 1754 1798 
+L 4890 1798 
+C 4870 1350 4851 986 4838 704 
+z
+M 1798 2234 
+C 1824 2560 1843 2906 1856 3277 
+L 4934 3277 
+C 4922 2899 4915 2554 4902 2234 
+L 3814 2234 
+L 4026 2554 
+C 3642 2790 3213 2989 2746 3155 
+L 2534 2848 
+C 2957 2694 3379 2490 3789 2234 
+L 1798 2234 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s2-PingFangSC-Regular-18"/>
+     <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(60 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-1546" transform="translate(93.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-105e" transform="translate(193.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-fdc" transform="translate(293.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-485" transform="translate(393.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-faf" transform="translate(493.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-1546" transform="translate(593.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(693.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-16" transform="translate(726.59375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-16" transform="translate(786.59375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(846.59375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(879.890625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-4c" transform="translate(948.890625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-25" transform="translate(974.484375 0)"/>
+    </g>
+   </g>
+   <g id="s2-text_9">
+    
+    <g style="fill: #767676" transform="translate(230.664075 66.259856) scale(0.09 -0.09)">
+     <defs>
+      <path id="s2-PingFangSC-Regular-59f" d="M 3040 5203 
+C 2285 4480 1344 3872 218 3379 
+L 448 2957 
+C 1587 3475 2509 4090 3200 4800 
+C 3955 4051 4864 3450 5926 2989 
+L 6170 3411 
+C 5107 3853 4173 4448 3366 5203 
+L 3040 5203 
+z
+M 1510 3488 
+L 1510 3046 
+L 3034 3046 
+L 3034 2221 
+L 595 2221 
+L 595 1773 
+L 3034 1773 
+L 3034 198 
+C 3034 -32 2912 -154 2669 -154 
+C 2438 -154 2202 -141 1952 -128 
+L 2054 -563 
+L 2822 -563 
+C 3264 -563 3488 -346 3488 83 
+L 3488 1773 
+L 5811 1773 
+L 5811 2221 
+L 3488 2221 
+L 3488 3046 
+L 4909 3046 
+L 4909 3488 
+L 1510 3488 
+z
+M 1837 1357 
+C 1523 774 1062 307 448 -38 
+L 800 -333 
+C 1395 19 1875 525 2240 1190 
+L 1837 1357 
+z
+M 4550 1440 
+L 4198 1216 
+C 4800 646 5274 128 5619 -339 
+L 6003 -70 
+C 5664 358 5178 864 4550 1440 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Regular-1c" d="M 1869 4659 
+C 1421 4659 1050 4512 762 4211 
+C 467 3917 326 3546 326 3091 
+C 326 2650 454 2291 717 2016 
+C 986 1728 1338 1581 1779 1581 
+C 2048 1581 2285 1651 2490 1779 
+C 2701 1914 2867 2099 2982 2330 
+L 3008 2330 
+C 3008 2253 3014 2195 3014 2163 
+C 3014 1651 2912 1222 2714 883 
+C 2502 531 2221 352 1869 352 
+C 1331 352 1018 614 922 1133 
+L 403 1133 
+C 525 320 1011 -90 1862 -90 
+C 2374 -90 2784 154 3091 627 
+C 3373 1088 3520 1677 3520 2406 
+C 3520 3110 3386 3661 3117 4045 
+C 2835 4454 2419 4659 1869 4659 
+z
+M 1882 4218 
+C 2195 4218 2451 4109 2643 3891 
+C 2829 3686 2925 3424 2925 3104 
+C 2925 2790 2822 2528 2630 2323 
+C 2426 2118 2176 2016 1882 2016 
+C 1562 2016 1312 2118 1126 2317 
+C 934 2509 845 2771 845 3091 
+C 845 3424 934 3693 1126 3904 
+C 1318 4115 1568 4218 1882 4218 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s2-PingFangSC-Regular-59f"/>
+     <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(100 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(133.296875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Regular-1c" transform="translate(193.296875 0)"/>
+    </g>
+   </g>
+   <g id="s2-text_10">
+    
+    <g style="fill: #1a1a1a" transform="translate(10.2 15.8) scale(0.1 -0.1)">
+     <defs>
+      <path id="s2-PingFangSC-Semibold-25" d="M 448 4570 
+L 448 0 
+L 2547 0 
+C 3034 0 3418 90 3686 269 
+C 4000 486 4160 826 4160 1286 
+C 4160 1594 4083 1843 3936 2022 
+C 3782 2208 3558 2330 3258 2387 
+C 3488 2477 3661 2598 3782 2765 
+C 3904 2944 3968 3162 3968 3418 
+C 3968 3763 3846 4038 3610 4243 
+C 3354 4461 2995 4570 2541 4570 
+L 448 4570 
+z
+M 1197 3955 
+L 2355 3955 
+C 2662 3955 2880 3904 3021 3802 
+C 3149 3706 3219 3546 3219 3328 
+C 3219 3091 3149 2918 3021 2810 
+C 2886 2707 2662 2650 2342 2650 
+L 1197 2650 
+L 1197 3955 
+z
+M 1197 2035 
+L 2458 2035 
+C 2790 2035 3034 1978 3187 1862 
+C 3334 1747 3411 1562 3411 1299 
+C 3411 1043 3309 864 3104 749 
+C 2944 659 2720 614 2438 614 
+L 1197 614 
+L 1197 2035 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-2f" d="M 448 4570 
+L 448 0 
+L 3661 0 
+L 3661 640 
+L 1190 640 
+L 1190 4570 
+L 448 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-32" d="M 2477 4659 
+C 1773 4659 1222 4435 826 3974 
+C 442 3539 256 2976 256 2278 
+C 256 1587 442 1024 826 589 
+C 1222 141 1773 -90 2477 -90 
+C 3174 -90 3725 134 4128 582 
+C 4512 1011 4704 1574 4704 2278 
+C 4704 2982 4512 3552 4128 3981 
+C 3725 4435 3174 4659 2477 4659 
+z
+M 2477 4000 
+C 2950 4000 3315 3853 3571 3546 
+C 3821 3238 3949 2816 3949 2278 
+C 3949 1741 3821 1325 3571 1024 
+C 3315 723 2950 570 2477 570 
+C 2003 570 1632 730 1376 1043 
+C 1126 1350 1005 1760 1005 2278 
+C 1005 2803 1126 3213 1376 3520 
+C 1638 3840 2003 4000 2477 4000 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-26" d="M 2432 4659 
+C 1702 4659 1146 4422 762 3936 
+C 422 3514 256 2957 256 2278 
+C 256 1587 416 1037 742 627 
+C 1114 154 1683 -90 2445 -90 
+C 2938 -90 3360 51 3712 333 
+C 4090 634 4326 1050 4429 1587 
+L 3699 1587 
+C 3610 1242 3456 979 3238 806 
+C 3034 653 2765 570 2438 570 
+C 1939 570 1568 730 1331 1037 
+C 1114 1325 1005 1741 1005 2278 
+C 1005 2803 1114 3213 1338 3507 
+C 1581 3840 1939 4000 2419 4000 
+C 2739 4000 3002 3936 3206 3795 
+C 3418 3654 3558 3437 3635 3136 
+L 4365 3136 
+C 4294 3597 4096 3968 3763 4237 
+C 3418 4518 2970 4659 2432 4659 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-2e" d="M 3322 4570 
+L 1197 2413 
+L 1197 4570 
+L 448 4570 
+L 448 0 
+L 1197 0 
+L 1197 1574 
+L 1754 2118 
+L 3558 0 
+L 4570 0 
+L 2259 2611 
+L 4269 4570 
+L 3322 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-42" d="M 0 -294 
+L 0 -896 
+L 3200 -896 
+L 3200 -294 
+L 0 -294 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-30" d="M 448 4570 
+L 448 0 
+L 1197 0 
+L 1197 3149 
+L 1222 3149 
+L 2566 0 
+L 3213 0 
+L 4557 3149 
+L 4582 3149 
+L 4582 0 
+L 5331 0 
+L 5331 4570 
+L 4454 4570 
+L 2906 986 
+L 2880 986 
+L 1325 4570 
+L 448 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-20" d="M 320 2618 
+L 320 2016 
+L 3552 2016 
+L 3552 2618 
+L 320 2618 
+z
+M 320 1293 
+L 320 691 
+L 3552 691 
+L 3552 1293 
+L 320 1293 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-14" d="M 1485 4570 
+C 1331 4410 1139 4262 909 4122 
+C 678 3994 461 3904 256 3853 
+L 256 3110 
+C 678 3232 1024 3418 1299 3667 
+L 1299 0 
+L 2048 0 
+L 2048 4570 
+L 1485 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-15" d="M 1990 4659 
+C 1498 4659 1101 4493 800 4160 
+C 506 3846 358 3437 352 2925 
+L 1101 2925 
+C 1114 3283 1190 3558 1331 3738 
+C 1472 3930 1683 4026 1965 4026 
+C 2227 4026 2426 3968 2560 3846 
+C 2688 3725 2758 3539 2758 3290 
+C 2758 3034 2656 2790 2458 2566 
+C 2330 2432 2125 2259 1830 2054 
+C 1299 1690 947 1408 781 1216 
+C 474 870 326 467 326 0 
+L 3514 0 
+L 3514 659 
+L 1261 659 
+C 1363 890 1645 1158 2112 1466 
+C 2560 1766 2880 2010 3059 2202 
+C 3354 2528 3507 2886 3507 3283 
+C 3507 3693 3366 4019 3085 4275 
+C 2797 4531 2432 4659 1990 4659 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-1b" d="M 1920 4659 
+C 1427 4659 1037 4531 749 4269 
+C 486 4038 358 3750 358 3405 
+C 358 3174 410 2976 512 2816 
+C 621 2650 787 2515 1018 2426 
+L 1018 2413 
+C 800 2355 621 2227 467 2029 
+C 288 1811 205 1562 205 1280 
+C 205 870 352 544 653 288 
+C 947 38 1370 -90 1920 -90 
+C 2464 -90 2886 38 3187 288 
+C 3482 544 3635 870 3635 1280 
+C 3635 1562 3546 1811 3373 2029 
+C 3219 2227 3034 2355 2822 2413 
+L 2822 2426 
+C 3046 2515 3213 2650 3328 2816 
+C 3430 2976 3482 3174 3482 3405 
+C 3482 3750 3347 4038 3091 4269 
+C 2797 4531 2406 4659 1920 4659 
+z
+M 1920 4064 
+C 2189 4064 2400 3994 2566 3846 
+C 2707 3718 2778 3565 2778 3379 
+C 2778 3168 2720 3002 2605 2880 
+C 2464 2733 2234 2656 1920 2656 
+C 1600 2656 1376 2733 1235 2880 
+C 1120 3002 1062 3168 1062 3379 
+C 1062 3565 1133 3718 1274 3846 
+C 1434 3994 1651 4064 1920 4064 
+z
+M 1920 2099 
+C 2240 2099 2483 2022 2656 1862 
+C 2810 1722 2893 1523 2893 1280 
+C 2893 1050 2810 870 2650 730 
+C 2470 589 2227 512 1920 512 
+C 1606 512 1370 582 1203 723 
+C 1030 864 947 1050 947 1280 
+C 947 1523 1024 1722 1190 1869 
+C 1357 2022 1600 2099 1920 2099 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-f" d="M 883 966 
+C 723 966 595 922 499 826 
+C 397 736 346 614 346 461 
+C 346 320 390 198 486 102 
+C 582 6 698 -45 838 -45 
+C 909 -45 960 -32 998 -19 
+C 998 -173 941 -320 832 -474 
+C 710 -614 563 -717 390 -781 
+L 390 -1203 
+C 723 -1107 992 -934 1190 -685 
+C 1382 -429 1485 -134 1485 205 
+C 1485 429 1427 614 1318 755 
+C 1203 896 1056 966 883 966 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-3" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-31" d="M 448 4570 
+L 448 0 
+L 1197 0 
+L 1197 3341 
+L 1222 3341 
+L 3507 0 
+L 4237 0 
+L 4237 4570 
+L 3482 4570 
+L 3482 1274 
+L 3456 1274 
+L 1197 4570 
+L 448 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-1331" d="M 2669 4218 
+L 1696 4218 
+C 1811 4512 1907 4838 1978 5184 
+L 1306 5274 
+C 1254 4909 1171 4557 1056 4218 
+L 442 4218 
+L 442 -454 
+L 1082 -454 
+L 1082 51 
+L 2029 51 
+L 2029 -269 
+L 2669 -269 
+L 2669 4218 
+z
+M 1082 666 
+L 1082 1875 
+L 2029 1875 
+L 2029 666 
+L 1082 666 
+z
+M 1082 2470 
+L 1082 3590 
+L 2029 3590 
+L 2029 2470 
+L 1082 2470 
+z
+M 3834 2662 
+L 3290 2323 
+C 3686 1811 4006 1344 4243 922 
+L 4781 1293 
+C 4557 1690 4243 2144 3834 2662 
+z
+M 5965 4218 
+L 4019 4218 
+C 4115 4525 4198 4851 4262 5197 
+L 3603 5280 
+C 3450 4403 3168 3661 2746 3059 
+L 3149 2528 
+C 3386 2835 3590 3181 3763 3565 
+L 5312 3565 
+C 5299 1754 5280 698 5242 390 
+C 5203 141 5069 13 4838 13 
+C 4627 13 4378 26 4096 45 
+L 4256 -563 
+C 4589 -589 4819 -602 4947 -602 
+C 5498 -602 5805 -378 5869 70 
+C 5933 595 5965 1978 5965 4218 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-29" d="M 448 4570 
+L 448 0 
+L 1197 0 
+L 1197 2022 
+L 3430 2022 
+L 3430 2662 
+L 1197 2662 
+L 1197 3930 
+L 3565 3930 
+L 3565 4570 
+L 448 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-33" d="M 448 4570 
+L 448 0 
+L 1197 0 
+L 1197 1754 
+L 2330 1754 
+C 3443 1754 4000 2227 4000 3168 
+C 4000 4102 3443 4570 2342 4570 
+L 448 4570 
+z
+M 1197 3930 
+L 2285 3930 
+C 2611 3930 2854 3872 3008 3750 
+C 3162 3635 3245 3443 3245 3168 
+C 3245 2893 3168 2694 3014 2573 
+C 2861 2458 2618 2394 2285 2394 
+L 1197 2394 
+L 1197 3930 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-656" d="M 3213 2387 
+C 3744 1837 4173 1312 4493 819 
+L 5011 1338 
+C 4576 1901 4045 2477 3418 3053 
+C 3462 3245 3501 3443 3533 3654 
+L 5133 3654 
+L 5133 314 
+C 5133 134 5056 45 4902 45 
+L 3936 77 
+L 4115 -589 
+L 5120 -589 
+C 5574 -589 5805 -333 5805 166 
+L 5805 4301 
+L 3603 4301 
+C 3629 4602 3642 4928 3642 5274 
+L 2957 5274 
+C 2957 4928 2944 4608 2918 4301 
+L 595 4301 
+L 595 -666 
+L 1267 -666 
+L 1267 3654 
+L 2835 3654 
+C 2797 3437 2752 3226 2701 3034 
+C 2496 2355 2048 1779 1363 1306 
+L 1811 762 
+C 2477 1210 2944 1754 3213 2387 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-ed0" d="M 1773 2349 
+C 1914 2118 2074 1830 2266 1491 
+L 2643 2067 
+C 2349 2451 2054 2803 1773 3110 
+L 1773 3437 
+L 2458 3437 
+L 2458 4070 
+L 1773 4070 
+L 1773 5248 
+L 1126 5248 
+L 1126 4070 
+L 314 4070 
+L 314 3437 
+L 1101 3437 
+C 909 2694 608 2029 198 1453 
+L 480 762 
+C 736 1197 947 1664 1126 2170 
+L 1126 -666 
+L 1773 -666 
+L 1773 2349 
+z
+M 2560 4621 
+L 2560 4013 
+L 3642 4013 
+C 3296 3424 3008 3053 2784 2912 
+C 2758 2893 2720 2874 2662 2854 
+L 2797 2317 
+L 4038 2374 
+C 3558 1888 2976 1530 2291 1293 
+L 2656 742 
+C 3891 1203 4826 2067 5466 3341 
+L 4928 3629 
+C 4800 3386 4666 3155 4512 2938 
+C 4192 2912 3866 2886 3539 2867 
+C 3770 3123 4032 3501 4326 4013 
+L 6080 4013 
+L 6080 4621 
+L 4698 4621 
+C 4621 4858 4544 5075 4461 5267 
+L 3776 5152 
+C 3872 4992 3962 4813 4045 4621 
+L 2560 4621 
+z
+M 4640 538 
+C 5075 115 5414 -282 5670 -666 
+L 6157 -179 
+C 5850 192 5478 570 5056 941 
+C 5440 1357 5779 1843 6074 2394 
+L 5517 2682 
+C 4787 1312 3680 384 2202 -96 
+L 2573 -666 
+C 3354 -390 4045 13 4640 538 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s2-PingFangSC-Semibold-25"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-2f" transform="translate(69 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-32" transform="translate(128.203125 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-26" transform="translate(205.703125 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-2e" transform="translate(278.90625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-42" transform="translate(350.3125 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-30" transform="translate(400.3125 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-20" transform="translate(490.609375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-14" transform="translate(551.109375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-15" transform="translate(592.109375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1b" transform="translate(652.109375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-f" transform="translate(712.109375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-3" transform="translate(739.609375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-25" transform="translate(772.90625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-2f" transform="translate(841.90625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-32" transform="translate(901.109375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-26" transform="translate(978.609375 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-2e" transform="translate(1051.8125 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-42" transform="translate(1123.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-31" transform="translate(1173.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-20" transform="translate(1246.421875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-14" transform="translate(1306.921875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-15" transform="translate(1347.921875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1b" transform="translate(1407.921875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-3" transform="translate(1467.921875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1331" transform="translate(1501.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-3" transform="translate(1601.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-29" transform="translate(1634.515625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-33" transform="translate(1692.71875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1b" transform="translate(1758.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-3" transform="translate(1818.21875 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-656" transform="translate(1851.515625 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-ed0" transform="translate(1951.515625 0)"/>
+    </g>
+   </g>
+  </g>
+  <g id="s2-axes_2">
+   <g id="s2-patch_13">
+    <path d="M 295.725403 174.19952 
+L 511.19952 174.19952 
+L 511.19952 21.8 
+L 295.725403 21.8 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="s2-matplotlib.axis_3">
+    <g id="s2-xtick_6">
+     <g id="s2-line2d_6">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="305.519681" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_11">
+      
+      <g style="fill: #4a4a4a" transform="translate(300.514993 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-19" d="M 1984 4659 
+C 1466 4659 1056 4422 755 3942 
+C 467 3488 326 2893 326 2163 
+C 326 1466 454 922 723 531 
+C 1005 122 1421 -90 1978 -90 
+C 2426 -90 2790 64 3085 358 
+C 3373 653 3520 1030 3520 1478 
+C 3520 1926 3386 2285 3123 2566 
+C 2854 2848 2502 2989 2067 2989 
+C 1798 2989 1562 2925 1357 2790 
+C 1139 2662 979 2477 864 2240 
+L 838 2240 
+C 832 2323 832 2381 832 2406 
+C 832 2925 928 3354 1133 3686 
+C 1338 4045 1619 4218 1978 4218 
+C 2509 4218 2822 3962 2925 3437 
+L 3443 3437 
+C 3315 4256 2829 4659 1984 4659 
+z
+M 1965 2554 
+C 2278 2554 2528 2458 2720 2253 
+C 2906 2061 3002 1805 3002 1478 
+C 3002 1152 2906 883 2714 666 
+C 2522 461 2272 352 1965 352 
+C 1645 352 1395 461 1203 678 
+C 1011 883 922 1146 922 1466 
+C 922 1786 1018 2042 1216 2246 
+C 1414 2451 1664 2554 1965 2554 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-19" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_7">
+     <g id="s2-line2d_7">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="344.696793" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_12">
+      
+      <g style="fill: #4a4a4a" transform="translate(338.696793 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-17" d="M 2458 4570 
+L 154 1536 
+L 154 1037 
+L 2451 1037 
+L 2451 0 
+L 2950 0 
+L 2950 1037 
+L 3693 1037 
+L 3693 1466 
+L 2950 1466 
+L 2950 4570 
+L 2458 4570 
+z
+M 2432 3885 
+L 2451 3885 
+L 2451 1466 
+L 595 1466 
+L 2432 3885 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-19"/>
+       <use xlink:href="#s2-PingFangSC-Regular-17" transform="translate(60 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_8">
+     <g id="s2-line2d_8">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="396.932943" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_13">
+      
+      <g style="fill: #4a4a4a" transform="translate(388.928255 189.79952) scale(0.1 -0.1)">
+       <defs>
+        <path id="s2-PingFangSC-Regular-1b" d="M 1920 4659 
+C 1440 4659 1069 4538 800 4288 
+C 550 4064 429 3782 429 3450 
+C 429 3206 486 3002 602 2835 
+C 723 2656 902 2522 1146 2438 
+L 1146 2426 
+C 902 2368 704 2234 538 2029 
+C 358 1811 269 1555 269 1261 
+C 269 858 410 531 691 288 
+C 979 38 1389 -90 1920 -90 
+C 2445 -90 2854 38 3149 288 
+C 3430 531 3571 858 3571 1261 
+C 3571 1555 3482 1811 3302 2029 
+C 3136 2234 2931 2368 2694 2426 
+L 2694 2438 
+C 2931 2522 3110 2656 3238 2835 
+C 3354 3002 3411 3206 3411 3450 
+C 3411 3782 3283 4064 3040 4288 
+C 2771 4538 2394 4659 1920 4659 
+z
+M 1920 4230 
+C 2240 4230 2496 4147 2682 3981 
+C 2835 3840 2918 3654 2918 3430 
+C 2918 3200 2848 3008 2707 2867 
+C 2534 2701 2272 2611 1920 2611 
+C 1562 2611 1299 2701 1133 2867 
+C 992 3008 922 3200 922 3430 
+C 922 3654 998 3840 1158 3981 
+C 1338 4147 1594 4230 1920 4230 
+z
+M 1920 2202 
+C 2285 2202 2573 2112 2778 1926 
+C 2957 1760 3053 1536 3053 1261 
+C 3053 992 2957 774 2778 608 
+C 2573 429 2291 339 1920 339 
+C 1549 339 1261 429 1069 602 
+C 877 768 787 992 787 1261 
+C 787 1536 877 1760 1069 1926 
+C 1267 2112 1549 2202 1920 2202 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-1b" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_9">
+     <g id="s2-line2d_9">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="449.169092" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_14">
+      
+      <g style="fill: #4a4a4a" transform="translate(441.164405 189.79952) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-1c" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-xtick_10">
+     <g id="s2-line2d_10">
+      <g>
+       <use xlink:href="#s2-md0f79781a5" x="501.405242" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_15">
+      
+      <g style="fill: #4a4a4a" transform="translate(492.405242 189.79952) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-15"/>
+       <use xlink:href="#s2-PingFangSC-Regular-18" transform="translate(60 0)"/>
+       <use xlink:href="#s2-PingFangSC-Regular-19" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-text_16">
+     
+     <g style="fill: #4a4a4a" transform="translate(380.117149 203.79952) scale(0.1 -0.1)">
+      <defs>
+       <path id="s2-PingFangSC-Regular-2f" d="M 461 4570 
+L 461 0 
+L 3622 0 
+L 3622 454 
+L 979 454 
+L 979 4570 
+L 461 4570 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-32" d="M 2458 4659 
+C 1766 4659 1229 4429 832 3968 
+C 454 3533 269 2970 269 2278 
+C 269 1594 454 1030 832 595 
+C 1229 141 1766 -90 2451 -90 
+C 3136 -90 3680 141 4077 595 
+C 4448 1030 4640 1587 4640 2278 
+C 4640 2976 4448 3539 4077 3974 
+C 3680 4435 3136 4659 2458 4659 
+z
+M 2458 4192 
+C 2982 4192 3392 4019 3686 3667 
+C 3968 3322 4115 2861 4115 2278 
+C 4115 1702 3968 1248 3686 902 
+C 3392 557 2976 378 2451 378 
+C 1926 378 1510 557 1216 915 
+C 934 1261 794 1715 794 2278 
+C 794 2848 934 3302 1216 3648 
+C 1517 4013 1933 4192 2458 4192 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-42" d="M 0 -467 
+L 0 -896 
+L 3200 -896 
+L 3200 -467 
+L 0 -467 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-31" d="M 461 4570 
+L 461 0 
+L 986 0 
+L 986 3757 
+L 1005 3757 
+L 3603 0 
+L 4141 0 
+L 4141 4570 
+L 3616 4570 
+L 3616 851 
+L 3597 851 
+L 1011 4570 
+L 461 4570 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s2-PingFangSC-Regular-25"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2f" transform="translate(67.703125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-32" transform="translate(126.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-26" transform="translate(203.203125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(276 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-42" transform="translate(345 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-31" transform="translate(395 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s2-matplotlib.axis_4">
+    <g id="s2-ytick_1">
+     <g id="s2-line2d_11">
+      <path d="M 295.725403 174.19952 
+L 511.19952 174.19952 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_12">
+      <defs>
+       <path id="s2-m1329ac3ca6" d="M 0 0 
+L -3.5 0 
+" style="stroke: #767676; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="174.19952" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_17">
+      
+      <g style="fill: #4a4a4a" transform="translate(282.725403 178.49952) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-13"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_2">
+     <g id="s2-line2d_13">
+      <path d="M 295.725403 153.879584 
+L 511.19952 153.879584 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_14">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="153.879584" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_18">
+      
+      <g style="fill: #4a4a4a" transform="translate(282.725403 158.179584) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-15"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_3">
+     <g id="s2-line2d_15">
+      <path d="M 295.725403 133.559648 
+L 511.19952 133.559648 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_16">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="133.559648" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_19">
+      
+      <g style="fill: #4a4a4a" transform="translate(282.725403 137.859648) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-17"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_4">
+     <g id="s2-line2d_17">
+      <path d="M 295.725403 113.239712 
+L 511.19952 113.239712 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_18">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="113.239712" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_20">
+      
+      <g style="fill: #4a4a4a" transform="translate(282.725403 117.539712) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-19"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_5">
+     <g id="s2-line2d_19">
+      <path d="M 295.725403 92.919776 
+L 511.19952 92.919776 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_20">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="92.919776" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_21">
+      
+      <g style="fill: #4a4a4a" transform="translate(282.725403 97.219776) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-1b"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_6">
+     <g id="s2-line2d_21">
+      <path d="M 295.725403 72.59984 
+L 511.19952 72.59984 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_22">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="72.59984" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_22">
+      
+      <g style="fill: #4a4a4a" transform="translate(278.716028 76.89984) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-13" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_7">
+     <g id="s2-line2d_23">
+      <path d="M 295.725403 52.279904 
+L 511.19952 52.279904 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_24">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="52.279904" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_23">
+      
+      <g style="fill: #4a4a4a" transform="translate(278.716028 56.579904) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-ytick_8">
+     <g id="s2-line2d_25">
+      <path d="M 295.725403 31.959968 
+L 511.19952 31.959968 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s2-line2d_26">
+      <g>
+       <use xlink:href="#s2-m1329ac3ca6" x="295.725403" y="31.959968" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s2-text_24">
+      
+      <g style="fill: #4a4a4a" transform="translate(278.716028 36.259968) scale(0.1 -0.1)">
+       <use xlink:href="#s2-PingFangSC-Regular-14"/>
+       <use xlink:href="#s2-PingFangSC-Regular-17" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s2-text_25">
+     
+     <g style="fill: #4a4a4a" transform="translate(272.595715 125.720073) rotate(-90) scale(0.1 -0.1)">
+      <defs>
+       <path id="s2-PingFangSC-Regular-51" d="M 1946 3398 
+C 1728 3398 1530 3347 1350 3245 
+C 1171 3149 1024 3008 909 2822 
+L 909 3309 
+L 397 3309 
+L 397 0 
+L 909 0 
+L 909 1997 
+C 928 2298 1024 2534 1203 2714 
+C 1370 2880 1568 2963 1798 2963 
+C 2374 2963 2669 2643 2669 1997 
+L 2669 0 
+L 3181 0 
+L 3181 2035 
+C 3181 2944 2765 3398 1946 3398 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-58" d="M 397 3309 
+L 397 1261 
+C 397 365 794 -90 1600 -90 
+C 2048 -90 2406 115 2675 512 
+L 2675 0 
+L 3187 0 
+L 3187 3309 
+L 2675 3309 
+L 2675 1293 
+C 2637 1011 2528 781 2349 602 
+C 2176 435 1978 346 1760 346 
+C 1459 346 1242 429 1107 582 
+C 973 736 909 973 909 1286 
+L 909 3309 
+L 397 3309 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-50" d="M 1843 3398 
+C 1472 3398 1158 3226 909 2867 
+L 909 3309 
+L 397 3309 
+L 397 0 
+L 909 0 
+L 909 2016 
+C 909 2278 986 2502 1139 2682 
+C 1293 2874 1485 2963 1722 2963 
+C 2227 2963 2483 2675 2483 2086 
+L 2483 0 
+L 2995 0 
+L 2995 2074 
+C 2995 2342 3066 2554 3219 2720 
+C 3360 2886 3546 2963 3763 2963 
+C 4045 2963 4250 2893 4378 2739 
+C 4499 2598 4563 2381 4563 2086 
+L 4563 0 
+L 5075 0 
+L 5075 2170 
+C 5075 2547 4966 2848 4762 3072 
+C 4544 3290 4269 3398 3923 3398 
+C 3693 3398 3501 3347 3341 3245 
+C 3162 3149 3008 2989 2880 2771 
+C 2694 3194 2349 3398 1843 3398 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-56" d="M 1568 3398 
+C 1197 3398 890 3315 659 3149 
+C 410 2982 288 2765 288 2483 
+C 288 2202 410 1990 666 1837 
+C 819 1734 1094 1638 1485 1542 
+C 1843 1453 2080 1382 2189 1331 
+C 2394 1229 2502 1088 2502 902 
+C 2502 531 2202 339 1613 339 
+C 1331 339 1120 390 979 493 
+C 838 608 742 794 704 1056 
+L 205 1056 
+C 282 294 755 -90 1626 -90 
+C 2560 -90 3027 256 3027 934 
+C 3027 1222 2893 1446 2630 1613 
+C 2458 1722 2176 1824 1779 1920 
+C 1446 2010 1216 2080 1094 2138 
+C 902 2234 813 2355 813 2496 
+C 813 2643 883 2758 1024 2842 
+C 1152 2931 1331 2970 1562 2970 
+C 1824 2970 2029 2918 2170 2816 
+C 2298 2726 2381 2573 2426 2368 
+L 2925 2368 
+C 2835 3059 2387 3398 1568 3398 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-57" d="M 1280 4378 
+L 774 4166 
+L 774 3309 
+L 109 3309 
+L 109 2880 
+L 774 2880 
+L 774 774 
+C 774 525 826 339 934 211 
+C 1050 70 1248 0 1517 0 
+L 2016 0 
+L 2016 429 
+L 1594 429 
+C 1478 429 1395 461 1350 512 
+C 1299 563 1280 653 1280 774 
+L 1280 2880 
+L 2099 2880 
+L 2099 3309 
+L 1280 3309 
+L 1280 4378 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-44" d="M 1837 3398 
+C 1440 3398 1126 3322 883 3168 
+C 614 3002 442 2739 371 2394 
+L 877 2355 
+C 928 2566 1037 2726 1210 2829 
+C 1363 2931 1562 2976 1805 2976 
+C 2381 2976 2669 2701 2669 2144 
+L 2669 1971 
+L 1875 1958 
+C 1376 1952 992 1856 723 1677 
+C 416 1485 269 1203 269 826 
+C 269 557 371 333 576 160 
+C 774 -6 1037 -90 1370 -90 
+C 1677 -90 1952 -19 2195 115 
+C 2400 230 2573 378 2701 557 
+L 2701 0 
+L 3181 0 
+L 3181 2125 
+C 3181 2509 3078 2810 2886 3027 
+C 2656 3277 2310 3398 1837 3398 
+z
+M 2669 1587 
+L 2669 1306 
+C 2669 1050 2547 819 2310 621 
+C 2067 416 1792 314 1478 314 
+C 1274 314 1107 365 979 461 
+C 851 563 794 685 794 838 
+C 794 1318 1165 1562 1907 1574 
+L 2669 1587 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-4a" d="M 1760 3398 
+C 1299 3398 934 3238 666 2912 
+C 397 2605 269 2214 269 1728 
+C 269 1248 397 858 666 550 
+C 934 237 1299 77 1760 77 
+C 2259 77 2630 301 2874 742 
+L 2874 160 
+C 2874 -570 2541 -941 1875 -941 
+C 1574 -941 1350 -883 1203 -774 
+C 1056 -672 960 -506 922 -282 
+L 410 -282 
+C 467 -640 614 -909 851 -1088 
+C 1082 -1267 1427 -1357 1875 -1357 
+C 2880 -1357 3386 -826 3386 230 
+L 3386 3309 
+L 2874 3309 
+L 2874 2739 
+C 2630 3181 2259 3398 1760 3398 
+z
+M 1837 2976 
+C 2163 2976 2419 2861 2611 2618 
+C 2790 2400 2880 2099 2880 1728 
+C 2880 1370 2790 1075 2611 851 
+C 2419 621 2163 506 1830 506 
+C 1472 506 1210 634 1030 877 
+C 870 1094 794 1382 794 1728 
+C 794 2099 883 2400 1062 2618 
+C 1248 2861 1504 2976 1837 2976 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-48" d="M 1760 3398 
+C 1280 3398 902 3226 621 2880 
+C 339 2554 205 2144 205 1658 
+C 205 1120 346 698 640 378 
+C 922 70 1306 -90 1779 -90 
+C 2208 -90 2560 38 2835 282 
+C 3059 486 3206 742 3283 1062 
+L 2771 1062 
+C 2688 832 2579 659 2438 544 
+C 2272 410 2048 339 1779 339 
+C 1466 339 1216 442 1037 646 
+C 858 851 762 1139 736 1510 
+L 3347 1510 
+C 3334 2086 3206 2541 2963 2861 
+C 2694 3219 2291 3398 1760 3398 
+z
+M 1773 2970 
+C 2400 2970 2752 2618 2816 1907 
+L 749 1907 
+C 781 2234 883 2490 1062 2682 
+C 1242 2874 1478 2970 1773 2970 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s2-PingFangSC-Regular-51"/>
+      <use xlink:href="#s2-PingFangSC-Regular-58" transform="translate(55.90625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-50" transform="translate(111.90625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-42" transform="translate(197.40625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-56" transform="translate(247.40625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-57" transform="translate(297.90625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-44" transform="translate(333.40625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-4a" transform="translate(389.3125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-48" transform="translate(448.40625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-56" transform="translate(503.90625 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s2-line2d_27">
+    <path d="M 305.519681 62.439872 
+L 312.049199 62.439872 
+L 312.049199 72.59984 
+L 325.108237 72.59984 
+L 325.108237 82.759808 
+L 338.167274 82.759808 
+L 338.167274 103.079744 
+L 351.226312 103.079744 
+L 351.226312 92.919776 
+L 364.285349 92.919776 
+L 364.285349 103.079744 
+L 377.344386 103.079744 
+L 377.344386 103.079744 
+L 390.403424 103.079744 
+L 390.403424 123.39968 
+L 403.462461 123.39968 
+L 403.462461 113.239712 
+L 416.521499 113.239712 
+L 416.521499 123.39968 
+L 429.580536 123.39968 
+L 429.580536 123.39968 
+L 442.639574 123.39968 
+L 442.639574 133.559648 
+L 455.698611 133.559648 
+L 455.698611 123.39968 
+L 468.757648 123.39968 
+L 468.757648 133.559648 
+L 481.816686 133.559648 
+L 481.816686 133.559648 
+L 494.875723 133.559648 
+L 494.875723 143.719616 
+L 501.405242 143.719616 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke: #d55e00; stroke-width: 2; stroke-linecap: square"/>
+   </g>
+   <g id="s2-line2d_28">
+    <path d="M 305.519681 52.279904 
+L 312.049199 52.279904 
+L 312.049199 72.59984 
+L 325.108237 72.59984 
+L 325.108237 82.759808 
+L 338.167274 82.759808 
+L 338.167274 92.919776 
+L 351.226312 92.919776 
+L 351.226312 92.919776 
+L 364.285349 92.919776 
+L 364.285349 103.079744 
+L 377.344386 103.079744 
+L 377.344386 103.079744 
+L 390.403424 103.079744 
+L 390.403424 113.239712 
+L 403.462461 113.239712 
+L 403.462461 113.239712 
+L 416.521499 113.239712 
+L 416.521499 123.39968 
+L 429.580536 123.39968 
+L 429.580536 123.39968 
+L 442.639574 123.39968 
+L 442.639574 133.559648 
+L 455.698611 133.559648 
+L 455.698611 123.39968 
+L 468.757648 123.39968 
+L 468.757648 133.559648 
+L 481.816686 133.559648 
+L 481.816686 133.559648 
+L 494.875723 133.559648 
+L 494.875723 133.559648 
+L 501.405242 133.559648 
+" clip-path="url(#s2-p11c06ed35a)" style="fill: none; stroke-dasharray: 4.81,2.08; stroke-dashoffset: 0; stroke: #0072b2; stroke-width: 1.3"/>
+   </g>
+   <g id="s2-patch_14">
+    <path d="M 295.725403 174.19952 
+L 295.725403 21.8 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s2-patch_15">
+    <path d="M 295.725403 174.19952 
+L 511.19952 174.19952 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s2-text_26">
+    
+    <g style="fill: #1a1a1a" transform="translate(295.725403 15.8) scale(0.1 -0.1)">
+     <defs>
+      <path id="s2-PingFangSC-Semibold-8d8" d="M 3962 1478 
+C 4346 621 4928 -96 5709 -678 
+L 6170 -141 
+C 5370 371 4781 1037 4410 1856 
+L 6099 1856 
+L 6099 2490 
+L 5613 2490 
+L 5613 4352 
+L 4237 4352 
+L 4237 5254 
+L 3590 5254 
+L 3590 4352 
+L 2477 4352 
+L 2477 3718 
+L 3590 3718 
+L 3590 3328 
+C 3590 3040 3571 2758 3533 2490 
+L 2208 2490 
+L 2208 1856 
+L 3405 1856 
+C 3155 947 2643 282 1875 -134 
+L 2278 -685 
+C 3091 -211 3654 512 3962 1478 
+z
+M 4237 3718 
+L 4960 3718 
+L 4960 2490 
+L 4179 2490 
+C 4218 2797 4237 3130 4237 3482 
+L 4237 3718 
+z
+M 282 3629 
+L 282 2976 
+L 915 2976 
+L 915 890 
+C 672 826 429 774 186 723 
+L 358 45 
+C 1069 237 1734 480 2362 762 
+L 2362 1427 
+C 2106 1312 1843 1203 1574 1101 
+L 1574 2976 
+L 2253 2976 
+L 2253 3629 
+L 1574 3629 
+L 1574 5229 
+L 915 5229 
+L 915 3629 
+L 282 3629 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-1a7c" d="M 5619 307 
+C 5862 307 6061 659 6221 1350 
+L 5715 1645 
+C 5651 1210 5600 986 5549 986 
+C 5466 986 5370 1126 5261 1395 
+C 5555 1907 5786 2522 5952 3238 
+L 5427 3475 
+C 5325 3040 5197 2643 5043 2285 
+L 4986 2688 
+C 4941 2976 4909 3341 4896 3776 
+L 6048 3776 
+L 6048 4333 
+L 5606 4333 
+L 5997 4595 
+C 5850 4787 5645 5005 5382 5261 
+L 4954 4992 
+C 5190 4755 5382 4538 5536 4333 
+L 4877 4333 
+C 4864 4614 4864 4928 4864 5267 
+L 4237 5267 
+C 4237 4941 4237 4627 4250 4333 
+L 3098 4333 
+L 3098 1555 
+C 3098 1402 3040 1293 2925 1229 
+L 3078 634 
+C 3514 851 3936 1094 4352 1376 
+L 4237 1939 
+C 4045 1811 3866 1690 3693 1587 
+L 3693 3776 
+L 4275 3776 
+C 4307 3200 4365 2720 4442 2330 
+C 4499 2035 4563 1773 4640 1542 
+C 4403 1190 4128 896 3808 659 
+L 4154 141 
+C 4435 346 4685 595 4915 883 
+L 4960 806 
+C 5171 474 5389 307 5619 307 
+z
+M 499 4461 
+L 499 3872 
+L 1414 3872 
+L 1414 3181 
+L 333 3181 
+L 333 2579 
+L 1510 2579 
+L 1510 666 
+C 1376 806 1248 992 1133 1210 
+C 1165 1510 1184 1824 1197 2150 
+L 608 2221 
+C 576 1312 435 486 179 -256 
+L 691 -717 
+C 813 -371 915 -13 998 371 
+C 1216 64 1459 -154 1734 -294 
+C 2118 -486 3091 -582 4646 -582 
+L 6035 -582 
+L 6150 83 
+C 5779 58 5229 38 4486 38 
+C 3296 38 2522 102 2150 224 
+L 2150 1312 
+L 2771 1312 
+L 2771 1907 
+L 2150 1907 
+L 2150 2579 
+L 2931 2579 
+L 2931 3181 
+L 2061 3181 
+L 2061 3872 
+L 2886 3872 
+L 2886 4461 
+L 2061 4461 
+L 2061 5254 
+L 1414 5254 
+L 1414 4461 
+L 499 4461 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-95f" d="M 365 3648 
+L 365 2995 
+L 2675 2995 
+C 2330 1530 1510 480 218 -147 
+L 646 -710 
+C 1926 -38 2784 1011 3219 2438 
+C 3706 1120 4557 90 5760 -653 
+L 6182 -102 
+C 4934 627 4083 1658 3622 2995 
+L 6035 2995 
+L 6035 3648 
+L 3469 3648 
+C 3514 4019 3539 4416 3539 4832 
+L 3539 5254 
+L 2861 5254 
+L 2861 4678 
+C 2854 4320 2829 3981 2790 3648 
+L 365 3648 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-485" d="M 1242 966 
+C 1082 966 954 922 858 826 
+C 755 736 704 614 704 461 
+C 704 320 749 198 845 102 
+C 941 6 1056 -45 1197 -45 
+C 1267 -45 1318 -32 1357 -19 
+C 1357 -173 1299 -320 1190 -474 
+C 1069 -614 922 -717 749 -781 
+L 749 -1203 
+C 1082 -1107 1350 -934 1549 -685 
+C 1741 -429 1843 -134 1843 205 
+C 1843 429 1786 614 1677 755 
+C 1562 896 1414 966 1242 966 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-1686" d="M 1261 1472 
+L 2515 1472 
+L 2515 1056 
+L 1261 1056 
+L 1261 1472 
+z
+M 2515 2022 
+L 1261 2022 
+L 1261 2464 
+L 2515 2464 
+L 2515 2022 
+z
+M 1261 506 
+L 2515 506 
+L 2515 211 
+C 2515 45 2438 -45 2298 -45 
+L 1850 -13 
+L 2016 -634 
+L 2509 -634 
+C 2944 -634 3162 -397 3162 70 
+L 3162 3040 
+L 614 3040 
+L 614 -678 
+L 1261 -678 
+L 1261 506 
+z
+M 5325 2400 
+C 5562 2400 5741 2451 5856 2547 
+C 5971 2650 6054 2976 6106 3514 
+L 5485 3718 
+C 5472 3373 5440 3168 5395 3098 
+C 5350 3034 5286 3002 5197 3002 
+L 4467 3002 
+C 4314 3002 4243 3110 4243 3315 
+L 4243 3898 
+C 4915 4000 5510 4109 6035 4224 
+L 5818 4813 
+C 5408 4704 4883 4602 4243 4499 
+L 4243 5229 
+L 3584 5229 
+L 3584 3181 
+C 3584 2662 3814 2400 4282 2400 
+L 5325 2400 
+z
+M 4243 915 
+C 4883 979 5478 1082 6035 1229 
+L 5818 1824 
+C 5357 1683 4832 1581 4243 1517 
+L 4243 2189 
+L 3584 2189 
+L 3584 38 
+C 3584 -365 3814 -570 4275 -570 
+L 5325 -570 
+C 5562 -570 5734 -518 5850 -422 
+C 5965 -320 6054 0 6106 544 
+L 5498 736 
+C 5478 390 5446 186 5395 115 
+C 5357 51 5286 19 5197 19 
+L 4461 19 
+C 4314 19 4243 77 4243 186 
+L 4243 915 
+z
+M 2707 4813 
+L 2195 4486 
+C 2310 4314 2426 4147 2528 3981 
+C 2054 3930 1606 3885 1184 3859 
+C 1510 4173 1798 4576 2054 5075 
+L 1414 5267 
+C 1222 4870 941 4442 557 3994 
+C 474 3917 371 3866 256 3827 
+L 435 3270 
+C 1350 3322 2144 3405 2810 3507 
+C 2880 3373 2950 3238 3014 3110 
+L 3565 3501 
+C 3360 3872 3078 4307 2707 4813 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-d2d" d="M 3232 5248 
+L 3232 4294 
+L 2298 4294 
+L 2298 3693 
+L 3232 3693 
+L 3232 2810 
+L 2426 2810 
+L 2426 2208 
+L 3232 2208 
+L 3232 1280 
+L 2067 1280 
+L 2067 678 
+L 3232 678 
+L 3232 -666 
+L 3866 -666 
+L 3866 5248 
+L 3232 5248 
+z
+M 986 -608 
+C 1434 -608 1658 -397 1658 13 
+L 1658 1747 
+C 1830 1824 2003 1907 2176 1990 
+L 2176 2675 
+C 2003 2586 1830 2496 1658 2419 
+L 1658 3456 
+L 2157 3456 
+L 2157 4102 
+L 1658 4102 
+L 1658 5235 
+L 1005 5235 
+L 1005 4102 
+L 390 4102 
+L 390 3456 
+L 1005 3456 
+L 1005 2163 
+C 755 2080 506 2010 256 1958 
+L 422 1280 
+C 614 1344 813 1414 1005 1485 
+L 1005 179 
+C 1005 64 922 0 755 0 
+C 602 0 435 13 256 38 
+L 403 -608 
+L 986 -608 
+z
+M 4435 5248 
+L 4435 -666 
+L 5075 -666 
+L 5075 678 
+L 6144 678 
+L 6144 1280 
+L 5075 1280 
+L 5075 2208 
+L 5939 2208 
+L 5939 2810 
+L 5075 2810 
+L 5075 3693 
+L 6099 3693 
+L 6099 4294 
+L 5075 4294 
+L 5075 5248 
+L 4435 5248 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-1546" d="M 2227 806 
+C 1651 589 986 422 224 294 
+L 314 -358 
+C 998 -230 1613 -58 2163 154 
+C 2074 26 1984 -96 1888 -211 
+L 2394 -653 
+C 2976 26 3373 966 3578 2170 
+C 3750 1677 3981 1222 4269 806 
+C 3930 461 3507 166 3008 -77 
+L 3379 -685 
+C 3891 -448 4339 -141 4717 243 
+C 5024 -90 5382 -397 5792 -672 
+L 6214 -102 
+C 5805 147 5446 429 5126 742 
+C 5536 1331 5811 2054 5952 2918 
+L 5952 3290 
+L 5171 3290 
+C 5267 3674 5363 4122 5459 4640 
+L 5459 5056 
+L 2534 5056 
+L 2534 4429 
+L 3091 4429 
+L 3091 4186 
+C 3078 2483 2790 1178 2227 256 
+L 2227 806 
+z
+M 4659 1274 
+C 4198 1875 3885 2579 3718 3373 
+C 3731 3629 3744 3904 3744 4186 
+L 3744 4429 
+L 4774 4429 
+C 4634 3680 4512 3104 4403 2707 
+L 5286 2707 
+C 5165 2176 4954 1696 4659 1274 
+z
+M 1338 5280 
+C 1107 4614 832 4006 518 3456 
+C 435 3334 346 3251 243 3213 
+L 403 2605 
+C 723 2643 1037 2688 1331 2726 
+C 1043 2278 800 1958 608 1779 
+C 525 1696 422 1632 307 1587 
+L 480 986 
+C 1107 1056 1766 1197 2470 1408 
+L 2470 2010 
+C 2074 1888 1683 1792 1299 1715 
+C 1664 2157 2112 2842 2650 3770 
+L 2067 3994 
+C 1939 3757 1811 3533 1696 3328 
+C 1472 3296 1254 3270 1037 3245 
+C 1357 3712 1670 4307 1978 5024 
+L 1338 5280 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-dc4" d="M 4288 3706 
+L 5069 3706 
+C 5043 2982 4934 2336 4742 1773 
+C 4531 2253 4358 2810 4218 3443 
+C 4243 3533 4262 3616 4288 3706 
+z
+M 4435 1088 
+C 4160 595 3789 198 3328 -109 
+L 3674 -672 
+C 4109 -358 4480 26 4781 474 
+C 5082 0 5434 -384 5830 -678 
+L 6202 -134 
+C 5779 154 5414 557 5107 1069 
+C 5446 1798 5632 2675 5670 3706 
+L 6022 3706 
+L 6022 4352 
+L 4422 4352 
+C 4467 4602 4506 4864 4544 5146 
+L 3891 5261 
+C 3770 4083 3533 3142 3181 2438 
+L 3597 1920 
+C 3699 2099 3802 2298 3898 2509 
+C 4051 1984 4230 1510 4435 1088 
+z
+M 1408 2291 
+C 1370 2176 1325 2061 1280 1933 
+L 390 1933 
+L 390 1363 
+L 1024 1363 
+C 909 1126 774 877 621 621 
+C 902 512 1178 403 1434 294 
+C 1094 141 698 6 237 -96 
+L 544 -653 
+C 1178 -486 1702 -275 2125 -6 
+C 2470 -166 2765 -320 3008 -467 
+L 3366 58 
+C 3130 186 2886 301 2637 410 
+C 2918 691 3110 1024 3219 1395 
+L 3219 1933 
+L 1933 1933 
+C 1965 2022 1997 2118 2035 2214 
+L 1408 2291 
+z
+M 2035 659 
+C 1830 742 1626 819 1421 883 
+C 1510 1037 1600 1197 1683 1363 
+L 2630 1363 
+C 2496 1101 2298 864 2035 659 
+z
+M 1018 5165 
+L 499 4998 
+C 640 4762 774 4493 902 4186 
+L 1376 4397 
+C 1274 4672 1152 4928 1018 5165 
+z
+M 2816 5171 
+C 2701 4915 2534 4659 2330 4397 
+L 2797 4160 
+C 2995 4416 3155 4678 3283 4947 
+L 2816 5171 
+z
+M 403 4090 
+L 403 3507 
+L 1165 3507 
+C 973 3226 666 2970 250 2733 
+L 582 2195 
+C 1043 2528 1376 2906 1594 3341 
+L 1594 2336 
+L 2208 2336 
+L 2208 3008 
+C 2387 2886 2611 2720 2880 2509 
+L 3226 3034 
+C 2880 3206 2541 3360 2208 3494 
+L 2208 3507 
+L 3296 3507 
+L 3296 4090 
+L 2208 4090 
+L 2208 5248 
+L 1594 5248 
+L 1594 4090 
+L 403 4090 
+z
+" transform="scale(0.015625)"/>
+      <path id="s2-PingFangSC-Semibold-a5d" d="M 1517 4531 
+C 1261 3648 858 2938 307 2400 
+L 877 1907 
+C 1414 2451 1843 3238 2170 4275 
+L 1517 4531 
+z
+M 4608 2483 
+C 3923 1190 2528 352 416 -32 
+L 800 -685 
+C 2995 -256 4461 678 5197 2125 
+L 4608 2483 
+z
+M 2854 5242 
+L 2854 1606 
+L 3546 1606 
+L 3546 5242 
+L 2854 5242 
+z
+M 4710 4627 
+L 4109 4352 
+C 4659 3661 5158 2867 5606 1971 
+L 6246 2298 
+C 5805 3142 5293 3923 4710 4627 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s2-PingFangSC-Semibold-8d8"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1a7c" transform="translate(100 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-95f" transform="translate(200 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-485" transform="translate(300 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1686" transform="translate(400 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-d2d" transform="translate(500 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1331" transform="translate(600 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1546" transform="translate(700 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-dc4" transform="translate(800 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-1a7c" transform="translate(900 0)"/>
+     <use xlink:href="#s2-PingFangSC-Semibold-a5d" transform="translate(1000 0)"/>
+    </g>
+   </g>
+   <g id="s2-legend_1">
+    <g id="s2-line2d_29">
+     <path d="M 357.511786 35.195 
+L 361.311786 35.195 
+L 361.311786 35.195 
+L 368.911786 35.195 
+L 368.911786 35.195 
+L 372.711786 35.195 
+" style="fill: none; stroke: #d55e00; stroke-width: 2; stroke-linecap: square"/>
+    </g>
+    <g id="s2-text_27">
+     
+     <g style="fill: #1a1a1a" transform="translate(380.311786 38.52) scale(0.095 -0.095)">
+      <defs>
+       <path id="s2-PingFangSC-Regular-29" d="M 461 4570 
+L 461 0 
+L 986 0 
+L 986 2125 
+L 3386 2125 
+L 3386 2579 
+L 986 2579 
+L 986 4115 
+L 3520 4115 
+L 3520 4570 
+L 461 4570 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-33" d="M 461 4570 
+L 461 0 
+L 986 0 
+L 986 1869 
+L 2323 1869 
+C 3373 1869 3904 2323 3904 3226 
+C 3904 4122 3379 4570 2330 4570 
+L 461 4570 
+z
+M 986 4115 
+L 2298 4115 
+C 2662 4115 2931 4045 3110 3891 
+C 3290 3757 3379 3533 3379 3226 
+C 3379 2918 3290 2694 3117 2547 
+C 2938 2400 2669 2323 2298 2323 
+L 986 2323 
+L 986 4115 
+z
+" transform="scale(0.015625)"/>
+       <path id="s2-PingFangSC-Regular-20" d="M 320 2528 
+L 320 2099 
+L 3552 2099 
+L 3552 2528 
+L 320 2528 
+z
+M 320 1216 
+L 320 781 
+L 3552 781 
+L 3552 1216 
+L 320 1216 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s2-PingFangSC-Regular-29"/>
+      <use xlink:href="#s2-PingFangSC-Regular-33" transform="translate(57.703125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-1b" transform="translate(121.90625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(181.90625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-14" transform="translate(215.203125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-27" transform="translate(255.296875 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-14" transform="translate(325.890625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-27" transform="translate(365.984375 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-485" transform="translate(436.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-25" transform="translate(536.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2f" transform="translate(604.28125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-32" transform="translate(663.078125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-26" transform="translate(739.78125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(812.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-42" transform="translate(881.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(931.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(1000.578125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-20" transform="translate(1033.875 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(1094.375 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-14" transform="translate(1127.671875 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-15" transform="translate(1167.765625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-1b" transform="translate(1227.765625 0)"/>
+     </g>
+    </g>
+    <g id="s2-line2d_30">
+     <path d="M 357.511786 49.643906 
+L 361.311786 49.643906 
+L 361.311786 49.643906 
+L 368.911786 49.643906 
+L 368.911786 49.643906 
+L 372.711786 49.643906 
+" style="fill: none; stroke-dasharray: 4.81,2.08; stroke-dashoffset: 0; stroke: #0072b2; stroke-width: 1.3"/>
+    </g>
+    <g id="s2-text_28">
+     
+     <g style="fill: #1a1a1a" transform="translate(380.311786 52.968906) scale(0.095 -0.095)">
+      <use xlink:href="#s2-PingFangSC-Regular-25"/>
+      <use xlink:href="#s2-PingFangSC-Regular-29" transform="translate(67.703125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-14" transform="translate(125.40625 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-19" transform="translate(165.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-485" transform="translate(225.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-25" transform="translate(325.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2f" transform="translate(393.203125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-32" transform="translate(452 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-26" transform="translate(528.703125 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(601.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-42" transform="translate(670.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-2e" transform="translate(720.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(789.5 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-20" transform="translate(822.796875 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-3" transform="translate(883.296875 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-19" transform="translate(916.59375 0)"/>
+      <use xlink:href="#s2-PingFangSC-Regular-17" transform="translate(976.59375 0)"/>
+     </g>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="s2-p05925deda4">
+   <rect x="10.2" y="21.8" width="247.795235" height="152.39952"/>
+  </clipPath>
+  <clipPath id="s2-p11c06ed35a">
+   <rect x="295.725403" y="21.8" width="215.474117" height="152.39952"/>
+  </clipPath>
+ </defs>
+</svg></div>
+  <figcaption id="fig-stages-cap"><span class="fig-label">图 2</span><b>块越大，能排进共享内存的流水线级数越少。</b>左图：<span class="nobr">BM = BN = 128</span> 的 FP8 1D1D 内核在 SM100 上的共享内存划分——C/D 写回缓冲和屏障占固定开销，剩余空间被切成 5 级流水线。右图：固定 <span class="nobr">BM = 128</span>，随 BN 增大，FP8 1D1D 和 BF16 两种内核在 SM100 上的级数变化。由 <code>plots/stages.py</code> 对 <code>get_pipeline_config</code> 的 Python 移植生成。</figcaption>
+</figure>
+
+<p>如<a href="#eq-stages">式 (2)</a> 所示，级数取决于分到每级的字节数。<a href="#fig-stages">图 2</a> 的右图显示了一个直觉上不明显的事实：<b>BF16 的级数可以比 FP8 高</b>。原因是 BF16 的 <code>block_k</code> 只有 64（因为 BF16 元素是 2 字节，<span class="nobr">\( 128 \times 8 / 16 = 64 \)</span>），而 FP8 的是 128——每级的 A、B 块字节数分别是 <span class="nobr">\( \text{BM} \times 64 \times 2 \)</span> 和 <span class="nobr">\( \text{BM} \times 128 \times 1 \)</span>，刚好一样，但 FP8 1D1D 内核还要为每级的 SF-A 和 SF-B 各留一块（<code>smem_sfa_per_stage</code> 和 <code>smem_sfb_per_stage</code>），总开销更大。</p>
+
+<h2 id="sec-knobs" data-short="三个旋钮">三个运行期旋钮</h2>
+
+<p>除了形状之外，DeepGEMM 还暴露了三个可以在 Python 侧随时调的控制旋钮（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/config.hpp#L1-L49"><code>csrc/apis/config.hpp</code> 第 1–49 行</a>）：</p>
+
+<h3 id="sec-5">tc_util：张量核利用率上限</h3>
+
+<p><code>set_tc_util(x)</code> 把 <code>runtime→tc_util</code> 设成 0–100 之间的整数，默认 0 表示 100%。它被填进 <code>GemmDesc.tc_util</code>，传给每个 host 侧的 launcher，生成的模板参数叫 <code>kTCUtil</code>。在 SM100 内核里这个参数控制 <code>warpgroup::arrive_tc_util</code>（<code>setmaxnreg</code> 指令的等效），意思是"张量核在一个 warp 调度周期里最多使用这么多比例的时间"。不设则不限制。典型用途是把一部分张量核时间让给 TMA 或尾声以提高并行度。</p>
+
+<h3 id="sec-6">PDL：流水线描述符加载</h3>
+
+<p><code>set_pdl(True/False)</code> 控制 SM100 的 Programmatic Dependent Launch。PDL 让后一个 grid 在前一个 grid 还没完全结束时就开始启动，可以减少两个 kernel 之间的空隙。它是一个 launch 选项而不是编译期选项：DeepJIT 的 <code>LaunchOptions</code> 里有一个 <code>enable_pdl</code> 字段，每次 launch 时传给 CUDA Driver（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/config.hpp#L27-L31"><code>config.hpp</code> 第 27–31 行</a>）。</p>
+
+<h3 id="sec-7">确定性模式</h3>
+
+<p><code>use_deterministic_algorithms(True)</code> 把 <code>HeuristicsRuntime.deterministic_algorithms</code> 设成 <code>true</code>（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/runtime.hpp#L18-L24"><code>runtime.hpp</code> 第 18–24 行</a>）。目前代码里只有 Mega MoE 和 Mega mHC 读这个开关（<a href="../dg08-mega-moe/dg08-mega-moe.html">第 8 篇</a>、<a href="../dg09-mega-gate-mhc/dg09-mega-gate-mhc.html">第 9 篇</a>）。普通 GEMM 的启发式不读它——对于非 Mega 内核，确定性由内核本身保证（同一配置、同一输入、同一网格总是给出同一结果），不需要额外旋钮。</p>
+
+<h2 id="sec-deepjit" data-short="DeepJIT">DeepJIT：编译缓存与惰性初始化</h2>
+
+<p>DeepGEMM 不用 Triton、不用 CuTe 的 Python 前端——它把内核写成 <code>.cuh</code> 模板，在 host 侧用 <code>std::format</code> 把配置拼成一段 C++ 源码，然后调用 DeepJIT 的 <code>jit→compile(tag, source)</code> 编译它 <span class="cite">[<a href="#ref-deepgemm" title="DeepSeek-AI. DeepGEMM，提交 <code>5081f85</code>。本文全部 DeepGEMM 代码引用均指向该提交。">1</a>]</span>。DeepJIT 是 DeepSeek 开源的一个轻量级 JIT 运行时 <span class="cite">[<a href="#ref-deepjit" title="DeepSeek-AI. DeepJIT，提交 <code>2efdab4</code>。DeepGEMM 以子模块形式引入。">2</a>]</span>，它处理的是"从源码到可执行内核"这一段基础设施。</p>
+
+<h3 id="sec-8">缓存键：五段内容的 FNV-1a</h3>
+
+<p>DeepJIT 的缓存键由五段输入的哈希决定（<a href="https://github.com/deepseek-ai/DeepJIT/blob/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43/include/deep_jit/runtime/runtime.hpp#L42-L51"><code>runtime.hpp</code> 第 42–51 行</a>）：</p>
+
+<ol>
+  <li><code>extra_signature</code>：应用（DeepGEMM）自己提供的依赖签名，包含 CUTLASS 版本号；</li>
+  <li>编译器版本信息：NVCC 的版本和路径；</li>
+  <li>编译选项展开成的 flags 串；</li>
+  <li>post hook（DeepGEMM 不用这个功能）；</li>
+  <li>源码加上递归展开的 include 文件。</li>
+</ol>
+
+<p>哈希函数是 FNV-1a 的一个变体，用两段 64 位状态并行推进，取出时各做一次 split-mix 终结化再拼成 32 个十六进制字符。<a href="#fig-jitcache">图 3</a> 画出了缓存键的构成和查找顺序。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepJIT/blob/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43/include/deep_jit/utils/hash.hpp#L1-L44"><code>class FNV1a {
+public:
+    uint64_t state_0 = 0xc6a4a7935bd1e995ull;
+    uint64_t state_1 = 0xff51afd7ed558ccdull;
+
+    FNV1a&amp; update(const std::string_view data) {
+        const auto update_byte = [&amp;](const uint8_t byte) {
+            state_0 = (state_0 ^ byte) * 0x100000001b3ull;
+            state_1 = (state_1 ^ byte) * 0x9e3779b97f4a7c15ull;
+        };
+
+        // Prefix every update with its length so chained binary inputs have unambiguous boundaries
+        const int64_t size = data.size();
+        for (int shift = 0; shift &lt; 64; shift += 8)
+            update_byte(static_cast&lt;uint8_t&gt;(size &gt;&gt; shift));
+        for (const char value: data)
+            update_byte(static_cast&lt;uint8_t&gt;(value));
+        return *this;
+    }
+
+    [[nodiscard]] std::string get_hex_digest() const {
+        const auto split_mix = [](uint64_t value) {
+            value = (value ^ (value &gt;&gt; 30)) * 0xbf58476d1ce4e5b9ull;
+            value = (value ^ (value &gt;&gt; 27)) * 0x94d049bb133111ebull;
+            return value ^ (value &gt;&gt; 31);
+        };
+        return std::format("{:016x}{:016x}", split_mix(state_0), split_mix(state_1));
+    }
+};
+
+inline std::string get_hex_digest(const std::string_view data) {
+    return FNV1a().update(data).get_hex_digest();
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepJIT/blob/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43/include/deep_jit/utils/hash.hpp#L1-L44">DeepJIT <code>include/deep_jit/utils/hash.hpp</code> 第 1–44 行</a>（节选）</p>
+
+<p>每段输入先喂自己的长度再喂内容，这样"源码 A + 选项 B"和"源码 AB + 选项空"不会碰撞。最终的 <code>tag.digest</code> 就是磁盘缓存目录名。</p>
+
+<figure id="fig-jitcache" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-jitcache-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 318" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ahj" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ahj-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-title" x="8" y="14">缓存键：五段内容喂进同一个 FNV-1a</text>
+
+  <rect class="d-box soft" x="8" y="24" width="190" height="24" rx="3"/>
+  <text class="d-small" x="103" y="40" text-anchor="middle">extra_signature</text>
+  <rect class="d-box soft" x="8" y="54" width="190" height="24" rx="3"/>
+  <text class="d-small" x="103" y="70" text-anchor="middle">编译器版本信息</text>
+  <rect class="d-box" x="8" y="84" width="190" height="24" rx="3"/>
+  <text class="d-small" x="103" y="100" text-anchor="middle">编译选项展开成的 flags 串</text>
+  <rect class="d-box" x="8" y="114" width="190" height="24" rx="3"/>
+  <text class="d-small" x="103" y="130" text-anchor="middle">post hook</text>
+  <rect class="d-box accent" x="8" y="144" width="190" height="24" rx="3"/>
+  <text class="d-small" x="103" y="160" text-anchor="middle">源码 + 递归展开的 include</text>
+
+  <path class="d-arrow muted" d="M198 36 H218 V96"/>
+  <path class="d-arrow muted" d="M198 66 H218"/>
+  <path class="d-arrow muted" d="M198 96 H244" marker-end="url(#s3-ahj)"/>
+  <path class="d-arrow muted" d="M198 126 H218"/>
+  <path class="d-arrow muted" d="M198 156 H218 V96"/>
+
+  <rect class="d-box" x="246" y="76" width="140" height="42" rx="4"/>
+  <text class="d-title" x="316" y="94" text-anchor="middle">FNV-1a</text>
+  <text class="d-label" x="316" y="110" text-anchor="middle">每段先喂自己的长度</text>
+
+  <path class="d-arrow accent" d="M386 97 H398" marker-end="url(#s3-ahj-acc)"/>
+  <rect class="d-box accent" x="400" y="76" width="152" height="42" rx="4"/>
+  <text class="d-small" x="476" y="94" text-anchor="middle">32 位十六进制摘要</text>
+  <text class="d-mono" x="476" y="110" text-anchor="middle">tag.digest</text>
+
+  <text class="d-label" x="8" y="182">两段 64 位状态并行推进，取出时各做一次 split-mix 再拼成 32 个十六进制字符</text>
+
+  <line x1="8" y1="196" x2="552" y2="196" stroke="#e6e6e3" stroke-width="1"/>
+
+  <text class="d-title" x="8" y="216">查找顺序：内存未命中 → 磁盘未命中 → 才编译</text>
+
+  <rect class="d-box" x="8" y="228" width="156" height="58" rx="4"/>
+  <text class="d-title" x="86" y="247" text-anchor="middle">MemCache</text>
+  <text class="d-small" x="86" y="264" text-anchor="middle">进程内 map</text>
+  <text class="d-label" x="86" y="279" text-anchor="middle">命中即返回已载入内核</text>
+
+  <path class="d-arrow" d="M164 257 H200" marker-end="url(#s3-ahj)"/>
+
+  <rect class="d-box" x="202" y="228" width="156" height="58" rx="4"/>
+  <text class="d-title" x="280" y="247" text-anchor="middle">DiskCache</text>
+  <text class="d-mono" x="280" y="264" text-anchor="middle">cache/tag.digest/</text>
+  <text class="d-label" x="280" y="279" text-anchor="middle">逐目录查 .committed</text>
+
+  <path class="d-arrow" d="M358 257 H394" marker-end="url(#s3-ahj)"/>
+
+  <rect class="d-box accent" x="396" y="228" width="156" height="58" rx="4"/>
+  <text class="d-title" x="474" y="247" text-anchor="middle">编译并原子发布</text>
+  <text class="d-mono" x="474" y="264" text-anchor="middle">tmp/uuid</text>
+  <text class="d-label" x="474" y="279" text-anchor="middle">fsync 后 rename 过去</text>
+
+  <text class="d-label" x="8" y="306">DG_JIT_CACHE_DIR 用冒号分隔多个目录：查找从前往后，编译结果只写进第一个</text>
+</svg></div>
+  <figcaption id="fig-jitcache-cap"><span class="fig-label">图 3</span><b>DeepJIT 的缓存键和查找顺序。</b>上半：五段内容喂进同一个 FNV-1a，得到 32 位十六进制摘要 <code>tag.digest</code>。下半：查找先看内存 map（命中即返回已加载的内核），再逐目录查磁盘（看 <code>.committed</code> 标记），全未命中才调 NVCC 编译。编译结果写入 <code>tmp/uuid</code>，<code>fsync</code> 后原子 <code>rename</code> 到 <code>cache/tag.digest/</code>。<code>DG_JIT_CACHE_DIR</code> 可以用冒号分隔多个目录。</figcaption>
+</figure>
+
+<h3 id="sec-9">磁盘缓存的原子发布</h3>
+
+<p>DeepJIT 的磁盘缓存用目录粒度的原子发布：编译产物先写进 <code>tmp/&lt;uuid&gt;</code>，在里面放好 <code>.committed</code> 标记并 <code>fsync</code>，然后对整个目录做一次 <code>rename</code>——如果另一个进程已经抢先 rename 了，当前进程就删掉自己的临时目录、用已有的（<a href="https://github.com/deepseek-ai/DeepJIT/blob/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43/include/deep_jit/cache/disk.hpp#L52-L69"><code>disk.hpp</code> 第 52–69 行</a>）。这使得多机、多进程可以共享同一个缓存目录而不互相踩踏。</p>
+
+<h3 id="sec-10">compiled_dims：不是所有维度都编进内核</h3>
+
+<p>DeepGEMM 的大多数 launcher 都接受一个 <code>compiled_dims</code> 字符串参数。当 <code>compiled_dims</code> 包含 <code>'m'</code> 时，\( M \) 被编成编译期常量（模板参数），否则传 0 表示运行期确定。典型用法是训练时 \( M \) 不定而 \( N \) 和 \( K \) 是模型维度：传 <code>"nk"</code> 让编译器为它们生成特化代码，\( M \) 则留到运行期。</p>
+
+<p><code>set_ignore_compile_dims(True)</code> 让所有维度都不编译——这在 profiling 或形状频繁变化的场景下减少内核变体（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/heuristics/runtime.hpp#L25-L31"><code>runtime.hpp</code> 第 25–31 行</a>）。</p>
+
+<h3 id="sec-11">惰性初始化</h3>
+
+<p>DeepJIT 和 <code>HeuristicsRuntime</code> 都用 <code>deep_jit::LazyInit</code> 包装：第一次使用（解引用 <code>jit-></code>）时才创建对象。这意味着 <code>import deep_gemm</code> 不会立刻碰 CUDA driver，也不会创建缓存目录——只有第一次调用 GEMM 时才会触发一连串初始化。<code>init_jit</code> 在 <code>deep_gemm.__init__</code> 的 <code>_C.init()</code> 里被调用，它设置 include 路径和环境前缀（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/runtime/jit.hpp#L13-L25"><code>runtime/jit.hpp</code> 第 13–25 行</a>），但 <code>Runtime</code> 对象本身要到首次 compile 时才被 lambda 构造出来。</p>
+
+<h2 id="sec-locality" data-short="局部性域">局部性域与 mlopart</h2>
+
+<p>Blackwell GPU 有两个"局部性域"（locality domain）：HBM 的一半在物理上离一半 SM 更近，另一半离另一半 SM 更近。如果权重恰好分配在某个 SM 对应的域里，读取带宽更高、延迟更低。这个信息目前不能通过标准 CUDA API 查询——DeepGEMM 用一个叫 MLOPart（Multi-Locality Partitioning）的机制来分配和探测。<a href="#fig-locality">图 4</a> 画出了整个流程。</p>
+
+<h3 id="sec-12">localize()：把权重切成两半</h3>
+
+<aside class="sidenote">代码里 <code>kNumDeviceLocalityDomains</code> 固定为 2，<code>kNumSMsPerTPC</code> 固定为 2（两个 SM 组成一个 TPC，同 TPC 的 SM 在同一个域）。这些常量在 <code>sm100_locality_domain.hpp</code> 和 <code>locality_domain.hpp</code> 里。</aside>
+<p>Python 侧的 <code>localize(t, dim=-2)</code> 把一个 <span class="nobr">\( (N, K) \)</span> 的权重张量变成 <span class="nobr">\( (2, N/2, K) \)</span>，其中切片 0 分配在域 0、切片 1 分配在域 1（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/locality_domain.py#L13-L22"><code>locality_domain.py</code> 第 13–22 行</a>）。底层调用的是 <code>empty_per_domain</code>：它用 <code>cuMemAddressReserve</code> 预留一段虚拟地址，然后对每个域分别调 <code>LocalityDomainAllocator::map</code>，而 <code>map</code> 又调 <code>mlopart::create_memory</code> 在指定域做一次 <code>cuMemCreate</code>，拿到 handle 后 <code>cuMemMap</code> 到预留的地址上（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/runtime/locality_domain.hpp#L44-L57"><code>locality_domain.hpp</code> 第 44–57 行</a>）。</p>
+
+<h3 id="sec-13">MLOPart 子进程</h3>
+
+<p>CUDA 13.4 以前没有直接指定域的 <code>cuMemCreate</code> 参数。DeepGEMM 的变通方案是启动一个 MLOPart 子进程：它用 <code>nvidia-cuda-mps-control</code> 带 <code>-mlopart</code> 启动一个 MPS 守护，然后在守护下 <code>cuInit</code>（此时看到的两个"设备"各对应一个域），对指定设备做 <code>cuMemCreate</code>，用 <code>cuMemExportToShareableHandle</code> 导出 POSIX fd，再通过 Unix socket 把 fd 传回主进程。主进程用 <code>cuMemImportFromShareableHandle</code> 把它变成自己进程空间里的 handle，然后 map 到预留地址（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/utils/mlopart.py#L43-L52"><code>mlopart.py</code> 第 43–52 行</a>）。</p>
+
+<h3 id="sec-14">probe：用指针追逐测延迟</h3>
+
+<p>权重放好了，还要知道每个 SM 在哪个域。<code>probe_sm_locality_domains</code> 的做法是：在两个域各分配一块探测缓冲区，在里面写入指针追逐链（每 128 字节一跳、连续 32 跳），每个 SM 跑一个 32 线程的 CTA 去追逐，测每跳的周期数取中位值（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/locality_domain.hpp#L82-L92"><code>locality_domain.hpp</code> 第 82–92 行</a>）。排序后延迟最低的那个域就是这个 SM 的"近域"。判定条件还要求远域/近域的延迟比超过 1.25 倍，且同一 TPC 的两个 SM 给出相同结果——不满足则重试最多 5 次，全部不稳定则退回到均匀分配（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/locality_domain.hpp#L100-L112"><code>locality_domain.hpp</code> 第 100–112 行</a>）。</p>
+
+<figure id="fig-locality" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-locality-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 300" font-family="sans-serif" role="img" id="s4-root" style="max-width:560px;">
+  <defs>
+    <marker id="s4-ahl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s4-ahl-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text class="d-title" x="8" y="14">代码里的局部性域固定为 2：权重和 SM 各被分成两半</text>
+
+  
+  <text class="d-small" x="8" y="36">权重侧：localize()</text>
+  <rect class="d-box" x="8" y="44" width="264" height="32" rx="4"/>
+  <text class="d-mono" x="140" y="64" text-anchor="middle">(N, K) → (2, N/2, K)</text>
+  <path class="d-arrow" d="M140 76 V84 H72 V90" marker-end="url(#s4-ahl)"/>
+  <path class="d-arrow" d="M140 84 H208 V90" marker-end="url(#s4-ahl)"/>
+  <rect class="d-box blue" x="8" y="92" width="128" height="30" rx="3"/>
+  <text class="d-small" x="72" y="112" text-anchor="middle">切片 0 → 域 0</text>
+  <rect class="d-box green" x="144" y="92" width="128" height="30" rx="3"/>
+  <text class="d-small" x="208" y="112" text-anchor="middle">切片 1 → 域 1</text>
+  <text class="d-label" x="8" y="140">MLOPart 子进程在域 d 里 cuMemCreate，</text>
+  <text class="d-label" x="8" y="155">导出 fd，主进程 cuMemMap 到预留地址</text>
+
+  
+  <text class="d-small" x="288" y="36">SM 侧：延迟探测</text>
+  <rect class="d-box" x="288" y="44" width="264" height="32" rx="4"/>
+  <text class="d-small" x="420" y="64" text-anchor="middle">指针追逐 4 KiB 块，取每跳周期中位数</text>
+
+  <text class="d-label" x="346" y="105" text-anchor="end">探测</text>
+  <rect class="d-cell" x="352" y="90" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="377" y="90" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="402" y="90" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="427" y="90" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="452" y="90" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="477" y="90" width="20" height="18" fill="#009E73"/>
+  <rect class="d-cell" x="502" y="90" width="20" height="18" fill="#009E73"/>
+  <rect class="d-cell" x="527" y="90" width="20" height="18" fill="#009E73"/>
+
+  <text class="d-label" x="346" y="133" text-anchor="end">平衡后</text>
+  <rect class="d-cell" x="352" y="118" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="377" y="118" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="402" y="118" width="20" height="18" fill="#0072B2"/>
+  <rect class="d-cell" x="427" y="118" width="20" height="18" fill="#0072B2"/>
+  <rect x="452" y="118" width="20" height="18" fill="#009E73" style="stroke:#D55E00;stroke-width:2"/>
+  <rect class="d-cell" x="477" y="118" width="20" height="18" fill="#009E73"/>
+  <rect class="d-cell" x="502" y="118" width="20" height="18" fill="#009E73"/>
+  <rect class="d-cell" x="527" y="118" width="20" height="18" fill="#009E73"/>
+  <text class="d-label" x="288" y="153">一格 = 一个 TPC（2 个 SM 同域）</text>
+  <text class="d-label" x="288" y="168">橙框：平衡时被改判到另一域的 TPC</text>
+
+  <line x1="8" y1="180" x2="552" y2="180" stroke="#e6e6e3" stroke-width="1"/>
+
+  
+  <text class="d-title" x="8" y="200">用处：Mega MoE 的任务队列按域分成两份</text>
+  <rect class="d-box blue" x="8" y="210" width="248" height="38" rx="4"/>
+  <text class="d-small" x="132" y="234" text-anchor="middle">域 0 的任务计数器</text>
+  <rect class="d-box green" x="304" y="210" width="248" height="38" rx="4"/>
+  <text class="d-small" x="428" y="234" text-anchor="middle">域 1 的任务计数器</text>
+  <path class="d-arrow accent dashed" d="M256 223 H300" marker-end="url(#s4-ahl-acc)"/>
+  <path class="d-arrow accent dashed" d="M304 238 H260" marker-end="url(#s4-ahl-acc)"/>
+  <text class="d-label" x="8" y="270">SM 先对本域计数器做 atomicAdd；本域取空、且任务量够两波时，才去偷另一域</text>
+  <text class="d-label" x="8" y="288">域内的 n_cluster 编号也按域切开，所以一个 CTA 读到的权重切片就在它自己的域里</text>
+</svg></div>
+  <figcaption id="fig-locality-cap"><span class="fig-label">图 4</span><b>局部性域：权重和 SM 各被分成两半。</b>左上：权重侧，<code>localize()</code> 把 \( (N, K) \) 切成 \( (2, N/2, K) \)，两片分别用 MLOPart 子进程分配到域 0 和域 1。右上：SM 侧，指针追逐探测每个 SM 到两个域的延迟中位数，决定 SM 归属。下方：探测后有 16 个 TPC（32 个 SM），可能 10 个在域 0、6 个在域 1，平衡后各取 8 个。橙色方块是被改判到另一域的 TPC。用处：Mega MoE 的任务计数器按域切开，SM 先领本域的任务（<a href="../dg08-mega-moe/dg08-mega-moe.html">第 8 篇</a>）。</figcaption>
+</figure>
+
+<h3 id="sec-15">balance：让两域 SM 数相等</h3>
+
+<p>物理探测可能给出不均匀的结果（比如 10 个 TPC 在域 0、6 个在域 1）。<code>balance_sm_locality_domains</code> 把多余域的多余 TPC 改判到少数域，使两域各占 \( n_\text{tpc}/2 \) 个 TPC。具体做法是：找出多余域的 TPC 列表，取前 \( n_\text{surplus} \) 个翻转它们的域标签（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/locality_domain.hpp#L118-L126"><code>locality_domain.hpp</code> 第 118–126 行</a>）。被翻转的 TPC 虽然读远域的延迟稍高，但它们能和近域的 SM 共同组成两路 cluster multicast——这在 Mega MoE 里是必须的（<a href="../dg08-mega-moe/dg08-mega-moe.html">第 8 篇</a>）。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>没有任何性能数字。</b>本地没有 GPU。<a href="#fig-stages">图 2</a> 的级数图由 Python 对 <code>get_pipeline_config</code> 的移植算出，横轴是块大小不是耗时；SM90 的 <code>num_cycles</code> 代价模型也是一个相对量（L1/L2 搬运的估计周期），不是实际时间。</li>
+  <li><b>SM100 的代价模型待实现。</b><code>sm100.hpp</code> 的 <code>get_layout_info</code> 把 <code>num_cycles</code> 留成了 0，所有比较走的是字典序而非周期估算。</li>
+  <li><b>SM90 的 L1/L2 带宽常量来源不明。</b><code>l2_bandwidth_per_cycle</code> 的公式 <code>min(64 * num_sms, 8e6 / 1.3e3)</code> 似乎是经验值，代码里没有注释说明出处。本文原样引用，不做正确性判断。</li>
+  <li><b>DeepJIT 的 Ascend 后端未读。</b>README 说它支持 CUDA 和昇腾两个后端，本文只看了 CUDA 那条路径。</li>
+  <li><b>MLOPart 的 MPS 管道细节未展开。</b>子进程用 <code>nvidia-cuda-mps-control -f</code> 启动守护、再用 <code>start_server ... -mlopart</code> 启动服务端，但这两步的具体含义和前提条件（驱动版本、GPU 架构）未在本文中讨论。</li>
+  <li><b>指针追逐内核只描述了原理。</b><code>sm100_locality_domain.cuh</code> 里的实际 device 代码用了 inline PTX 的 <code>ld.global.ca</code>（cache at all levels，即所有缓存层级都参与）加载指针追逐链。<code>.ca</code> 修饰符并<b>不</b>绕过 L2——绕过 L2 需要使用 <code>.cg</code>（cache global）或 <code>.cs</code>（streaming）。此处使用 <code>.ca</code> 意味着探测的是包含 L1+L2 全栈缓存后的访问延迟，而非裸 HBM 延迟。两个域的延迟差异体现的是 HBM 到 SM 的物理距离差异（经过缓存后仍然可观测），而非绕过缓存后的纯 HBM 延迟差异。本文没有展开讨论探测内核的 PTX 细节。</li>
+  <li><b><code>compiled_dims</code> 对内核变体数量的影响没有量化。</b>因为变体数取决于项目的实际 (M, N, K) 集合，没有 GPU 环境无法统计。</li>
+  <li><b><code>set_block_size_multiple_of</code> 只一句带过。</b>它设置 <code>block_m_multiple_of</code> 和 <code>block_n_multiple_of</code>，影响 SM100 的 <code>block_m</code>/<code>block_n</code> 候选步长（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/config.hpp#L42-L48"><code>config.hpp</code> 第 42–48 行</a>），但不在本文的覆盖清单里。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg04-moe-grouped/dg04-moe-grouped.html">分组 GEMM 不换内核，只换索引表</a>
+  ｜ 下一篇：<a href="../dg06-bf16-einsum/dg06-bf16-einsum.html">BF16、批量 GEMM、einsum 与 cuBLASLt 兜底</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-refs" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-deepgemm">DeepSeek-AI. <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">DeepGEMM</a>，提交 <code>5081f85</code>。本文全部 DeepGEMM 代码引用均指向该提交。</li>
+  <li id="ref-deepjit">DeepSeek-AI. <a href="https://github.com/deepseek-ai/DeepJIT/tree/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43">DeepJIT</a>，提交 <code>2efdab4</code>。DeepGEMM 以子模块形式引入。</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>；DeepJIT 的引用指向 <a href="https://github.com/deepseek-ai/DeepJIT/tree/2efdab421e1cfb17fe8bc20e11ca72aa6d0e6c43">deepseek-ai/DeepJIT@2efdab4</a>（以子模块形式随 DeepGEMM 引入）。本文没有任何实测性能数字：标注 <code>computed</code> 的 <a href="#fig-stages">图 2</a> 由 <code>plots/stages.py</code> 对 <code>get_pipeline_config</code> 的 Python 移植计算，画的是流水线级数与块大小的关系，不是耗时。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

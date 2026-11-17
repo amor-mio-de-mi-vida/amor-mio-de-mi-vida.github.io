@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mega Gate、Mega mHC 与 TF32 HC prenorm GEMM</title>
+<meta name="description" content="DeepGEMM 精读第 9 篇：Mega Gate 把 BF16 GEMM 和门控路由焊在一起，Mega mHC 把 HyperConnection 的残差混合、矩阵乘、Sinkhorn、RMSNorm 和 FP8 量化全部融合，TF32 HC prenorm GEMM 服务于预归一化，提交 5081f85 修复了 split barrier 在 CUDA graph 重放时被清零的问题。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 9 篇</div>
+  <h1>Mega Gate、Mega mHC 与 TF32 HC prenorm GEMM</h1>
+  <p class="subtitle">Mega Gate 融合 BF16 GEMM 与 sqrtsoftplus top-k 门控；Mega mHC 把 4 路 HyperConnection 的混合、矩阵乘、Sinkhorn 和 RMSNorm 装进一个持久化内核；TF32 HC prenorm GEMM 同时算 BF16 @ FP32 矩阵乘和逐行平方和；提交 5081f85 修复了 CUDA graph 重放时 split barrier 被清零的问题。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 15 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-mega-gate">Mega Gate：一个内核完成门控路由</a><ol><li><a href="#sec-1">打分函数与排名</a></li><li><a href="#sec-2">内核结构</a></li><li><a href="#sec-3">TMEM 分数转出与 top-k 选择</a></li><li><a href="#sec-4">冗余专家的物理映射与负载分散</a></li><li><a href="#sec-5">随机路由：<code>force_random</code></a></li><li><a href="#sec-6">元数据缓存：4 KiB SMEM</a></li><li><a href="#sec-7">全局 workspace 布局</a></li></ol><li><a href="#sec-mega-mhc">Mega mHC：把 HyperConnection 的全部步骤焊死</a><ol><li><a href="#sec-8">融合了什么</a></li><li><a href="#sec-9">内核几何</a></li><li><a href="#sec-10">6 个 warpgroup 的角色分配</a></li><li><a href="#sec-11">Sinkhorn 归一化：warp-level 的行列交替</a></li><li><a href="#sec-12">Normal worker：Mix + Pre + RMSNorm 一步到位</a></li><li><a href="#sec-13">Split-K 的 workspace 与三路 partial</a></li><li><a href="#sec-14">Split-K 选择</a></li><li><a href="#sec-15">SF 输出的三种模式</a></li></ol><li><a href="#sec-hc-prenorm">TF32 HC prenorm GEMM：BF16 乘 FP32，附带平方和</a><li><a href="#sec-cuda-graph-fix">修复：CUDA graph 重放下的 split barrier</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>Mega Gate 把 BF16 的 gate GEMM（<code>x @ weight^T</code>）与 sqrtsoftplus 打分、bias 排名、top-k 选择、权重归一化和冗余专家的物理映射融合在一个内核里，输出就是 dispatch 需要的 <code>(topk_idx, topk_weights)</code>。</li>
+    <li>Mega mHC（多路 HyperConnection）把 4 路残差混合、新残差计算、Fn 矩阵乘（TF32，Split-K）、Sinkhorn 归一化、RMSNorm、以及可选的 FP8 E4M3 量化全部融合在一个持久化内核里。</li>
+    <li>TF32 HC prenorm GEMM 是一个特化的 \(D = A \cdot B^\top\) 内核，A 为 BF16、B 为 FP32，输出 FP32 的 D 和逐行平方和 <code>sqr_sum</code>，服务于 HyperConnection 的预归一化阶段。</li>
+    <li>提交 <code>5081f85</code> 修复了 Mega mHC 和 Mega Gate 在 CUDA graph 重放时 split barrier 被重新清零的问题：把 barrier 的分配提到 graph 捕获之前，每条流只做一次。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a> 的 SM100 UMMA/TMEM 流水线。本篇新引入：Mega Gate 融合门控路由（sqrtsoftplus + bias 排名 + top-k）、Mega mHC 多路 HyperConnection 融合内核、Sinkhorn 归一化、TF32 HC prenorm GEMM。</p></aside>
+
+<h2 id="sec-mega-gate" data-short="Mega Gate">Mega Gate：一个内核完成门控路由</h2>
+
+<p>在 MoE 的前向传播中，gate 的职责是：把每个 token 的隐藏表示乘以门控权重矩阵得到 logits，对 logits 打分，选出 top-k 个专家，归一化权重，最后把逻辑专家编号映射到物理专家编号。传统做法需要一次 GEMM 加上若干 PyTorch 操作。</p>
+
+<p>Mega Gate（<code>bf16_mega_gate</code>）把这些全部融合在一个 SM100 内核里。它的完整签名展示了融合了哪些功能：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L28-L59"><code>/**
+ * Fuse the BF16 gate GEMM with the MoE top-k gate.
+ *
+ * Args:
+ *     x                              [T,H]               BF16
+ *     weight                         [E,H]               BF16
+ *     num_topk                       int
+ *     use_shared_as_routed           bool
+ *     num_shared_experts             int
+ *     routed_scaling_factor          float
+ *     ep_rank                        int
+ *     scoring_func                   "sqrtsoftplus"
+ *     mask                           [T] bool | None
+ *     bias                           [E] FP32 | None
+ *     image_bias                     [E] FP32 | None
+ *     image_token_mask               [T] bool | None
+ *     fix_routing_mask               [T] bool | None
+ *     to_physical_map                [E+S, dup] int32 | None
+ *     logical_count                  [E+S] int32 | None
+ *     unmapped_topk_idx              [T,K] int64 | None
+ *     force_random                   [T] bool | None
+ *     out                            ([T,K'] int64, [T,K'] FP32) | None
+ *
+ * Returns:
+ *     (topk_idx, topk_weights)
+ *
+ * Notes:
+ *     S = num_shared_experts when use_shared_as_routed, else 0; K' = K + S.
+ *     The kernel ranks experts on score + bias, while the emitted weights are the
+ *     unbiased scores normalized over the top-k sum and scaled by routed_scaling_factor.
+ *     unmapped_topk_idx receives the logical top-k indices, and for tokens with fix_routing_mask
+ *     set it is also read as the routing to keep (so fix_routing_mask requires it).</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L28-L59"><code>csrc/apis/mega_gate.hpp</code> 第 28–59 行</a>（节选）</p>
+
+<p>输入是 <code>x [T, H]</code>（BF16）和 <code>weight [E, H]</code>（BF16），输出是 <code>topk_idx [T, K']</code>（int64）和 <code>topk_weights [T, K']</code>（FP32），其中 \(K' = K + S\)（\(S\) 是当共享专家作为路由专家使用时的共享专家数）。<a href="#fig-gate-flow">图 1</a> 画出了完整的融合流程。</p>
+
+<figure id="fig-gate-flow" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-gate-flow-cap" viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" role="img" id="s1-root" style="max-width:680px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text x="340" y="24" class="d-title" text-anchor="middle">Mega Gate：一个内核完成门控路由</text>
+
+  
+  <rect x="40" y="44" width="96" height="40" rx="4" class="d-box"/>
+  <text x="88" y="69" class="d-text" text-anchor="middle">x [T, H]</text>
+  <text x="88" y="56" class="d-small" text-anchor="middle">BF16</text>
+
+  <rect x="160" y="44" width="96" height="40" rx="4" class="d-box"/>
+  <text x="208" y="69" class="d-text" text-anchor="middle">weight [E, H]</text>
+  <text x="208" y="56" class="d-small" text-anchor="middle">BF16</text>
+
+  
+  <path class="d-arrow" d="M88 84 V108" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M208 84 V108" marker-end="url(#s1-ah)"/>
+
+  <rect x="56" y="112" width="232" height="40" rx="4" class="d-box green"/>
+  <text x="172" y="137" class="d-text" text-anchor="middle" style="fill:white">BF16 GEMM (UMMA, Split-K)</text>
+  <text x="172" y="125" class="d-small" text-anchor="middle" style="fill:white">MMA warpgroup (128 threads)</text>
+
+  
+  <path class="d-arrow" d="M172 152 V176" marker-end="url(#s1-ah)"/>
+  <text x="180" y="168" class="d-small">logits [T, E]</text>
+
+  
+  <rect x="56" y="180" width="560" height="40" rx="4" class="d-box accent"/>
+  <text x="336" y="193" class="d-small" text-anchor="middle" style="fill:var(--accent,#D55E00)">gate warpgroup (up to 7 WG)</text>
+  <text x="336" y="209" class="d-text" text-anchor="middle">sqrtsoftplus(logits) + bias ranking + top-k + normalize + physical map</text>
+
+  
+  <path class="d-arrow" d="M200 220 V252" marker-end="url(#s1-ah-accent)"/>
+  <path class="d-arrow" d="M400 220 V252" marker-end="url(#s1-ah-accent)"/>
+
+  <rect x="128" y="256" width="136" height="40" rx="4" class="d-box accent"/>
+  <text x="196" y="281" class="d-text" text-anchor="middle">topk_idx [T, K]</text>
+  <text x="196" y="269" class="d-small" text-anchor="middle">int64</text>
+
+  <rect x="328" y="256" width="152" height="40" rx="4" class="d-box accent"/>
+  <text x="404" y="281" class="d-text" text-anchor="middle">topk_weights [T, K]</text>
+  <text x="404" y="269" class="d-small" text-anchor="middle">FP32</text>
+
+  
+  <rect x="488" y="44" width="160" height="80" rx="4" class="d-box" style="stroke-dasharray:6,3"/>
+  <text x="568" y="63" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">可选输入</text>
+  <text x="568" y="80" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">bias, image_bias</text>
+  <text x="568" y="96" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">mask, fix_routing_mask</text>
+  <text x="568" y="112" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">to_physical_map</text>
+
+  
+  <rect x="40" y="308" width="14" height="14" rx="2" style="fill:var(--green,#009E73)"/>
+  <text x="60" y="320" class="d-small">张量核 GEMM</text>
+  <rect x="160" y="308" width="14" height="14" rx="2" style="fill:var(--accent,#D55E00)"/>
+  <text x="180" y="320" class="d-small">融合门控逻辑</text>
+</svg></div>
+  <figcaption id="fig-gate-flow-cap"><span class="fig-label">图 1</span><b>Mega Gate 用 MMA warpgroup 做 BF16 GEMM 得到 logits，再由 gate warpgroup 完成打分、排名、top-k 选择和权重归一化。</b>可选输入包括 bias（用于 bias 排名）、to_physical_map（冗余专家的物理映射）、mask 和 fix_routing_mask。绿色 = 张量核 GEMM，橙色 = 融合的门控逻辑。依据 <code>mega_gate.hpp</code>。</figcaption>
+</figure>
+
+<h3 id="sec-1">打分函数与排名</h3>
+
+<p>代码中唯一支持的打分函数是 <code>sqrtsoftplus</code>：先对 logit 做 softplus（<code>log(1 + exp(x))</code>），再取平方根。选择 sqrtsoftplus 而非标准 softmax 的原因在代码中没有注释说明（推测有数值上的好处：softmax 在专家数很多时会出现概率极度稀疏的问题，而 sqrtsoftplus 的输出是非归一化的正数，值域更宽，更适合后续的 bias 排名和 top-k 选择——但这是推测，不是代码或文档的陈述）。排名时使用的是"分数加 bias"的增强分数，但最终输出的权重是<strong>不含 bias 的原始分数</strong>，归一化方式是 top-k 个原始分数之和除以 <code>routed_scaling_factor</code>。代码中的断言确认了这一点：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L96-L109"><code>DG_HOST_ASSERT(num_topk &gt; 0 and num_topk &lt;= num_routed_experts);
+DG_HOST_ASSERT(ep_rank &gt;= 0);
+DG_HOST_ASSERT(std::isfinite(routed_scaling_factor));
+DG_HOST_ASSERT(scoring_func == "sqrtsoftplus");
+
+int effective_num_shared_experts = 0;
+if (use_shared_as_routed) {
+    DG_HOST_ASSERT(num_shared_experts == 1 or num_shared_experts == 2);
+    DG_HOST_ASSERT(num_topk % num_shared_experts == 0);
+    DG_HOST_ASSERT(num_routed_experts % (num_topk / num_shared_experts) == 0);
+    effective_num_shared_experts = num_shared_experts;
+}
+const auto num_physical_topk = num_topk + effective_num_shared_experts;
+DG_HOST_ASSERT(num_physical_topk &lt;= kNumMaxTopk);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L96-L109"><code>csrc/apis/mega_gate.hpp</code> 第 96–109 行</a>（节选）</p>
+
+<p>最多支持 512 个路由专家（<code>kNumMaxRoutedExperts</code>），专家数必须对齐到 4（<code>kNumExpertsPerLaneVector</code>）。</p>
+
+<h3 id="sec-2">内核结构</h3>
+
+<p>内核由两类 warpgroup 组成：MMA warpgroup（128 线程，<code>kNumNonEpilogueThreads</code>）做 BF16 GEMM，把 <code>x @ weight^T</code> 的结果写到 TMEM；gate warpgroup（最多 7 个 warpgroup）从 TMEM 读出 logits 后做打分和排名。gate warpgroup 的数量由启发式决定：每个 warpgroup 从 TMEM 转置 8 列，每轮对 4 个 token 排名。</p>
+
+<p>GEMM 使用 Split-K 策略：每个 token block 的计算由 <code>num_expert_groups * num_mma_ctas * num_split_k</code> 个 CTA 合作完成。split 之间的同步通过一个全局的 score barrier 数组实现，大小为 <code>[kNumMaxTokenBlocks, 128B]</code>（128 字节对齐，每行一个 barrier）。</p>
+
+<h3 id="sec-3">TMEM 分数转出与 top-k 选择</h3>
+
+<p>MMA warpgroup 把 <code>x @ weight^T</code> 的结果写进 TMEM 后，gate warpgroup 需要把 logits 从 TMEM 搬到寄存器里做打分和排名。<code>sm100_store_tmem_scores_to_global</code> 完成这一步：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L39-L78"><code>template &lt;bool kScoreOnStore, uint32_t kScoreTokenStride,
+          uint32_t UMMA_M, uint32_t kNumMmaCtas, uint32_t kNumGateWarps&gt;
+CUTLASS_DEVICE bool sm100_store_tmem_scores_to_global(float* scores, const uint32_t&amp; tmem_base_addr,
+                                                      const uint32_t&amp; effective_umma_n,
+                                                      const uint32_t&amp; expert_base_idx,
+                                                      const uint32_t&amp; mma_cta_rank,
+                                                      const uint32_t&amp; gate_warp_idx) {
+    // NOTES: with `UMMA_M == 128` on a CTA pair, the 64 experts of a CTA are spread over the two lane halves,
+    //        so warps 0/1 and 2/3 of a warpgroup see the same experts for the two token halves
+    constexpr uint32_t kNumTmemFragmentRows = 8;
+    constexpr bool kPartitionedTokenPaths = UMMA_M == 128 and kNumMmaCtas == 2;
+    constexpr uint32_t kNumExpertsPerCta = UMMA_M / kNumMmaCtas;
+    const auto warp_idx_in_wg = gate_warp_idx % 4;
+    const auto wg_idx = gate_warp_idx / 4;
+    constexpr uint32_t kTokenStep = kNumGateWarps / 4 * kNumTmemFragmentRows;
+    const auto num_token_cols = kPartitionedTokenPaths ? effective_umma_n / 2 : effective_umma_n;
+    const auto token_base_idx = kPartitionedTokenPaths ? warp_idx_in_wg / 2 * num_token_cols : 0u;
+    const auto expert_atom_idx = kPartitionedTokenPaths ? warp_idx_in_wg % 2 : warp_idx_in_wg;
+    const auto global_expert_idx = expert_base_idx + mma_cta_rank * kNumExpertsPerCta +
+                                   expert_atom_idx * 32 + ptx::get_lane_idx();
+// ...
+    for (auto token_idx = wg_idx * kNumTmemFragmentRows; token_idx &lt; num_token_cols; token_idx += kTokenStep) {
+        uint32_t values[kNumTmemFragmentRows];
+        ptx::tmem_load_32dp32b&lt;kNumTmemFragmentRows&gt;(tmem_base_addr + token_idx, values);
+        cutlass::arch::fence_view_async_tmem_load();
+        const auto row_base_ptr = scores + static_cast&lt;uint64_t&gt;(token_base_idx + token_idx) * kScoreTokenStride +
+                                  global_expert_idx;
+        #pragma unroll
+        for (uint32_t row_idx = 0; row_idx &lt; kNumTmemFragmentRows; ++ row_idx) {
+            auto score = __uint_as_float(values[row_idx]);
+            if constexpr (kScoreOnStore)
+                score = sqrt_softplus(score);
+            scores_are_finite = scores_are_finite and isfinite(score);
+            row_base_ptr[row_idx * kScoreTokenStride] = score;
+        }
+    }
+    return scores_are_finite;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L39-L78"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh</code> 第 39–78 行</a>（TMEM 分数转出：tmem_load 与 sqrt_softplus 打分）</p>
+
+<p>关键操作是第 64 行的 <code>ptx::tmem_load_32dp32b</code>：它从 TMEM 地址一次取出 <code>kNumTmemFragmentRows = 8</code> 行的数据到寄存器数组。由于 2-CTA cluster 中 <code>UMMA_M = 128</code>，每个 CTA 的 64 个专家分布在两半 lane 上（<code>kPartitionedTokenPaths</code>），warp 0/1 和 warp 2/3 分别处理两个 token 半区的相同专家集合。如果 <code>kScoreOnStore</code> 为真（第 71–72 行），分数在写入全局内存前就地做 <code>sqrt_softplus</code> 变换。</p>
+
+<p>拿到全局内存中的分数后，top-k 选择分两步。第一步是每个 lane 用一个 5 次比较的排序网络对自己的 4 个专家排序：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L97-L105"><code>CUTLASS_DEVICE uint32_t sort4_best_first(float&amp; score_0, float&amp; score_1, float&amp; score_2, float&amp; score_3) {
+    int idx_0 = 0, idx_1 = 1, idx_2 = 2, idx_3 = 3;
+    compare_swap_best_first(score_0, idx_0, score_1, idx_1);
+    compare_swap_best_first(score_2, idx_2, score_3, idx_3);
+    compare_swap_best_first(score_0, idx_0, score_2, idx_2);
+    compare_swap_best_first(score_1, idx_1, score_3, idx_3);
+    compare_swap_best_first(score_1, idx_1, score_2, idx_2);
+    return static_cast&lt;uint32_t&gt;(idx_0 | idx_1 &lt;&lt; 2 | idx_2 &lt;&lt; 4 | idx_3 &lt;&lt; 6);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L97-L105"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh</code> 第 97–105 行</a>（4 元素排序网络）</p>
+
+<p>第二步是 <code>select_warp_topk</code>：每轮迭代，32 个 lane 各自提出当前未消费的最佳候选（通过一个 3 位游标 <code>packed_cursors</code> 索引排序后的列表），调用 <code>warp_reduce_best</code> 在 warp 内选出全局最优，只有赢家那个 lane 推进游标。重复 \(K\) 轮即得到 top-\(K\) 个专家及其权重。<code>warp_reduce_best</code> 内部先用 <code>ptx::reduce_max_sync</code> 找最大分数，再用 <code>__reduce_min_sync</code> 在分数相同的 lane 中选最小的专家编号——相同分数时取最小编号保证了<b>确定性</b>：无论 warp lane 的物理排列如何、无论在多少个 GPU 上运行，同分数的专家总是做出相同的选择，避免了分布式训练中的跨 rank 不一致。这个做法避免了全局排序：32 个 lane 各 4 个候选 = 128 个专家中选 \(K\) 个，复杂度正比于 \(K \times 32\)（每轮一次 warp reduce）。</p>
+
+<h3 id="sec-4">冗余专家的物理映射与负载分散</h3>
+
+<p>当系统使用冗余专家（redundant experts）时，一个逻辑专家可能被复制到多个物理专家上。Mega Gate 通过 <code>to_physical_map [E+S, dup]</code> 和 <code>logical_count [E+S]</code> 两张表完成映射。<code>store_topk_token</code> 在拿到 top-k 的逻辑编号后，执行以下转换：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L187-L216"><code>    auto physical_expert_idx = selected_expert_idx;
+    if constexpr (kHasPhysicalMap) {
+        if (lane_idx &lt; num_physical_topk) {
+            const auto logical_expert_idx = static_cast&lt;uint32_t&gt;(selected_expert_idx);
+            // The SMEM cache only covers the routed experts
+            const auto num_duplicates = static_cast&lt;uint32_t&gt;((lane_idx &lt; kNumTopk ? routed_logical_count : args.logical_count)[logical_expert_idx]);
+            DG_TRAP_ONLY_DEVICE_ASSERT(num_duplicates &gt; 0 and num_duplicates &lt;= args.num_duplicate_experts);
+            // Spread the tokens of a logical expert over its duplicates, differently on every rank
+            const auto duplicate_idx = (args.rank_idx + global_token_idx * 23333u) % num_duplicates;
+            physical_expert_idx = args.to_physical_map[logical_expert_idx * args.num_duplicate_experts + duplicate_idx];
+        }
+    }
+
+    // The smallest shuffle width covering the routed lanes, the other lanes hold zero
+    constexpr uint32_t kSumWidth = kNumTopk &lt;= 8 ? 8 : (kNumTopk &lt;= 16 ? 16 : 32);
+    const auto topk_sum = math::warp_reduce_sum&lt;kSumWidth&gt;(selected_unbiased_score) + 1e-20f;
+    const auto selected_weight = lane_idx &lt; kNumTopk ? selected_unbiased_score / topk_sum * args.routed_scaling_factor : 1.0f;
+    store_token_outputs&lt;kNumTopk, kHasUnmappedTopkIdx&gt;(args, global_token_idx, lane_idx,
+                                                       physical_expert_idx, selected_weight, selected_expert_idx);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L187-L216"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh</code> 第 187–216 行</a>（store_topk_token：物理映射与权重归一化）</p>
+
+<p>代码的关键在第 205 行的散列分散：<code>(rank_idx + global_token_idx * 23333) % num_duplicates</code>——不同 rank 和不同 token 通过两个互质因子的线性组合，把负载均匀地分散到同一个逻辑专家的所有物理副本上。常量 <code>23333</code> 是一个质数，保证在 <code>num_duplicates</code> 较小时散列的均匀性。权重归一化在第 212–213 行完成：先用 <code>warp_reduce_sum</code> 求 top-k 原始分数之和（宽度由 <code>kSumWidth</code> 选取最小的覆盖 2 的幂，避免浪费 shuffle 带宽），再除以总和乘以 <code>routed_scaling_factor</code>。共享专家的 lane（<code>lane_idx ≥ kNumTopk</code>）权重固定为 1.0。</p>
+
+<h3 id="sec-5">随机路由：<code>force_random</code></h3>
+
+<p>对于标记了 <code>force_random</code> 的 token，内核跳过正常的打分-排名流程，改用 <code>store_random_topk_token</code> 做无权重的随机专家采样。它的做法并非排序后截断，而是一种 warp 协同的 Fisher-Yates 变体：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L218-L253"><code>template &lt;uint32_t kNumTopk, bool kHasUnmappedTopkIdx, bool kHasPhysicalMap&gt;
+CUTLASS_DEVICE void store_random_topk_token(const RoutingArgs&amp; args, const uint32_t&amp; global_token_idx, const uint32_t&amp; lane_idx) {
+    const auto num_physical_topk = kNumTopk + args.num_shared_experts;
+    auto num_physical_experts = args.num_routed_experts + args.num_shared_experts;
+    if constexpr (kHasPhysicalMap) {
+        auto local_count = 0u;
+        for (uint32_t logical_expert_idx = lane_idx; logical_expert_idx &lt; num_physical_experts; logical_expert_idx += 32)
+            local_count += static_cast&lt;uint32_t&gt;(args.logical_count[logical_expert_idx]);
+        num_physical_experts = __reduce_add_sync(0xffffffff, local_count);
+    }
+    DG_TRAP_ONLY_DEVICE_ASSERT(num_physical_experts &gt;= num_physical_topk);
+
+    // Sample `num_physical_topk` distinct experts: lane `i` draws from `n - i`, then ranks below every earlier draw
+    // that is not larger shift up by one
+    curandStatePhilox4_32_10_t rng_state;
+    curand_init(args.rank_idx, global_token_idx * 32 + lane_idx, 0, &amp;rng_state);
+    const auto random_weight = curand_uniform(&amp;rng_state);
+    constexpr uint32_t kInvalidIdx = 0xffffffffu;
+    auto candidate_idx = lane_idx &lt; num_physical_topk ?
+        curand(&amp;rng_state) % (num_physical_experts - lane_idx) : kInvalidIdx;
+    auto selected_expert_idx = kInvalidIdx;
+    for (uint32_t output_idx = 0; output_idx &lt; num_physical_topk; ++ output_idx) {
+        const auto min_candidate_idx = __reduce_min_sync(0xffffffff, candidate_idx);
+        const auto min_lane_idx = __reduce_min_sync(0xffffffff, candidate_idx == min_candidate_idx ? lane_idx : kInvalidIdx);
+        if (candidate_idx != kInvalidIdx) {
+            if (min_lane_idx == lane_idx) {
+                selected_expert_idx = candidate_idx;
+                candidate_idx = kInvalidIdx;
+            } else if (candidate_idx &gt;= min_candidate_idx and min_lane_idx &lt; lane_idx) {
+                ++ candidate_idx;
+            }
+        }
+    }
+    store_token_outputs&lt;kNumTopk, kHasUnmappedTopkIdx&gt;(args, global_token_idx, lane_idx,
+                                                       static_cast&lt;int64_t&gt;(selected_expert_idx), random_weight, -1);
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh#L218-L253"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_gate.cuh</code> 第 218–253 行</a>（随机路由：warp 协同的无重复采样）</p>
+
+<p>每个活跃 lane（<code>lane_idx &lt; num_physical_topk</code>）用 curand 从 <code>[0, n-i)</code> 中抽一个候选编号。然后 <code>num_physical_topk</code> 轮迭代中，每轮用 <code>__reduce_min_sync</code> 选出当前最小的候选，赢家固定选择，其余 lane 如果候选 ≥ 赢家且优先级更低则加 1——等效于把已选的编号从剩余池中移除。最终每个 lane 得到一个不重复的物理专家编号，权重为均匀随机数。这个分支在正常推理中不触发，推测是为调试或负载测试保留的。</p>
+
+<h3 id="sec-6">元数据缓存：4 KiB SMEM</h3>
+
+<p>Mega Gate 在共享内存中预留了 4 KiB 的 <code>metadata_cache</code>，用于缓存 bias、image_bias 和 logical_count 三张表。是否缓存 logical_count 由编译期的 <code>caches_logical_count</code> 函数决定：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_gate.cuh#L46-L51"><code>CUTLASS_HOST_DEVICE constexpr bool caches_logical_count(const uint32_t num_routed_experts, const bool has_bias,
+                                                        const bool has_image_token_mask, const bool has_physical_map) {
+    const auto num_bias_cache_bytes = num_routed_experts * ((has_bias ? 1u : 0u) + (has_image_token_mask ? 1u : 0u)) *
+                                      static_cast&lt;uint32_t&gt;(sizeof(float));
+    return has_physical_map and num_bias_cache_bytes + num_routed_experts * static_cast&lt;uint32_t&gt;(sizeof(int)) &lt;= kNumMaxMetadataCacheBytes;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_gate.cuh#L46-L51"><code>deep_gemm/include/deep_gemm/layout/mega_gate.cuh</code> 第 46–51 行</a>（metadata_cache 容量判断）</p>
+
+<p>只有当 bias 和 image_bias 占用的字节数加上 <code>num_routed_experts × sizeof(int)</code> 不超过 4 KiB 时，才会把 logical_count 也放入缓存。典型的 256 个路由专家场景下，两个 bias（各 256×4 = 1 KiB）加 logical_count（256×4 = 1 KiB）共 3 KiB，可以全部缓存；但如果专家数达到 512 且同时启用 image_bias，则总需 512×12 = 6 KiB，超出限制，logical_count 只能走全局内存。缓存命中时，排名的 warp reduce 循环中每次读 bias 都是 SMEM load（~30 cycle），避免了全局内存的高延迟。</p>
+
+<h3 id="sec-7">全局 workspace 布局</h3>
+
+<p>Split-K 的中间结果存放在全局 workspace 中，由 <code>Workspace</code> 结构体管理。布局为 <code>[num_token_blocks × block_tokens, kNumSplits, kNumExperts]</code>，每个 token 在每个 split 下有一整行专家分数。score barrier 数组单独分配，每个 token block 一条 128 字节的 barrier line。每条 line 只用前 8 字节做实际的生产者-消费者同步，epoch 和 exit count 复用同一 line 尾部的 64 字节和 72 字节偏移——这也是 CUDA graph 修复需要 per-stream 管理 barrier 的原因：line 内的状态在调用之间是有记忆的。</p>
+
+<h2 id="sec-mega-mhc" data-short="Mega mHC">Mega mHC：把 HyperConnection 的全部步骤焊死</h2>
+
+<p>HyperConnection（HC）是 DeepSeek-V3 引入的多路残差连接机制。在标准 Transformer 里残差就是 <code>x + sublayer(x)</code>；HyperConnection 把残差拓展成 4 路（<code>kNumRoutes = 4</code>），每层用一组可学习的混合系数把 4 路残差加权组合，再做一次矩阵乘来更新混合系数。</p>
+
+<p>传统实现至少需要：一次逐元素残差混合、一次矩阵乘（生成新的 mix）、sigmoid 和 Sinkhorn 归一化、一次加权合并、一次 RMSNorm，可能还有一次 FP8 量化。Mega mHC（<code>mega_mhc</code>）把这些全部装进一个持久化内核。<a href="#fig-mhc-flow">图 2</a> 画出了融合的完整管线。</p>
+
+<figure id="fig-mhc-flow" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-mhc-flow-cap" viewBox="0 0 680 440" xmlns="http://www.w3.org/2000/svg" role="img" id="s2-root" style="max-width:680px;">
+  <defs>
+    <marker id="s2-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s2-ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text x="340" y="24" class="d-title" text-anchor="middle">Mega mHC：融合 HyperConnection 的全部步骤</text>
+
+  
+  <rect x="40" y="44" width="88" height="36" rx="4" class="d-box"/>
+  <text x="84" y="67" class="d-text" text-anchor="middle">x [T, H]</text>
+
+  <rect x="152" y="44" width="160" height="36" rx="4" class="d-box"/>
+  <text x="232" y="67" class="d-text" text-anchor="middle">residual [T, 4, H]</text>
+
+  <rect x="336" y="44" width="136" height="36" rx="4" class="d-box"/>
+  <text x="404" y="67" class="d-text" text-anchor="middle">post/comb mix</text>
+
+  <rect x="496" y="44" width="144" height="36" rx="4" class="d-box"/>
+  <text x="568" y="67" class="d-text" text-anchor="middle">Fn [24, 4H]</text>
+  <text x="568" y="58" class="d-small" text-anchor="middle">FP32</text>
+
+  
+  <path class="d-arrow" d="M84 80 V108" marker-end="url(#s2-ah)"/>
+  <path class="d-arrow" d="M232 80 V108" marker-end="url(#s2-ah)"/>
+  <path class="d-arrow" d="M404 80 V108" marker-end="url(#s2-ah)"/>
+
+  <rect x="40" y="112" width="480" height="36" rx="4" class="d-box accent"/>
+  <text x="280" y="135" class="d-text" text-anchor="middle">1. new_residual = x * post_mix + comb_res_mix @ residual</text>
+
+  
+  <path class="d-arrow" d="M280 148 V172" marker-end="url(#s2-ah)"/>
+  <path class="d-arrow" d="M568 80 V180 H524" marker-end="url(#s2-ah)"/>
+
+  <rect x="40" y="176" width="480" height="36" rx="4" class="d-box green"/>
+  <text x="280" y="199" class="d-text" text-anchor="middle" style="fill:white">2. mixes = new_residual @ Fn^T  (TF32 GEMM, Split-K)</text>
+
+  
+  <path class="d-arrow" d="M280 212 V236" marker-end="url(#s2-ah-accent)"/>
+
+  <rect x="40" y="240" width="480" height="36" rx="4" class="d-box accent"/>
+  <text x="280" y="263" class="d-text" text-anchor="middle">3. mixes -> sigmoid -> Sinkhorn normalize -> prev/post/comb mix</text>
+
+  
+  <path class="d-arrow" d="M280 276 V300" marker-end="url(#s2-ah-accent)"/>
+
+  <rect x="40" y="304" width="480" height="36" rx="4" class="d-box accent"/>
+  <text x="280" y="327" class="d-text" text-anchor="middle">4. norm_input = new_residual @ prev_mix (shifted) or new_residual (normal)</text>
+
+  
+  <path class="d-arrow" d="M280 340 V364" marker-end="url(#s2-ah-accent)"/>
+
+  <rect x="40" y="368" width="480" height="36" rx="4" class="d-box accent"/>
+  <text x="280" y="391" class="d-text" text-anchor="middle">5. y = RMSNorm(norm_input) + optional FP8 E4M3 + UE8M0 SF</text>
+
+  
+  <path class="d-arrow" d="M280 404 V424" marker-end="url(#s2-ah-accent)"/>
+  <text x="280" y="440" class="d-text" text-anchor="middle">y_bf16 / y_fp8 + SF</text>
+
+  
+  <rect x="540" y="112" width="120" height="292" rx="4" class="d-box" style="stroke-dasharray:6,3"/>
+  <text x="600" y="132" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">持久化内核</text>
+  <text x="600" y="152" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">BLOCK_M=64</text>
+  <text x="600" y="172" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">BLOCK_K=64</text>
+  <text x="600" y="192" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">N=24</text>
+  <text x="600" y="220" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">6 WG * 128</text>
+  <text x="600" y="240" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">= 768 threads</text>
+  <text x="600" y="268" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">Split-K: 16</text>
+  <text x="600" y="288" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">(default)</text>
+</svg></div>
+  <figcaption id="fig-mhc-flow-cap"><span class="fig-label">图 2</span><b>Mega mHC 把 5 个步骤——残差混合、TF32 GEMM、Sinkhorn 归一化、加权合并、RMSNorm+FP8——融合在一个持久化内核里。</b>N 维 = 24（<code>kNumHCOutputs = 4 * (4+2)</code>），对应 4 路残差的 24 个混合系数。右侧是内核几何参数。依据 <code>mega_mhc.hpp</code> 和 <code>mega_mhc.cuh</code>。</figcaption>
+</figure>
+
+<h3 id="sec-8">融合了什么</h3>
+
+<p>API 注释给出了完整语义：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L41-L88"><code>/**
+ * Execute shifted or normal mHC, generate the next mixes, and apply RMSNorm
+ * with optional FP8 E4M3 casting.
+ *
+ * Args:
+ *     x                              [T,H]                             BF16
+ *     residual                       [T,hc_mult,H]                     BF16
+ *     shifted_prev_mix               [T,hc_mult,1] FP32 | None
+ *     post_mix                       [T,hc_mult,1]                     FP32
+ *     comb_res_mix                   [T,hc_mult,hc_mult]               FP32
+ *     fn                             [hc_mult*(hc_mult+2),hc_mult*H]   FP32
+ *     mix_scales                     [3]                               FP32
+ *     mix_bases                      [hc_mult*(hc_mult+2)]             FP32
+ *     hc_mult                        int
+ *     hc_norm_eps                    float
+ *     hc_pre_eps                     float
+ *     hc_post_scale                  float
+ *     sinkhorn_eps                   float
+ *     num_sinkhorn_iters             int
+ *     rmsnorm_weight                 [H]                               BF16
+ *     rmsnorm_eps                    float
+ *     rmsnorm_scale                  float
+ *     new_residual                   [T,hc_mult,H]                     BF16
+ *     new_prev_mix                   [T,hc_mult,1] FP32 | None
+ *     new_post_mix                   [T,hc_mult,1]                     FP32
+ *     new_comb_res_mix               [T,hc_mult,hc_mult]               FP32
+ *     y_bf16                         [T,H] BF16 | None
+ *     y_fp8                          [T,H] E4M3 | None
+ *     y_gemm_sf                      [T,H/128] int32 | None
+ *     y_routed_sf                    [T,H/128] int32 | None
+ *     y_shared_sf                    [T,H/128] int32 | None
+ *     shared_sf_block_m              int
+ *
+ * Returns:
+ *     None
+ *
+ * Notes:
+ *     shifted_prev_mix and new_prev_mix are both tensors for shifted mHC and
+ *     both None for normal mHC. Split-K is selected per invocation: 16 with
+ *     deterministic algorithms; otherwise the fewest unequal whole-block splits
+ *     that reach the shortest longest producer task. FP8 gran_k is 32, with four
+ *     UE8M0 scaling factors packed into each int32.
+ *     y_bf16 and y_fp8 are independent optional outputs; at least one is required.
+ *     With y_fp8, supply exactly either y_gemm_sf alone, or y_routed_sf and
+ *     y_shared_sf together. y_gemm_sf is TMA-aligned column-major,
+ *     y_routed_sf is contiguous row-major, and y_shared_sf is the Mega MoE
+ *     shared-expert layout and requires shared_sf_block_m &gt; 0.
+ */</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L41-L88"><code>csrc/apis/mega_mhc.hpp</code> 第 41–88 行</a>（节选）</p>
+
+<p>内核按顺序执行以下步骤：</p>
+<ol>
+  <li><strong>残差混合</strong>：<code>new_residual = x * post_mix + comb_res_mix @ residual</code>，逐 token 的混合操作（<code>post_mix [T, 4, 1]</code>、<code>comb_res_mix [T, 4, 4]</code>）。</li>
+  <li><strong>TF32 GEMM</strong>（Split-K）：<code>mixes = new_residual @ Fn^T</code>，其中 <code>Fn [24, 4*H]</code> 是 FP32 的混合生成矩阵。N 维 = 24（<code>kNumHCOutputs</code>），等于 4 路残差的 \(4 \times (4+2) = 24\) 个输出系数。</li>
+  <li><strong>Mix 生成</strong>：从 24 个输出中切分出 prev_mix、post_mix、comb_res_mix，先做 sigmoid，再做 Sinkhorn 归一化（交替行/列归一化，迭代数由 <code>num_sinkhorn_iters</code> 控制，测试中为 10）。</li>
+  <li><strong>Norm 输入计算</strong>：shifted 模式下 <code>norm_input = new_residual @ prev_mix</code>（上一步生成的 prev_mix 是偏移来的），normal 模式下直接用 <code>new_residual</code>。</li>
+  <li><strong>RMSNorm + 可选 FP8 量化</strong>：<code>y = RMSNorm(norm_input)</code>，可以同时输出 BF16 和/或 FP8 E4M3（附带 UE8M0 缩放因子，每 32 维一个，4 个打包成一个 int32）。</li>
+</ol>
+
+<h3 id="sec-9">内核几何</h3>
+
+<p>内核的 tile 配置来自 layout 头文件：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_mhc.cuh#L8-L32"><code>namespace deep_gemm::layout::mega_mhc {
+
+// Model geometry
+static constexpr uint32_t kNumRoutes = 4;
+static constexpr uint32_t kNumHCOutputs = kNumRoutes * (kNumRoutes + 2);
+
+// FP8 scale-factor layout
+static constexpr uint32_t kHiddenPerSF = 32;
+static constexpr uint32_t kHiddenPerSFWord = 128;
+
+// Kernel tile and pipeline geometry
+static constexpr uint32_t BLOCK_M = 64;
+static constexpr uint32_t BLOCK_N = kNumHCOutputs;
+static constexpr uint32_t BLOCK_K = 64;
+static constexpr uint32_t kSwizzleMode = 128;
+static constexpr uint32_t kFnAtomK = kSwizzleMode / sizeof(float);
+static constexpr uint32_t kSwizzleAlignment = 8 * kSwizzleMode;
+static constexpr uint32_t kNumIOStages = 4;
+static constexpr uint32_t kNumFnStages = 2;
+static constexpr uint32_t kNumAStages = 4;
+static constexpr uint32_t kNumAccumStages = 2;
+static constexpr uint32_t kNumCoeffStages = 2;
+static constexpr uint32_t kNumWarpsPerWG = 4;
+static constexpr uint32_t kNumThreads = 6 * kNumWarpsPerWG * 32;
+</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_mhc.cuh#L8-L32"><code>deep_gemm/include/deep_gemm/layout/mega_mhc.cuh</code> 第 8–32 行</a>（节选）</p>
+
+<p><code>BLOCK_M = 64</code>，<code>BLOCK_K = 64</code>，N 维固定为 24（不分块，因为只有 24 个输出列）。内核用 6 个 warpgroup，每个 4 warp，共 768 线程（<code>kNumThreads = 6 × 4 × 32</code>）。流水线有多个独立的 stage 组：IO（residual 和 x）4 级、Fn 2 级、A（残差混合后的中间结果）4 级、Accum 和 Coeff 各 2 级。</p>
+
+<p>共享内存的布局反映了 5 条独立流水线的缓冲需求：</p>
+
+<ul>
+  <li><code>residual [4][4][64×32]</code>（BF16×2）：IO 阶段搬入的 4 路残差，4 级流水线，route-major 排列保证每次 TMA 搬运的 64×64 块是连续的。</li>
+  <li><code>x [4][64×32]</code>（BF16×2）：当前层输入，4 级流水线。</li>
+  <li><code>fn [2][2][4][24×32]</code>（FP32）：Fn 混合权重矩阵的两个 K-atom，2 级流水线。每个 TMA 把一个 32 元素的 TF32 swizzle 原子搬入 SMEM。</li>
+  <li><code>pre_coeff / post_coeff [2][64][4]</code>、<code>comb_coeff [2][64][16]</code>：上一步生成的混合系数，2 级流水线，保留 TMA 原生的 per-token 布局。</li>
+  <li><code>hc_norm_sqr_sums [2][64]</code>、<code>x1_sqr_sums [2][64]</code>、<code>normal_scratch [64]</code>：Post worker 和 Normal worker 的局部统计量，双缓冲。</li>
+</ul>
+
+<p>每对 <code>full/empty barrier</code> 连接一组生产者和消费者。具体的生产者→消费者映射：IO barrier（Producer WG0 → Post workers WG1/2 和 Normal worker WG5）、Fn barrier（Producer WG0 → Workspace epilogue WG3）、A barrier（Post workers WG1/2 → Producer WG0 的 MMA）、Accum barrier（Workspace epilogue WG3 → Mix worker WG4）、Coeff barrier（Mix worker WG4 → Normal worker WG5）、Stats barrier（Normal worker WG5 的平方和 → Post workers WG1/2 的 RMSNorm）、Mix arrival barrier（Mix worker WG4 → Normal worker WG5 的系数广播同步点）。总共 5 对 stage barrier 加 1 对 stats barrier 和 1 个 mix arrival barrier。这些 barrier 全部是 Cutlass 的 <code>ClusterTransactionBarrier</code>（底层是 mbarrier），角色在编译期写死，运行时无分支判断。这种精确的 barrier 拓扑保证了无死锁：每对 barrier 只有一个生产者和一组消费者，不存在循环依赖。</p>
+
+<h3 id="sec-10">6 个 warpgroup 的角色分配</h3>
+
+<p>Mega mHC 的 6 个 warpgroup 各有固定职责，角色在编译期硬连：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mega_mhc.cuh#L55-L85"><code>// Each Post worker occupies exactly one WG; the role dispatch hardwires two of them.
+constexpr uint32_t kNumPostWGs = 2;
+// ...
+// CTA role assignments
+constexpr uint32_t kFirstPostWGIdx = 1;
+constexpr uint32_t kWorkspaceEpilogueWGIdx = kFirstPostWGIdx + kNumPostWGs;
+constexpr uint32_t kMixWGIdx = kWorkspaceEpilogueWGIdx + 1;
+constexpr uint32_t kNormWGIdx = kMixWGIdx + 1;
+constexpr uint32_t kNumWGsPerCTA = kNormWGIdx + 1;
+constexpr uint32_t kNumPostWarps = kNumPostWGs * kNumWarpsPerWG;
+DG_STATIC_ASSERT(kNumWGsPerCTA == 6, "Unexpected CTA topology");</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mega_mhc.cuh#L55-L85"><code>deep_gemm/include/deep_gemm/impls/sm100_mega_mhc.cuh</code> 第 55–85 行</a>（CTA 内的 warpgroup 角色）</p>
+
+<p>WG 0 是 producer：负责 TMA 搬运（residual、x、Fn 矩阵、混合系数）和 UMMA 的 MMA 计算。WG 1–2 是两个 Post worker：各自处理一个 token 的"后处理"——在 Shifted 模式下读取 X1（上一层的 BF16 中间输出）、加权混合残差、做 RMSNorm、可选 FP8 量化。WG 3 是 workspace epilogue：把 MMA 累加器从 TMEM 搬到全局 workspace（split 部分和与 HC norm 平方和）。WG 4 是 Mix worker：归约 split 部分和、做 Sinkhorn 归一化、输出混合系数。WG 5 是 Normal worker：融合 Mix + Pre + RMSNorm，处理非 Shifted 模式的 token。6 个 warpgroup 共 768 线程，每个 SM 只跑一个 CTA——这意味着单个 SM 的寄存器文件（SM100 上为 65536 个 32 位寄存器）被 768 个线程均分，每线程只有约 85 个寄存器。为了避免寄存器溢出，代码中大量使用 <code>__launch_bounds__</code> 和手动的变量复用来压缩寄存器占用。</p>
+
+<p>这条数据依赖链—— WG0(IO) → WG1/2(Post) → WG0(MMA) → WG3(Epilogue) → WG4(Mix) → WG5(Normal) ——是 Mega mHC 的关键路径。回路出现在 WG0：它先做 IO（TMA 搬运），等 Post worker 算完混合残差后（A barrier），再做 MMA。这个环可以重叠：WG0 在等待当前 tile 的 A 时，可以 prefetch 下一个 tile 的 IO——这就是 IO 和 A 各有 4 级流水线的原因。WG1/2 分别处理不同 token（各覆盖 BLOCK_M/2 = 32 个），形成 token 级的并行。WG4 和 WG5 的 Coeff barrier 让 Normal worker 在 Mix 完成之前阻塞；Stats barrier 让 Post worker 在 Normal worker 的平方和就绪前阻塞——两个反向依赖防止了未就绪数据的读取。整个拓扑无环（WG0↔WG1/2 通过不同 barrier 对交替角色，不构成死锁环），这是 7 对 barrier 设计的核心不变量。</p>
+
+<h3 id="sec-11">Sinkhorn 归一化：warp-level 的行列交替</h3>
+
+<p>Mix worker 的核心是 <code>run_mix_task</code> 中的 Sinkhorn 归一化。4 路残差的混合系数组成一个 4×4 矩阵（Comb 部分），需要行列交替归一化使其逼近双随机矩阵。Sinkhorn 算法（也叫 Sinkhorn-Knopp 迭代）的思路很简单：给定一个非负矩阵，先把每行除以该行之和使行和为 1，再把每列除以该列之和使列和为 1，如此交替重复；Sinkhorn 定理保证对严格正的矩阵，这个过程收敛到一个双随机矩阵（行和与列和同时为 1）。这里的"softmax"只是归一化除法——每个元素除以其行/列之和——而非带 exp 的 softmax。代码用 warp shuffle 做行归约和列归约：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh#L63-L86"><code>const auto sinkhorn_normalize = [&amp;](float value) {
+    // Comb logits occupy a row-major route x route region after Pre and Post.
+    value = is_comb_lane ? value : 0.0f;
+    const float row_max = math::warp_reduce_max&lt;kNumRoutes&gt;(value);
+    value = __expf(value - row_max);
+    float row_sum = math::warp_reduce_sum&lt;kNumRoutes&gt;(value);
+    value = value * math::fast_rcp(row_sum) + mix_args.sinkhorn_eps;
+
+    const auto get_col_sum = [](const float&amp; element) {
+        // For four routes, these XORs combine adjacent rows, then the two row pairs.
+        float sum = element + __shfl_xor_sync(0xffffffff, element, kNumRoutes);
+        sum += __shfl_xor_sync(0xffffffff, sum, 6 * kNumRoutes);
+        return sum;
+    };
+
+    value *= math::fast_rcp(get_col_sum(value) + mix_args.sinkhorn_eps);
+    #pragma unroll 1
+    for (uint32_t iteration = 1; iteration &lt; mix_args.num_sinkhorn_iters; ++ iteration) {
+        row_sum = math::warp_reduce_sum&lt;kNumRoutes&gt;(value);
+        value *= math::fast_rcp(row_sum + mix_args.sinkhorn_eps);
+        value *= math::fast_rcp(get_col_sum(value) + mix_args.sinkhorn_eps);
+    }
+    return value;
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh#L63-L86"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh</code> 第 63–86 行</a>（Sinkhorn 归一化：行列交替 softmax）</p>
+
+<p>Sinkhorn 的每轮迭代只有两行代码（第 81–83 行）：行归一化用 <code>warp_reduce_sum&lt;kNumRoutes&gt;</code>（每 4 个 lane 求和），列归一化用 <code>__shfl_xor_sync</code> 交叉求和。4 路残差对应 4×4 = 16 个 Comb lane，加上 Pre 和 Post 各 4 个，正好 24 个 lane——一个 warp 的 32 个 lane 中有 24 个活跃，余下 8 个闲置。这是 <code>kNumHCOutputs = 24</code> 的由来。</p>
+
+<h3 id="sec-12">Normal worker：Mix + Pre + RMSNorm 一步到位</h3>
+
+<p>Normal worker 是 Mega mHC 最重的工作线程。它用一个持久化循环逐 token 处理，每个 token 的计算序列是：领取任务→调用 <code>run_mix_task</code> 生成混合系数→用 Pre 系数加权 4 路残差→RMSNorm→可选 FP8 量化。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh#L138-L183"><code>// A Normal task fuses Mix, Pre, and RMSNorm for one token.
+template &lt;uint32_t kHidden, uint32_t kNumSMs, bool kStoreBF16, bool kStoreFP8,
+          uint32_t SF_BLOCK_M, uint32_t kNumSplits&gt;
+CUTLASS_DEVICE void run_normal_worker(SharedStorage&amp; smem, const Workspace&lt;kNumSplits&gt;&amp; workspace,
+                                      const uint32_t&amp; wg_idx_in_cta,
+                                      const uint32_t&amp; warp_idx_in_wg, const uint32_t&amp; lane_idx,
+                                      uint64_t* gmem_split_barriers,
+                                      const MixArgs&amp; mix_args,
+                                      const NormArgs&amp; norm_args) {
+// ...
+    while (true) {
+        if (warp_idx_in_wg == 0) {
+            uint32_t task_ticket;
+            if (cute::elect_one_sync())
+                task_ticket = atomicAdd(&amp;smem.next_norm_task_ticket, 1u);
+            task_ticket = ptx::exchange(task_ticket, 0);
+            const uint32_t token_idx = blockIdx.x + task_ticket * kNumSMs;
+            token_indices[wg_idx_in_cta] = token_idx;
+
+            // Mix is warp-sized; only its Pre coefficients must be broadcast.
+            if (token_idx &lt; norm_args.num_tokens) {
+                const float pre_coeff = run_mix_task&lt;kHidden, false&gt;(
+                    workspace, gmem_split_barriers, mix_args, token_idx, lane_idx);
+                if (lane_idx &lt; kNumRoutes)
+                    pre_coeffs[lane_idx] = pre_coeff;
+            }
+        }
+        cutlass::arch::NamedBarrier::sync(kNumWarpsPerWG * 32, worker_barrier_idx);
+        const uint32_t token_idx = token_indices[wg_idx_in_cta];
+        if (token_idx &gt;= norm_args.num_tokens)
+            return;
+        const float pre_coeff = lane_idx &lt; kNumRoutes ? pre_coeffs[lane_idx] : 0.0f;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh#L138-L183"><code>deep_gemm/include/deep_gemm/epilogue/sm100_mega_mhc.cuh</code> 第 138–183 行</a>（Normal worker：Mix + Pre + RMSNorm 融合）</p>
+
+<p>第 165–166 行的 <code>atomicAdd</code> + <code>elect_one_sync</code> 是一个无锁的 warp-level 任务分发器：warp 0 的第一个 lane 原子递增全局 ticket，广播给 warp 内所有线程。拿到 token 后，第 173 行调用 <code>run_mix_task</code> 完成 Split 归约 + Sinkhorn 归一化，产出的 <code>pre_coeff</code> 通过共享内存广播给其余 warp（第 176 行写入，第 179 行 barrier 同步，第 183 行读出）。之后每个 warp 各自处理自己负责的 hidden 维度段，做 4 路残差的 Pre 加权、BF16 转换、平方和累加、RMSNorm 和 FP8 输出。</p>
+
+<h3 id="sec-13">Split-K 的 workspace 与三路 partial</h3>
+
+<p>Mega mHC 的 Split-K workspace 不仅存 GEMM 的部分和，还同时存两组逐 token 的平方和统计量。<code>Workspace</code> 模板把全局 scratch 切成三段：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_mhc.cuh#L79-L124"><code>// View over global split partial scratch.
+//
+// Data layout:
+//   gemm_partials            [num_m_blocks, kNumSplits, BLOCK_M, kNumHCOutputs]
+//   hc_norm_sqr_sum_partials [num_m_blocks, kNumSplits, BLOCK_M]
+//   x1_sqr_sum_partials      [num_m_blocks, kNumSplits, BLOCK_M]
+// where task_idx = m_block_idx * kNumSplits + k_split_idx.
+template &lt;uint32_t kNumSplits = kDefaultNumSplits&gt;
+struct Workspace {
+    void* gmem_scratch;
+    uint32_t num_m_blocks;
+
+// ...
+    CUTLASS_HOST_DEVICE
+    static constexpr uint64_t get_num_scratch_bytes(const uint32_t num_m_blocks, const uint32_t num_splits = kNumSplits) {
+        const auto num_tasks = static_cast&lt;uint64_t&gt;(num_m_blocks) * num_splits;
+        return num_tasks * (kNumGemmPartialElementsPerTask + 2 * kNumSqrSumPartialElementsPerTask) * sizeof(float);
+    }
+
+    CUTLASS_HOST_DEVICE
+    float* get_gemm_partial_ptr(const uint32_t task_idx = 0) const {
+        return reinterpret_cast&lt;float*&gt;(gmem_scratch) + static_cast&lt;uint64_t&gt;(task_idx) * kNumGemmPartialElementsPerTask;
+    }
+
+    CUTLASS_HOST_DEVICE
+    float* get_hc_norm_sqr_sum_partial_ptr(const uint32_t task_idx = 0) const {
+        const auto base = get_gemm_partial_ptr(num_m_blocks * kNumSplits);
+        return base + static_cast&lt;uint64_t&gt;(task_idx) * kNumSqrSumPartialElementsPerTask;
+    }
+
+    CUTLASS_HOST_DEVICE
+    float* get_x1_sqr_sum_partial_ptr(const uint32_t task_idx = 0) const {
+        const auto base = get_hc_norm_sqr_sum_partial_ptr(num_m_blocks * kNumSplits);
+        return base + static_cast&lt;uint64_t&gt;(task_idx) * kNumSqrSumPartialElementsPerTask;
+    }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/mega_mhc.cuh#L79-L124"><code>deep_gemm/include/deep_gemm/layout/mega_mhc.cuh</code> 第 79–124 行</a>（Workspace：三段 partial 布局与访问器）</p>
+
+<p>三段依次排列：(1) <code>gemm_partials [num_m_blocks, kNumSplits, BLOCK_M, 24]</code>——GEMM 部分和，每个 task 产出 64×24 个 FP32 值；(2) <code>hc_norm_sqr_sum_partials [num_m_blocks, kNumSplits, BLOCK_M]</code>——HC 归一化的逐 token 平方和；(3) <code>x1_sqr_sum_partials</code>——Shifted 模式下 X1 的平方和。Mix worker 在归约 GEMM 部分和的同时也归约两组平方和，这样 Sinkhorn 归一化和 RMSNorm 都不需要额外的全局归约 pass。总 scratch 大小正比于 <code>num_m_blocks × kNumSplits × (24 + 2) × BLOCK_M × 4</code> 字节。</p>
+
+<h3 id="sec-14">Split-K 选择</h3>
+
+<p>GEMM 的 K 维（= 4*H）通常很大而 M 维的块数不多（token 数 / 64），所以需要 Split-K 来获得足够的并行度。默认 split 数为 16；非确定性模式下，代码选择"最少的 split 数使得最长的任务最短"：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L15-L24"><code>static uint32_t get_num_splits(const uint32_t num_m_blocks, const uint32_t hidden, const uint32_t num_sms) {
+    if (heuristics_runtime-&gt;get_deterministic_algorithms())
+        return mhc_layout::kDefaultNumSplits;
+
+    // Fewest splits that still reach the shortest possible longest task
+    const uint32_t num_k_blocks = hidden / mhc_layout::BLOCK_K;
+    const uint32_t max_num_splits = cute::min(
+        mhc_layout::kNumMaxSplits, cute::max(mhc_layout::kDefaultNumSplits, num_sms / num_m_blocks));
+    return math::ceil_div(num_k_blocks, math::ceil_div(num_k_blocks, max_num_splits));
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L15-L24"><code>csrc/apis/mega_mhc.hpp</code> 第 15–24 行</a>（节选）</p>
+
+<p>这个公式先算出最大可用 split 数（受 <code>kNumMaxSplits = 64</code> 和 SM 数 / M 块数的限制），再选最小的 split 数使得每个 producer 的 K 块数相同（均分）。"均分"条件很重要：如果 K 块数不能被 split 数整除，最后一个 split 会比其他 split 少算几个 K 块，导致它提前完成并空等其他 split 到达 barrier——这种"短桶效应"在 Split-K 中是主要的效率损失来源。代码宁可选更少的 split（减少并行度）也要保证均分，是因为 SM100 的 SM 数量（128 或更多）已经提供了足够的 tile 级并行度，Split-K 只是补充手段。</p>
+
+<h3 id="sec-15">SF 输出的三种模式</h3>
+
+<p>当输出 FP8 时，缩放因子有三种布局可选，API 注释做了区分：<code>y_gemm_sf</code> 是 TMA 对齐的列主序（适合后续 GEMM），<code>y_routed_sf</code> 是连续行主序（适合路由传输），<code>y_shared_sf</code> 是 Mega MoE 共享专家的特殊布局。三者互斥：要么单独给 <code>y_gemm_sf</code>，要么同时给 <code>y_routed_sf</code> 和 <code>y_shared_sf</code>。</p>
+
+<h2 id="sec-hc-prenorm" data-short="TF32 HC prenorm">TF32 HC prenorm GEMM：BF16 乘 FP32，附带平方和</h2>
+
+<p>在 HyperConnection 的预归一化阶段，需要计算 \(D = A \cdot B^\top\)，其中 A 是 BF16 的输入、B 是 FP32 的归一化参数矩阵，结果 D 和逐行平方和 <code>sqr_sum</code> 都是 FP32。这个计算由一个专用内核 <code>tf32_hc_prenorm_gemm</code> 完成：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/hyperconnection.hpp#L10-L55"><code>static void tf32_hc_prenorm_gemm(const torch::Tensor&amp; a,
+                                 const torch::Tensor&amp; b,
+                                 const torch::Tensor&amp; d,
+                                 const torch::Tensor&amp; sqr_sum,
+                                 const std::optional&lt;int&gt;&amp; num_splits) {
+    // A and B must be K-major, D must be N-major
+    DG_HOST_ASSERT(get_major_type_ab(a) == cute::UMMA::Major::K);
+    DG_HOST_ASSERT(get_major_type_ab(b) == cute::UMMA::Major::K);
+    check_major_type_cd(d);
+
+    // S must be contiguous
+    DG_HOST_ASSERT(sqr_sum.is_contiguous());
+
+    // Type and shape checks
+    const auto [m, k ] = get_shape&lt;2&gt;(a);
+    const auto [n, k_] = get_shape&lt;2&gt;(b);
+    if (num_splits.has_value()) {
+        const auto [num_splits_, m_, n_] = get_shape&lt;3&gt;(d);
+        const auto [num_splits__, m__] = get_shape&lt;2&gt;(sqr_sum);
+        DG_HOST_ASSERT(num_splits.value() == num_splits_ and num_splits.value() == num_splits__ and num_splits.value() &gt;= 1);
+        DG_HOST_ASSERT(m == m_ and m == m__ and n == n_ and k == k_);
+    } else {
+        const auto [m_, n_] = get_shape&lt;2&gt;(d);
+        const auto [m__] = get_shape&lt;1&gt;(sqr_sum);
+        DG_HOST_ASSERT(m == m_ and m == m__ and n == n_ and k == k_);
+    }
+    DG_HOST_ASSERT(n &gt; 0 and k &gt; 0);
+    DG_HOST_ASSERT(a.scalar_type() == torch::kBFloat16);
+    DG_HOST_ASSERT(b.scalar_type() == torch::kFloat);
+    DG_HOST_ASSERT(d.scalar_type() == torch::kFloat);
+    DG_HOST_ASSERT(sqr_sum.scalar_type() == torch::kFloat);
+
+    // Do nothing if the problem is empty
+    if (m == 0)
+        return;
+
+    // Dispatch into different implements
+    const auto arch_major = jit-&gt;device.get_arch_major();
+    if (arch_major == 9) {
+        sm90_tf32_hc_prenorm_gemm(a, b, d, sqr_sum, m, n, k, num_splits.has_value() ? num_splits.value() : 1);
+    } else if (arch_major == 10) {
+        sm100_tf32_hc_prenorm_gemm(a, b, d, sqr_sum, m, n, k, num_splits.has_value() ? num_splits.value() : 1);
+    } else {
+        DG_HOST_UNREACHABLE("Unsupported architecture");
+    }</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/hyperconnection.hpp#L10-L55"><code>csrc/apis/hyperconnection.hpp</code> 第 10–55 行</a>（节选）</p>
+
+<p>接口要求 A 和 B 都是 K-major（即按列存放 K 维），D 是 N-major（按行存放 N 维），<code>sqr_sum</code> 是连续的一维数组。为什么用 TF32 而不是 FP32？因为 Fn 矩阵本身就是 FP32 存储的，用 TF32（truncated FP32，尾数截断到 10 位）做 MMA 能利用张量核的吞吐，精度损失对归一化步骤可以接受。</p>
+
+<p>可选的 <code>num_splits</code> 参数开启 Split-K：此时 D 的形状变成 <code>[num_splits, M, N]</code>，<code>sqr_sum</code> 变成 <code>[num_splits, M]</code>，后续由消费方归约。内核同时支持 SM90 和 SM100，是 DeepGEMM 中少数跨两代架构的内核之一。之所以能跨架构，是因为 TF32 MMA 在两代硬件上的语义基本一致（SM90 的 <code>wgmma</code> 和 SM100 的 <code>tcgen05.mma</code> 都支持 TF32 累加），且 N 维只有 24——远小于典型 GEMM 的 128 或 256——不需要利用 SM100 特有的双 CTA 或 TMEM 大容量优化，因此同一套 tile 配置在两代硬件上都能高效运行。</p>
+
+<h2 id="sec-cuda-graph-fix" data-short="CUDA graph 修复">修复：CUDA graph 重放下的 split barrier</h2>
+
+<p>Mega mHC 的 Split-K 和 Mega Gate 的 score barrier 都需要一个全局的 barrier 数组来同步不同 split / CTA 之间的部分和归约。这个数组用 <code>torch::zeros()</code> 分配并清零，之后的内核调用通过原子操作在上面做生产者-消费者同步。</p>
+
+<p>问题出在 CUDA graph 上。如果 <code>torch::zeros()</code> 发生在 CUDA graph 捕获期间，这个分配 + 清零操作会被录进 graph——每次 replay 都会重新清零 barrier，破坏内核调用之间需要保持的 epoch 和 exit count 状态。<a href="#fig-barrier">图 3</a> 对比了修复前后的时序。</p>
+
+<figure id="fig-barrier" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-barrier-cap" viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg" role="img" id="s3-root" style="max-width:680px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s3-ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  <text x="340" y="24" class="d-title" text-anchor="middle">CUDA graph 重放下的 split barrier 修复</text>
+
+  
+  <text x="170" y="52" class="d-title" text-anchor="middle" style="font-size:14px">修复前（barrier 在 capture 内分配）</text>
+
+  
+  <rect x="24" y="64" width="296" height="100" rx="4" class="d-box" style="stroke-dasharray:6,3;fill:var(--ink-1,#222);fill-opacity:0.04"/>
+  <text x="172" y="82" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">CUDA graph capture</text>
+
+  <rect x="40" y="92" width="128" height="32" rx="4" class="d-box soft"/>
+  <text x="104" y="113" class="d-text" text-anchor="middle">torch::zeros()</text>
+
+  <path class="d-arrow" d="M168 108 H192" marker-end="url(#s3-ah)"/>
+
+  <rect x="196" y="92" width="108" height="32" rx="4" class="d-box soft"/>
+  <text x="250" y="113" class="d-text" text-anchor="middle">kernel launch</text>
+
+  
+  <rect x="24" y="176" width="296" height="56" rx="4" class="d-box" style="stroke:var(--accent,#D55E00);stroke-dasharray:6,3;fill:var(--accent,#D55E00);fill-opacity:0.06"/>
+  <text x="172" y="194" class="d-small" text-anchor="middle" style="fill:var(--accent,#D55E00)">replay: zeros() + kernel  (zeros 重放!)</text>
+
+  <text x="172" y="214" class="d-small" text-anchor="middle" style="fill:var(--accent,#D55E00)">barrier 被清零 -> 破坏 kernel 间保持的状态</text>
+
+  
+  <text x="510" y="52" class="d-title" text-anchor="middle" style="font-size:14px">修复后（barrier 在 capture 前分配）</text>
+
+  
+  <rect x="368" y="64" width="280" height="44" rx="4" class="d-box green" style="fill-opacity:0.1;stroke:var(--green,#009E73)"/>
+  <text x="508" y="82" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">capture 前 (CaptureStatus::None)</text>
+  <rect x="384" y="88" width="128" height="24" rx="4" class="d-box green" style="fill-opacity:0.2"/>
+  <text x="448" y="105" class="d-small" text-anchor="middle">torch::zeros() (仅一次)</text>
+
+  
+  <rect x="368" y="120" width="280" height="44" rx="4" class="d-box" style="stroke-dasharray:6,3;fill:var(--ink-1,#222);fill-opacity:0.04"/>
+  <text x="508" y="140" class="d-small" text-anchor="middle" style="fill:var(--ink-3,#888)">CUDA graph capture</text>
+  <rect x="480" y="136" width="108" height="24" rx="4" class="d-box soft"/>
+  <text x="534" y="153" class="d-small" text-anchor="middle">kernel launch</text>
+
+  
+  <rect x="368" y="176" width="280" height="44" rx="4" class="d-box green" style="fill-opacity:0.08;stroke:var(--green,#009E73)"/>
+  <text x="508" y="194" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">replay: 只有 kernel (barrier 保留!)</text>
+  <text x="508" y="210" class="d-small" text-anchor="middle" style="fill:var(--green,#009E73)">epoch/exit count 在 barrier tail 中存活</text>
+
+  
+  <rect x="40" y="244" width="600" height="48" rx="4" class="d-box" style="fill:var(--ink-1,#222);fill-opacity:0.03"/>
+  <text x="340" y="262" class="d-mono" text-anchor="middle" style="font-size:13px">DG_HOST_ASSERT(currentStreamCaptureStatusMayInitCtx()</text>
+  <text x="340" y="280" class="d-mono" text-anchor="middle" style="font-size:13px">                    == CaptureStatus::None);</text>
+</svg></div>
+  <figcaption id="fig-barrier-cap"><span class="fig-label">图 3</span><b>修复前 <code>torch::zeros()</code> 被录入 CUDA graph，每次 replay 清零 barrier；修复后分配在 capture 前完成，replay 只重放 kernel launch。</b>关键断言 <code>CaptureStatus::None</code> 保证分配不会发生在 graph 捕获期间。epoch 和 exit count 存在第一条 barrier line 的尾部（偏移 64B 和 72B），无需额外分配。依据提交 <code>5081f85</code>。</figcaption>
+</figure>
+
+<p>具体的失败表现是：第一次 graph replay 后 barrier 被清零，epoch 回到 0；但内核内部维护的 epoch 期望值已经推进到 1（或更高）——producer 在 epoch 1 上发信号，consumer 却在 epoch 0 上等待（因为清零后状态重置），两边永远不匹配，导致 consumer spin 永不退出，表现为 GPU hang 或超时错误。更隐蔽的情况是：如果 exit count 被清零但 epoch 恰好对上，部分 split 可能看到残留的旧 partial sum 被当作有效数据参与归约，导致静默的数值错误——这类 bug 在 CUDA graph 的确定性重放假设下极难定位，因为症状取决于上一次调用离开时 barrier 的具体状态。</p>
+
+<p>提交 <code>5081f85</code>（"Fix mega_mhc split barriers under CUDA graph replay (#478)"）的修复方式很直接：把 barrier 分配做成 per-stream 的懒初始化，第一次调用时分配并清零，之后复用。关键是加了一条断言，要求分配时当前流没有在做 graph 捕获。Mega mHC 中的 <code>get_split_barriers</code>：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L26-L39"><code>static const torch::Tensor&amp; get_split_barriers(const torch::TensorOptions&amp; options) {
+    const auto stream = at::cuda::getCurrentCUDAStream();
+    DG_HOST_ASSERT(options.device() == stream.device());
+    static std::unordered_map&lt;c10::cuda::CUDAStream, torch::Tensor&gt; split_barriers_by_stream;
+    auto&amp; split_barriers = split_barriers_by_stream[stream];
+    if (not split_barriers.defined()) {
+        // Warm up each stream before capture so one-time zeroing is not replayed with the graph.
+        DG_HOST_ASSERT(c10::cuda::currentStreamCaptureStatusMayInitCtx() == c10::cuda::CaptureStatus::None);
+        split_barriers = torch::zeros(
+            {mhc_layout::kNumSplitBarriers, mhc_layout::kNumMaxMBlocks, mhc_layout::kSplitBarrierLineBytes},
+            options.dtype(torch::kByte));
+    }
+    return split_barriers;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_mhc.hpp#L26-L39"><code>csrc/apis/mega_mhc.hpp</code> 第 26–39 行</a>（节选）</p>
+
+<p>Mega Gate 的 <code>get_score_barriers</code> 使用完全相同的模式：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L13-L26"><code>static const torch::Tensor&amp; get_score_barriers(const torch::TensorOptions&amp; options) {
+    const auto stream = at::cuda::getCurrentCUDAStream();
+    DG_HOST_ASSERT(options.device() == stream.device());
+    static std::unordered_map&lt;c10::cuda::CUDAStream, torch::Tensor&gt; score_barriers_by_stream;
+    auto&amp; score_barriers = score_barriers_by_stream[stream];
+    if (not score_barriers.defined()) {
+        // Warm up each stream before capture so one-time zeroing is not replayed with the graph.
+        DG_HOST_ASSERT(c10::cuda::currentStreamCaptureStatusMayInitCtx() == c10::cuda::CaptureStatus::None);
+        score_barriers = torch::zeros(
+            {mega_gate_layout::kNumMaxTokenBlocks, mega_gate_layout::kScoreBarrierLineBytes},
+            options.dtype(torch::kByte));
+    }
+    return score_barriers;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/mega_gate.hpp#L13-L26"><code>csrc/apis/mega_gate.hpp</code> 第 13–26 行</a>（节选）</p>
+
+<p>两者的核心都是第 20 行（mega_mhc）和第 20 行（mega_gate）的断言：<code>c10::cuda::currentStreamCaptureStatusMayInitCtx() == c10::cuda::CaptureStatus::None</code>。这保证了 <code>torch::zeros()</code> 只在 graph 捕获开始之前执行，replay 时不会重新分配或清零。</p>
+
+<p>barrier 的 epoch 和 exit count 存在 <code>kSplitBarrierLineBytes</code>（128 字节）的第一条 line 的尾部，偏移分别为 64 字节和 72 字节。因为 barrier line 本身是 128 字节，前 8 字节是实际的 barrier 状态，后面的空间被复用来存这些管理数据——不需要额外的全局分配。这种将元数据嵌入对齐填充区的做法在高性能 GPU 内核中很常见：它避免了额外的全局内存事务，同时利用了缓存行对齐已经占用的字节。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li>Mega Gate 的打分函数在代码中是 <strong>hardcoded 为 <code>sqrtsoftplus</code></strong>，如果传入其他字符串会触发断言失败。这可能是因为 DeepSeek-V3 目前只使用这一种打分。</li>
+  <li>Mega mHC 的 <strong>Sinkhorn 迭代数</strong>由调用方通过 <code>num_sinkhorn_iters</code> 参数控制（测试中用 10），不是内核自己决定的。</li>
+  <li>Mega Gate 的 TMEM 转出和 top-k 选择已在上文展开，但 <strong>CTA 间的 score barrier 同步</strong>（Split-K 归约的具体时序）<strong>没有逐行分析</strong>。</li>
+  <li>Mega mHC 的 6 个 warpgroup 角色、Sinkhorn 和 Normal worker 已在上文展开，但 <strong>Shifted 模式下 Post worker 读取 X1 的流水线</strong>（与 ring_pipeline.cuh 的交互）<strong>没有详细分析</strong>。</li>
+  <li>TF32 HC prenorm GEMM 是一个<strong>相对简单的特化 GEMM</strong>，它的 SM90 和 SM100 两个实现的差异本文没有对比。</li>
+  <li>本文<strong>没有实测性能数字</strong>。本地没有 GPU，仓库文档中也没有提供这些内核的 benchmark 数据。</li>
+  <li>Mega Gate 和 Mega mHC <strong>只有 SM100 实现</strong>（代码中有 <code>arch_major == 10</code> 的断言），TF32 HC prenorm GEMM 同时支持 SM90 和 SM100。</li>
+</ul>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg08-mega-moe/dg08-mega-moe.html">Mega MoE：一整层 MoE 塞进一个持久化内核</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<ol class="references">
+  <li id="ref-readme">DeepSeek-AI. (2025). <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1">DeepGEMM README</a>.</li>
+  <li id="ref-dsv3">DeepSeek-AI. (2024). <a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3 Technical Report</a>. <i>arXiv:2412.19437</i>.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>（含 <code>1fc9c66</code> 的改动）。本地没有 GPU，文中没有任何实测性能数字。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

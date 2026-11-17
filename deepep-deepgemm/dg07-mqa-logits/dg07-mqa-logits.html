@@ -1,0 +1,4076 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一条加权 ReLU，四种内核：Lightning Indexer 的 MQA logits</title>
+<meta name="description" content="DeepGEMM 精读第 7 篇：DSA 索引器的加权 ReLU 打分如何写成块缩放 GEMM，以及连续、分页、稀疏、分页稀疏四种形态的布局与调度。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+/* ===== Design tokens ===================================================== */
+:root {
+  --ink: #1a1a1a;          /* body text, strokes */
+  --ink-2: #4a4a4a;        /* captions, secondary text */
+  --ink-3: #767676;        /* labels, metadata (4.5:1 on white) */
+  --rule: #e4e4e0;         /* hairlines */
+  --bg: #ffffff;
+  --bg-soft: #f7f7f4;      /* callouts, code */
+  --link: #0b5cad;
+  /* Data / diagram palette: Okabe–Ito (colour-blind safe) */
+  --c-blue: #0072B2;  --c-blue-bg: #e8f1f8;
+  --c-verm: #D55E00;  --c-verm-bg: #fcefe6;   /* ACCENT: "the new idea" */
+  --c-green: #009E73; --c-green-bg: #e5f4ee;
+  --c-purple: #CC79A7; --c-purple-bg: #f8edf3;
+  --c-orange: #E69F00; --c-orange-bg: #fdf4e1;
+  --c-gray: #8c8c8c;  --c-gray-bg: #f2f2f0;
+  --serif: "Source Serif 4", Charter, Georgia, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", serif;
+  --sans: Inter, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  --col: 680px;
+  --wide: 960px;
+  color-scheme: light;
+}
+
+/* ===== Base ============================================================== */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--serif); font-size: 18px; line-height: 1.75;
+  font-feature-settings: "kern", "liga", "onum" 0;
+  text-rendering: optimizeLegibility;
+}
+.col { max-width: calc(var(--col) + 32px); margin: 0 auto; padding: 0 16px; position: relative; }
+p { margin: 0 0 1.15em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3em 0; }
+
+/* ===== Header ============================================================ */
+.post-header { padding: 72px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 28px; }
+.kicker { font: 600 13px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--c-verm); margin-bottom: 14px; }
+.post-header h1 { font: 700 40px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 14px; text-wrap: balance; }
+.subtitle { font: 400 20px/1.55 var(--serif); color: var(--ink-2); margin: 0 0 22px; }
+.byline { font: 14px/1.6 var(--sans); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.byline b { color: var(--ink-2); font-weight: 500; }
+
+/* ===== Table of contents ================================================= */
+#toc { font: 14px/1.6 var(--sans); background: var(--bg-soft); border-radius: 6px; padding: 16px 20px; margin: 0 0 36px; }
+#toc:empty { display: none; }
+#toc .toc-title { font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#toc ol { margin: 0; padding-left: 1.4em; }
+#toc ol ol { padding-left: 1.2em; list-style: none; }
+#toc a { color: var(--ink-2); text-decoration: none; }
+#toc a:hover { color: var(--link); text-decoration: underline; }
+
+/* ===== Headings ========================================================== */
+h2, h3, h4 { font-family: var(--sans); color: var(--ink); scroll-margin-top: 24px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; margin: 2.4em 0 .7em; }
+h3 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 1.9em 0 .5em; }
+h4 { font-size: 16px; font-weight: 600; margin: 1.5em 0 .4em; }
+
+/* ===== Lists, quotes ===================================================== */
+ul, ol { padding-left: 1.4em; margin: 0 0 1.15em; }
+li { margin: .3em 0; }
+blockquote { margin: 1.5em 0; padding: 0 0 0 1.1em; border-left: 3px solid var(--rule); color: var(--ink-2); }
+
+/* ===== TL;DR and callouts ================================================ */
+.tldr { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); padding: 18px 0 6px; margin: 0 0 2.2em; }
+.tldr .tldr-title, .callout .callout-title {
+  font: 600 13px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px;
+}
+.tldr ul { margin-bottom: .8em; }
+.callout { background: var(--bg-soft); border-left: 3px solid var(--ink-3); border-radius: 0 6px 6px 0; padding: 14px 18px 4px; margin: 1.6em 0; font-size: 17px; }
+.callout.key  { border-left-color: var(--c-verm); background: var(--c-verm-bg); }
+.callout.key .callout-title { color: #a94700; }
+.callout.def  { border-left-color: var(--c-blue);  background: var(--c-blue-bg); }
+.callout.def .callout-title { color: #005a8c; }
+.callout.warn { border-left-color: var(--c-orange); background: var(--c-orange-bg); }
+.callout.warn .callout-title { color: #8a5f00; }
+.callout.note { border-left-color: var(--c-gray); }
+
+/* ===== Sidenotes (margin on wide screens, inline otherwise) ============== */
+.sidenote { display: block; font: 14px/1.55 var(--sans); color: var(--ink-2); border-left: 2px solid var(--rule); padding: 2px 0 2px 12px; margin: 0 0 1.15em; }
+@media (min-width: 1300px) {
+  .sidenote { float: right; clear: right; width: 250px; margin: 4px -290px 12px 0; border-left: 0; padding: 0; }
+}
+
+/* ===== Figures =========================================================== */
+figure { margin: 2.2em 0; }
+figure.wide { width: min(var(--wide), calc(100vw - 32px)); position: relative; left: 50%; transform: translateX(-50%); }
+figure .fig-body { display: flex; justify-content: center; }
+figure svg, figure img { display: block; width: 100%; height: auto; }
+figcaption { font: 14.5px/1.6 var(--sans); color: var(--ink-2); margin-top: 12px; max-width: var(--col); }
+figure.wide figcaption { margin-left: auto; margin-right: auto; }
+.fig-label { font-weight: 600; color: var(--ink); margin-right: .45em; }
+.badge { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; vertical-align: 1px; margin-right: .4em; }
+.badge.illustrative { color: #8a5f00; background: var(--c-orange-bg); border: 1px solid #f0d49a; }
+
+/* ===== Tables (booktabs style) =========================================== */
+.table-wrap { overflow-x: auto; margin-bottom: 1.4em; }
+table { border-collapse: collapse; width: 100%; font: 14.5px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; text-align: left; padding: 8px 10px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr.ours td { background: var(--c-verm-bg); }
+tr.ref td { background: var(--c-gray-bg); color: var(--ink-2); font-style: italic; }   /* baseline / reference row */
+td.nowrap, th.nowrap, .nobr { white-space: nowrap; }   /* label columns; keep a title phrase together */
+figure.table figcaption { margin: 0 0 10px; }
+
+/* ===== Math ============================================================== */
+.eq { position: relative; margin: 1.4em 0; padding-right: 3.2em; overflow-x: auto; overflow-y: hidden; }
+.eq .katex-display { margin: 0; }
+.eq-num { position: absolute; right: 0; top: 50%; transform: translateY(-50%); font: 15px var(--sans); color: var(--ink-3); }
+.katex { font-size: 1.06em; }
+.notation { font-size: 16px; }
+.notation td:first-child { white-space: nowrap; width: 1%; }
+
+/* ===== Derivations / optional depth ====================================== */
+details.deriv { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 16px; margin: 1.4em 0; }
+details.deriv > summary { cursor: pointer; font: 600 14.5px/1.5 var(--sans); color: var(--ink-2); }
+details.deriv[open] > summary { margin-bottom: 10px; }
+
+/* ===== Code ============================================================== */
+code { font-family: var(--mono); font-size: .86em; background: var(--bg-soft); padding: .1em .3em; border-radius: 3px; }
+pre { background: var(--bg-soft); border-radius: 6px; padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.6; margin: 1.4em 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* ===== Citations & references ============================================ */
+.cite { font-family: var(--sans); font-size: .82em; white-space: nowrap; }
+.cite a { text-decoration: none; }
+ol.references { font: 14.5px/1.6 var(--sans); color: var(--ink-2); padding-left: 2em; }
+ol.references li { margin: .5em 0; scroll-margin-top: 24px; }
+ol.references li:target { background: var(--c-orange-bg); }
+
+/* ===== Diagram classes (inline SVG concept figures) ====================== */
+svg .d-box     { fill: #fff; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-box.soft   { fill: var(--c-gray-bg);  stroke: #b8b8b4; }
+svg .d-box.blue   { fill: var(--c-blue-bg);  stroke: var(--c-blue); }
+svg .d-box.accent { fill: var(--c-verm-bg);  stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-box.green  { fill: var(--c-green-bg); stroke: var(--c-green); }
+svg .d-box.purple { fill: var(--c-purple-bg); stroke: var(--c-purple); }
+svg .d-box.orange { fill: var(--c-orange-bg); stroke: var(--c-orange); }
+svg .d-group   { fill: none; stroke: #a8a8a4; stroke-width: 1; stroke-dasharray: 4 3; }
+svg .d-arrow   { fill: none; stroke: var(--ink); stroke-width: 1.25; }
+svg .d-arrow.accent { stroke: var(--c-verm); stroke-width: 1.5; }
+svg .d-arrow.muted  { stroke: #a8a8a4; }
+svg .d-arrow.dashed { stroke-dasharray: 5 4; }
+svg .d-head    { fill: var(--ink); }
+svg .d-head.accent { fill: var(--c-verm); }
+svg .d-head.muted  { fill: #a8a8a4; }
+svg .d-text    { font-family: var(--sans); font-size: 14px; fill: var(--ink); }
+svg .d-title   { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--ink); }
+svg .d-small   { font-family: var(--sans); font-size: 13px; fill: var(--ink-2); }
+svg .d-label   { font-family: var(--sans); font-size: 13px; fill: var(--ink-3); }
+svg .d-mono    { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+svg .d-math    { font-family: KaTeX_Math, "Latin Modern Math", "STIX Two Math", "Cambria Math", serif; font-style: italic; font-size: 16px; fill: var(--ink); }
+svg .d-mathrm  { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", "Times New Roman", serif; font-style: normal; font-size: 16px; fill: var(--ink); }
+svg .d-sub.d-mathrm { font-size: 11px; }
+svg .d-accent-text { fill: #b34f00; }
+svg .d-cell    { stroke: #fff; stroke-width: 1; }
+/* sub/superscripts: use these classes, NOT font-size="" attributes (CSS classes win over attributes) */
+svg .d-sub     { font-size: 11px; }
+svg .d-up      { font-family: KaTeX_Main, "Latin Modern Roman", "STIX Two Text", serif; font-style: normal; }
+
+/* ===== Footer ============================================================ */
+.post-footer { border-top: 1px solid var(--rule); margin-top: 4em; padding: 20px 0 64px; font: 13.5px/1.6 var(--sans); color: var(--ink-3); }
+
+/* ===== Small screens ===================================================== */
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  /* wide figures would shrink to unreadable text on phones: let them scroll sideways */
+  figure.wide .fig-body { overflow-x: auto; justify-content: flex-start; }
+  figure.wide svg { min-width: 600px; }
+  /* equation numbers move below the equation instead of colliding with it */
+  .eq { padding-right: 0; }
+  .eq-num { position: static; display: block; transform: none; text-align: right; font-size: 13px; }
+  .post-header { padding-top: 40px; }
+  .post-header h1 { font-size: 30px; }
+  .subtitle { font-size: 18px; }
+  h2 { font-size: 22px; }
+}
+
+/* ===== Print / PDF ======================================================= */
+@media print {
+  body { font-size: 11.5pt; }
+  .post-header { padding-top: 0; }
+  figure.wide { width: 100%; left: 0; transform: none; }
+  figure, .callout, .eq, table { break-inside: avoid; }
+  .sidenote { float: none; width: auto; margin: 0 0 1em; border-left: 2px solid var(--rule); padding-left: 12px; }
+  a { color: inherit; }
+}
+.src-note{font-size:13px;color:var(--ink-3,#666);margin:-.9em 0 1.4em}
+</style>
+</head>
+<body>
+<div class="col">
+
+<header class="post-header">
+  <div class="kicker">DeepGEMM 精读 · 第 7 篇</div>
+  <h1>一条加权 ReLU，四种内核：<br>Lightning Indexer 的 <span class="nobr">MQA logits</span></h1>
+  <p class="subtitle">DeepGEMM 把索引器的打分写成“KV token 作 M、(token, 头) 作 N”的 GEMM，在尾声里做 ReLU、加权和按头求和；预填充、分页解码、稀疏和分页稀疏四种形态共用这一内核骨架，差别在 KV 怎么取、结果写到哪、工作怎么分给 SM。</p>
+  <div class="byline">
+    <span><b>DeepEP 与 DeepGEMM 精读</b></span>
+    <span>2026-10-28</span>
+    <span data-reading-time>约 22 分钟阅读</span>
+  </div>
+</header>
+
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-why">索引器只要一张分数表，DeepGEMM 按 KV 的取法给了四个入口</a><li><a href="#sec-math">打分是一次 GEMM 加一个按头求和的尾声</a><ol><li><a href="#sec-1">公式：先 ReLU，再按头加权</a></li><li><a href="#sec-2">GEMM 视角：KV 当 M，(token, 头) 当 N</a></li></ol><li><a href="#sec-layout">输出被压缩成 [S, L]：每行从自己的 ks 开始</a><li><a href="#sec-scale">非 MX 缩放可以最后再乘，MX 缩放必须进张量核</a><ol><li><a href="#sec-3">SM90：缩放能提到求和外面</a></li><li><a href="#sec-4">SM100：每 32 维一个缩放，提不出来</a></li></ol><li><a href="#sec-paged">分页版：一页先放全部数据，再放全部缩放</a><ol><li><a href="#sec-5">“每个 token 后面跟 4 个缩放字节”只对总字节数成立</a></li></ol><li><a href="#sec-sched">元数据内核把不等长的工作切给各个 SM</a><ol><li><a href="#sec-6">连续版（SM100）：带启动代价的前缀和切分</a></li><li><a href="#sec-7">分页版（SM100）：以请求为单位，按 split 和查询数估代价</a></li><li><a href="#sec-8">分页版（SM90）：只数 split</a></li></ol><li><a href="#sec-sparse">稀疏版：只给选中的小块打分，两个查询共享一次搬运</a><ol><li><a href="#sec-9">“稀疏”指什么</a></li><li><a href="#sec-10">两个查询一组：合并块列表</a></li><li><a href="#sec-11">搬运：能用 TMA 就用 TMA，否则逐块收集</a></li><li><a href="#sec-12">调度与工作区</a></li><li><a href="#sec-13">提交 1fc9c66：页间距对齐从 512 字节放宽到 128 字节</a></li></ol><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+
+<article>
+<div class="tldr">
+  <p class="tldr-title">TL;DR</p>
+  <ul>
+    <li>索引器的分数是“每个头的点积先过 ReLU，再按查询自己的头权重加权求和”；所有查询头共用一个 K 头，所以内核把 128 个 (token, 头) 行拼成 GEMM 的 N 维，KV token 作 M 维。</li>
+    <li>连续版的输出是压缩的：第 <code>i</code> 行第 <code>c</code> 列对应 KV 下标 <code>ks[i] + c</code>，每行都从第 0 列开始，有效区间以外的列内核不写。</li>
+    <li>SM90 用 FP8 加每 token 一个 FP32 缩放，由于 ReLU 正齐次，这个缩放可以留到加权求和之后再乘；SM100 用 MXFP4/MXFP8 加每 32 维一个 UE8M0 缩放，只能交给块缩放 MMA 在张量核里处理。</li>
+    <li>分页 KV cache 的形状写成 <code>[.., D′+4]</code>，但一页里实际是先放全部 token 的数据、再放全部 4 字节缩放。</li>
+    <li>稀疏版只给每个查询选中的 8 或 16 token 小块打分；相邻两个查询的块列表合并去重后共享一次 KV 搬运，再按槽位写回各自的压缩行。</li>
+  </ul>
+</div>
+
+<aside class="prereqs callout note"><p class="callout-title">前置知识</p><p>了解 <a href="../dg01-sm90-fp8/dg01-sm90-fp8.html">dg01</a>/<a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">dg02</a> 的 FP8 GEMM 流水线，以及 <a href="../dg03-sf-formats/dg03-sf-formats.html">dg03</a> 的 UE8M0 缩放格式。本篇新引入：MQA logits 打分公式、分页 KV cache 布局、稀疏 merge-path 合并去重、连续版压缩输出。</p></aside>
+
+<h2 id="sec-why" data-short="四种形态">索引器只要一张分数表，DeepGEMM 按 KV 的取法给了四个入口</h2>
+
+<p>DeepSeek-V3.2 提出的 DeepSeek 稀疏注意力（DeepSeek Sparse Attention，DSA）<span class="cite">[<a href="#ref-dsv32" title="DeepSeek-AI (2025). DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models. arXiv:2512.02556.">1</a>]</span> 在主注意力之前加了一个轻量的打分器：对每个查询 token，它给前文中每个候选 KV token 打一个分，后续再按分数挑出要真正参与注意力的 token。DeepGEMM 的 README 把为它准备的内核称为 “lightning indexer” 的打分内核，并写明它算的是“加权 ReLU 的 MQA logits”<span class="cite">[<a href="#ref-readme" title="DeepSeek-AI. DeepGEMM README, “V3.2 MQA kernels for the indexer” 一节. <code>README.md</code> 第 88–110 行（提交 5081f85）.">2</a>]</span>。DeepGEMM 只负责算分数；按分数挑 token 的那一步不在这个仓库里。</p>
+
+<p>“MQA”指多查询注意力（multi-query attention）：一个查询 token 有 \(H\) 个头，但只对应一个 K 头。对打分内核来说，这意味着 KV 侧每个 token 只是一条 \(D\) 维向量，而查询侧每个 token 是一个 \(H \times D\) 的小矩阵。</p>
+
+<p>这个打分在不同阶段的访问方式差别很大。预填充时，一批新 token 各自看一段连续的 KV 区间；解码时，KV 存在分页的缓存里，要查块表；如果上游已经把候选范围缩到一些小块，就只需要给这些块打分。<code>csrc/apis/attention.hpp</code> 为此注册了四个打分函数和四个配套的元数据函数（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L445-L476">第 445–476 行</a>），<a href="#tab-apis">表 1</a> 把它们并排放在一起。README 只描述了前两种（非分页用于预填充、分页用于解码），稀疏的两种只在更新日志里以 “Sparse Indexer” 出现，它们的语义要从代码注释和测试里读出来。</p>
+
+<figure id="tab-apis" class="table">
+  <figcaption id="tab-apis-cap"><span class="fig-label">表 1</span><b>四种形态共用同一条打分公式，差别在 KV 怎么取、结果写在哪一列。</b>“元数据”一列是打分前要先调用的调度函数；“必需”表示打分函数的参数里没有默认值。整理自 <code>attention.hpp</code> 中各函数的参数检查。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th>形态</th><th>打分函数</th><th>KV 来源</th><th>输出形状</th><th class="nowrap">元数据</th><th class="nowrap">架构</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">连续</td><td><code>fp8_fp4_mqa_logits</code></td><td>连续 KV + <code>ks</code>/<code>ke</code></td><td><code>[S, L]</code></td><td class="nowrap">可选</td><td>SM90 / SM100</td></tr>
+      <tr><td class="nowrap">分页</td><td><code>fp8_fp4_paged_mqa_logits</code></td><td>分页缓存 + 块表</td><td><code>[行数, 最大上下文]</code></td><td class="nowrap">必需</td><td>SM90 / SM100</td></tr>
+      <tr class="ours"><td class="nowrap">稀疏</td><td><code>fp8_fp4_sparse_mqa_logits</code></td><td>连续 KV + 块下标</td><td><code>[S, n·B]</code></td><td class="nowrap">必需</td><td>SM100</td></tr>
+      <tr class="ours"><td class="nowrap">分页稀疏</td><td><code>fp8_fp4_paged_sparse_mqa_logits</code></td><td>分页缓存 + 块下标</td><td><code>[S, n·B]</code></td><td class="nowrap">必需</td><td>SM100</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<p>本文的符号如下。连续版沿用 README 的参数名；分页和稀疏版用到的量在相应小节再补充。</p>
+
+<div class="table-wrap notation"><table>
+  <thead><tr><th>符号</th><th>含义</th><th>代码中的名字</th></tr></thead>
+  <tbody>
+    <tr><td>\(S\)</td><td>查询 token 数（输出行数）</td><td><code>seq_len</code> / <code>num_q_tokens</code></td></tr>
+    <tr><td>\(H,\ D\)</td><td>查询头数、头维度</td><td><code>num_heads</code>, <code>head_dim</code></td></tr>
+    <tr><td>\(D'\)</td><td>每个 KV token 的数据字节数：FP4 为 \(D/2\)，FP8 为 \(D\)</td><td><code>kv_head_dim</code></td></tr>
+    <tr><td>\(ks_i,\ ke_i\)</td><td>第 \(i\) 行可见的 KV 区间 \([ks_i, ke_i)\)</td><td><code>cu_seq_len_k_start/end</code></td></tr>
+    <tr><td>\(L\)</td><td>所有行中最长的可见区间</td><td><code>max_seqlen_k</code></td></tr>
+    <tr><td>\(w_{i,h}\)</td><td>第 \(i\) 个查询 token 第 \(h\) 个头的权重</td><td><code>weights</code></td></tr>
+    <tr><td>\(B,\ n\)</td><td>稀疏块的 token 数（8 或 16）、每行最多的块数</td><td><code>sparse_block_kv</code>, <code>num_max_sparse_blocks</code></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="sec-math" data-short="加权 ReLU">打分是一次 GEMM 加一个按头求和的尾声</h2>
+
+<h3 id="sec-1">公式：先 ReLU，再按头加权</h3>
+
+<p>README 用四行 PyTorch 给出了每个 \((i, j)\) 的参考计算：先把 KV 反量化，再和 \(H\) 个查询头分别做点积，过 ReLU，乘上这一行的头权重，最后对头求和。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L99-L110"><code>kv_j = kv[0][j, :] * kv[1][j].unsqueeze(1)  # [head_dim]
+out_ij = q[i, :, :] @ kv_j  # [num_heads]
+out_ij = out_ij.relu() * weights[i, :]  # [num_heads]
+out_ij = out_ij.sum()  # Scalar</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L99-L110"><code>README.md</code> 第 99–110 行</a>（参考语义）</p>
+
+<p>写成公式，第 \(i\) 个查询对第 \(j\) 个 KV token 的分数是</p>
+
+<div class="eq" id="eq-score">\[ \begin{gathered} \mathrm{logit}_{i,j} = \sum_{h=1}^{H} w_{i,h}\,\mathrm{ReLU}\!\left(\hat q_{i,h}\cdot \hat k_{j}\right), \\ ks_i \le j &lt; ke_i, \end{gathered} \]<span class="eq-num">(1)</span></div>
+
+<p>其中 \(\hat q_{i,h} \in \R^{D}\) 和 \(\hat k_j \in \R^{D}\) 是反量化后的查询头向量和键向量，\(w_{i,h}\) 是逐 token、逐头的权重（形状 \([S, H]\)）。有两点值得注意：ReLU 作用在每个头的点积上，而不是最终分数上；权重 \(w\) 可以为负（测试里用 <code>torch.randn</code> 生成），所以最终分数也可以是负数。</p>
+
+<p>举一个能手算的例子：\(H = 2\)、\(D = 4\)，查询的两个头是 \(q_1 = (1, -2, 0.5, 1)\)、\(q_2 = (0.5, 1, -1, 2)\)，权重 \(w = (0.75, -0.5)\)。对 \(k_0 = (1, 0, 2, 1)\)，两个点积是 \(3\) 和 \(0.5\)，都为正，分数为 \(0.75 \times 3 - 0.5 \times 0.5 = 2.0\)。对 \(k_1 = (-1, 1, 0, 0.5)\)，点积是 \(-2.5\) 和 \(1.5\)，第一个头被 ReLU 截成 0，分数为 \(-0.5 \times 1.5 = -0.75\)。这两个数由 <code>plots/common.py</code> 中按 README 语义写的 NumPy 参考实现复核过。</p>
+
+<h3 id="sec-2">GEMM 视角：KV 当 M，(token, 头) 当 N</h3>
+
+<p><a href="#eq-score">式 (1)</a> 里最贵的是点积 \(\hat q_{i,h}\cdot \hat k_j\)。把一批查询 token 的所有头摊平成行，它就是一个矩阵乘：\(K \in \R^{T\times D}\) 乘以 \(Q^\top \in \R^{D \times (\text{token}\cdot H)}\)。SM100 内核让 Q 分块固定覆盖 128 个 (token, 头) 行，所以每块装多少个 token 由头数决定：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_mqa_logits.hpp#L20-L24"><code>// The Q tile always covers 128 (token, head) rows
+static int get_mqa_logits_block_q(const int&amp; num_heads) {
+    DG_HOST_ASSERT(num_heads &gt; 0 and num_heads &lt;= 128 and num_heads % 4 == 0);
+    return 128 / num_heads;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_mqa_logits.hpp#L20-L24"><code>csrc/jit_kernels/impls/sm100_mqa_logits.hpp</code> 第 20–24 行</a>（节选）</p>
+
+<p>以 \(H = 32\) 为例，一个 Q 分块是 \(128/32 = 4\) 个 token，正好是一次 UMMA 的 N 维。KV 侧每次取一个 384 token 的“split”（<code>kMQALogitsSplitKV</code>），由 3 个数学 warpgroup 各算 128 行，每个 warpgroup 对应 TMEM 里的一个累加器 stage。UMMA（Blackwell 的 <code>tcgen05.mma</code>）和 TMEM（张量内存，MMA 累加器所在的片上存储）的基础见 <a href="../dg02-sm100-blockscaled/dg02-sm100-blockscaled.html">第 2 篇</a>。<a href="#fig-gemm">图 1</a> 画出了其中一个 128 行的 KV 分块。</p>
+
+<figure id="fig-gemm" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-gemm-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 8 560 448" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head accent"/>
+    </marker>
+  </defs>
+
+  
+  <rect class="d-box blue" x="16" y="24" width="184" height="56" rx="4"/>
+  <text class="d-text" x="108" y="48" text-anchor="middle">KV 分块（smem）</text>
+  <text class="d-mono" x="108" y="68" text-anchor="middle">[128 token, D]</text>
+
+  <rect class="d-box soft" x="216" y="24" width="128" height="56" rx="4"/>
+  <text class="d-text" x="280" y="48" text-anchor="middle">缩放因子</text>
+  <text class="d-mono" x="280" y="68" text-anchor="middle">UTCCP → TMEM</text>
+
+  <rect class="d-box blue" x="360" y="24" width="184" height="56" rx="4"/>
+  <text class="d-text" x="452" y="48" text-anchor="middle">Q 分块（smem）</text>
+  <text class="d-mono" x="452" y="68" text-anchor="middle">[4 × 32 行, D]</text>
+
+  <path class="d-arrow" d="M108 80 V110" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M280 80 V110" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M452 80 V110" marker-end="url(#s1-ah)"/>
+  <text class="d-label" x="116" y="100">A 操作数</text>
+  <text class="d-label" x="460" y="100">B 操作数</text>
+
+  
+  <rect class="d-box green" x="16" y="112" width="528" height="48" rx="4"/>
+  <text class="d-text" x="280" y="133" text-anchor="middle">块缩放 UMMA（tcgen05.mma … block_scale）</text>
+  <text class="d-mono" x="280" y="151" text-anchor="middle">M = 128 个 KV token，N = 128 个 (token, 头)</text>
+
+  <path class="d-arrow" d="M280 160 V194" marker-end="url(#s1-ah)"/>
+
+  
+  <text class="d-title" x="16" y="188">TMEM 累加器（FP32）</text>
+  <rect x="120" y="212" width="320" height="112" fill="#f7f7f4" stroke="#1a1a1a" stroke-width="1.25"/>
+  
+  <rect x="120" y="212" width="80" height="112" fill="#e8f1f8" stroke="none"/>
+  <rect x="280" y="212" width="80" height="112" fill="#e8f1f8" stroke="none"/>
+  <g stroke="#b8b8b4" stroke-width="0.75">
+    <path d="M130 212 V324 M140 212 V324 M150 212 V324 M160 212 V324 M170 212 V324 M180 212 V324 M190 212 V324"/>
+    <path d="M210 212 V324 M220 212 V324 M230 212 V324 M240 212 V324 M250 212 V324 M260 212 V324 M270 212 V324"/>
+    <path d="M290 212 V324 M300 212 V324 M310 212 V324 M320 212 V324 M330 212 V324 M340 212 V324 M350 212 V324"/>
+    <path d="M370 212 V324 M380 212 V324 M390 212 V324 M400 212 V324 M410 212 V324 M420 212 V324 M430 212 V324"/>
+  </g>
+  <g stroke="#1a1a1a" stroke-width="1">
+    <path d="M200 212 V324 M280 212 V324 M360 212 V324"/>
+  </g>
+  <rect x="120" y="212" width="320" height="112" fill="none" stroke="#1a1a1a" stroke-width="1.25"/>
+  <text class="d-small" x="160" y="206" text-anchor="middle">token 0</text>
+  <text class="d-small" x="240" y="206" text-anchor="middle">token 1</text>
+  <text class="d-small" x="320" y="206" text-anchor="middle">token 2</text>
+  <text class="d-small" x="400" y="206" text-anchor="middle">token 3</text>
+  <text class="d-label" x="448" y="232">每组 32 列</text>
+  <text class="d-label" x="448" y="250">= 32 个头</text>
+
+  
+  <rect x="120" y="270" width="320" height="10" fill="none" stroke="#D55E00" stroke-width="2"/>
+  <text class="d-label d-accent-text" x="112" y="279" text-anchor="end">KV token j</text>
+  <text class="d-label" x="112" y="232" text-anchor="end">128 行</text>
+  <text class="d-label" x="112" y="250" text-anchor="end">= 128 lane</text>
+
+  <path class="d-arrow accent" d="M280 324 V358" marker-end="url(#s1-ah-acc)"/>
+  <text class="d-label" x="288" y="346">一个线程读一行</text>
+
+  
+  <rect class="d-box accent" x="16" y="360" width="528" height="48" rx="4"/>
+  <text class="d-text" x="280" y="381" text-anchor="middle">对每个 token i：relu(s<tspan class="d-sub" dy="4">h</tspan><tspan dy="-4">) · w</tspan><tspan class="d-sub" dy="4">i,h</tspan><tspan dy="-4"> 在 BF16 中累加，对 32 个头求和</tspan></text>
+  <text class="d-mono" x="280" y="399" text-anchor="middle">cvt.rn.relu.bf16x2 + __hfma2</text>
+
+  <path class="d-arrow" d="M280 408 V430" marker-end="url(#s1-ah)"/>
+  <text class="d-mono" x="280" y="448" text-anchor="middle">logits[i, j − ks[i]]（BF16，仅当 ks[i] ≤ j &lt; ke[i]）</text>
+</svg></div>
+  <figcaption id="fig-gemm-cap"><span class="fig-label">图 1</span><b>KV token 是 MMA 的 M 维，(token, 头) 是 N 维；按头求和发生在每个线程自己的那一行里。</b>以 \(H = 32\)、每个 Q 分块 4 个 token 为例：一次块缩放 UMMA 得到 128×128 的 FP32 累加器，每行对应一个 KV token，每 32 列对应一个查询 token 的全部头。尾声中一个线程读一行，逐 token 做 ReLU、乘权重、对头求和，再写到压缩输出的对应列（橙色）。一个 384 token 的 split 由 3 个这样的 128 行分块组成。依据 <code>sm100_mqa_logits.cuh</code>。</figcaption>
+</figure>
+
+<p>这个摆法让按头求和变成线程内的循环：TMEM 的每个 lane 归一个线程，线程用 <code>tmem_load_32dp32b</code> 把自己那一行里某个 token 的 \(H\) 列读进寄存器，就能直接求和，不需要跨线程归约。代码没有说明为什么选这个方向，上面是我们从数据流读出的效果。尾声的核心是下面两个 lambda：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L472-L489"><code>// Reduce both bf16x2 halves and store the low half only for valid KV columns
+const auto store_token = [&amp;](const uint32_t&amp; i, const uint32_t&amp; kv_offset,
+                             const nv_bfloat162&amp; sum_0, const nv_bfloat162&amp; sum_1) {
+    const auto sum = __hadd2_rn(sum_0, sum_1);
+    const auto result = __hadd2_rn(__low2bfloat162(sum), __high2bfloat162(sum));
+    if (seq_k_start[i] &lt;= kv_offset and kv_offset &lt; seq_k_end[i])
+        ptx::st_global_low_bf16(output_bases[i] + kv_offset, result);
+};
+const auto reduce_pairs = [&amp;](const float* chunk, const nv_bfloat162* chunk_weights, const uint32_t&amp; num_heads,
+                              nv_bfloat162&amp; sum_0, nv_bfloat162&amp; sum_1) {
+    #pragma unroll
+    for (uint32_t head_offset = 0; head_offset &lt; num_heads; head_offset += 4) {
+        const auto accum_pair_0 = make_float2(chunk[head_offset], chunk[head_offset + 1]);
+        const auto accum_pair_1 = make_float2(chunk[head_offset + 2], chunk[head_offset + 3]);
+        sum_0 = __hfma2(ptx::cvt_relu_bf16x2_f32(accum_pair_0), chunk_weights[head_offset / 2], sum_0);
+        sum_1 = __hfma2(ptx::cvt_relu_bf16x2_f32(accum_pair_1), chunk_weights[head_offset / 2 + 1], sum_1);
+    }
+};</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L472-L489"><code>deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh</code> 第 472–489 行</a>（节选）</p>
+
+<p><code>reduce_pairs</code> 每次处理 4 个头：<code>cvt_relu_bf16x2_f32</code> 用一条 <code>cvt.rn.relu.bf16x2.f32</code> 指令把两个 FP32 累加值同时做 ReLU 并转成 BF16，再用 <code>__hfma2</code> 乘上 BF16 权重累加到两个 BF16 部分和里。<code>store_token</code> 把两个部分和相加、再把 bf16x2 的高低两半相加，只在 \(ks_i \le j &lt; ke_i\) 时写出。也就是说，SM100 上按头求和是在 BF16 里完成的，最后的分数也是 BF16。SM90 版本则全程 FP32，下一节会对比。</p>
+
+<h2 id="sec-layout" data-short="压缩输出">输出被压缩成 [S, L]：每行从自己的 ks 开始</h2>
+
+<p>如果按稠密方式存，输出应该是 \([S, T]\)，\(T\) 是 KV 总长。但每一行真正有效的只是 \([ks_i, ke_i)\) 一段，在把多个请求打包进一次预填充时，大部分格子都是无效的。README 规定输出被压缩成 \([S, L]\)，第 \(i\) 行把自己的有效区间从第 0 列开始存放 <span class="cite">[<a href="#ref-readme" title="DeepSeek-AI. DeepGEMM README, “V3.2 MQA kernels for the indexer” 一节. <code>README.md</code> 第 88–110 行（提交 5081f85）.">2</a>]</span>。于是第 \(i\) 行第 \(c\) 列对应 KV 下标 \(ks_i + c\)。<a href="#fig-layout">图 2</a> 用一个两个请求的玩具例子对比了两种视角。</p>
+
+<figure id="fig-layout" data-kind="diagram" data-source="computed" data-script="plots/fig_diagrams.py">
+  <div class="fig-body"><svg aria-labelledby="fig-layout-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 8 480 580" font-family="sans-serif" role="img" id="s2-root" style="max-width:480px;">
+<text class="d-title" x="16" y="28">(a) 稠密视角：logits[i, j]，j 是 KV 下标</text>
+<text class="d-label" x="133.0" y="52" text-anchor="middle">0</text>
+<text class="d-label" x="167.0" y="52" text-anchor="middle">1</text>
+<text class="d-label" x="201.0" y="52" text-anchor="middle">2</text>
+<text class="d-label" x="235.0" y="52" text-anchor="middle">3</text>
+<text class="d-label" x="269.0" y="52" text-anchor="middle">4</text>
+<text class="d-label" x="303.0" y="52" text-anchor="middle">5</text>
+<text class="d-label" x="337.0" y="52" text-anchor="middle">6</text>
+<text class="d-label" x="371.0" y="52" text-anchor="middle">7</text>
+<text class="d-label" x="405.0" y="52" text-anchor="middle">8</text>
+<text class="d-label" x="439.0" y="52" text-anchor="middle">9</text>
+<text class="d-small" x="108" y="82.0" text-anchor="end">i=0  [0, 4)</text>
+<rect class="d-cell" x="116" y="60" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="133.0" y="82.0" text-anchor="middle" style="fill:#0072B2">0</text>
+<rect class="d-cell" x="150" y="60" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="167.0" y="82.0" text-anchor="middle" style="fill:#0072B2">1</text>
+<rect class="d-cell" x="184" y="60" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="201.0" y="82.0" text-anchor="middle" style="fill:#0072B2">2</text>
+<rect class="d-cell" x="218" y="60" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="235.0" y="82.0" text-anchor="middle" style="fill:#0072B2">3</text>
+<rect class="d-cell" x="252" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="286" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="320" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="354" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="388" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="422" y="60" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<text class="d-small" x="108" y="116.0" text-anchor="end">i=1  [0, 5)</text>
+<rect class="d-cell" x="116" y="94" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="133.0" y="116.0" text-anchor="middle" style="fill:#0072B2">0</text>
+<rect class="d-cell" x="150" y="94" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="167.0" y="116.0" text-anchor="middle" style="fill:#0072B2">1</text>
+<rect class="d-cell" x="184" y="94" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="201.0" y="116.0" text-anchor="middle" style="fill:#0072B2">2</text>
+<rect class="d-cell" x="218" y="94" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="235.0" y="116.0" text-anchor="middle" style="fill:#0072B2">3</text>
+<rect class="d-cell" x="252" y="94" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="269.0" y="116.0" text-anchor="middle" style="fill:#0072B2">4</text>
+<rect class="d-cell" x="286" y="94" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="320" y="94" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="354" y="94" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="388" y="94" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="422" y="94" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<text class="d-small" x="108" y="150.0" text-anchor="end">i=2  [0, 6)</text>
+<rect class="d-cell" x="116" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="133.0" y="150.0" text-anchor="middle" style="fill:#0072B2">0</text>
+<rect class="d-cell" x="150" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="167.0" y="150.0" text-anchor="middle" style="fill:#0072B2">1</text>
+<rect class="d-cell" x="184" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="201.0" y="150.0" text-anchor="middle" style="fill:#0072B2">2</text>
+<rect class="d-cell" x="218" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="235.0" y="150.0" text-anchor="middle" style="fill:#0072B2">3</text>
+<rect class="d-cell" x="252" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="269.0" y="150.0" text-anchor="middle" style="fill:#0072B2">4</text>
+<rect class="d-cell" x="286" y="128" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="303.0" y="150.0" text-anchor="middle" style="fill:#0072B2">5</text>
+<rect class="d-cell" x="320" y="128" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="354" y="128" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="388" y="128" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="422" y="128" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<text class="d-small" x="108" y="184.0" text-anchor="end">i=3  [6, 8)</text>
+<rect class="d-cell" x="116" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="150" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="184" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="218" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="252" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="286" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="320" y="162" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="337.0" y="184.0" text-anchor="middle" style="fill:#0072B2">6</text>
+<rect class="d-cell" x="354" y="162" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="371.0" y="184.0" text-anchor="middle" style="fill:#0072B2">7</text>
+<rect class="d-cell" x="388" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="422" y="162" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<text class="d-small" x="108" y="218.0" text-anchor="end">i=4  [6, 9)</text>
+<rect class="d-cell" x="116" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="150" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="184" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="218" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="252" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="286" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="320" y="196" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="337.0" y="218.0" text-anchor="middle" style="fill:#0072B2">6</text>
+<rect class="d-cell" x="354" y="196" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="371.0" y="218.0" text-anchor="middle" style="fill:#0072B2">7</text>
+<rect class="d-cell" x="388" y="196" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="405.0" y="218.0" text-anchor="middle" style="fill:#0072B2">8</text>
+<rect class="d-cell" x="422" y="196" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<text class="d-small" x="108" y="252.0" text-anchor="end">i=5  [6, 10)</text>
+<rect class="d-cell" x="116" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="150" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="184" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="218" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="252" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="286" y="230" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/>
+<rect class="d-cell" x="320" y="230" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="337.0" y="252.0" text-anchor="middle" style="fill:#0072B2">6</text>
+<rect class="d-cell" x="354" y="230" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="371.0" y="252.0" text-anchor="middle" style="fill:#0072B2">7</text>
+<rect class="d-cell" x="388" y="230" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="405.0" y="252.0" text-anchor="middle" style="fill:#0072B2">8</text>
+<rect class="d-cell" x="422" y="230" width="34" height="34" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="439.0" y="252.0" text-anchor="middle" style="fill:#0072B2">9</text>
+<rect x="116" y="60" width="340" height="204" fill="none" stroke="#b8b8b4"/>
+<text class="d-title" x="16" y="302">(b) 内核输出：[seq_len, max_seqlen_k] = [6, 6]，列 = j − ks[i]</text>
+<text class="d-small" x="108" y="342.0" text-anchor="end">i=0</text>
+<rect class="d-cell" x="116" y="320" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="342.0" text-anchor="middle" style="fill:#D55E00">0</text>
+<rect class="d-cell" x="150" y="320" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="342.0" text-anchor="middle" style="fill:#D55E00">1</text>
+<rect class="d-cell" x="184" y="320" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="201.0" y="342.0" text-anchor="middle" style="fill:#D55E00">2</text>
+<rect class="d-cell" x="218" y="320" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="235.0" y="342.0" text-anchor="middle" style="fill:#D55E00">3</text>
+<rect class="d-cell" x="252" y="320" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="269.0" y="342.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="286" y="320" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="303.0" y="342.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<text class="d-small" x="108" y="376.0" text-anchor="end">i=1</text>
+<rect class="d-cell" x="116" y="354" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="376.0" text-anchor="middle" style="fill:#D55E00">0</text>
+<rect class="d-cell" x="150" y="354" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="376.0" text-anchor="middle" style="fill:#D55E00">1</text>
+<rect class="d-cell" x="184" y="354" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="201.0" y="376.0" text-anchor="middle" style="fill:#D55E00">2</text>
+<rect class="d-cell" x="218" y="354" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="235.0" y="376.0" text-anchor="middle" style="fill:#D55E00">3</text>
+<rect class="d-cell" x="252" y="354" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="269.0" y="376.0" text-anchor="middle" style="fill:#D55E00">4</text>
+<rect class="d-cell" x="286" y="354" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="303.0" y="376.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<text class="d-small" x="108" y="410.0" text-anchor="end">i=2</text>
+<rect class="d-cell" x="116" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="410.0" text-anchor="middle" style="fill:#D55E00">0</text>
+<rect class="d-cell" x="150" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="410.0" text-anchor="middle" style="fill:#D55E00">1</text>
+<rect class="d-cell" x="184" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="201.0" y="410.0" text-anchor="middle" style="fill:#D55E00">2</text>
+<rect class="d-cell" x="218" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="235.0" y="410.0" text-anchor="middle" style="fill:#D55E00">3</text>
+<rect class="d-cell" x="252" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="269.0" y="410.0" text-anchor="middle" style="fill:#D55E00">4</text>
+<rect class="d-cell" x="286" y="388" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="303.0" y="410.0" text-anchor="middle" style="fill:#D55E00">5</text>
+<text class="d-small" x="108" y="444.0" text-anchor="end">i=3</text>
+<rect class="d-cell" x="116" y="422" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="444.0" text-anchor="middle" style="fill:#D55E00">6</text>
+<rect class="d-cell" x="150" y="422" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="444.0" text-anchor="middle" style="fill:#D55E00">7</text>
+<rect class="d-cell" x="184" y="422" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="201.0" y="444.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="218" y="422" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="235.0" y="444.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="252" y="422" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="269.0" y="444.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="286" y="422" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="303.0" y="444.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<text class="d-small" x="108" y="478.0" text-anchor="end">i=4</text>
+<rect class="d-cell" x="116" y="456" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="478.0" text-anchor="middle" style="fill:#D55E00">6</text>
+<rect class="d-cell" x="150" y="456" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="478.0" text-anchor="middle" style="fill:#D55E00">7</text>
+<rect class="d-cell" x="184" y="456" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="201.0" y="478.0" text-anchor="middle" style="fill:#D55E00">8</text>
+<rect class="d-cell" x="218" y="456" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="235.0" y="478.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="252" y="456" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="269.0" y="478.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="286" y="456" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="303.0" y="478.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<text class="d-small" x="108" y="512.0" text-anchor="end">i=5</text>
+<rect class="d-cell" x="116" y="490" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="133.0" y="512.0" text-anchor="middle" style="fill:#D55E00">6</text>
+<rect class="d-cell" x="150" y="490" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="167.0" y="512.0" text-anchor="middle" style="fill:#D55E00">7</text>
+<rect class="d-cell" x="184" y="490" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="201.0" y="512.0" text-anchor="middle" style="fill:#D55E00">8</text>
+<rect class="d-cell" x="218" y="490" width="34" height="34" fill="#fcefe6" stroke="#ffffff"/><text class="d-mono" x="235.0" y="512.0" text-anchor="middle" style="fill:#D55E00">9</text>
+<rect class="d-cell" x="252" y="490" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="269.0" y="512.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect class="d-cell" x="286" y="490" width="34" height="34" fill="#f2f2f0" stroke="#ffffff"/><text class="d-mono" x="303.0" y="512.0" text-anchor="middle" style="fill:#8c8c8c">·</text>
+<rect x="116" y="320" width="204" height="204" fill="none" stroke="#b8b8b4"/>
+<text class="d-label" x="16" y="548">格内数字 = 来源 KV 下标 j；“·” = 内核不写，内容未定义。</text>
+<text class="d-label" x="16" y="568">第二个请求（行 3–5）的行也从第 0 列开始。</text>
+</svg></div>
+  <figcaption id="fig-layout-cap"><span class="fig-label">图 2</span><b>压缩输出把每行的有效区间左对齐，第二个请求的行不再带着前 6 列空格。</b>玩具例子：两个请求打包在一起，行 0–2 看 KV \([0, ke_i)\)，行 3–5 看 \([6, ke_i)\)；格内数字是该格对应的 KV 下标 \(j\)。(a) 稠密视角，(b) 内核实际输出，列号为 \(j - ks_i\)，\(L = \max_i(ke_i - ks_i) = 6\)。由 <code>plots/fig_diagrams.py</code> 按 README 的列映射生成。</figcaption>
+</figure>
+
+<p>分配输出的代码说明了两件事：底层存储的行数按 Q 分块对齐、行跨度按 KV 分块和 1024 字节对齐，返回给调用方的是切片；注释明确说有效区间之外的元素“不清理”（not cleaned）。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L108-L117"><code>// Allocate output: compressed logits only, the entries beyond a row's valid span are not cleaned
+DG_HOST_ASSERT(max_seqlen_k &gt; 0);
+const int block_q = get_mqa_logits_block_q(num_heads);
+const int block_kv = arch_major == 10 ? kMQALogitsSplitKV : 256;
+const int aligned_seq_len = align(seq_len, block_q);
+// Logits row stride must be 1024-byte aligned
+const int stride_logits_alignment = 1024 / static_cast&lt;int&gt;(c10::elementSize(out_dtype));
+const int stride_logits = align(align(max_seqlen_k, block_kv), stride_logits_alignment);
+auto logits = torch::empty({aligned_seq_len, stride_logits}, q_fp.options().dtype(out_dtype));
+logits = logits.index({torch::indexing::Slice(0, seq_len), torch::indexing::Slice(0, max_seqlen_k)});</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L108-L117"><code>csrc/apis/attention.hpp</code> 第 108–117 行</a>（节选）</p>
+
+<p>所以 \([S, L]\) 里 \(c \ge ke_i - ks_i\) 的格子内容未定义，调用方要按 \(ke_i - ks_i\) 自己掩掉。测试也是这么做的：它先用 <code>ke - ks</code> 构造掩码，再把压缩结果按 <code>tmp[i, ks[i]:ke[i]] = logits[i, :ke[i]-ks[i]]</code> 展开回稠密形状，和参考实现比较（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L171-L189"><code>test_attention.py</code> 第 171–189 行</a>）。写入时，SM100 内核把每行的输出基址预先减去 \(ks_i\)（<code>output_bases[i] = logits + 行偏移 - seq_k_start[i]</code>），这样同一个 KV 下标可以直接当列偏移用（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L454-L458">第 454–458 行</a>）。</p>
+
+<p>\(ks_i, ke_i\) 不必是“从 0 到当前位置”的因果前缀。测试里有一个上下文并行（context parallel）的例子：一个 rank 持有序列的两个不相邻分片，前一半行和后一半行的 \(ke_i\) 落在差得很远的位置上（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L106-L121">第 106–121 行</a>）。只要每行给出一个区间，内核就能处理。</p>
+
+<h2 id="sec-scale" data-short="MX 与非 MX">非 MX 缩放可以最后再乘，MX 缩放必须进张量核</h2>
+
+<p>当前提交里，缩放方式和架构是绑定的：SM90 走非 MX 路径，SM100 走 MX 路径。两者共用的检查函数把这一点写成了断言：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L18-L44"><code>const bool is_fp4 = q_fp.scalar_type() == kPackedFP4;
+const bool is_mx_sf = q_sf.has_value();
+DG_HOST_ASSERT(not is_fp4 or is_mx_sf);
+// ...
+// Check SF Q (SM100 uses MX scale factors, SM90 per-token float KV scales)
+DG_HOST_ASSERT(is_mx_sf == (arch_major == 10));
+if (is_mx_sf) {
+    DG_HOST_ASSERT(q_sf-&gt;sizes() == q_fp.sizes().slice(0, q_fp.dim() - 1));
+    DG_HOST_ASSERT(q_sf-&gt;is_contiguous());
+    DG_HOST_ASSERT(q_sf-&gt;scalar_type() == torch::kInt32);
+}
+// ...
+DG_HOST_ASSERT(weights.stride(1) == 1 and (weights.stride(0) * weights.element_size()) % 16 == 0);
+DG_HOST_ASSERT(weights.scalar_type() == (arch_major == 10 ? torch::kBFloat16 : torch::kFloat32));</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L18-L44"><code>csrc/apis/attention.hpp</code> 第 18–44 行</a>（节选）</p>
+
+<p>第一条断言说 FP4 一定带 MX 缩放；第二条说“有 Q 缩放”当且仅当架构是 SM100。Q 缩放的形状是 Q 去掉最后一维，即每个 (token, 头) 一个 int32。<a href="#tab-scale">表 2</a> 汇总了两条路径的数据类型。</p>
+
+<figure id="tab-scale" class="table">
+  <figcaption id="tab-scale-cap"><span class="fig-label">表 2</span><b>SM90 只给 KV 一个每 token 的 FP32 缩放；SM100 给 Q 和 KV 都配每 32 维一个 UE8M0。</b>整理自 <code>attention.hpp</code> 的参数检查、<code>sm100_mqa_logits.hpp</code> 的 <code>MQALogitsConfig</code> 与测试中的量化函数。“头数”一列取自 API 断言；测试在 SM100 上用 8–64 个头。</figcaption>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>SM90（非 MX）</th><th>SM100（MX）</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">Q / KV 数据</td><td>FP8 E4M3</td><td>MXFP4（两元素一字节）或 MXFP8</td></tr>
+      <tr><td class="nowrap">Q 缩放</td><td>无</td><td>每 (token, 头) 一个 int32</td></tr>
+      <tr><td class="nowrap">KV 缩放</td><td>每 token 一个 FP32</td><td>每 token 一个 int32</td></tr>
+      <tr><td class="nowrap">权重 / 输出</td><td>FP32 / FP32</td><td>BF16 / BF16</td></tr>
+      <tr><td class="nowrap">头数</td><td>32 或 64</td><td>4 的倍数，不超过 128</td></tr>
+      <tr><td class="nowrap">反量化位置</td><td>加权求和之后乘 KV 缩放</td><td>块缩放 MMA 内部</td></tr>
+    </tbody>
+  </table></div>
+</figure>
+
+<h3 id="sec-3">SM90：缩放能提到求和外面</h3>
+
+<p>SM90 上 Q 直接是 FP8（测试里就是 <code>q.to(torch.float8_e4m3fn)</code>，没有缩放），KV 每个 token 带一个正的 FP32 缩放 \(s_j\)（由 <code>amax / 448</code> 得到）。因为 ReLU 是正齐次的，即对 \(s &gt; 0\) 有 \(\mathrm{ReLU}(s x) = s\,\mathrm{ReLU}(x)\)，所以</p>
+
+<div class="eq" id="eq-factor">\[ \begin{aligned} &amp;\sum_{h} w_{i,h}\,\mathrm{ReLU}\!\left(q_{i,h}\cdot s_j k_j\right) \\ &amp;\quad = s_j \sum_{h} w_{i,h}\,\mathrm{ReLU}\!\left(q_{i,h}\cdot k_j\right). \end{aligned} \]<span class="eq-num">(2)</span></div>
+
+<p>内核正是按<a href="#eq-factor">式 (2)</a> 右边算的：WGMMA 直接用 FP8 的 \(q\) 和 \(k\) 得到 FP32 点积，尾声里先对头做加权 ReLU 求和，最后才乘上这个 KV token 的缩放：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh#L279-L311"><code>const auto transform = [&amp;](const uint32_t&amp; j) {
+    return fmaxf(shifted_accum[j], 0) * weights[i][(j / 4) * 2 + (j &amp; 1)];
+};
+
+// Intra-thread reduction
+float sum[4] = {transform(0), transform(1), transform(2), transform(3)};
+#pragma unroll
+for (uint32_t j = 1; j &lt; kNumHeads / 8; ++ j) {
+    #pragma unroll
+    for (uint32_t k = 0; k &lt; 4; k ++)
+        sum[k] += transform(j * 4 + k);
+}
+float v_0 = (sum[0] + sum[1]) * scale_kv_0;
+float v_1 = (sum[2] + sum[3]) * scale_kv_1;</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh#L279-L311"><code>deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh</code> 第 279–311 行</a>（节选）</p>
+
+<p>每个线程持有两个 KV token（<code>v_0</code>、<code>v_1</code>）的部分和，再用两次 <code>__shfl_xor_sync</code> 在 4 个线程间归约。整个过程是 FP32，输出也是 FP32。同一性质也说明，如果调用方想给 Q 一个每 token 的正缩放，可以把它折进 \(w_{i,h}\)；这只是数学上的推论，仓库里没有展示调用方怎么做。</p>
+
+<h3 id="sec-4">SM100：每 32 维一个缩放，提不出来</h3>
+
+<p>MX 格式（这里指 MXFP4/MXFP8）给每 32 个连续元素一个 UE8M0 缩放，即一个只有指数的 8 位数，值为 \(2^{e}\)；格式细节见 <a href="../dg03-sf-formats/dg03-sf-formats.html">第 3 篇</a>。设 \(g\) 是维度分组，\(a_g\)、\(b_g\) 是查询和键在第 \(g\) 组的指数，点积变成</p>
+
+<div class="eq" id="eq-mx">\[ \hat q\cdot\hat k \;=\; \sum_{g=0}^{D/32-1} 2^{\,a_g + b_g} \sum_{d \in g} q_d\, k_d . \]<span class="eq-num">(3)</span></div>
+
+<p>每组的系数不同，无法像<a href="#eq-factor">式 (2)</a> 那样整体提出，反量化只能发生在点积内部。SM100 的块缩放 MMA 正好提供这个能力：缩放因子先由 UTCCP 拷进 TMEM，MMA 指令读数据的同时按组乘上缩放（UTCCP 的细节见第 2 篇）。打包方式由测试里的量化函数确定：每 token（或每 (token, 头)）的 \(D/32\) 个缩放字节拼成一个 int32，\(D = 128\) 时正好 4 个；\(D = 64\) 或 \(32\) 时不足 4 个，用 \(2^0\) 补齐，注释说这些补位“内核不会读”（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/utils/math.py#L115-L124"><code>utils/math.py</code> 第 115–124 行</a>）。</p>
+
+<p>FP4 与 FP8 在 SM100 上共用一个内核模板，差别由类型参数 <code>qk_dtype_t</code> 推出：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L372-L389"><code>using mma_op_t = cute::conditional_t&lt;kIsFP4, ptx::SM100_MMA_MXF4_SS, ptx::SM100_MMA_MXF8F6F4_SS&gt;;
+// ...
+constexpr uint32_t kPackFactor = get_smem_pack_factor&lt;qk_dtype_t&gt;();
+constexpr uint32_t kQKSwizzleMode = kHeadDim / kPackFactor;
+constexpr uint32_t kNumUMMAK = kHeadDim / UMMA_K;
+// Advance descriptor low words by each stage's fixed offset
+const auto instr_desc = cute::UMMA::make_instr_desc_block_scaled&lt;
+    qk_dtype_t, qk_dtype_t, float, cutlass::float_ue8m0_t,
+    UMMA_M, UMMA_N, cute::UMMA::Major::K, cute::UMMA::Major::K&gt;();
+// ...
+uint64_t runtime_instr_descs[kNumUMMAK];
+#pragma unroll
+for (uint32_t k = 0; k &lt; kNumUMMAK; ++ k)
+    runtime_instr_descs[k] = mma::sm100::make_runtime_instr_desc_with_sf_id(instr_desc, k * kPackFactor, k * kPackFactor);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L372-L389"><code>deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh</code> 第 372–389 行</a>（节选）</p>
+
+<p>FP4 选 <code>kind::mxf4</code> 的 MMA，每条 MMA 吃 \(K = 64\) 个元素；FP8 选 <code>kind::mxf8f6f4</code>，每条吃 32 个（同一函数第 92 行的 <code>UMMA_K</code>）。<code>make_runtime_instr_desc_with_sf_id</code> 在第 \(k\) 条 MMA 的指令描述符里填缩放 id \(k \cdot \text{kPackFactor}\)，FP4 的打包因子是 2、FP8 是 1。按测试的打包顺序（字节 \(g\) 管第 \(g\) 组 32 维），这正好让每条 MMA 用上它覆盖的那几组缩放字节。主机侧的 <code>MQALogitsConfig</code> 还按 FP4/FP8 选了不同的流水深度：Q 2 级或 3 级、KV 8 级或 3 级（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_mqa_logits.hpp#L128-L139"><code>sm100_mqa_logits.hpp</code> 第 128–139 行</a>）。</p>
+
+<p>两条路径的精度也不同。SM90 的求和和输出都是 FP32；SM100 在 BF16 里累加各头，输出 BF16。测试对两种格式用了不同的误差阈值（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L74-L75">第 74–75 行</a>），这里不对它们的精度差做任何量化判断。</p>
+
+<h2 id="sec-paged" data-short="分页 KV">分页版：一页先放全部数据，再放全部缩放</h2>
+
+<p>解码时 KV 在分页缓存里。分页接口的主要输入是：查询 <code>q</code>，形状 <code>[batch, next_n, H, D]</code>；融合了数据和缩放的 <code>kv_cache</code>，uint8，形状 <code>[num_blocks, block_kv, 1, D′+4]</code>；每行的上下文长度 <code>context_lens</code>，形状 <code>[batch, next_n]</code>（目前只支持二维）；块表 <code>block_table</code>，第 \(r\) 行列出第 \(r\) 个序列依次用到的物理页号；还有预先算好的 <code>schedule_meta</code>。缓存只有一个 KV 头（断言 <code>num_heads_kv == 1</code>），这就是“MQA”的那一个 K 头。</p>
+
+<p>两种架构对“行”的理解不同。SM90 固定 <code>next_n</code> 为 1 或 2，每个序列的 <code>next_n</code> 个查询 token 共用一行块表，页大小只能是 64。SM100 要求 <code>next_n = 1</code>，改用 <code>indices</code> 把扁平的查询行归到请求：相邻且 <code>indices</code> 相同的行属于同一个请求，每行有自己的上下文长度，页大小可以是 32、64 或 128（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L199-L240"><code>attention.hpp</code> 第 199–240 行</a>）。举一个具体例子：假设一个 batch 有 3 个请求，请求 0 只有 1 个新 token，请求 1 有 3 个，请求 2 有 2 个，那么扁平的查询张量有 6 行，<code>indices</code> = <code>[0, 1, 1, 1, 2, 2]</code>，<code>context_lens</code> = <code>[500, 800, 800, 800, 300, 300]</code>（同一请求内各行的上下文长度相同）。调度器看到 indices 从 1 变到 2 时知道请求 1 结束了。测试里同一请求的几个 token 看到逐个增长的前缀，最后一个看到全长；调度器也依赖这一点，用请求最后一个 token 的长度代表整个请求（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_paged_mqa_logits.cuh#L29-L39"><code>sm100_paged_mqa_logits.cuh</code> 第 29–39 行</a>）。</p>
+
+<h3 id="sec-5">“每个 token 后面跟 4 个缩放字节”只对总字节数成立</h3>
+
+<p>看形状 <code>[.., D′+4]</code>，很容易以为每个 token 是“\(D'\) 字节数据紧跟 4 字节缩放”。实际不是。主机代码把同一块显存解释成两个张量：数据张量的 token 间距是 \(D'\)，不是 \(D'+4\)；缩放张量从每页偏移 <code>block_kv · D′</code> 处开始，连续存放：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L200-L223"><code>const int kv_head_dim = is_fp4 ? head_dim / 2 : head_dim;
+const int sf_bytes = static_cast&lt;int&gt;(is_mx_sf ? sizeof(int) : sizeof(float));
+DG_HOST_ASSERT(num_heads_kv == 1 and head_dim_with_sf == kv_head_dim + sf_bytes);
+// ...
+// Derive KV values and SF tensor
+kv_cache_stride_bytes = fused_kv_cache.stride(0);
+DG_HOST_ASSERT(kv_cache_stride_bytes % sf_bytes == 0);
+kv_cache = torch::from_blob(
+    fused_kv_cache.data_ptr(),
+    {num_kv_blocks, block_kv, kv_head_dim},
+    {kv_cache_stride_bytes, kv_head_dim, 1},
+    torch::TensorOptions().dtype(is_fp4 ? kPackedFP4 : torch::kFloat8_e4m3fn)
+);
+kv_cache_sf = torch::from_blob(
+    fused_kv_cache.data_ptr&lt;uint8_t&gt;() + block_kv * kv_head_dim,
+    {num_kv_blocks, block_kv},
+    {kv_cache_stride_bytes / sf_bytes, 1},
+    torch::TensorOptions().dtype(is_mx_sf ? torch::kInt32 : torch::kFloat32)
+);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L200-L223"><code>csrc/apis/attention.hpp</code> 第 200–223 行</a>（节选）</p>
+
+<p>测试构造缓存的方式与之一致。下面是 SM90 用的 FP8 版本：先把一页所有 token 的数据写进前 <code>block_size · head_dim</code> 字节，再把所有缩放写进后面；MXFP4 和 MXFP8 的版本结构相同，只是每 token 的数据字节数和缩放类型不同。</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L270-L282"><code>x_fp8 = torch.empty((num_blocks, block_size * (head_dim + 4)), device=x.device, dtype=torch.uint8)
+x_fp8[:, :block_size * head_dim] = x_scaled.view(num_blocks, block_size * head_dim).view(torch.uint8)
+x_fp8[:, block_size * head_dim:] = sf.view(num_blocks, block_size).view(torch.uint8)
+return x_fp8.view(num_blocks, block_size, num_heads, head_dim + 4), x_cast_back.to(x.dtype)</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L270-L282"><code>tests/test_attention.py</code> 第 270–282 行</a>（节选）</p>
+
+<p>分页稀疏内核的访问器给出了第三份独立证据。它按物理块号算出页基址，数据指针是“页基址 + 页内 token 序号 × \(D'\)”，缩放指针是“页基址 + <code>PAGE_KV</code> × \(D'\) + 页内 token 序号 × 4”：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh#L121-L131"><code>CUTLASS_DEVICE KVBlockRef resolve_kv_block(const uint32_t physical_kv_block_idx) const {
+    constexpr uint32_t kNumKVBlocksPerPage = PAGE_KV / SPARSE_BLOCK_KV;
+    const uint32_t physical_page_idx = physical_kv_block_idx / kNumKVBlocksPerPage;
+    const uint32_t kv_block_idx_in_page = physical_kv_block_idx % kNumKVBlocksPerPage;
+    const auto page = fused_kv_cache + static_cast&lt;uint64_t&gt;(physical_page_idx) * kv_page_stride_bytes;
+    const uint32_t token_idx_in_page = kv_block_idx_in_page * SPARSE_BLOCK_KV;
+    return KVBlockRef(
+        page + token_idx_in_page * kNumQKBytesPerToken,
+        reinterpret_cast&lt;const uint32_t*&gt;(page + PAGE_KV * kNumQKBytesPerToken) + token_idx_in_page
+    );
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh#L121-L131"><code>deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh</code> 第 121–131 行</a>（节选）</p>
+
+<p><a href="#fig-paged">图 3</a> 画出了这一布局。以 64 token 一页、\(D = 128\) 为例：MXFP4 每 token 数据 64 字节，一页是 \(64 \times 64 + 64 \times 4 = 4352\) 字节；FP8 或 MXFP8 每 token 128 字节，一页是 \(8192 + 256 = 8448\) 字节。两者都等于 <code>block_kv × (D′+4)</code>，所以形状上的 “+4” 记的是总账。</p>
+
+<figure id="fig-paged" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-paged-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 4 560 404" font-family="sans-serif" role="img" id="s3-root" style="max-width:560px;">
+  <defs>
+    <marker id="s3-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+  </defs>
+
+  
+  <text class="d-title" x="16" y="24">(a) 张量形状给人的印象：每个 token 自带 4 字节</text>
+  <text class="d-mono" x="16" y="44">kv_cache: [num_blocks, block_kv, 1, D′ + 4]  uint8</text>
+  <g>
+    <rect class="d-box soft" x="16" y="56" width="88" height="32"/>
+    <text class="d-small" x="60" y="77" text-anchor="middle">t0 数据</text>
+    <rect class="d-box soft" x="104" y="56" width="24" height="32"/>
+    <text class="d-small" x="116" y="77" text-anchor="middle">s</text>
+    <rect class="d-box soft" x="128" y="56" width="88" height="32"/>
+    <text class="d-small" x="172" y="77" text-anchor="middle">t1 数据</text>
+    <rect class="d-box soft" x="216" y="56" width="24" height="32"/>
+    <text class="d-small" x="228" y="77" text-anchor="middle">s</text>
+    <text class="d-small" x="262" y="77" text-anchor="middle">…</text>
+  </g>
+  <path d="M16 56 L240 88 M16 88 L240 56" stroke="#8c8c8c" stroke-width="1.25"/>
+  <text class="d-label" x="292" y="70">不是实际布局</text>
+  <text class="d-label" x="292" y="86">（只有每页总字节数与之相同）</text>
+
+  
+  <text class="d-title" x="16" y="128">(b) 实际字节布局：一页 = 全部数据 + 全部缩放</text>
+  <rect class="d-box blue" x="16" y="140" width="64" height="40"/>
+  <text class="d-small" x="48" y="165" text-anchor="middle">t0</text>
+  <rect class="d-box blue" x="80" y="140" width="64" height="40"/>
+  <text class="d-small" x="112" y="165" text-anchor="middle">t1</text>
+  <rect class="d-box blue" x="144" y="140" width="48" height="40"/>
+  <text class="d-small" x="168" y="165" text-anchor="middle">…</text>
+  <rect class="d-box blue" x="192" y="140" width="80" height="40"/>
+  <text class="d-small" x="232" y="165" text-anchor="middle">t(n−1)</text>
+  <rect class="d-box accent" x="272" y="140" width="48" height="40"/>
+  <text class="d-small" x="296" y="165" text-anchor="middle">s0</text>
+  <rect class="d-box accent" x="320" y="140" width="48" height="40"/>
+  <text class="d-small" x="344" y="165" text-anchor="middle">s1</text>
+  <rect class="d-box accent" x="368" y="140" width="32" height="40"/>
+  <text class="d-small" x="384" y="165" text-anchor="middle">…</text>
+  <rect class="d-box accent" x="400" y="140" width="72" height="40"/>
+  <text class="d-small" x="436" y="165" text-anchor="middle">s(n−1)</text>
+  <rect class="d-box soft" x="472" y="140" width="72" height="40" stroke-dasharray="4 3"/>
+  <text class="d-label" x="508" y="165" text-anchor="middle">填充</text>
+
+  
+  <path d="M16 186 V196 M272 186 V196 M472 186 V196 M544 186 V196" stroke="#1a1a1a" stroke-width="1"/>
+  <text class="d-mono" x="16" y="212">0</text>
+  <text class="d-mono" x="272" y="212" text-anchor="middle">n·D′</text>
+  <text class="d-mono" x="460" y="212" text-anchor="middle">n·(D′+4)</text>
+  <text class="d-mono" x="544" y="230" text-anchor="end">stride(0)</text>
+  <text class="d-label" x="144" y="232" text-anchor="middle">每 token D′ 字节，token 间距 D′</text>
+  <text class="d-label d-accent-text" x="372" y="250" text-anchor="middle">每 token 一个 4 字节缩放</text>
+
+  
+  <text class="d-title" x="16" y="292">(c) 这 4 个字节是什么</text>
+  <text class="d-small" x="16" y="320">SM90（FP8）</text>
+  <rect class="d-box accent" x="144" y="302" width="160" height="28"/>
+  <text class="d-mono" x="224" y="321" text-anchor="middle">1 个 FP32 缩放</text>
+  <text class="d-label" x="316" y="321">作用于整个 token</text>
+
+  <text class="d-small" x="16" y="364">SM100（MX）</text>
+  <rect class="d-box accent" x="144" y="346" width="40" height="28"/>
+  <text class="d-mono" x="164" y="365" text-anchor="middle">e0</text>
+  <rect class="d-box accent" x="184" y="346" width="40" height="28"/>
+  <text class="d-mono" x="204" y="365" text-anchor="middle">e1</text>
+  <rect class="d-box accent" x="224" y="346" width="40" height="28"/>
+  <text class="d-mono" x="244" y="365" text-anchor="middle">e2</text>
+  <rect class="d-box accent" x="264" y="346" width="40" height="28"/>
+  <text class="d-mono" x="284" y="365" text-anchor="middle">e3</text>
+  <text class="d-label" x="316" y="358">4 个 UE8M0 字节打成一个 int32，</text>
+  <text class="d-label" x="316" y="376">字节 k 管第 32k…32k+31 维</text>
+  <text class="d-label" x="16" y="400">D = 64 / 32 时只有前 2 / 1 个字节有效，其余填 2⁰</text>
+</svg></div>
+  <figcaption id="fig-paged-cap"><span class="fig-label">图 3</span><b>一页的前 \(n \cdot D'\) 字节是 \(n\) 个 token 的数据，紧接着是 \(n\) 个 4 字节缩放，页与页之间的间距是 <code>stride(0)</code>。</b>\(n\) 为 <code>block_kv</code>，\(D'\) 为每 token 数据字节数（FP4 为 \(D/2\)）。(a) 张量形状暗示的交错布局，并非实际情况；(b) <code>attention.hpp</code>、测试和稀疏访问器三处代码共同确认的布局，不按比例；(c) 4 字节缩放在两种架构上的含义。</figcaption>
+</figure>
+
+<p>为什么这样排？代码没有给理由。一个合理的推测是：数据部分对 TMA 来说就是一个规整的 <code>[block_kv, D′]</code> 二维块，缩放部分是一段连续的 <code>block_kv</code> 个 4 字节，各用一次 TMA 就能取完。SM100 的分页内核正是用三维 TMA 描述符（维度为 \(D'\)、页内 token、页号）取数据，用二维描述符取缩放，并在能凑够 4 页时用 <code>tma_gather4</code> 一次取 4 页的缩放。<code>tma_gather4</code> 是 SM100 新增的 TMA 指令变体：普通 TMA 一次取一个连续块，<code>gather4</code> 一次给出 4 个不同的坐标（这里是 4 个物理页号），硬件在一条指令里把 4 份缩放数据收集到共享内存的连续区域。前提是 4 个页的缩放布局在页内偏移上完全一致（分页缓存的缩放区域正好满足这一点），且描述符的维度配置允许 gather 模式。当不足 4 页时退回逐页的普通 TMA（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_mqa_logits.cuh#L183-L221"><code>sm100_mqa_logits.cuh</code> 第 183–221 行</a>）。主机侧还要求页间距是 4 的倍数，否则缩放视图的行跨度不是整数个元素（<code>kv_cache_stride_bytes % sf_bytes == 0</code>）。</p>
+
+<p>分页版的输出是 <code>[batch·next_n, max_context_len]</code>，列号就是请求内的绝对 KV 位置，因为每行的区间都从 0 开始。底层行跨度按 split 和 1024 字节对齐（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L257-L264">第 257–264 行</a>）。SM100 内核只写 \([0, \text{context\_len})\) 内的列；SM90 分页内核对它处理到的整页无条件写出，源码注释自己也写着 “we have redundant writes here”（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_fp8_paged_mqa_logits.cuh#L325-L328">第 325–328 行</a>）。因此调用方应按 <code>context_lens</code> 掩掉多余的列，测试对两种架构都是这样比较的。</p>
+
+<h2 id="sec-sched" data-short="调度元数据">元数据内核把不等长的工作切给各个 SM</h2>
+
+<p>四种形态都启动“每个 SM 一个 CTA”的持久化内核（grid 维度是 SM 数），所以要回答同一个问题：每个 SM 从哪里开始、做多少。答案由一个独立的元数据内核在打分之前算好，写进一块整数缓冲。不同形态的调度粒度和代价模型不同，下面分三种看；稀疏版的元数据放到下一节。</p>
+
+<h3 id="sec-6">连续版（SM100）：带启动代价的前缀和切分</h3>
+
+<p>连续版的元数据是可选的。不传时，SM \(s\) 依次处理第 \(s, s+N_{\text{SM}}, s+2N_{\text{SM}}, \dots\) 个 Q 分块（grid-stride，<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_mqa_logits.cuh#L240-L268">第 240–268 行</a>）；SM90 的连续版也是这样轮转（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh#L119-L124">第 119–124 行</a>）。SM90 连续版内部每个 CTA 有一个数学 warpgroup 和一个 TMA warp：TMA warp 用 <code>cp.async.bulk</code> 把 Q 和 KV 搬进共享内存，数学 warpgroup 做 WGMMA；只有一个缩放因子（每 token FP32），所以缩放可以留到求和之后再乘，不需要 SM100 那样的分组处理（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm90_fp8_mqa_logits.cuh#L80-L118">第 80–118 行</a>）。每个 Q 分块要扫的 KV 范围是它所有行区间的并：起点取最小的 \(ks\) 并向下对齐到 4，终点取最大的 \(ke\)，再按 384 token 切成若干 split（第 37–54 行）。</p>
+
+<p>如果各 Q 分块的 split 数差不多，但分块数只比 SM 数多一点，轮转就会让一部分 SM 多做一整块。<code>get_mqa_logits_metadata</code> 改为按代价切分。它给每个 Q 分块记代价“每个 split 2 个单位，非空分块另加 3 个单位的启动代价”，主机代码的注释解释了这个比例：启动一个 Q 分块大约相当于 1.5 个 split（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/jit_kernels/impls/sm100_mqa_logits.hpp#L11-L17"><code>sm100_mqa_logits.hpp</code> 第 11–17 行</a>）。然后在一个 256 线程的 CTA 里对代价做前缀和，把总代价等分成 \(N_{\text{SM}}\) 份，用二分查找把每个切点落到“第几个 Q 分块的第几个 split”上：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_mqa_logits.cuh#L121-L155"><code>    kv_spans[q_block_idx] = span;
+    work_prefix[q_block_idx] = span.num_kv_splits;
+    cost_prefix[q_block_idx] = kSplitCost * span.num_kv_splits + (span.num_kv_splits == 0 ? 0 : kSegmentCost);
+// ...
+const uint32_t cost_per_sm = total_cost / kNumSMs;
+const uint32_t cost_remainder = total_cost % kNumSMs;
+const auto locate = [&amp;](const uint32_t&amp; boundary_idx) -&gt; Boundary {
+    const uint32_t target = boundary_idx * cost_per_sm + cute::min(boundary_idx, cost_remainder);
+    if (target == total_cost)
+        return Boundary(make_uint2(num_q_blocks, 0), total_work);   // Tail sentinel: one-past-the-end
+    const uint32_t q_block_idx = mqa_logits_metadata_upper_bound(cost_prefix, num_q_blocks, target);
+    const uint32_t cost_before = q_block_idx == 0 ? 0 : cost_prefix[q_block_idx - 1];
+    const uint32_t work_before = q_block_idx == 0 ? 0 : work_prefix[q_block_idx - 1];
+    // Subtract Q-block startup cost and clamp to the block's last split
+    const uint32_t split_offset = cute::min((cute::max(target - cost_before, kSegmentCost) - kSegmentCost) / kSplitCost,
+                                            work_prefix[q_block_idx] - work_before - 1);
+    return Boundary(make_uint2(q_block_idx, split_offset), work_before + split_offset);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_mqa_logits.cuh#L121-L155"><code>deep_gemm/include/deep_gemm/scheduler/sm100_mqa_logits.cuh</code> 第 121–155 行</a>（节选）</p>
+
+<p>切点可以落在一个 Q 分块中间，于是同一个 Q 分块的不同 split 可能由两个 SM 完成，各自写这些行的不同列。<code>split_offset</code> 先减去启动代价再除以 2，就是把“代价位置”换算回“split 位置”。元数据的布局是：每个 SM 3 个 int32（起点的分块号和 split 号、要做的 split 数），对齐到偶数后，每个 Q 分块再存 2 个 int32 的 KV 范围（第 31–34 行、<code>sm100_mqa_logits.hpp</code> 第 63–69 行）。测试检查了带元数据和不带元数据的结果逐位相同（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L177-L182">第 177–182 行</a>）。</p>
+
+<p>为了看清它改变了什么，我们在 <code>plots/common.py</code> 里用 Python 逐行复现了这段调度逻辑，代入一个例子：160 个新 token 接在 32,768 token 的上下文后面做分块预填充（第 \(i\) 行看 \([0,\ 32768-160+i+1)\)），\(H = 32\)，因此有 40 个 Q 分块，每块 85 或 86 个 split；SM 数取一个便于画图的假设值 32。<a href="#fig-sched">图 4</a> 比较了两种策略下每个 SM 分到的代价。</p>
+
+<figure id="fig-sched" data-kind="data" data-source="computed" data-script="plots/fig_sched.py">
+  <div class="fig-body"><svg aria-labelledby="fig-sched-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 428.39952 386.399517" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s4-root" style="max-width:571px;">
+ 
+ <defs>
+  <style type="text/css">#s4-root *{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="s4-figure_1">
+  <g id="s4-patch_1">
+   <path d="M 0 386.399517 
+L 428.39952 386.399517 
+L 428.39952 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="s4-axes_1">
+   <g id="s4-patch_2">
+    <path d="M 47.2 171.349517 
+L 421.19952 171.349517 
+L 421.19952 21.202932 
+L 47.2 21.202932 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="s4-matplotlib.axis_1">
+    <g id="s4-xtick_1">
+     <g id="s4-line2d_1">
+      <defs>
+       <path id="s4-md0f79781a5" d="M 0 0 
+L 0 3.5 
+" style="stroke: #767676; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="58.533319" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_2">
+     <g id="s4-line2d_2">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="115.199913" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_3">
+     <g id="s4-line2d_3">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="171.866507" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_4">
+     <g id="s4-line2d_4">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="228.533101" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_5">
+     <g id="s4-line2d_5">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="285.199695" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_6">
+     <g id="s4-line2d_6">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="341.866288" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_7">
+     <g id="s4-line2d_7">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="398.532882" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+    </g>
+   </g>
+   <g id="s4-matplotlib.axis_2">
+    <g id="s4-ytick_1">
+     <g id="s4-line2d_8">
+      <path d="M 47.2 171.349517 
+L 421.19952 171.349517 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_9">
+      <defs>
+       <path id="s4-m1329ac3ca6" d="M 0 0 
+L -3.5 0 
+" style="stroke: #767676; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="171.349517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_1">
+      
+      <g style="fill: #4a4a4a" transform="translate(34.2 175.649517) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-13" d="M 1920 4659 
+C 1370 4659 960 4422 685 3936 
+C 442 3526 320 2976 320 2285 
+C 320 1594 442 1043 685 634 
+C 960 154 1370 -90 1920 -90 
+C 2464 -90 2874 154 3155 634 
+C 3398 1043 3520 1594 3520 2285 
+C 3520 2976 3398 3526 3155 3936 
+C 2874 4422 2464 4659 1920 4659 
+z
+M 1920 4211 
+C 2330 4211 2624 3994 2803 3552 
+C 2931 3245 3002 2822 3002 2285 
+C 3002 1754 2931 1331 2803 1018 
+C 2624 582 2330 358 1920 358 
+C 1510 358 1216 582 1037 1018 
+C 909 1331 845 1754 845 2285 
+C 845 2822 909 3245 1037 3552 
+C 1216 3994 1510 4211 1920 4211 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-13"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_2">
+     <g id="s4-line2d_10">
+      <path d="M 47.2 137.225293 
+L 421.19952 137.225293 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_11">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="137.225293" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_2">
+      
+      <g style="fill: #4a4a4a" transform="translate(24.190625 141.525293) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-14" d="M 1472 4570 
+C 1318 4397 1139 4243 922 4102 
+C 704 3974 486 3885 282 3827 
+L 282 3302 
+C 710 3430 1069 3635 1357 3930 
+L 1357 0 
+L 1882 0 
+L 1882 4570 
+L 1472 4570 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-14"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_3">
+     <g id="s4-line2d_12">
+      <path d="M 47.2 103.101069 
+L 421.19952 103.101069 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_13">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="103.101069" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_3">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 107.401069) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-15" d="M 1984 4659 
+C 1523 4659 1146 4506 864 4198 
+C 582 3898 435 3488 435 2976 
+L 960 2976 
+C 966 3379 1062 3686 1242 3891 
+C 1408 4109 1651 4211 1965 4211 
+C 2259 4211 2496 4134 2662 3981 
+C 2829 3827 2912 3616 2912 3334 
+C 2912 3040 2790 2765 2560 2515 
+C 2438 2387 2202 2202 1843 1946 
+C 1357 1613 1030 1338 851 1133 
+C 544 794 397 416 397 0 
+L 3443 0 
+L 3443 467 
+L 1043 467 
+C 1126 774 1459 1126 2042 1517 
+C 2515 1837 2829 2086 2989 2253 
+C 3283 2573 3437 2931 3437 3328 
+C 3437 3725 3296 4051 3027 4294 
+C 2752 4538 2406 4659 1984 4659 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-15"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_4">
+     <g id="s4-line2d_14">
+      <path d="M 47.2 68.976845 
+L 421.19952 68.976845 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_15">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="68.976845" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_4">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 73.276845) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-16" d="M 1965 4659 
+C 1530 4659 1178 4538 909 4288 
+C 627 4038 461 3693 422 3251 
+L 941 3251 
+C 973 3558 1075 3795 1254 3962 
+C 1427 4128 1664 4205 1971 4205 
+C 2266 4205 2502 4134 2669 3981 
+C 2822 3840 2906 3642 2906 3386 
+C 2906 3130 2822 2931 2662 2790 
+C 2502 2656 2272 2586 1965 2586 
+L 1613 2586 
+L 1613 2176 
+L 1984 2176 
+C 2304 2176 2547 2106 2726 1952 
+C 2906 1798 2995 1587 2995 1312 
+C 2995 1043 2899 819 2720 640 
+C 2522 454 2259 358 1933 358 
+C 1645 358 1408 442 1216 595 
+C 992 781 870 1056 858 1414 
+L 326 1414 
+C 365 902 544 512 870 243 
+C 1146 26 1498 -90 1933 -90 
+C 2406 -90 2790 45 3085 314 
+C 3373 576 3520 915 3520 1331 
+C 3520 1600 3443 1824 3290 2003 
+C 3149 2182 2944 2310 2675 2394 
+C 3174 2560 3424 2906 3424 3418 
+C 3424 3802 3290 4102 3027 4326 
+C 2758 4550 2400 4659 1965 4659 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-16"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_5">
+     <g id="s4-line2d_16">
+      <path d="M 47.2 34.852621 
+L 421.19952 34.852621 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_17">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="34.852621" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_5">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 39.152621) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-17" d="M 2458 4570 
+L 154 1536 
+L 154 1037 
+L 2451 1037 
+L 2451 0 
+L 2950 0 
+L 2950 1037 
+L 3693 1037 
+L 3693 1466 
+L 2950 1466 
+L 2950 4570 
+L 2458 4570 
+z
+M 2432 3885 
+L 2451 3885 
+L 2451 1466 
+L 595 1466 
+L 2432 3885 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-17"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-text_6">
+     
+     <g style="fill: #4a4a4a" transform="translate(16.66 140.276224) rotate(-90) scale(0.11 -0.11)">
+      <defs>
+       <path id="s4-PingFangSC-Regular-564" d="M 5830 3699 
+L 3750 3437 
+C 3712 3955 3693 4557 3693 5242 
+L 3219 5242 
+C 3226 4538 3251 3917 3296 3379 
+L 1875 3194 
+L 1946 2752 
+L 3334 2931 
+C 3379 2458 3443 2067 3526 1747 
+C 3706 1030 3974 448 4339 0 
+C 4672 -403 4998 -608 5312 -608 
+C 5485 -602 5632 -506 5747 -320 
+C 5888 -64 5997 326 6080 851 
+L 5677 1082 
+C 5587 275 5459 -134 5286 -141 
+C 5069 -134 4832 38 4582 384 
+C 4307 755 4096 1267 3942 1933 
+C 3878 2227 3827 2579 3789 2989 
+L 5901 3258 
+L 5830 3699 
+z
+M 1075 2950 
+L 1075 -653 
+L 1549 -653 
+L 1549 3674 
+C 1798 4102 2003 4563 2170 5050 
+L 1741 5254 
+C 1421 4256 915 3366 211 2592 
+L 358 2112 
+C 614 2381 858 2656 1075 2950 
+z
+M 4390 5197 
+L 4096 4909 
+C 4506 4557 4832 4224 5062 3910 
+L 5382 4224 
+C 5114 4544 4781 4870 4390 5197 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-570" d="M 1069 3008 
+L 1069 -621 
+L 1542 -621 
+L 1542 3802 
+C 1741 4192 1907 4602 2042 5030 
+L 1606 5229 
+C 1325 4256 864 3392 237 2637 
+L 390 2150 
+C 634 2419 864 2707 1069 3008 
+z
+M 4531 2989 
+L 4531 -582 
+L 4979 -582 
+L 4979 2989 
+L 4531 2989 
+z
+M 2886 2970 
+L 2886 2003 
+C 2874 922 2592 134 2042 -352 
+L 2387 -653 
+C 3002 -90 3315 794 3328 2003 
+L 3328 2970 
+L 2886 2970 
+z
+M 3699 5197 
+C 3238 4243 2579 3469 1722 2874 
+L 1978 2483 
+C 2752 3021 3392 3776 3904 4755 
+C 4346 3885 5018 3149 5914 2554 
+L 6176 2944 
+C 5203 3590 4512 4339 4115 5197 
+L 3699 5197 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-481" d="M 5440 5293 
+C 5158 4883 4941 4442 4781 3974 
+C 4589 3424 4499 2867 4499 2298 
+C 4499 1741 4589 1184 4781 634 
+C 4941 173 5158 -269 5440 -685 
+L 5888 -685 
+C 5632 -256 5427 186 5280 640 
+C 5088 1203 4998 1760 4998 2304 
+C 4998 2854 5088 3405 5280 3968 
+C 5427 4429 5632 4870 5888 5293 
+L 5440 5293 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-f5c" d="M 2234 4698 
+L 2234 4288 
+L 3168 4288 
+L 3168 3808 
+L 3597 3808 
+L 3597 4288 
+L 4627 4288 
+L 4627 3808 
+L 5062 3808 
+L 5062 4288 
+L 6054 4288 
+L 6054 4698 
+L 5062 4698 
+L 5062 5210 
+L 4627 5210 
+L 4627 4698 
+L 3597 4698 
+L 3597 5210 
+L 3168 5210 
+L 3168 4698 
+L 2234 4698 
+z
+M 4032 678 
+C 4403 141 4998 -301 5830 -659 
+L 6138 -294 
+C 5382 -26 4819 326 4448 762 
+L 6067 762 
+L 6067 1184 
+L 4224 1184 
+C 4262 1331 4301 1491 4326 1670 
+L 5638 1670 
+L 5638 3610 
+L 2573 3610 
+L 2573 1670 
+L 3917 1670 
+C 3885 1504 3846 1338 3795 1184 
+L 2112 1184 
+L 2112 762 
+L 3603 762 
+C 3552 672 3488 589 3424 506 
+C 3142 179 2688 -70 2048 -243 
+L 2214 -627 
+C 2950 -416 3462 -128 3757 243 
+C 3859 371 3955 518 4032 678 
+z
+M 1613 2637 
+C 1779 2374 1984 2035 2221 1613 
+L 2464 1978 
+C 2170 2406 1888 2790 1613 3123 
+L 1613 3546 
+L 2285 3546 
+L 2285 3962 
+L 1613 3962 
+L 1613 5203 
+L 1178 5203 
+L 1178 3962 
+L 435 3962 
+L 435 3546 
+L 1178 3546 
+L 1178 3507 
+C 986 2726 666 2035 224 1421 
+L 422 922 
+C 730 1414 979 1965 1178 2566 
+L 1178 -621 
+L 1613 -621 
+L 1613 2637 
+z
+M 5222 2029 
+L 2989 2029 
+L 2989 2464 
+L 5222 2464 
+L 5222 2029 
+z
+M 2989 2810 
+L 2989 3238 
+L 5222 3238 
+L 5222 2810 
+L 2989 2810 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-8f3" d="M 595 4941 
+L 595 4531 
+L 1248 4531 
+L 1248 3571 
+L 429 3571 
+L 429 3149 
+L 1222 3149 
+C 1158 2624 947 2234 589 1965 
+L 934 1664 
+C 1357 1997 1600 2490 1670 3149 
+L 2509 3149 
+L 2509 1741 
+L 2957 1741 
+L 2957 3149 
+L 3744 3149 
+L 3744 3571 
+L 2957 3571 
+L 2957 4531 
+L 3603 4531 
+L 3603 4941 
+L 595 4941 
+z
+M 1690 4531 
+L 2509 4531 
+L 2509 3571 
+L 1690 3571 
+L 1690 4531 
+z
+M 4122 4794 
+L 4122 2592 
+L 4563 2592 
+L 4563 4794 
+L 4122 4794 
+z
+M 749 1114 
+L 749 691 
+L 2995 691 
+L 2995 -58 
+L 390 -58 
+L 390 -480 
+L 6010 -480 
+L 6010 -58 
+L 3456 -58 
+L 3456 691 
+L 5658 691 
+L 5658 1114 
+L 3456 1114 
+L 3456 1670 
+L 2995 1670 
+L 2995 1114 
+L 749 1114 
+z
+M 5210 1683 
+C 5549 1683 5722 1882 5722 2272 
+L 5722 5146 
+L 5280 5146 
+L 5280 2381 
+C 5280 2189 5203 2086 5056 2086 
+C 4800 2086 4538 2099 4256 2118 
+L 4352 1683 
+L 5210 1683 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-714" d="M 966 4230 
+L 966 1600 
+L 2970 1600 
+L 2970 992 
+L 358 992 
+L 358 557 
+L 2970 557 
+L 2970 -659 
+L 3430 -659 
+L 3430 557 
+L 6042 557 
+L 6042 992 
+L 3430 992 
+L 3430 1600 
+L 5434 1600 
+L 5434 4230 
+L 4205 4230 
+C 4397 4493 4570 4787 4723 5114 
+L 4275 5274 
+C 4115 4902 3930 4550 3725 4230 
+L 966 4230 
+z
+M 4986 2010 
+L 3430 2010 
+L 3430 2726 
+L 4986 2726 
+L 4986 2010 
+z
+M 2970 2010 
+L 1414 2010 
+L 1414 2726 
+L 2970 2726 
+L 2970 2010 
+z
+M 1414 3123 
+L 1414 3827 
+L 2970 3827 
+L 2970 3123 
+L 1414 3123 
+z
+M 3430 3827 
+L 4986 3827 
+L 4986 3123 
+L 3430 3123 
+L 3430 3827 
+z
+M 2099 5242 
+L 1709 5056 
+C 1926 4813 2125 4544 2317 4237 
+L 2701 4429 
+C 2509 4723 2310 4998 2099 5242 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-596" d="M 1722 5267 
+C 1408 4275 909 3398 230 2630 
+L 378 2138 
+C 627 2400 858 2675 1069 2957 
+L 1069 -653 
+L 1530 -653 
+L 1530 3661 
+C 1779 4102 1984 4570 2150 5069 
+L 1722 5267 
+z
+M 2118 4198 
+L 2118 3757 
+L 5971 3757 
+L 5971 4198 
+L 4301 4198 
+C 4211 4582 4115 4922 4013 5216 
+L 3526 5133 
+C 3642 4851 3750 4538 3840 4198 
+L 2118 4198 
+z
+M 2010 115 
+L 2010 -339 
+L 6138 -339 
+L 6138 115 
+L 4685 115 
+C 5005 1018 5280 2054 5504 3226 
+L 5062 3341 
+C 4819 2048 4538 973 4211 115 
+L 2010 115 
+z
+M 2906 3270 
+L 2483 3142 
+C 2752 2234 2976 1293 3149 320 
+L 3578 435 
+C 3379 1498 3155 2445 2906 3270 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-482" d="M 512 5293 
+C 768 4870 966 4429 1120 3968 
+C 1306 3405 1402 2854 1402 2304 
+C 1402 1760 1306 1203 1120 640 
+C 966 186 768 -256 512 -685 
+L 960 -685 
+C 1235 -269 1453 173 1619 634 
+C 1805 1184 1901 1741 1901 2298 
+C 1901 2867 1805 3424 1619 3974 
+C 1453 4442 1235 4883 960 5293 
+L 512 5293 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s4-PingFangSC-Regular-564"/>
+      <use xlink:href="#s4-PingFangSC-Regular-570" transform="translate(100 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-481" transform="translate(200 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-f5c" transform="translate(300 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-8f3" transform="translate(400 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-714" transform="translate(500 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-596" transform="translate(600 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-482" transform="translate(700 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s4-patch_3">
+    <path d="M 54.283324 171.349517 
+L 62.783313 171.349517 
+L 62.783313 52.597218 
+L 54.283324 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_4">
+    <path d="M 65.616643 171.349517 
+L 74.116632 171.349517 
+L 74.116632 52.597218 
+L 65.616643 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_5">
+    <path d="M 76.949962 171.349517 
+L 85.449951 171.349517 
+L 85.449951 52.597218 
+L 76.949962 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_6">
+    <path d="M 88.283281 171.349517 
+L 96.78327 171.349517 
+L 96.78327 52.597218 
+L 88.283281 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_7">
+    <path d="M 99.616599 171.349517 
+L 108.116588 171.349517 
+L 108.116588 52.597218 
+L 99.616599 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_8">
+    <path d="M 110.949918 171.349517 
+L 119.449907 171.349517 
+L 119.449907 52.597218 
+L 110.949918 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_9">
+    <path d="M 122.283237 171.349517 
+L 130.783226 171.349517 
+L 130.783226 52.597218 
+L 122.283237 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_10">
+    <path d="M 133.616556 171.349517 
+L 142.116545 171.349517 
+L 142.116545 52.597218 
+L 133.616556 52.597218 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_11">
+    <path d="M 144.949875 171.349517 
+L 153.449864 171.349517 
+L 153.449864 111.632125 
+L 144.949875 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_12">
+    <path d="M 156.283193 171.349517 
+L 164.783182 171.349517 
+L 164.783182 111.632125 
+L 156.283193 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_13">
+    <path d="M 167.616512 171.349517 
+L 176.116501 171.349517 
+L 176.116501 111.632125 
+L 167.616512 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_14">
+    <path d="M 178.949831 171.349517 
+L 187.44982 171.349517 
+L 187.44982 111.632125 
+L 178.949831 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_15">
+    <path d="M 190.28315 171.349517 
+L 198.783139 171.349517 
+L 198.783139 111.632125 
+L 190.28315 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_16">
+    <path d="M 201.616468 171.349517 
+L 210.116458 171.349517 
+L 210.116458 111.632125 
+L 201.616468 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_17">
+    <path d="M 212.949787 171.349517 
+L 221.449776 171.349517 
+L 221.449776 111.632125 
+L 212.949787 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_18">
+    <path d="M 224.283106 171.349517 
+L 232.783095 171.349517 
+L 232.783095 111.632125 
+L 224.283106 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_19">
+    <path d="M 235.616425 171.349517 
+L 244.116414 171.349517 
+L 244.116414 111.632125 
+L 235.616425 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_20">
+    <path d="M 246.949744 171.349517 
+L 255.449733 171.349517 
+L 255.449733 111.632125 
+L 246.949744 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_21">
+    <path d="M 258.283062 171.349517 
+L 266.783052 171.349517 
+L 266.783052 111.632125 
+L 258.283062 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_22">
+    <path d="M 269.616381 171.349517 
+L 278.11637 171.349517 
+L 278.11637 111.632125 
+L 269.616381 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_23">
+    <path d="M 280.9497 171.349517 
+L 289.449689 171.349517 
+L 289.449689 111.632125 
+L 280.9497 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_24">
+    <path d="M 292.283019 171.349517 
+L 300.783008 171.349517 
+L 300.783008 111.632125 
+L 292.283019 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_25">
+    <path d="M 303.616338 171.349517 
+L 312.116327 171.349517 
+L 312.116327 111.632125 
+L 303.616338 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_26">
+    <path d="M 314.949656 171.349517 
+L 323.449645 171.349517 
+L 323.449645 111.632125 
+L 314.949656 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_27">
+    <path d="M 326.282975 171.349517 
+L 334.782964 171.349517 
+L 334.782964 111.632125 
+L 326.282975 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_28">
+    <path d="M 337.616294 171.349517 
+L 346.116283 171.349517 
+L 346.116283 111.632125 
+L 337.616294 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_29">
+    <path d="M 348.949613 171.349517 
+L 357.449602 171.349517 
+L 357.449602 111.632125 
+L 348.949613 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_30">
+    <path d="M 360.282932 171.349517 
+L 368.782921 171.349517 
+L 368.782921 111.632125 
+L 360.282932 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_31">
+    <path d="M 371.61625 171.349517 
+L 380.116239 171.349517 
+L 380.116239 111.632125 
+L 371.61625 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_32">
+    <path d="M 382.949569 171.349517 
+L 391.449558 171.349517 
+L 391.449558 111.632125 
+L 382.949569 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_33">
+    <path d="M 394.282888 171.349517 
+L 402.782877 171.349517 
+L 402.782877 111.632125 
+L 394.282888 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-patch_34">
+    <path d="M 405.616207 171.349517 
+L 414.116196 171.349517 
+L 414.116196 111.632125 
+L 405.616207 111.632125 
+z
+" clip-path="url(#s4-p90e470ade2)" style="fill: #8c8c8c"/>
+   </g>
+   <g id="s4-line2d_18">
+    <path d="M 47.2 96.873398 
+L 421.19952 96.873398 
+" clip-path="url(#s4-p90e470ade2)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #767676"/>
+   </g>
+   <g id="s4-patch_35">
+    <path d="M 47.2 171.349517 
+L 47.2 21.202932 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s4-patch_36">
+    <path d="M 47.2 171.349517 
+L 421.19952 171.349517 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s4-text_7">
+    
+    <g style="fill: #4a4a4a" transform="translate(376.193798 92.74346) scale(0.1 -0.1)">
+     <defs>
+      <path id="s4-PingFangSC-Regular-b18" d="M 621 4941 
+L 621 4493 
+L 2938 4493 
+L 2938 2074 
+L 365 2074 
+L 365 1632 
+L 2938 1632 
+L 2938 -634 
+L 3411 -634 
+L 3411 1632 
+L 6035 1632 
+L 6035 2074 
+L 3411 2074 
+L 3411 4493 
+L 5792 4493 
+L 5792 4941 
+L 621 4941 
+z
+M 1402 4083 
+L 973 3872 
+C 1216 3443 1446 2957 1664 2406 
+L 2093 2618 
+C 1875 3149 1645 3635 1402 4083 
+z
+M 5030 4115 
+C 4845 3629 4595 3142 4282 2643 
+L 4691 2432 
+C 5005 2918 5261 3411 5453 3917 
+L 5030 4115 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-8d0" d="M 4806 1792 
+C 4218 1402 3514 1069 2694 800 
+L 2886 365 
+C 3699 653 4378 986 4928 1363 
+L 4806 1792 
+z
+M 3526 3149 
+L 3232 2861 
+C 3654 2534 3987 2227 4230 1939 
+L 4550 2259 
+C 4275 2554 3936 2854 3526 3149 
+z
+M 3360 5267 
+C 3168 4358 2797 3584 2253 2950 
+L 2560 2554 
+C 2880 2925 3149 3341 3366 3808 
+L 5446 3808 
+C 5434 1869 5402 717 5338 346 
+C 5280 13 5088 -154 4755 -154 
+C 4499 -154 4198 -141 3853 -128 
+L 3968 -563 
+C 4378 -576 4666 -589 4838 -589 
+C 5395 -589 5709 -326 5779 192 
+C 5856 698 5894 2054 5894 4256 
+L 3552 4256 
+C 3661 4557 3750 4877 3821 5210 
+L 3360 5267 
+z
+M 301 3526 
+L 301 3078 
+L 1005 3078 
+L 1005 800 
+C 755 736 499 685 230 640 
+L 358 154 
+C 1075 307 1747 506 2368 742 
+L 2368 1222 
+C 2074 1107 1779 1011 1472 922 
+L 1472 3078 
+L 2131 3078 
+L 2131 3526 
+L 1472 3526 
+L 1472 5203 
+L 1005 5203 
+L 1005 3526 
+L 301 3526 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-3" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-1b" d="M 1920 4659 
+C 1440 4659 1069 4538 800 4288 
+C 550 4064 429 3782 429 3450 
+C 429 3206 486 3002 602 2835 
+C 723 2656 902 2522 1146 2438 
+L 1146 2426 
+C 902 2368 704 2234 538 2029 
+C 358 1811 269 1555 269 1261 
+C 269 858 410 531 691 288 
+C 979 38 1389 -90 1920 -90 
+C 2445 -90 2854 38 3149 288 
+C 3430 531 3571 858 3571 1261 
+C 3571 1555 3482 1811 3302 2029 
+C 3136 2234 2931 2368 2694 2426 
+L 2694 2438 
+C 2931 2522 3110 2656 3238 2835 
+C 3354 3002 3411 3206 3411 3450 
+C 3411 3782 3283 4064 3040 4288 
+C 2771 4538 2394 4659 1920 4659 
+z
+M 1920 4230 
+C 2240 4230 2496 4147 2682 3981 
+C 2835 3840 2918 3654 2918 3430 
+C 2918 3200 2848 3008 2707 2867 
+C 2534 2701 2272 2611 1920 2611 
+C 1562 2611 1299 2701 1133 2867 
+C 992 3008 922 3200 922 3430 
+C 922 3654 998 3840 1158 3981 
+C 1338 4147 1594 4230 1920 4230 
+z
+M 1920 2202 
+C 2285 2202 2573 2112 2778 1926 
+C 2957 1760 3053 1536 3053 1261 
+C 3053 992 2957 774 2778 608 
+C 2573 429 2291 339 1920 339 
+C 1549 339 1261 429 1069 602 
+C 877 768 787 992 787 1261 
+C 787 1536 877 1760 1069 1926 
+C 1267 2112 1549 2202 1920 2202 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s4-PingFangSC-Regular-b18"/>
+     <use xlink:href="#s4-PingFangSC-Regular-8d0" transform="translate(100 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(200 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-15" transform="translate(233.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-14" transform="translate(293.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-1b" transform="translate(333.390625 0)"/>
+    </g>
+   </g>
+   <g id="s4-text_8">
+    
+    <g style="fill: #1a1a1a" transform="translate(52.866659 32.96287) scale(0.105 -0.105)">
+     <defs>
+      <path id="s4-PingFangSC-Regular-4e7" d="M 480 4896 
+L 480 4442 
+L 3322 4442 
+C 2758 3251 1747 2240 301 1408 
+L 602 1005 
+C 1574 1587 2362 2253 2963 3002 
+L 2963 -653 
+L 3437 -653 
+L 3437 3680 
+C 3584 3923 3718 4179 3834 4442 
+L 5920 4442 
+L 5920 4896 
+L 480 4896 
+z
+M 4243 3174 
+L 3910 2861 
+C 4685 2227 5293 1632 5741 1069 
+L 6093 1427 
+C 5594 2010 4979 2592 4243 3174 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-b03" d="M 352 4525 
+L 352 4083 
+L 1306 4083 
+L 1306 3405 
+L 1734 3405 
+L 1734 4083 
+L 2950 4083 
+L 2950 3379 
+L 3398 3379 
+L 3398 4083 
+L 4634 4083 
+L 4634 3405 
+L 5069 3405 
+L 5069 4083 
+L 6048 4083 
+L 6048 4525 
+L 5069 4525 
+L 5069 5178 
+L 4634 5178 
+L 4634 4525 
+L 3398 4525 
+L 3398 5203 
+L 2950 5203 
+L 2950 4525 
+L 1734 4525 
+L 1734 5178 
+L 1306 5178 
+L 1306 4525 
+L 352 4525 
+z
+M 5830 3008 
+L 563 3008 
+L 563 1754 
+L 1011 1754 
+L 1011 2573 
+L 2957 2573 
+L 2957 1875 
+L 1350 1875 
+L 1350 -211 
+L 1798 -211 
+L 1798 1446 
+L 2957 1446 
+L 2957 -646 
+L 3418 -646 
+L 3418 1446 
+L 4627 1446 
+L 4627 461 
+C 4627 301 4550 218 4410 218 
+L 3859 243 
+L 3974 -205 
+L 4557 -205 
+C 4902 -205 5075 -13 5075 365 
+L 5075 1875 
+L 3418 1875 
+L 3418 2573 
+L 5382 2573 
+L 5382 1773 
+L 5830 1773 
+L 5830 3008 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-632" d="M 960 4870 
+L 960 4422 
+L 5382 4422 
+L 5382 4870 
+L 960 4870 
+z
+M 467 2989 
+L 467 2541 
+L 2125 2541 
+L 2125 2445 
+C 2112 1747 1971 1178 1715 742 
+C 1440 320 960 -13 269 -269 
+L 518 -659 
+C 1229 -397 1741 -32 2061 435 
+C 2381 941 2554 1613 2573 2445 
+L 2573 2541 
+L 3725 2541 
+L 3725 58 
+C 3725 -339 3923 -538 4326 -538 
+L 5254 -538 
+C 5485 -538 5658 -467 5766 -339 
+C 5894 -192 5978 230 6022 928 
+L 5600 1062 
+C 5574 486 5530 141 5453 26 
+C 5402 -70 5306 -122 5165 -122 
+L 4454 -122 
+C 4262 -122 4173 -26 4173 154 
+L 4173 2541 
+L 5939 2541 
+L 5939 2989 
+L 467 2989 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-dc4" d="M 4211 3808 
+L 5158 3808 
+C 5133 2944 4998 2189 4749 1542 
+C 4493 2080 4288 2726 4128 3475 
+L 4211 3808 
+z
+M 4538 1082 
+C 4243 538 3853 96 3354 -250 
+L 3590 -634 
+C 4070 -288 4467 141 4774 653 
+C 5094 115 5478 -320 5926 -640 
+L 6176 -262 
+C 5715 51 5325 493 4992 1069 
+C 5350 1824 5549 2739 5581 3808 
+L 5997 3808 
+L 5997 4250 
+L 4307 4250 
+C 4358 4531 4410 4838 4448 5165 
+L 4000 5242 
+C 3872 4026 3616 3059 3238 2342 
+L 3526 1990 
+C 3661 2221 3789 2483 3904 2778 
+C 4077 2138 4288 1574 4538 1082 
+z
+M 1504 2253 
+C 1459 2125 1408 1990 1350 1850 
+L 416 1850 
+L 416 1446 
+L 1171 1446 
+C 1043 1190 896 928 730 646 
+C 1043 531 1338 410 1619 288 
+C 1248 77 794 -96 269 -237 
+L 486 -621 
+C 1126 -442 1658 -205 2080 90 
+C 2458 -77 2784 -250 3066 -416 
+L 3315 -58 
+C 3034 96 2739 237 2432 378 
+C 2765 685 3002 1050 3142 1472 
+L 3142 1850 
+L 1805 1850 
+C 1843 1965 1888 2080 1933 2202 
+L 1504 2253 
+z
+M 2010 557 
+C 1779 653 1536 742 1280 832 
+C 1408 1024 1523 1229 1626 1446 
+L 2726 1446 
+C 2573 1114 2330 813 2010 557 
+z
+M 922 5107 
+L 557 4986 
+C 710 4742 851 4467 986 4154 
+L 1318 4307 
+C 1203 4589 1075 4858 922 5107 
+z
+M 2867 5126 
+C 2752 4858 2586 4589 2381 4314 
+L 2707 4147 
+C 2912 4416 3072 4691 3200 4973 
+L 2867 5126 
+z
+M 429 4000 
+L 429 3597 
+L 1338 3597 
+C 1146 3245 800 2925 307 2637 
+L 531 2266 
+C 1082 2637 1466 3072 1677 3578 
+L 1677 2362 
+L 2106 2362 
+L 2106 3194 
+C 2336 3040 2611 2835 2931 2579 
+L 3168 2938 
+C 2810 3155 2451 3354 2106 3526 
+L 2106 3597 
+L 3270 3597 
+L 3270 4000 
+L 2106 4000 
+L 2106 5222 
+L 1677 5222 
+L 1677 4000 
+L 429 4000 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-d1d" d="M 1050 -582 
+C 1408 -582 1587 -390 1587 -19 
+L 1587 1850 
+C 1786 1939 1984 2029 2182 2131 
+L 2182 2586 
+C 1990 2483 1792 2387 1587 2298 
+L 1587 3558 
+L 2202 3558 
+L 2202 4000 
+L 1587 4000 
+L 1587 5210 
+L 1139 5210 
+L 1139 4000 
+L 371 4000 
+L 371 3558 
+L 1139 3558 
+L 1139 2112 
+C 858 2010 563 1920 269 1850 
+L 384 1402 
+C 634 1478 883 1568 1139 1664 
+L 1139 96 
+C 1139 -83 1056 -179 896 -179 
+C 742 -179 576 -166 410 -147 
+L 506 -582 
+L 1050 -582 
+z
+M 2963 2246 
+L 4269 2246 
+L 4269 1459 
+L 3200 1459 
+L 3200 -640 
+L 3629 -640 
+L 3629 -326 
+L 5363 -326 
+L 5363 -640 
+L 5792 -640 
+L 5792 1459 
+L 4717 1459 
+L 4717 2246 
+L 6086 2246 
+L 6086 2662 
+L 4717 2662 
+L 4717 3418 
+L 5920 3418 
+L 5920 4973 
+L 2547 4973 
+L 2547 2970 
+C 2541 1626 2310 525 1856 -320 
+L 2214 -640 
+C 2637 192 2886 1152 2963 2246 
+z
+M 4269 3418 
+L 4269 2662 
+L 2989 2662 
+C 2989 2765 2995 2867 2995 2970 
+L 2995 3418 
+L 4269 3418 
+z
+M 3629 83 
+L 3629 1050 
+L 5363 1050 
+L 5363 83 
+L 3629 83 
+z
+M 5472 4544 
+L 5472 3834 
+L 2995 3834 
+L 2995 4544 
+L 5472 4544 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-493" d="M 1600 3898 
+C 1485 3898 1395 3859 1318 3776 
+C 1242 3706 1210 3616 1210 3501 
+C 1210 3392 1242 3302 1318 3226 
+C 1395 3149 1485 3110 1600 3110 
+C 1709 3110 1805 3149 1882 3226 
+C 1958 3302 1997 3392 1997 3501 
+C 1997 3616 1958 3706 1882 3776 
+C 1805 3859 1709 3898 1600 3898 
+z
+M 1600 1555 
+C 1485 1555 1395 1517 1318 1434 
+C 1242 1363 1210 1274 1210 1158 
+C 1210 1050 1242 960 1318 883 
+C 1395 806 1485 768 1600 768 
+C 1709 768 1805 806 1882 883 
+C 1958 960 1997 1050 1997 1158 
+C 1997 1274 1958 1363 1882 1434 
+C 1805 1517 1709 1555 1600 1555 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-34" d="M 2458 4659 
+C 1766 4659 1229 4429 832 3968 
+C 454 3533 269 2970 269 2278 
+C 269 1594 454 1030 832 595 
+C 1229 141 1766 -90 2451 -90 
+C 2938 -90 3354 32 3699 262 
+C 3872 32 4045 -211 4224 -467 
+L 4570 -166 
+C 4397 83 4224 326 4045 557 
+C 4051 570 4064 582 4077 595 
+C 4448 1030 4640 1587 4640 2278 
+C 4640 2976 4448 3539 4077 3974 
+C 3680 4435 3136 4659 2458 4659 
+z
+M 2458 4192 
+C 2982 4192 3392 4019 3686 3667 
+C 3968 3322 4115 2861 4115 2278 
+C 4115 1734 3987 1293 3731 954 
+C 3475 1267 3213 1562 2950 1843 
+L 2637 1542 
+C 2893 1274 3149 973 3405 646 
+C 3149 467 2829 378 2451 378 
+C 1926 378 1510 557 1216 915 
+C 934 1261 794 1715 794 2278 
+C 794 2848 934 3302 1216 3648 
+C 1517 4013 1933 4192 2458 4192 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-8d8" d="M 3930 1702 
+C 4326 768 4954 -6 5818 -627 
+L 6131 -256 
+C 5267 294 4640 1030 4250 1952 
+L 6067 1952 
+L 6067 2394 
+L 5510 2394 
+L 5510 4256 
+L 4122 4256 
+L 4122 5222 
+L 3680 5222 
+L 3680 4256 
+L 2502 4256 
+L 2502 3814 
+L 3680 3814 
+L 3680 3245 
+C 3680 2950 3661 2669 3622 2394 
+L 2234 2394 
+L 2234 1952 
+L 3546 1952 
+C 3315 928 2778 186 1946 -262 
+L 2227 -634 
+C 3085 -134 3654 640 3930 1702 
+z
+M 4122 3814 
+L 5062 3814 
+L 5062 2394 
+L 4058 2394 
+C 4096 2701 4122 3021 4122 3354 
+L 4122 3814 
+z
+M 314 3526 
+L 314 3078 
+L 1030 3078 
+L 1030 794 
+C 768 717 499 646 218 582 
+L 333 122 
+C 1062 314 1734 557 2362 851 
+L 2362 1312 
+C 2080 1178 1786 1056 1491 947 
+L 1491 3078 
+L 2221 3078 
+L 2221 3526 
+L 1491 3526 
+L 1491 5190 
+L 1030 5190 
+L 1030 3526 
+L 314 3526 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-cf2" d="M 5920 4499 
+L 4422 4499 
+C 4333 4794 4243 5050 4147 5280 
+L 3680 5203 
+C 3782 4986 3878 4755 3962 4499 
+L 2490 4499 
+L 2490 3213 
+L 2925 3213 
+L 2925 4083 
+L 5478 4083 
+L 5478 3238 
+L 5920 3238 
+L 5920 4499 
+z
+M 3680 3680 
+C 3590 3322 3494 2982 3386 2650 
+L 2336 2650 
+L 2336 2208 
+L 3232 2208 
+C 3091 1850 2938 1510 2765 1190 
+C 3187 966 3584 749 3955 538 
+C 3520 218 2886 -38 2042 -230 
+L 2227 -666 
+C 3226 -429 3942 -115 4390 282 
+C 4966 -58 5446 -365 5830 -646 
+L 6144 -282 
+C 5773 -26 5293 275 4691 608 
+C 5030 1030 5254 1568 5357 2208 
+L 6125 2208 
+L 6125 2650 
+L 3853 2650 
+C 3942 2944 4038 3277 4128 3642 
+L 3680 3680 
+z
+M 4915 2208 
+C 4806 1645 4595 1190 4282 832 
+C 3981 992 3654 1158 3309 1338 
+C 3443 1581 3571 1875 3699 2208 
+L 4915 2208 
+z
+M 1018 -582 
+C 1382 -582 1568 -397 1568 -26 
+L 1568 1824 
+C 1766 1914 1965 2003 2163 2099 
+L 2163 2566 
+C 1965 2464 1766 2368 1568 2278 
+L 1568 3558 
+L 2170 3558 
+L 2170 4000 
+L 1568 4000 
+L 1568 5210 
+L 1094 5210 
+L 1094 4000 
+L 346 4000 
+L 346 3558 
+L 1094 3558 
+L 1094 2093 
+C 813 1990 518 1901 218 1830 
+L 333 1370 
+C 582 1446 838 1536 1094 1632 
+L 1094 90 
+C 1094 -77 1011 -160 858 -160 
+C 704 -160 544 -147 378 -134 
+L 474 -582 
+L 1018 -582 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-36" d="M 1997 4659 
+C 1523 4659 1133 4557 832 4352 
+C 493 4134 326 3821 326 3424 
+C 326 3040 499 2746 851 2541 
+C 998 2464 1350 2336 1901 2170 
+C 2413 2022 2739 1914 2867 1837 
+C 3168 1677 3322 1453 3322 1165 
+C 3322 922 3206 730 2976 589 
+C 2746 448 2438 378 2067 378 
+C 1658 378 1350 467 1139 634 
+C 909 819 768 1114 723 1510 
+L 205 1510 
+C 243 947 442 531 800 256 
+C 1107 26 1530 -90 2067 -90 
+C 2611 -90 3040 26 3360 250 
+C 3680 480 3840 800 3840 1197 
+C 3840 1613 3648 1933 3270 2163 
+C 3078 2278 2682 2426 2080 2605 
+C 1638 2733 1357 2829 1242 2893 
+C 979 3034 851 3219 851 3450 
+C 851 3712 960 3904 1178 4032 
+C 1370 4147 1632 4198 1971 4198 
+C 2342 4198 2630 4122 2835 3955 
+C 3034 3795 3162 3552 3219 3219 
+L 3738 3219 
+C 3693 3699 3520 4064 3213 4307 
+C 2918 4544 2509 4659 1997 4659 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-30" d="M 461 4570 
+L 461 0 
+L 986 0 
+L 986 3635 
+L 1005 3635 
+L 2586 0 
+L 3059 0 
+L 4640 3635 
+L 4659 3635 
+L 4659 0 
+L 5184 0 
+L 5184 4570 
+L 4531 4570 
+L 2835 672 
+L 2816 672 
+L 1114 4570 
+L 461 4570 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-1aea" d="M 1594 3469 
+L 1594 2496 
+L 890 2496 
+C 1062 2912 1222 3392 1376 3942 
+L 2784 3942 
+L 2784 4390 
+L 1485 4390 
+C 1542 4634 1600 4896 1658 5171 
+L 1222 5242 
+C 1165 4947 1107 4659 1043 4390 
+L 294 4390 
+L 294 3942 
+L 928 3942 
+C 774 3354 602 2874 422 2490 
+L 518 2080 
+L 1594 2080 
+L 1594 1126 
+C 1184 1056 749 992 288 941 
+L 346 493 
+C 781 550 1197 614 1594 678 
+L 1594 -634 
+L 2042 -634 
+L 2042 762 
+C 2349 826 2643 896 2931 973 
+L 2931 1408 
+C 2650 1338 2355 1274 2042 1210 
+L 2042 2080 
+L 2758 2080 
+L 2758 2496 
+L 2042 2496 
+L 2042 3469 
+L 1594 3469 
+z
+M 4166 5210 
+C 3782 4358 3245 3667 2547 3136 
+L 2797 2752 
+C 3430 3226 3955 3898 4371 4774 
+C 4710 3974 5222 3302 5907 2765 
+L 6170 3155 
+C 5414 3744 4883 4429 4576 5210 
+L 4166 5210 
+z
+M 5158 -544 
+C 5414 -544 5606 -480 5722 -352 
+C 5862 -205 5958 205 6003 877 
+L 5581 1018 
+C 5549 467 5491 134 5402 19 
+C 5338 -70 5229 -122 5069 -122 
+L 4109 -122 
+C 3904 -122 3808 -6 3808 218 
+L 3808 1293 
+C 4371 1517 4960 1850 5581 2298 
+L 5306 2675 
+C 4819 2278 4320 1971 3808 1747 
+L 3808 2867 
+L 3360 2867 
+L 3360 128 
+C 3360 -320 3565 -544 3974 -544 
+L 5158 -544 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-1ae8" d="M 1549 3469 
+L 1549 2496 
+L 845 2496 
+C 1024 2912 1190 3392 1344 3942 
+L 2675 3942 
+L 2675 4390 
+L 1459 4390 
+C 1517 4640 1574 4902 1632 5178 
+L 1197 5242 
+C 1133 4947 1075 4659 1011 4390 
+L 256 4390 
+L 256 3942 
+L 896 3942 
+C 736 3354 563 2874 378 2490 
+L 474 2080 
+L 1549 2080 
+L 1549 1120 
+C 1139 1050 710 986 250 928 
+L 307 474 
+C 742 531 1152 595 1549 666 
+L 1549 -634 
+L 1990 -634 
+L 1990 755 
+C 2298 819 2592 896 2880 973 
+L 2880 1408 
+C 2598 1338 2304 1267 1990 1203 
+L 1990 2080 
+L 2701 2080 
+L 2701 2496 
+L 1990 2496 
+L 1990 3469 
+L 1549 3469 
+z
+M 2970 4390 
+L 2970 3942 
+L 3885 3942 
+C 3834 3699 3776 3456 3718 3206 
+L 2784 3206 
+L 2784 2765 
+L 3610 2765 
+C 3501 2342 3379 1939 3251 1542 
+L 5395 1542 
+C 5171 1171 4870 819 4486 480 
+C 4192 646 3878 806 3546 947 
+L 3302 582 
+C 4006 288 4691 -122 5357 -634 
+L 5613 -243 
+C 5376 -64 5126 102 4864 262 
+C 5318 698 5651 1133 5869 1568 
+L 5869 1952 
+L 3827 1952 
+C 3910 2202 3994 2470 4070 2765 
+L 6150 2765 
+L 6150 3206 
+L 4179 3206 
+L 4346 3942 
+L 5990 3942 
+L 5990 4390 
+L 4435 4390 
+C 4486 4653 4531 4928 4582 5210 
+L 4128 5254 
+C 4077 4960 4026 4672 3974 4390 
+L 2970 4390 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-4a" d="M 1760 3398 
+C 1299 3398 934 3238 666 2912 
+C 397 2605 269 2214 269 1728 
+C 269 1248 397 858 666 550 
+C 934 237 1299 77 1760 77 
+C 2259 77 2630 301 2874 742 
+L 2874 160 
+C 2874 -570 2541 -941 1875 -941 
+C 1574 -941 1350 -883 1203 -774 
+C 1056 -672 960 -506 922 -282 
+L 410 -282 
+C 467 -640 614 -909 851 -1088 
+C 1082 -1267 1427 -1357 1875 -1357 
+C 2880 -1357 3386 -826 3386 230 
+L 3386 3309 
+L 2874 3309 
+L 2874 2739 
+C 2630 3181 2259 3398 1760 3398 
+z
+M 1837 2976 
+C 2163 2976 2419 2861 2611 2618 
+C 2790 2400 2880 2099 2880 1728 
+C 2880 1370 2790 1075 2611 851 
+C 2419 621 2163 506 1830 506 
+C 1472 506 1210 634 1030 877 
+C 870 1094 794 1382 794 1728 
+C 794 2099 883 2400 1062 2618 
+C 1248 2861 1504 2976 1837 2976 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-55" d="M 1850 3398 
+C 1619 3398 1421 3328 1248 3187 
+C 1107 3078 992 2925 902 2733 
+L 902 3309 
+L 397 3309 
+L 397 0 
+L 902 0 
+L 902 1754 
+C 902 2061 986 2323 1165 2541 
+C 1338 2771 1555 2880 1811 2880 
+C 1971 2880 2138 2861 2304 2810 
+L 2304 3322 
+C 2182 3373 2029 3398 1850 3398 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-4c" d="M 819 4557 
+C 710 4557 621 4525 544 4448 
+C 467 4384 435 4294 435 4179 
+C 435 4070 467 3981 544 3904 
+C 621 3834 710 3795 819 3795 
+C 928 3795 1018 3834 1094 3904 
+C 1171 3981 1210 4070 1210 4179 
+C 1210 4294 1171 4384 1094 4448 
+C 1018 4525 928 4557 819 4557 
+z
+M 563 3309 
+L 563 0 
+L 1075 0 
+L 1075 3309 
+L 563 3309 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-47" d="M 2842 4659 
+L 2842 2701 
+C 2586 3168 2221 3398 1747 3398 
+C 1274 3398 909 3226 640 2867 
+C 390 2547 269 2150 269 1664 
+C 269 1165 390 755 640 435 
+C 909 90 1286 -90 1773 -90 
+C 2272 -90 2643 122 2874 544 
+L 2874 0 
+L 3354 0 
+L 3354 4659 
+L 2842 4659 
+z
+M 1856 2976 
+C 2150 2976 2394 2861 2579 2618 
+C 2758 2381 2854 2067 2854 1683 
+L 2854 1619 
+C 2854 1248 2771 947 2611 717 
+C 2426 461 2170 333 1837 333 
+C 1478 333 1210 467 1030 723 
+C 870 954 794 1267 794 1664 
+C 794 2061 870 2368 1037 2592 
+C 1216 2848 1491 2976 1856 2976 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-10" d="M 320 1875 
+L 320 1440 
+L 3552 1440 
+L 3552 1875 
+L 320 1875 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-56" d="M 1568 3398 
+C 1197 3398 890 3315 659 3149 
+C 410 2982 288 2765 288 2483 
+C 288 2202 410 1990 666 1837 
+C 819 1734 1094 1638 1485 1542 
+C 1843 1453 2080 1382 2189 1331 
+C 2394 1229 2502 1088 2502 902 
+C 2502 531 2202 339 1613 339 
+C 1331 339 1120 390 979 493 
+C 838 608 742 794 704 1056 
+L 205 1056 
+C 282 294 755 -90 1626 -90 
+C 2560 -90 3027 256 3027 934 
+C 3027 1222 2893 1446 2630 1613 
+C 2458 1722 2176 1824 1779 1920 
+C 1446 2010 1216 2080 1094 2138 
+C 902 2234 813 2355 813 2496 
+C 813 2643 883 2758 1024 2842 
+C 1152 2931 1331 2970 1562 2970 
+C 1824 2970 2029 2918 2170 2816 
+C 2298 2726 2381 2573 2426 2368 
+L 2925 2368 
+C 2835 3059 2387 3398 1568 3398 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-57" d="M 1280 4378 
+L 774 4166 
+L 774 3309 
+L 109 3309 
+L 109 2880 
+L 774 2880 
+L 774 774 
+C 774 525 826 339 934 211 
+C 1050 70 1248 0 1517 0 
+L 2016 0 
+L 2016 429 
+L 1594 429 
+C 1478 429 1395 461 1350 512 
+C 1299 563 1280 653 1280 774 
+L 1280 2880 
+L 2099 2880 
+L 2099 3309 
+L 1280 3309 
+L 1280 4378 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-48" d="M 1760 3398 
+C 1280 3398 902 3226 621 2880 
+C 339 2554 205 2144 205 1658 
+C 205 1120 346 698 640 378 
+C 922 70 1306 -90 1779 -90 
+C 2208 -90 2560 38 2835 282 
+C 3059 486 3206 742 3283 1062 
+L 2771 1062 
+C 2688 832 2579 659 2438 544 
+C 2272 410 2048 339 1779 339 
+C 1466 339 1216 442 1037 646 
+C 858 851 762 1139 736 1510 
+L 3347 1510 
+C 3334 2086 3206 2541 2963 2861 
+C 2694 3219 2291 3398 1760 3398 
+z
+M 1773 2970 
+C 2400 2970 2752 2618 2816 1907 
+L 749 1907 
+C 781 2234 883 2490 1062 2682 
+C 1242 2874 1478 2970 1773 2970 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s4-PingFangSC-Regular-4e7"/>
+     <use xlink:href="#s4-PingFangSC-Regular-b03" transform="translate(100 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-632" transform="translate(200 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-dc4" transform="translate(300 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-d1d" transform="translate(400 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-493" transform="translate(500 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-34" transform="translate(600 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(676.703125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-8d8" transform="translate(710 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-cf2" transform="translate(810 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(910 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-36" transform="translate(943.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-30" transform="translate(1006.5 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(1094.703125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-1aea" transform="translate(1128 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-1ae8" transform="translate(1228 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-481" transform="translate(1328 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4a" transform="translate(1428 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-55" transform="translate(1487.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4c" transform="translate(1523.59375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-47" transform="translate(1549.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-10" transform="translate(1607.78125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-56" transform="translate(1668.28125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-57" transform="translate(1718.78125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-55" transform="translate(1754.28125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4c" transform="translate(1790.78125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-47" transform="translate(1816.375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-48" transform="translate(1874.96875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-482" transform="translate(1930.46875 0)"/>
+    </g>
+   </g>
+   <g id="s4-text_9">
+    
+    <g style="fill: #1a1a1a" transform="translate(26.102353 16.66) scale(0.11 -0.11)">
+     <defs>
+      <path id="s4-PingFangSC-Semibold-b" d="M 1261 5293 
+C 954 4877 723 4442 557 3981 
+C 358 3443 262 2886 262 2298 
+C 262 1722 358 1158 557 621 
+C 723 173 954 -262 1261 -685 
+L 1869 -685 
+C 1600 -237 1395 205 1254 640 
+C 1062 1197 973 1754 973 2304 
+C 973 2861 1062 3418 1254 3968 
+C 1395 4410 1600 4851 1869 5293 
+L 1261 5293 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Semibold-44" d="M 1888 3398 
+C 1466 3398 1133 3328 890 3174 
+C 602 3008 422 2739 352 2374 
+L 1075 2317 
+C 1114 2490 1210 2618 1350 2701 
+C 1472 2778 1632 2810 1837 2810 
+C 2310 2810 2547 2598 2547 2163 
+L 2547 2035 
+L 1824 2016 
+C 1338 2003 960 1901 691 1709 
+C 397 1510 256 1222 256 851 
+C 256 576 358 352 563 173 
+C 762 0 1030 -90 1376 -90 
+C 1664 -90 1914 -38 2125 58 
+C 2310 147 2470 269 2598 435 
+L 2598 0 
+L 3277 0 
+L 3277 2112 
+C 3277 2515 3174 2822 2970 3034 
+C 2739 3277 2374 3398 1888 3398 
+z
+M 2547 1510 
+L 2547 1344 
+C 2547 1088 2445 877 2253 710 
+C 2061 550 1824 467 1542 467 
+C 1382 467 1254 512 1152 589 
+C 1050 666 1005 762 1005 877 
+C 1005 1274 1293 1478 1875 1491 
+L 2547 1510 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Semibold-c" d="M 262 5293 
+C 525 4851 730 4410 877 3968 
+C 1062 3418 1158 2861 1158 2304 
+C 1158 1754 1062 1197 877 640 
+C 730 205 525 -237 262 -685 
+L 870 -685 
+C 1171 -262 1408 173 1574 621 
+C 1766 1158 1869 1722 1869 2298 
+C 1869 2886 1766 3443 1574 3981 
+C 1408 4442 1171 4877 870 5293 
+L 262 5293 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s4-PingFangSC-Semibold-b"/>
+     <use xlink:href="#s4-PingFangSC-Semibold-44" transform="translate(33.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Semibold-c" transform="translate(90.5 0)"/>
+    </g>
+   </g>
+  </g>
+  <g id="s4-axes_2">
+   <g id="s4-patch_37">
+    <path d="M 47.2 347.199517 
+L 421.19952 347.199517 
+L 421.19952 197.052932 
+L 47.2 197.052932 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="s4-matplotlib.axis_3">
+    <g id="s4-xtick_8">
+     <g id="s4-line2d_19">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="58.533319" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_10">
+      
+      <g style="fill: #4a4a4a" transform="translate(55.533319 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-13"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_9">
+     <g id="s4-line2d_20">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="115.199913" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_11">
+      
+      <g style="fill: #4a4a4a" transform="translate(112.199913 362.799517) scale(0.1 -0.1)">
+       <defs>
+        <path id="s4-PingFangSC-Regular-18" d="M 672 4570 
+L 429 2048 
+L 928 2048 
+C 1018 2227 1158 2368 1338 2458 
+C 1510 2554 1702 2598 1920 2598 
+C 2253 2598 2515 2502 2701 2298 
+C 2893 2099 2995 1818 2995 1453 
+C 2995 1133 2886 870 2682 666 
+C 2470 461 2208 358 1888 358 
+C 1606 358 1370 429 1190 563 
+C 986 717 870 941 845 1229 
+L 326 1229 
+C 358 813 531 480 851 237 
+C 1133 19 1478 -90 1882 -90 
+C 2330 -90 2714 51 3021 326 
+C 3347 621 3514 998 3514 1459 
+C 3514 1952 3373 2336 3104 2618 
+C 2835 2893 2483 3027 2048 3027 
+C 1837 3027 1645 2995 1466 2918 
+C 1267 2842 1101 2726 973 2573 
+L 947 2573 
+L 1101 4102 
+L 3328 4102 
+L 3328 4570 
+L 672 4570 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#s4-PingFangSC-Regular-18"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_10">
+     <g id="s4-line2d_21">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="171.866507" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_12">
+      
+      <g style="fill: #4a4a4a" transform="translate(166.861819 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-14"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_11">
+     <g id="s4-line2d_22">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="228.533101" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_13">
+      
+      <g style="fill: #4a4a4a" transform="translate(223.528413 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-14"/>
+       <use xlink:href="#s4-PingFangSC-Regular-18" transform="translate(40.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_12">
+     <g id="s4-line2d_23">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="285.199695" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_14">
+      
+      <g style="fill: #4a4a4a" transform="translate(279.199695 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-15"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_13">
+     <g id="s4-line2d_24">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="341.866288" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_15">
+      
+      <g style="fill: #4a4a4a" transform="translate(335.866288 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-15"/>
+       <use xlink:href="#s4-PingFangSC-Regular-18" transform="translate(60 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-xtick_14">
+     <g id="s4-line2d_25">
+      <g>
+       <use xlink:href="#s4-md0f79781a5" x="398.532882" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_16">
+      
+      <g style="fill: #4a4a4a" transform="translate(392.532882 362.799517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-16"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-text_17">
+     
+     <g style="fill: #4a4a4a" transform="translate(159.61976 377.659517) scale(0.11 -0.11)">
+      <defs>
+       <path id="s4-PingFangSC-Regular-15ab" d="M 1933 717 
+C 1478 486 947 307 346 173 
+L 403 -275 
+C 973 -134 1485 58 1933 294 
+L 1933 717 
+z
+M 1280 5242 
+C 1050 4499 768 3846 448 3270 
+C 397 3187 333 3130 262 3104 
+L 378 2688 
+C 717 2739 1056 2797 1395 2867 
+C 1069 2278 794 1862 563 1619 
+C 506 1568 435 1523 352 1491 
+L 480 1075 
+C 1005 1152 1549 1286 2125 1478 
+L 2125 1888 
+C 1754 1760 1389 1651 1018 1574 
+C 1363 2010 1811 2746 2349 3782 
+L 1946 3930 
+C 1830 3699 1715 3482 1613 3277 
+C 1344 3219 1069 3174 794 3136 
+C 1101 3616 1408 4262 1709 5075 
+L 1280 5242 
+z
+M 5466 -621 
+C 5754 -621 5901 -467 5901 -173 
+L 5901 2400 
+L 2976 2400 
+L 2976 -646 
+L 3354 -646 
+L 3354 781 
+L 3859 781 
+L 3859 -531 
+L 4198 -531 
+L 4198 781 
+L 4666 781 
+L 4666 -531 
+L 5005 -531 
+L 5005 781 
+L 5517 781 
+L 5517 -83 
+C 5517 -211 5459 -275 5344 -275 
+L 5088 -262 
+L 5190 -621 
+L 5466 -621 
+z
+M 3354 1165 
+L 3354 2003 
+L 3859 2003 
+L 3859 1165 
+L 3354 1165 
+z
+M 4198 2003 
+L 4666 2003 
+L 4666 1165 
+L 4198 1165 
+L 4198 2003 
+z
+M 5005 2003 
+L 5517 2003 
+L 5517 1165 
+L 5005 1165 
+L 5005 2003 
+z
+M 5453 4173 
+L 5453 3354 
+L 2957 3354 
+L 2957 4173 
+L 5453 4173 
+z
+M 2957 2957 
+L 5875 2957 
+L 5875 4582 
+L 4435 4582 
+C 4358 4838 4275 5062 4192 5261 
+L 3712 5184 
+C 3814 5005 3904 4800 3987 4582 
+L 2528 4582 
+L 2528 3027 
+C 2522 1651 2266 531 1754 -339 
+L 2086 -634 
+C 2650 365 2938 1562 2957 2957 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-769" d="M 1325 4998 
+L 1325 3270 
+L 5075 3270 
+L 5075 4998 
+L 1325 4998 
+z
+M 4602 3686 
+L 1798 3686 
+L 1798 4582 
+L 4602 4582 
+L 4602 3686 
+z
+M 1786 2278 
+L 1485 1114 
+L 4698 1114 
+C 4659 538 4602 179 4525 38 
+C 4442 -102 4230 -173 3885 -173 
+C 3622 -173 3322 -160 2982 -134 
+L 3136 -557 
+C 3386 -582 3667 -595 3987 -595 
+C 4422 -595 4717 -499 4870 -307 
+C 5024 -109 5126 506 5165 1530 
+L 2035 1530 
+L 2253 2278 
+L 6074 2278 
+L 6074 2720 
+L 320 2720 
+L 320 2278 
+L 1786 2278 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-603" d="M 2477 1862 
+L 3661 1862 
+L 3661 2304 
+L 2477 2304 
+L 2477 3098 
+L 3789 3098 
+L 3789 4973 
+L 2029 4973 
+L 2029 -646 
+L 2477 -646 
+L 2477 602 
+L 3667 602 
+L 3667 1030 
+L 2477 1030 
+L 2477 1862 
+z
+M 5830 3098 
+L 5830 4973 
+L 4115 4973 
+L 4115 4544 
+L 5382 4544 
+L 5382 3526 
+L 4102 3526 
+L 4102 3098 
+L 5830 3098 
+z
+M 3898 2502 
+L 3898 2074 
+L 4077 2074 
+C 4166 1498 4358 986 4653 531 
+L 4659 525 
+C 4352 192 3974 -77 3526 -288 
+L 3776 -678 
+C 4230 -467 4621 -192 4941 154 
+C 5222 -173 5568 -442 5990 -659 
+L 6208 -269 
+C 5850 -83 5523 173 5222 499 
+C 5542 941 5766 1472 5907 2099 
+L 5907 2502 
+L 3898 2502 
+z
+M 4480 2074 
+L 5491 2074 
+C 5363 1619 5178 1216 4934 864 
+C 4704 1203 4550 1606 4480 2074 
+z
+M 2477 3520 
+L 2477 4544 
+L 3354 4544 
+L 3354 3520 
+L 2477 3520 
+z
+M 877 2899 
+L 877 -653 
+L 1338 -653 
+L 1338 3795 
+C 1510 4192 1658 4621 1779 5075 
+L 1350 5274 
+C 1114 4282 736 3405 211 2637 
+L 365 2144 
+C 544 2387 717 2637 877 2899 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-19a1" d="M 1030 5107 
+L 710 4806 
+C 1146 4467 1485 4147 1734 3840 
+L 2048 4160 
+C 1773 4474 1434 4787 1030 5107 
+z
+M 288 3258 
+L 288 2816 
+L 1178 2816 
+L 1178 282 
+C 1178 179 1126 83 1037 -6 
+L 1216 -416 
+C 1664 -122 2093 211 2496 589 
+L 2368 1075 
+C 2106 826 1856 608 1626 416 
+L 1626 3258 
+L 288 3258 
+z
+M 2560 2509 
+L 2560 2061 
+L 2912 2061 
+C 3091 1504 3418 1005 3904 557 
+C 3424 218 2829 -58 2118 -269 
+L 2374 -659 
+C 3123 -429 3757 -128 4269 256 
+C 4717 -90 5280 -390 5946 -659 
+L 6195 -262 
+C 5568 -32 5037 230 4602 531 
+C 5069 966 5402 1485 5606 2086 
+L 5606 2509 
+L 2560 2509 
+z
+M 3347 2061 
+L 5152 2061 
+C 4947 1587 4640 1178 4230 819 
+C 3808 1184 3514 1600 3347 2061 
+z
+M 3053 4979 
+L 3053 4269 
+C 3053 3763 2771 3373 2214 3098 
+L 2522 2746 
+C 3174 3117 3507 3642 3507 4320 
+L 3507 4544 
+L 4749 4544 
+L 4749 3501 
+C 4749 3123 4941 2931 5338 2931 
+L 6042 2931 
+L 6042 3354 
+L 5453 3354 
+C 5286 3354 5203 3437 5203 3597 
+L 5203 4979 
+L 3053 4979 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-648" d="M 666 3930 
+L 666 3482 
+L 1830 3482 
+L 1830 1939 
+L 346 1939 
+L 346 1491 
+L 6054 1491 
+L 6054 1939 
+L 4570 1939 
+L 4570 3482 
+L 5741 3482 
+L 5741 3930 
+L 4570 3930 
+L 4570 5235 
+L 4102 5235 
+L 4102 3930 
+L 2298 3930 
+L 2298 5261 
+L 1830 5261 
+L 1830 3930 
+L 666 3930 
+z
+M 2298 1939 
+L 2298 3482 
+L 4102 3482 
+L 4102 1939 
+L 2298 1939 
+z
+M 2298 1267 
+C 1773 704 1120 205 346 -218 
+L 666 -627 
+C 1446 -179 2106 352 2643 954 
+L 2298 1267 
+z
+M 4154 1254 
+L 3821 934 
+C 4614 384 5235 -134 5690 -621 
+L 6048 -256 
+C 5536 243 4909 749 4154 1254 
+z
+" transform="scale(0.015625)"/>
+       <path id="s4-PingFangSC-Regular-4fb" d="M 2963 3334 
+L 2963 -634 
+L 3437 -634 
+L 3437 3334 
+L 2963 3334 
+z
+M 2995 5222 
+C 2349 4262 1427 3475 230 2867 
+L 506 2451 
+C 1594 3002 2490 3782 3200 4794 
+C 3789 3872 4691 3104 5894 2477 
+L 6170 2893 
+C 4864 3565 3942 4339 3405 5222 
+L 2995 5222 
+z
+" transform="scale(0.015625)"/>
+      </defs>
+      <use xlink:href="#s4-PingFangSC-Regular-36"/>
+      <use xlink:href="#s4-PingFangSC-Regular-30" transform="translate(63.203125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(151.40625 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-15ab" transform="translate(184.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-769" transform="translate(284.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-481" transform="translate(384.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-603" transform="translate(484.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-19a1" transform="translate(584.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-648" transform="translate(684.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(784.703125 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-16" transform="translate(818 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-15" transform="translate(878 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(938 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-4fb" transform="translate(971.296875 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(1071.296875 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-36" transform="translate(1104.59375 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-30" transform="translate(1167.796875 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-482" transform="translate(1256 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s4-matplotlib.axis_4">
+    <g id="s4-ytick_6">
+     <g id="s4-line2d_26">
+      <path d="M 47.2 347.199517 
+L 421.19952 347.199517 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_27">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="347.199517" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_18">
+      
+      <g style="fill: #4a4a4a" transform="translate(34.2 351.499517) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-13"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_7">
+     <g id="s4-line2d_28">
+      <path d="M 47.2 313.075293 
+L 421.19952 313.075293 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_29">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="313.075293" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_19">
+      
+      <g style="fill: #4a4a4a" transform="translate(24.190625 317.375293) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-14"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(40.09375 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(100.09375 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_8">
+     <g id="s4-line2d_30">
+      <path d="M 47.2 278.951069 
+L 421.19952 278.951069 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_31">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="278.951069" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_20">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 283.251069) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-15"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_9">
+     <g id="s4-line2d_32">
+      <path d="M 47.2 244.826845 
+L 421.19952 244.826845 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_33">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="244.826845" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_21">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 249.126845) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-16"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-ytick_10">
+     <g id="s4-line2d_34">
+      <path d="M 47.2 210.702621 
+L 421.19952 210.702621 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke: #e6e6e3; stroke-width: 0.8; stroke-linecap: square"/>
+     </g>
+     <g id="s4-line2d_35">
+      <g>
+       <use xlink:href="#s4-m1329ac3ca6" x="47.2" y="210.702621" style="fill: #767676; stroke: #767676; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="s4-text_22">
+      
+      <g style="fill: #4a4a4a" transform="translate(22.2 215.002621) scale(0.1 -0.1)">
+       <use xlink:href="#s4-PingFangSC-Regular-17"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(60 0)"/>
+       <use xlink:href="#s4-PingFangSC-Regular-13" transform="translate(120 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="s4-text_23">
+     
+     <g style="fill: #4a4a4a" transform="translate(16.66 316.126224) rotate(-90) scale(0.11 -0.11)">
+      <use xlink:href="#s4-PingFangSC-Regular-564"/>
+      <use xlink:href="#s4-PingFangSC-Regular-570" transform="translate(100 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-481" transform="translate(200 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-f5c" transform="translate(300 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-8f3" transform="translate(400 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-714" transform="translate(500 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-596" transform="translate(600 0)"/>
+      <use xlink:href="#s4-PingFangSC-Regular-482" transform="translate(700 0)"/>
+     </g>
+    </g>
+   </g>
+   <g id="s4-patch_38">
+    <path d="M 54.283324 347.199517 
+L 62.783313 347.199517 
+L 62.783313 272.808709 
+L 54.283324 272.808709 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_39">
+    <path d="M 65.616643 347.199517 
+L 74.116632 347.199517 
+L 74.116632 271.44374 
+L 65.616643 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_40">
+    <path d="M 76.949962 347.199517 
+L 85.449951 347.199517 
+L 85.449951 271.44374 
+L 76.949962 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_41">
+    <path d="M 88.283281 347.199517 
+L 96.78327 347.199517 
+L 96.78327 271.102498 
+L 88.283281 271.102498 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_42">
+    <path d="M 99.616599 347.199517 
+L 108.116588 347.199517 
+L 108.116588 271.44374 
+L 99.616599 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_43">
+    <path d="M 110.949918 347.199517 
+L 119.449907 347.199517 
+L 119.449907 271.44374 
+L 110.949918 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_44">
+    <path d="M 122.283237 347.199517 
+L 130.783226 347.199517 
+L 130.783226 271.44374 
+L 122.283237 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_45">
+    <path d="M 133.616556 347.199517 
+L 142.116545 347.199517 
+L 142.116545 271.784982 
+L 133.616556 271.784982 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_46">
+    <path d="M 144.949875 347.199517 
+L 153.449864 347.199517 
+L 153.449864 271.44374 
+L 144.949875 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_47">
+    <path d="M 156.283193 347.199517 
+L 164.783182 347.199517 
+L 164.783182 272.126224 
+L 156.283193 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_48">
+    <path d="M 167.616512 347.199517 
+L 176.116501 347.199517 
+L 176.116501 271.44374 
+L 167.616512 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_49">
+    <path d="M 178.949831 347.199517 
+L 187.44982 347.199517 
+L 187.44982 271.784982 
+L 178.949831 271.784982 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_50">
+    <path d="M 190.28315 347.199517 
+L 198.783139 347.199517 
+L 198.783139 272.126224 
+L 190.28315 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_51">
+    <path d="M 201.616468 347.199517 
+L 210.116458 347.199517 
+L 210.116458 271.44374 
+L 201.616468 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_52">
+    <path d="M 212.949787 347.199517 
+L 221.449776 347.199517 
+L 221.449776 272.126224 
+L 212.949787 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_53">
+    <path d="M 224.283106 347.199517 
+L 232.783095 347.199517 
+L 232.783095 271.784982 
+L 224.283106 271.784982 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_54">
+    <path d="M 235.616425 347.199517 
+L 244.116414 347.199517 
+L 244.116414 271.44374 
+L 235.616425 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_55">
+    <path d="M 246.949744 347.199517 
+L 255.449733 347.199517 
+L 255.449733 272.126224 
+L 246.949744 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_56">
+    <path d="M 258.283062 347.199517 
+L 266.783052 347.199517 
+L 266.783052 271.44374 
+L 258.283062 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_57">
+    <path d="M 269.616381 347.199517 
+L 278.11637 347.199517 
+L 278.11637 271.784982 
+L 269.616381 271.784982 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_58">
+    <path d="M 280.9497 347.199517 
+L 289.449689 347.199517 
+L 289.449689 272.126224 
+L 280.9497 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_59">
+    <path d="M 292.283019 347.199517 
+L 300.783008 347.199517 
+L 300.783008 271.44374 
+L 292.283019 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_60">
+    <path d="M 303.616338 347.199517 
+L 312.116327 347.199517 
+L 312.116327 272.126224 
+L 303.616338 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_61">
+    <path d="M 314.949656 347.199517 
+L 323.449645 347.199517 
+L 323.449645 271.784982 
+L 314.949656 271.784982 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_62">
+    <path d="M 326.282975 347.199517 
+L 334.782964 347.199517 
+L 334.782964 271.44374 
+L 326.282975 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_63">
+    <path d="M 337.616294 347.199517 
+L 346.116283 347.199517 
+L 346.116283 272.126224 
+L 337.616294 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_64">
+    <path d="M 348.949613 347.199517 
+L 357.449602 347.199517 
+L 357.449602 271.44374 
+L 348.949613 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_65">
+    <path d="M 360.282932 347.199517 
+L 368.782921 347.199517 
+L 368.782921 272.808709 
+L 360.282932 272.808709 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_66">
+    <path d="M 371.61625 347.199517 
+L 380.116239 347.199517 
+L 380.116239 272.126224 
+L 371.61625 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_67">
+    <path d="M 382.949569 347.199517 
+L 391.449558 347.199517 
+L 391.449558 271.44374 
+L 382.949569 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_68">
+    <path d="M 394.282888 347.199517 
+L 402.782877 347.199517 
+L 402.782877 272.126224 
+L 394.282888 272.126224 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-patch_69">
+    <path d="M 405.616207 347.199517 
+L 414.116196 347.199517 
+L 414.116196 271.44374 
+L 405.616207 271.44374 
+z
+" clip-path="url(#s4-p4fda2a414b)" style="fill: #d55e00"/>
+   </g>
+   <g id="s4-line2d_36">
+    <path d="M 47.2 271.763655 
+L 421.19952 271.763655 
+" clip-path="url(#s4-p4fda2a414b)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #767676"/>
+   </g>
+   <g id="s4-patch_70">
+    <path d="M 47.2 347.199517 
+L 47.2 197.052932 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s4-patch_71">
+    <path d="M 47.2 347.199517 
+L 421.19952 347.199517 
+" style="fill: none; stroke: #767676; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="s4-text_24">
+    
+    <g style="fill: #4a4a4a" transform="translate(376.193798 267.633717) scale(0.1 -0.1)">
+     <use xlink:href="#s4-PingFangSC-Regular-b18"/>
+     <use xlink:href="#s4-PingFangSC-Regular-8d0" transform="translate(100 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-3" transform="translate(200 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-15" transform="translate(233.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-15" transform="translate(293.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-14" transform="translate(353.296875 0)"/>
+    </g>
+   </g>
+   <g id="s4-text_25">
+    
+    <g style="fill: #1a1a1a" transform="translate(52.866659 208.81287) scale(0.105 -0.105)">
+     <defs>
+      <path id="s4-PingFangSC-Regular-42" d="M 0 -467 
+L 0 -896 
+L 3200 -896 
+L 3200 -467 
+L 0 -467 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-50" d="M 1843 3398 
+C 1472 3398 1158 3226 909 2867 
+L 909 3309 
+L 397 3309 
+L 397 0 
+L 909 0 
+L 909 2016 
+C 909 2278 986 2502 1139 2682 
+C 1293 2874 1485 2963 1722 2963 
+C 2227 2963 2483 2675 2483 2086 
+L 2483 0 
+L 2995 0 
+L 2995 2074 
+C 2995 2342 3066 2554 3219 2720 
+C 3360 2886 3546 2963 3763 2963 
+C 4045 2963 4250 2893 4378 2739 
+C 4499 2598 4563 2381 4563 2086 
+L 4563 0 
+L 5075 0 
+L 5075 2170 
+C 5075 2547 4966 2848 4762 3072 
+C 4544 3290 4269 3398 3923 3398 
+C 3693 3398 3501 3347 3341 3245 
+C 3162 3149 3008 2989 2880 2771 
+C 2694 3194 2349 3398 1843 3398 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-54" d="M 1773 3398 
+C 1286 3398 909 3226 640 2867 
+C 390 2547 269 2144 269 1645 
+C 269 1158 390 755 634 435 
+C 902 90 1274 -90 1747 -90 
+C 2221 -90 2586 141 2842 602 
+L 2842 -1267 
+L 3354 -1267 
+L 3354 3309 
+L 2874 3309 
+L 2874 2765 
+C 2630 3187 2266 3398 1773 3398 
+z
+M 1837 2976 
+C 2170 2976 2426 2848 2611 2586 
+C 2771 2355 2854 2048 2854 1677 
+L 2854 1613 
+C 2854 1229 2758 922 2579 685 
+C 2394 454 2150 333 1856 333 
+C 1498 333 1222 461 1043 704 
+C 877 934 794 1248 794 1645 
+C 794 2035 870 2349 1030 2579 
+C 1210 2848 1478 2976 1837 2976 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-44" d="M 1837 3398 
+C 1440 3398 1126 3322 883 3168 
+C 614 3002 442 2739 371 2394 
+L 877 2355 
+C 928 2566 1037 2726 1210 2829 
+C 1363 2931 1562 2976 1805 2976 
+C 2381 2976 2669 2701 2669 2144 
+L 2669 1971 
+L 1875 1958 
+C 1376 1952 992 1856 723 1677 
+C 416 1485 269 1203 269 826 
+C 269 557 371 333 576 160 
+C 774 -6 1037 -90 1370 -90 
+C 1677 -90 1952 -19 2195 115 
+C 2400 230 2573 378 2701 557 
+L 2701 0 
+L 3181 0 
+L 3181 2125 
+C 3181 2509 3078 2810 2886 3027 
+C 2656 3277 2310 3398 1837 3398 
+z
+M 2669 1587 
+L 2669 1306 
+C 2669 1050 2547 819 2310 621 
+C 2067 416 1792 314 1478 314 
+C 1274 314 1107 365 979 461 
+C 851 563 794 685 794 838 
+C 794 1318 1165 1562 1907 1574 
+L 2669 1587 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-4f" d="M 499 4659 
+L 499 0 
+L 1005 0 
+L 1005 4659 
+L 499 4659 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-52" d="M 1875 3398 
+C 1376 3398 986 3232 691 2886 
+C 410 2560 269 2150 269 1651 
+C 269 1158 410 749 691 429 
+C 986 83 1376 -90 1875 -90 
+C 2368 -90 2765 83 3066 429 
+C 3341 749 3482 1158 3482 1651 
+C 3482 2150 3341 2560 3059 2886 
+C 2765 3232 2368 3398 1875 3398 
+z
+M 1875 2970 
+C 2221 2970 2496 2835 2701 2566 
+C 2874 2323 2963 2022 2963 1651 
+C 2963 1293 2874 986 2701 742 
+C 2496 474 2221 339 1875 339 
+C 1523 339 1248 474 1056 742 
+C 877 986 794 1286 794 1651 
+C 794 2022 877 2323 1056 2566 
+C 1248 2835 1523 2970 1875 2970 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-694" d="M 3840 4365 
+L 3840 3712 
+C 3821 1850 3174 499 1901 -346 
+L 2278 -685 
+C 3597 243 4269 1709 4294 3712 
+L 4294 4365 
+L 5472 4365 
+C 5459 2432 5434 1280 5395 896 
+C 5331 256 5094 -70 4691 -70 
+C 4486 -70 4237 -58 3955 -45 
+L 4070 -467 
+C 4390 -480 4621 -493 4762 -493 
+C 5402 -493 5766 -90 5843 717 
+C 5901 1235 5933 2598 5933 4806 
+L 2592 4806 
+L 2592 4365 
+L 3840 4365 
+z
+M 2880 3789 
+L 1542 3520 
+L 1542 5139 
+L 1069 5139 
+L 1069 3424 
+L 224 3258 
+L 294 2810 
+L 1069 2963 
+L 1069 1114 
+C 1069 960 986 851 819 787 
+L 954 339 
+C 1683 589 2285 870 2771 1178 
+L 2656 1594 
+C 2285 1376 1914 1190 1542 1037 
+L 1542 3059 
+L 2957 3341 
+L 2880 3789 
+z
+" transform="scale(0.015625)"/>
+      <path id="s4-PingFangSC-Regular-693" d="M 2310 5094 
+C 2054 4608 1773 4192 1466 3834 
+C 1114 3430 717 3104 282 2854 
+L 531 2451 
+C 1062 2810 1491 3174 1811 3546 
+C 2112 3885 2413 4320 2714 4851 
+L 2310 5094 
+z
+M 2522 2240 
+C 2387 1638 2189 1152 1920 781 
+C 1619 397 1171 45 582 -275 
+L 877 -659 
+C 1530 -294 2022 115 2349 576 
+C 2624 986 2835 1542 2989 2240 
+L 4582 2240 
+C 4550 1242 4480 595 4365 288 
+C 4256 -6 4032 -154 3686 -154 
+C 3354 -154 3002 -147 2630 -134 
+L 2758 -589 
+L 3923 -589 
+C 4243 -570 4474 -467 4614 -282 
+C 4762 -90 4864 256 4928 742 
+C 4992 1235 5030 1882 5050 2682 
+L 1229 2682 
+L 1229 2240 
+L 2522 2240 
+z
+M 4115 5178 
+L 3718 4954 
+C 4109 3942 4800 3117 5792 2477 
+L 6099 2842 
+C 5146 3411 4486 4192 4115 5178 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s4-PingFangSC-Regular-4a"/>
+     <use xlink:href="#s4-PingFangSC-Regular-48" transform="translate(59.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-57" transform="translate(114.59375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-42" transform="translate(150.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-50" transform="translate(200.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-54" transform="translate(285.59375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-44" transform="translate(344.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-42" transform="translate(400.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4f" transform="translate(450.09375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-52" transform="translate(473.59375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4a" transform="translate(532.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-4c" transform="translate(591.28125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-57" transform="translate(616.875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-56" transform="translate(652.375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-42" transform="translate(702.875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-50" transform="translate(752.875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-48" transform="translate(838.375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-57" transform="translate(893.875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-44" transform="translate(929.375 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-47" transform="translate(985.28125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-44" transform="translate(1043.875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-57" transform="translate(1099.78125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-44" transform="translate(1135.28125 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-493" transform="translate(1191.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-cf2" transform="translate(1291.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-564" transform="translate(1391.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-570" transform="translate(1491.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-694" transform="translate(1591.1875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Regular-693" transform="translate(1691.1875 0)"/>
+    </g>
+   </g>
+   <g id="s4-text_26">
+    
+    <g style="fill: #1a1a1a" transform="translate(25.772353 192.51) scale(0.11 -0.11)">
+     <defs>
+      <path id="s4-PingFangSC-Semibold-45" d="M 384 4659 
+L 384 0 
+L 1062 0 
+L 1062 352 
+C 1293 58 1626 -90 2061 -90 
+C 2547 -90 2931 83 3213 429 
+C 3469 749 3597 1165 3597 1670 
+C 3597 2157 3469 2560 3219 2880 
+C 2944 3226 2573 3398 2099 3398 
+C 1715 3398 1382 3219 1114 2854 
+L 1114 4659 
+L 384 4659 
+z
+M 1926 2810 
+C 2253 2810 2496 2701 2650 2483 
+C 2778 2298 2848 2029 2848 1670 
+C 2848 1312 2784 1037 2662 845 
+C 2509 614 2272 499 1952 499 
+C 1664 499 1446 614 1293 838 
+C 1152 1043 1088 1312 1088 1632 
+L 1088 1683 
+C 1088 2035 1171 2317 1344 2522 
+C 1498 2714 1690 2810 1926 2810 
+z
+" transform="scale(0.015625)"/>
+     </defs>
+     <use xlink:href="#s4-PingFangSC-Semibold-b"/>
+     <use xlink:href="#s4-PingFangSC-Semibold-45" transform="translate(33.296875 0)"/>
+     <use xlink:href="#s4-PingFangSC-Semibold-c" transform="translate(93.5 0)"/>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="s4-p90e470ade2">
+   <rect x="47.2" y="21.202932" width="373.99952" height="150.146585"/>
+  </clipPath>
+  <clipPath id="s4-p4fda2a414b">
+   <rect x="47.2" y="197.052932" width="373.99952" height="150.146585"/>
+  </clipPath>
+ </defs>
+</svg></div>
+  <figcaption id="fig-sched-cap"><span class="fig-label">图 4</span><b>在“Q 分块数略多于 SM 数”的例子里，轮转让 8 个 SM 多做一整块，按代价切分则几乎拉平。</b>纵轴是内核自带的代价模型（每 split 2、每个 Q 分块任务 3），不是时间。(a) 不传元数据：最大 348，平均 218，最大值约为平均值的 1.6 倍；(b) 传入元数据：最大 223，平均 221。(b) 的总代价多出 90，对应被切开的 Q 分块多付的 30 次启动代价。例子参数见正文，32 个 SM 为假设值；由 <code>plots/fig_sched.py</code> 复现调度代码计算。</figcaption>
+</figure>
+
+<p>这个例子是专门挑出来展示“尾巴”的。Q 分块很多、每块大小相近时，轮转本身就比较均衡，元数据带来的差别会小得多；本文没有在 GPU 上测过它对实际耗时的影响。</p>
+
+<h3 id="sec-7">分页版（SM100）：以请求为单位，按 split 和查询数估代价</h3>
+
+<p>分页版的元数据是必需的，SM100 上它返回 <code>[N_SM + 1, 2]</code> 的起点表：第 \(s\) 项是 SM \(s\) 的起点（请求第一个查询 token 的行号、KV split 号），第 \(s+1\) 项就是它的终点。元数据内核先成对扫描 <code>indices</code>，找出每个请求的起止行（所以主机断言 <code>indices</code> 指针 8 字节对齐），再给每个请求算代价：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_paged_mqa_logits.cuh#L109-L123"><code>// KV/MMA cost scales with Q blocks; epilogue cost scales with valid tokens
+const auto get_split_cost = [&amp;](const uint32_t&amp; num_q_tokens) {
+    return 2 * BLOCK_Q * math::ceil_div(num_q_tokens, BLOCK_Q) + num_q_tokens;
+};
+// ...
+for (uint32_t request_idx = thread_idx; request_idx &lt; num_requests; request_idx += kNumThreads) {
+    uint32_t q_token_start_idx, num_q_tokens, context_len;
+    get_request_info(request_idx, q_token_start_idx, num_q_tokens, context_len);
+    const uint64_t cost = static_cast&lt;uint64_t&gt;(math::ceil_div(context_len, SPLIT_KV)) * get_split_cost(num_q_tokens);
+    request_work_prefix[request_idx] = static_cast&lt;uint32_t&gt;(cost);</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_paged_mqa_logits.cuh#L109-L123"><code>deep_gemm/include/deep_gemm/scheduler/sm100_paged_mqa_logits.cuh</code> 第 109–123 行</a>（节选）</p>
+
+<p>代价等于 split 数乘以“每个 split 的代价”，后者有两项：KV 搬运和 MMA 随 Q 分块数增长（<code>2 · BLOCK_Q · ⌈n/BLOCK_Q⌉</code>），尾声随有效 token 数增长（\(n\)）。元数据内核里 <code>BLOCK_Q</code> 固定为 4，注释写着“为 H32 调过，其他头数的调度可能略欠均衡”（<code>sm100_mqa_logits.hpp</code> 第 31–32 行）。如果代价超出 32 位，内核会退回只按“split 数 × token 数”估算（第 114–141 行）。之后同样是等分总代价、二分找切点，只是切点只能落在“某个请求的某个 split”上。</p>
+
+<p>打分内核按“请求 → 最多 8 个 split 组成的块段（chunk）→ 请求内的各个 Q 分块”的顺序取任务（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_paged_mqa_logits.cuh#L220-L251">第 220–251 行</a>）。同一请求的多个 Q 分块连续处理同一段 KV，第二个及以后的任务标记 <code>kv_shared_with_prev</code>；如果这一段的 split 数正好等于 KV 流水的级数，生产者就直接复用环形缓冲里已有的 KV，不再重新加载（<code>sm100_mqa_logits.cuh</code> 第 150–153 行）。FP4 的 KV 流水是 8 级，等于块段长度；FP8 是 3 级，只有恰好 3 个 split 的块段才能复用。</p>
+
+<h3 id="sec-8">分页版（SM90）：只数 split</h3>
+
+<p>SM90 的分页元数据由一个 warp 完成：每个序列的工作量是 \(\lceil \text{context\_len}/256 \rceil\) 个 split（用该序列最后一个查询 token 的长度），做前缀和后把总 split 数平均分给各 SM，余数分给最后几个 SM（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm90_paged_mqa_logits.cuh#L47-L126"><code>sm90_paged_mqa_logits.cuh</code> 第 47–126 行</a>）。它不区分启动代价和尾声代价。打分内核里每个 split 是 4 个 64 token 的页，由 4 个数学 warpgroup 和 4 个各自配对的 TMA warp 分头处理（<code>sm90_fp8_paged_mqa_logits.cuh</code> 第 92–106 行）。</p>
+
+<h2 id="sec-sparse" data-short="稀疏版">稀疏版：只给选中的小块打分，两个查询共享一次搬运</h2>
+
+<h3 id="sec-9">“稀疏”指什么</h3>
+
+<p>稀疏版的“稀疏”在 KV 一侧：每个查询 token 额外给一行块下标 <code>sparse_kv_block_indices</code>，形状 \([S, n]\)，每个下标指一个 \(B = 8\) 或 16 个 token 的小块，内核只给这些块里的 token 打分。主机代码的注释规定了这行下标的含义：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L303-L305"><code>// Each sparse-index row starts with the valid blocks inferred from its KV length. This prefix must
+// contain unique, strictly increasing absolute block indices within the corresponding KV range.
+// With unaligned ks, block i starts at i * sparse_block_kv + ks % sparse_block_kv.</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L303-L305"><code>csrc/apis/attention.hpp</code> 第 303–305 行</a>（节选）</p>
+
+<p>也就是说，每行有效的块数不是单独传入的，而是由这一行的 KV 长度推出来：\(\min\!\big(n,\ \lceil (ke_i - ks_i)/B \rceil\big)\)（元数据内核第 222–229 行）。这一前缀必须严格递增且不重复。若 \(ks_i\) 不是 \(B\) 的倍数，可以打开 <code>use_unaligned_ks</code>，此时第 \(m\) 块从 \(m \cdot B + (ks_i \bmod B)\) 开始。分页稀疏版里没有 \(ks\)，块下标就是请求内的逻辑块号，再经块表换成物理页。</p>
+
+<p>输出形状是 \([S,\ n \cdot B]\)：第 \(s\) 个槽位（下标行里的第 \(s\) 项）对应的 \(B\) 个 token 写到第 \(s\cdot B\) 到 \(s\cdot B + B - 1\) 列。这也是一种压缩布局，只是列按“选中的块”排而不是按区间排。测试把稀疏版的结果和完整连续版在同一组 token 上的结果对比，要求逐位相等（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/tests/test_attention.py#L653-L669"><code>test_attention.py</code> 第 653–669 行</a>）。</p>
+
+<p>上游如何产生这些块下标，不在本仓库中。从接口看，它适合在已经缩小的候选块集合上再打一次分；这是我们对用途的推测。</p>
+
+<h3 id="sec-10">两个查询一组：合并块列表</h3>
+
+<p>稀疏内核的 Q 分块固定是 2 个 token（<code>kBlockQ = 2</code>），头数最多 32、头维度只能是 128（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/layout/sparse_mqa_logits.cuh#L11-L17"><code>layout/sparse_mqa_logits.cuh</code> 第 11–17 行</a>）。相邻两个查询选中的块往往重叠，元数据内核于是把两行下标做一次有序归并：256 个线程用 merge-path 做并行归并——每个线程在两列已排序的块下标上二分搜索，找到自己负责的起点（merge-path 的核心思想：线程 \(t\) 要找使 \(A[i] + B[j] = t \cdot \text{work\_per\_thread}\) 的对角线交叉点），然后从该点开始顺序归并自己的那一段；相同的块只保留一次，每个合并后的块记下它在两个查询中各自的槽位，不属于某个查询时记 0xFFFF（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_sparse_mqa_logits_metadata.cuh#L273-L325">第 273–325 行</a>）。合并结果按每个 split 能装的块数打包：MXFP4 的 split 是 640 个 token、MXFP8 是 512 个（<code>sm100_sparse_mqa_logits.hpp</code> 第 15–18 行），即每个 split 装 80 或 64 个 8-token 块、40 或 32 个 16-token 块。<a href="#fig-sparse">图 5</a> 用一个缩小的例子演示这个过程。</p>
+
+<figure id="fig-sparse" data-kind="diagram" data-source="computed" data-script="plots/fig_diagrams.py">
+  <div class="fig-body"><svg aria-labelledby="fig-sparse-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 4 472 412" font-family="sans-serif" role="img" id="s5-root" style="max-width:472px;">
+<text class="d-title" x="16" y="24">① 两个相邻查询的块下标行（升序）</text>
+<text class="d-small" x="104" y="59" text-anchor="end">查询 i</text>
+<rect class="d-cell" x="112" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="134.0" y="57.0" text-anchor="middle" style="fill:#0072B2">2</text>
+<rect class="d-cell" x="156" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="178.0" y="57.0" text-anchor="middle" style="fill:#0072B2">3</text>
+<rect class="d-cell" x="200" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="222.0" y="57.0" text-anchor="middle" style="fill:#0072B2">5</text>
+<rect class="d-cell" x="244" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="266.0" y="57.0" text-anchor="middle" style="fill:#0072B2">8</text>
+<rect class="d-cell" x="288" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="310.0" y="57.0" text-anchor="middle" style="fill:#0072B2">9</text>
+<rect class="d-cell" x="332" y="36" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="354.0" y="57.0" text-anchor="middle" style="fill:#0072B2">12</text>
+<text class="d-label" x="384" y="59">槽位 0…5</text>
+<text class="d-small" x="104" y="99" text-anchor="end">查询 i+1</text>
+<rect class="d-cell" x="112" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="134.0" y="97.0" text-anchor="middle" style="fill:#0072B2">3</text>
+<rect class="d-cell" x="156" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="178.0" y="97.0" text-anchor="middle" style="fill:#0072B2">4</text>
+<rect class="d-cell" x="200" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="222.0" y="97.0" text-anchor="middle" style="fill:#0072B2">5</text>
+<rect class="d-cell" x="244" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="266.0" y="97.0" text-anchor="middle" style="fill:#0072B2">9</text>
+<rect class="d-cell" x="288" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="310.0" y="97.0" text-anchor="middle" style="fill:#0072B2">12</text>
+<rect class="d-cell" x="332" y="76" width="44" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-mono" x="354.0" y="97.0" text-anchor="middle" style="fill:#0072B2">13</text>
+<text class="d-label" x="384" y="99">槽位 0…5</text>
+<text class="d-title" x="16" y="146">② 合并去重后按 split 打包（示意：每个 split 4 块）</text>
+<rect class="d-cell" x="16" y="160" width="50" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-small" x="41.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 2</text>
+<text class="d-mono" x="41" y="212" text-anchor="middle">0</text>
+<text class="d-mono" x="41" y="232" text-anchor="middle">—</text>
+<rect class="d-cell" x="68" y="160" width="50" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="93.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 3</text>
+<text class="d-mono" x="93" y="212" text-anchor="middle">1</text>
+<text class="d-mono" x="93" y="232" text-anchor="middle">0</text>
+<rect class="d-cell" x="120" y="160" width="50" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-small" x="145.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 4</text>
+<text class="d-mono" x="145" y="212" text-anchor="middle">—</text>
+<text class="d-mono" x="145" y="232" text-anchor="middle">1</text>
+<rect class="d-cell" x="172" y="160" width="50" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="197.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 5</text>
+<text class="d-mono" x="197" y="212" text-anchor="middle">2</text>
+<text class="d-mono" x="197" y="232" text-anchor="middle">2</text>
+<rect class="d-cell" x="240" y="160" width="50" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-small" x="265.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 8</text>
+<text class="d-mono" x="265" y="212" text-anchor="middle">3</text>
+<text class="d-mono" x="265" y="232" text-anchor="middle">—</text>
+<rect class="d-cell" x="292" y="160" width="50" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="317.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 9</text>
+<text class="d-mono" x="317" y="212" text-anchor="middle">4</text>
+<text class="d-mono" x="317" y="232" text-anchor="middle">3</text>
+<rect class="d-cell" x="344" y="160" width="50" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="369.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 12</text>
+<text class="d-mono" x="369" y="212" text-anchor="middle">5</text>
+<text class="d-mono" x="369" y="232" text-anchor="middle">4</text>
+<rect class="d-cell" x="396" y="160" width="50" height="32" fill="#e8f1f8" stroke="#ffffff"/><text class="d-small" x="421.0" y="181.0" text-anchor="middle" style="fill:#1a1a1a">块 13</text>
+<text class="d-mono" x="421" y="212" text-anchor="middle">—</text>
+<text class="d-mono" x="421" y="232" text-anchor="middle">5</text>
+<rect class="d-group" x="12" y="154" width="210" height="86" rx="4"/>
+<text class="d-label" x="120" y="258" text-anchor="middle">split 0</text>
+<rect class="d-group" x="236" y="154" width="210" height="86" rx="4"/>
+<text class="d-label" x="344" y="258" text-anchor="middle">split 1</text>
+<text class="d-label" x="16" y="280">块下两行：该块在查询 i / i+1 中的槽位（— = 不属于）。</text>
+<text class="d-label" x="16" y="298">橙色块两个查询共用，只搬一次：8 次块搬运代替 12 次。</text>
+<text class="d-title" x="16" y="322">③ 输出：第 s 个槽位写到列 s·B … s·B+B−1</text>
+<text class="d-small" x="104" y="359" text-anchor="end">logits 行 i</text>
+<rect class="d-cell" x="112" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="134.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块2</text>
+<rect class="d-cell" x="156" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="178.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块3</text>
+<rect class="d-cell" x="200" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="222.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块5</text>
+<rect class="d-cell" x="244" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="266.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块8</text>
+<rect class="d-cell" x="288" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="310.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块9</text>
+<rect class="d-cell" x="332" y="336" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="354.0" y="357.0" text-anchor="middle" style="fill:#D55E00">块12</text>
+<text class="d-small" x="104" y="399" text-anchor="end">logits 行 i+1</text>
+<rect class="d-cell" x="112" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="134.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块3</text>
+<rect class="d-cell" x="156" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="178.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块4</text>
+<rect class="d-cell" x="200" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="222.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块5</text>
+<rect class="d-cell" x="244" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="266.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块9</text>
+<rect class="d-cell" x="288" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="310.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块12</text>
+<rect class="d-cell" x="332" y="376" width="44" height="32" fill="#fcefe6" stroke="#ffffff"/><text class="d-small" x="354.0" y="397.0" text-anchor="middle" style="fill:#D55E00">块13</text>
+</svg></div>
+  <figcaption id="fig-sparse-cap"><span class="fig-label">图 5</span><b>两个查询的块列表合并去重后只搬一次 KV，再按各自的槽位写回自己的输出行。</b>① 查询 \(i\)、\(i+1\) 各选 6 个块；② 合并成 8 个不重复的块（橙色为两者共有），每块带两个槽位号；为了画得下，这里每个 split 只装 4 块，实际是 32–80 块；③ 槽位 \(s\) 写到输出的第 \(s\cdot B\) 列起。块列表是玩具数据，合并逻辑按元数据内核复现（<code>plots/fig_diagrams.py</code>）。</figcaption>
+</figure>
+
+<p>元数据里每个 split 有一个头部（Q 分块起始行、块数、两个查询的槽位基址）和每块一个 <code>KVBlockInfo</code>（物理块号、两个 16 位槽位偏移）。打分内核的尾声用它们把结果写回：</p>
+
+<pre data-src="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh#L627-L633"><code>// Map split-local slots back to compressed-logits columns
+const uint32_t q_slot_offset = (packed_slot_offsets &gt;&gt; (q_token_offset * kNumSparseSlotBits)) &amp; kInvalidSparseSlot;
+if (q_slot_offset != kInvalidSparseSlot) {
+    const uint32_t q_slot_base = q_token_offset == 0 ? q0_slot_base : q1_slot_base;
+    const uint32_t output_col_idx = (q_slot_base + q_slot_offset) * SPARSE_BLOCK_KV + token_in_kv_block;
+    output_rows[q_token_offset][output_col_idx] = reduced;
+}</code></pre>
+<p class="src-note">源码：<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh#L627-L633"><code>deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh</code> 第 627–633 行</a>（节选）</p>
+
+<p>尾声的其余部分和连续版一样：ReLU 转 BF16、乘 BF16 权重、对头求和（同一文件第 600–626 行）。MMA 的 N 维是 \(2H\)，M 维仍是每个数学 warpgroup 128 个 KV token。</p>
+
+<h3 id="sec-11">搬运：能用 TMA 就用 TMA，否则逐块收集</h3>
+
+<p>合并后的块一般不连续，所以 KV 默认由若干个拷贝 warp 用 16 字节的 <code>cp.async</code> 逐块收集，并在写入共享内存时自己做 swizzle。元数据内核会检查每个 split：如果它装满了、并且块号首尾相接（连续版、对齐 \(ks\) 时），就打上 <code>kContiguousFlag</code>，打分内核改由一个线程发一次 TMA 取整个 split（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/impls/sm100_sparse_mqa_logits.cuh#L436-L458">第 436–458 行</a>）。最后一个块越过 KV 末尾时打 <code>kPartialTailFlag</code>，走带零填充的拷贝路径。分页稀疏版通过前面那个访问器取页，只走逐块收集。</p>
+
+<h3 id="sec-12">调度与工作区</h3>
+
+<p>稀疏元数据由多个 CTA 并行构建（最多 \(4N_{\text{SM}}\) 个），每个 CTA 处理若干 Q 分块，用全局原子计数器为自己的 split 预留位置；最后一个完成的 CTA 负责排程（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/deep_gemm/include/deep_gemm/scheduler/sm100_sparse_mqa_logits_metadata.cuh#L443-L472">第 443–472 行</a>）。连续版把全部 split 平均分给各 SM，在 Q 分块边界处再切开；分页版把每个 Q 分块拆成不超过 8 个 split 的条目，按 \(N_{\text{SM}}\) 一波排成若干波，每波内按条目大小排序后错位轮换（第 37–161 行）。排程表按 <code>[波][SM]</code> 存放，头部记下生成时的 SM 数，打分内核会断言它与当前 SM 数一致。</p>
+
+<p>元数据内核需要一块按 CUDA 流缓存的工作区，存放计数器和每个 Q 分块的 split 范围。它在第一次使用时清零，此后由最后一个 CTA 负责复位。主机代码要求这一次清零不能发生在 CUDA graph 捕获期间，否则清零会被录进图里重放（<a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L284-L301">第 284–301 行</a>），所以要在捕获前先在该流上调用一次。</p>
+
+<h3 id="sec-13">提交 1fc9c66：页间距对齐从 512 字节放宽到 128 字节</h3>
+
+<p>提交 <code>1fc9c66</code>（“Update FP8 epilogues and paged sparse MQA alignment”，#471）的说明里有一句 “accept 128-byte paged sparse KV strides”。对应的改动只有三处：主机断言和设备断言里的 <code>stride(0) % 512</code> 改成 <code>% 128</code>，测试里的页间距从按 512 字节向上取整改为按 128 字节。当前版本的断言见 <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/csrc/apis/attention.hpp#L426-L433"><code>attention.hpp</code> 第 426–433 行</a>。按<a href="#fig-paged">图 3</a> 的公式算，64 token 一页、\(D = 128\) 时，MXFP4 的紧凑页长是 4352 字节，MXFP8 是 8448 字节；两者都是 128 的倍数，但都不是 512 的倍数。按旧断言，紧凑排布的缓存会被拒绝，页必须补到 4608 或 8704 字节；改动之后可以不补。这些字节数由 <code>plots/common.py</code> 计算。</p>
+
+<h2 id="sec-limits" data-short="局限">局限与未覆盖</h2>
+
+<ul>
+  <li><b>没有性能数据。</b>本地没有 GPU，所有内核都没有运行过。测试脚本会打印 TFLOPS、带宽等，但本文没有、也不会引用任何这类数字。README 的这一节也没有给出性能数字。</li>
+  <li><b>调度复现只是代码层面的。</b><code>plots/common.py</code> 是对调度器源码的逐行 Python 改写，只在“各 SM 的 split 总数守恒”上做了自检，没有和 GPU 上真实生成的元数据逐字节对比。<a href="#fig-sched">图 4</a> 的纵轴是内核自己的代价模型，不是耗时；32 个 SM 是假设值，例子是为展示轮转的尾部不均而挑选的。</li>
+  <li><b>推断与事实。</b>“KV 作 M 维是为了让按头求和留在线程内”、“分页布局是为了让数据和缩放各用一次 TMA”、“稀疏版适合在候选块上再打分”这三条是我们从代码推出的解释，代码和文档没有说明设计动机。</li>
+  <li><b>仓库之外的部分。</b>按分数挑选 token、由谁产生稀疏块下标、DeepSeek 推理系统如何组合这几个 API，都不在本仓库中。DSA 的整体设计以 DeepSeek-V3.2 报告为准 <span class="cite">[<a href="#ref-dsv32" title="DeepSeek-AI (2025). DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models. arXiv:2512.02556.">1</a>]</span>，本文只讨论 DeepGEMM 里的打分内核。</li>
+  <li><b>文档与代码的差异。</b>README 只描述了非分页和分页两种形态，其伪代码 <code>kv[0][j, :] * kv[1][j]</code> 只对 SM90 的 FP32 缩放字面成立；MX 路径的缩放是打包的 int32，要按<a href="#eq-mx">式 (3)</a> 理解。本文以代码为准。</li>
+  <li><b>没展开的细节。</b>寄存器重配置、PDL（<code>cudaGridDependencySynchronize</code>）、TMEM 列分配、UTCCP 之前的共享内存转置、稀疏内核各 warp 的完整分工、SM90 分页内核中已被 <code>static_assert</code> 禁掉的 varlen 分支等，本文都没有讲。SM100 上 BF16 累加对分数精度的影响也没有量化。</li>
+</ul>
+
+<h2 id="sec-summary">小结</h2>
+
+<p>Lightning Indexer 的打分在 DeepGEMM 里归结为一个内核骨架。KV token 作 MMA 的 M 维，128 个 (token, 头) 作 N 维，尾声里逐行做 ReLU、乘权重、对头求和，结果按 \(j - ks_i\) 写进压缩行。缩放方式随架构切换：SM90 的每 token FP32 缩放可以留到求和之后再乘，SM100 的每 32 维 UE8M0 缩放交给块缩放 MMA。四种形态的差别在三处：KV 从连续张量、分页缓存还是选中的小块里取；结果写到区间列、绝对位置列还是槽位列；以及元数据内核按什么代价把不等长的工作切给各 SM。分页缓存的“\(D'+4\)”是一页内“全部数据 + 全部缩放”的总账，这一点由主机代码、测试和稀疏访问器三处互相印证。</p>
+
+<h2 id="sec-series" class="no-toc">系列导航</h2>
+<div class="callout note">
+  <p class="callout-title">DeepEP 与 DeepGEMM 精读</p>
+  <p>上一篇：<a href="../dg06-bf16-einsum/dg06-bf16-einsum.html">BF16、批量 GEMM、einsum 与 cuBLASLt 兜底</a>
+  ｜ 下一篇：<a href="../dg08-mega-moe/dg08-mega-moe.html">Mega MoE：把一整层 MoE 塞进一个持久化内核</a>
+  ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
+  ｜ <a href="../index.html">目录</a></p>
+</div>
+
+<h2 id="sec-references" class="no-toc">参考文献</h2>
+<ol class="references">
+  <li id="ref-dsv32">DeepSeek-AI (2025). <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2: Pushing the Frontier of Open Large Language Models</a>. <i>arXiv:2512.02556</i>.</li>
+  <li id="ref-readme">DeepSeek-AI. DeepGEMM README, “V3.2 MQA kernels for the indexer” 一节. <a href="https://github.com/deepseek-ai/DeepGEMM/blob/5081f8513af57e61696de4f4f04b0e707ffb503e/README.md?plain=1#L88-L110"><code>README.md</code> 第 88–110 行</a>（提交 5081f85）.</li>
+</ol>
+
+</article>
+
+<footer class="post-footer">
+  代码引用均指向 <a href="https://github.com/deepseek-ai/DeepGEMM/tree/5081f8513af57e61696de4f4f04b0e707ffb503e">deepseek-ai/DeepGEMM@5081f85</a>（含 <code>1fc9c66</code> 的改动）。本地没有 GPU，文中没有任何实测性能数字。压缩输出与稀疏合并两张格子图由 <code>plots/fig_diagrams.py</code> 按玩具输入生成；每 SM 代价图由 <code>plots/fig_sched.py</code> 用 Python 复现调度器代码并代入示例参数计算（32 个 SM 为假设值），纵轴是内核自带的代价模型单位，不是时间；字节数由 <code>plots/common.py</code> 按源码公式计算。
+</footer>
+
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script>
+  // Shared LaTeX macros for this post. Add notation here once, use everywhere.
+  window.POST_MACROS = { "\\R": "\\mathbb{R}", "\\E": "\\mathbb{E}", "\\softmax": "\\operatorname{softmax}" };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (!window.renderMathInElement) return;
+    renderMathInElement(document.body, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false }
+      ],
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "svg"],
+      macros: window.POST_MACROS,
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>
