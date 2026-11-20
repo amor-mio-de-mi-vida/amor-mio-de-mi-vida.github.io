@@ -586,13 +586,13 @@ __device__ void wgmma_wait() {
 <tr><th>组件</th><th>Hopper (sm_90a)</th><th>Blackwell (sm_100a)</th></tr>
 </thead>
 <tbody>
-<tr><td>矩阵乘指令</td><td><code>wgmma.mma_async</code> m64&times;n*&times;k16</td><td><code>tcgen05.mma</code> m256&times;n*&times;k*</td></tr>
+<tr><td>矩阵乘指令</td><td><code>wgmma.mma_async</code> m64&times;n*&times;k16</td><td><code>tcgen05.mma</code>，M 最大 128（单 CTA）或 256（CTA pair），f16 的 K 为 16</td></tr>
 <tr><td>发射粒度</td><td>1 warpgroup (128 线程)</td><td>1 线程</td></tr>
 <tr><td>累加器位置</td><td>寄存器文件</td><td>TMEM（256 KB/SM）</td></tr>
-<tr><td>搬运</td><td>TMA (1 线程)</td><td>TMA + CLC 动态调度</td></tr>
-<tr><td>warp spec</td><td>producer/consumer 手动分组</td><td>2-CTA 协作（CTA0 搬 A, CTA1 搬 B）</td></tr>
+<tr><td>搬运</td><td>TMA (1 线程)</td><td>TMA (1 线程)</td></tr>
+<tr><td>warp spec</td><td>producer/consumer 手动分组</td><td>producer/MMA/写回分组；2-CTA 时两个 CTA 各搬一半 A 和 B，由 CTA 0 的一个线程发射合作 MMA</td></tr>
 <tr><td>cluster</td><td>1&times;2 或 2&times;1，multicast</td><td>2-CTA pair（CLUSTER_M=2）</td></tr>
-<tr><td>流水线深度</td><td>4–8 stage</td><td>2 (PIPE_DEPTH)，TMEM 双缓冲</td></tr>
+<tr><td>tile 调度</td><td>persistent kernel</td><td>persistent kernel；可用 CLC 做动态调度</td></tr>
 </tbody>
 </table>
 

@@ -15,10 +15,10 @@
 <text x="35" y="95" class="code" font-size="10">&check; Standard GEMM / attention</text>
 <text x="35" y="115" class="code" font-size="10">&check; Reduction kernels (mean, variance)</text>
 <text x="35" y="135" class="code" font-size="10">&check; Regular tile-based access patterns</text>
-<text x="35" y="155" class="code" font-size="10">&check; Rapid prototyping (10x less code)</text>
+<text x="35" y="155" class="code" font-size="10">&check; Rapid prototyping (far less code)</text>
 
-<text x="35" y="185" class="label" fill="#22c55e">~90% of ML kernel needs</text>
-<text x="35" y="203" class="label" fill="#22c55e">Performance within 5-15% of expert CUDA</text>
+<text x="35" y="185" class="label" fill="#22c55e">Most regular, tile-shaped kernels</text>
+<text x="35" y="203" class="label" fill="#22c55e">Measure against vendor libraries</text>
 <text x="35" y="221" class="label" fill="#22c55e">Python syntax, easy debugging</text>
 
 <!-- CUDA needed -->
@@ -31,7 +31,7 @@
 <text x="365" y="135" class="code" font-size="10">&cross; Fine-grained register control</text>
 <text x="365" y="155" class="code" font-size="10">&cross; Custom TMA / async patterns</text>
 
-<text x="365" y="185" class="label" fill="#ef4444">~10% of cases (but highest perf impact)</text>
+<text x="365" y="185" class="label" fill="#ef4444">Fewer kernels, often the hottest ones</text>
 <text x="365" y="203" class="label" fill="#ef4444">FlashAttention, custom comm kernels</text>
 <text x="365" y="221" class="label" fill="#ef4444">Full Hopper/Blackwell feature access</text>
 

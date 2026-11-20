@@ -220,11 +220,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-30</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-overview">为什么需要 Triton</a><li><a href="#sec-api">核心 API</a><li><a href="#sec-softmax">实战：Fused Softmax</a><li><a href="#sec-gemm">实战：GEMM with Autotune</a><li><a href="#sec-layernorm">实战：Fused LayerNorm</a><li><a href="#sec-compile">编译流程</a><li><a href="#sec-compiler-does">编译器做的与不做的</a><li><a href="#sec-limits-detail">Triton 的边界</a><li><a href="#sec-perf">性能对比</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的演进</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-overview">为什么需要 Triton</a><li><a href="#sec-api">核心 API</a><li><a href="#sec-softmax">实战：Fused Softmax</a><li><a href="#sec-gemm">实战：GEMM with Autotune</a><li><a href="#sec-layernorm">实战：Fused LayerNorm</a><li><a href="#sec-compile">编译流程</a><li><a href="#sec-compiler-does">编译器做的与不做的</a><li><a href="#sec-limits-detail">Triton 的边界</a><li><a href="#sec-perf">性能：用自己的形状实测</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的演进</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
@@ -234,7 +234,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li><code>tl.load/store</code> + mask 处理边界、<code>tl.dot</code> 做 tile 级矩阵乘（编译器自动映射到 WMMA/MMA）、<code>tl.program_id</code> 获取 block 索引——三个 API 覆盖绝大多数 kernel 需求。</li>
 <li><b>autotune</b> 在多个配置（tile 大小、<code>num_warps</code>、<code>num_stages</code>）中搜索最优组合——第一次调用时编译并测量所有配置，之后缓存最优结果。</li>
 <li>编译流程：Python → Triton IR → TTGIR（GPU 特定 layout 编码）→ LLVM IR → PTX/cubin。关键决策发生在 TTGIR 阶段：数据 layout 决定了 smem 分配、swizzle 模式和 Tensor Core 指令。</li>
-<li>Triton 能覆盖大部分 ML kernel 需求（fused elementwise、GEMM、attention），性能常常接近手写 CUDA；剩下的部分仍需要 CUDA：warp 级原语、跨 block 通信、不规则访存、完整的 Hopper/Blackwell 特性。</li>
+<li>Triton 能覆盖大部分规则的 ML kernel（fused elementwise、GEMM、attention），性能要在自己的形状上和厂商库对比；剩下的部分仍需要 CUDA：warp 级原语、跨 block 通信、不规则访存、warp 角色与 barrier 的手工安排。</li>
   </ul>
 </div>
 
@@ -246,7 +246,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>前面 44 篇我们一直在写 CUDA kernel——从基础的向量加法到 FlashAttention <span class="cite">[<a href="#ref-flash2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. ICLR 2024.">1</a>]</span> 和 3DGS。CUDA 给了完整的控制权：每个线程做什么、shared memory 怎么分配、寄存器怎么用、Tensor Core 怎么调。但代价是巨大的工程复杂度：一个优化良好的 GEMM 需要 500+ 行代码，处理 smem bank conflict、coalesced access、software pipelining、swizzle layout、register pressure——每一个细节都可能导致 2&times; 的性能差异。更重要的是，这些优化的模式是高度重复的——几乎每个 kernel 都需要 tiling、smem buffering 和流水线，差异只在 tile 形状和计算逻辑。</p>
 
-<p>Triton <span class="cite">[<a href="#ref-triton" title="Tillet, Kung &amp; Cox (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MLSys 2019.">2</a>]</span>（OpenAI，2021） <span class="cite">[<a href="#ref-triton2" title="OpenAI (2021). Introducing Triton: Open-source GPU programming for neural networks.">3</a>]</span>提出了一种折中：块级编程模型。程序员操作 tile（固定大小的 2D 数据块），编译器负责把 tile 操作映射到具体的线程、shared memory 和指令。核心理念是——大多数高性能 kernel 的优化模式是固定的（tiling + smem + pipeline），让编译器做这些重复性工作，程序员专注于算法逻辑（<a href="#fig-triton_vs_cuda">图 1</a>）。这种分工不是简单的自动化——Triton 编译器理解 GPU 架构的约束（smem 容量、warp 数量、Tensor Core 对齐要求），能够在这些约束下做出合理的优化决策。</p>
+<p>Triton（Tillet 等 2019 年提出 <span class="cite">[<a href="#ref-triton" title="Tillet, Kung &amp; Cox (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MLSys 2019.">2</a>]</span>，OpenAI 2021 年发布 1.0 <span class="cite">[<a href="#ref-triton2" title="OpenAI (2021). Introducing Triton: Open-source GPU programming for neural networks.">3</a>]</span>）提出了一种折中：块级编程模型。程序员操作 tile（固定大小的 2D 数据块），编译器负责把 tile 操作映射到具体的线程、shared memory 和指令。核心理念是——大多数高性能 kernel 的优化模式是固定的（tiling + smem + pipeline），让编译器做这些重复性工作，程序员专注于算法逻辑（<a href="#fig-triton_vs_cuda">图 1</a>）。这种分工不是简单的自动化——Triton 编译器理解 GPU 架构的约束（smem 容量、warp 数量、Tensor Core 对齐要求），能够在这些约束下做出合理的优化决策。</p>
 
 <p>Triton 的设计哲学借鉴了 SQL 的成功经验：程序员声明&ldquo;做什么&rdquo;（哪些数据参与计算、什么运算），编译器决定&ldquo;怎么做&rdquo;（数据怎么放、指令怎么排）。但 Triton 比 SQL 更精确——tile 大小和 grid 维度仍由程序员指定，这保证了对性能关键参数的控制权。</p>
 
@@ -273,7 +273,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p><b>计算操作：</b></p>
 <ul>
-<li><code>tl.dot(a, b)</code>：tile 级矩阵乘——编译器自动选择 WMMA（Volta/Turing）或 MMA（Ampere+）指令。输入必须是 2D tensor，形状必须兼容 Tensor Core 的对齐要求（通常 M/N/K 维度是 16 的倍数）。编译器自动将操作数通过 smem 传递到 Tensor Core。</li>
+<li><code>tl.dot(a, b)</code>：tile 级矩阵乘——编译器按架构选择 Tensor Core 指令：Ampere 上是 <code>mma.sync</code>，Hopper 上是 warpgroup 级的 <code>wgmma</code>，Blackwell 上是 <code>tcgen05.mma</code>（Triton 的发布说明里有这两代指令的持续改进 <span class="cite">[<a href="#ref-tlrel" title="triton-lang. Triton Releases（3.7–3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。">4</a>]</span>）。输入必须是 2D tensor，形状必须兼容 Tensor Core 的对齐要求（通常 M/N/K 维度是 16 的倍数）。编译器自动将操作数通过 smem 传递到 Tensor Core。</li>
 <li><code>tl.sum(x, axis=0)</code>、<code>tl.max(x, axis=0)</code>：tile 级归约——编译器生成 warp shuffle + smem 归约代码，等价于我们在<a href="../pp10-reduction/pp10-reduction.html">第 10 篇</a>手写的归约 kernel。</li>
 <li><code>tl.exp</code>、<code>tl.log</code>、<code>tl.sqrt</code> 等：tile 级逐元素数学函数——编译器使用 GPU 的 SFU 或多指令序列实现。</li>
 </ul>
@@ -433,7 +433,7 @@ def layernorm_kernel(
     tl.store(out_ptr + row * stride + cols, out, mask=mask)</code></pre>
 <p class="src-note">完整代码：<code>code/tl45-triton/triton_layernorm.py</code> 第 22&ndash;27 行</p>
 
-<p>注意 <code>w</code> 和 <code>b</code> 的加载也带 mask——虽然 weight 和 bias 的长度恒等于 N，但 BLOCK_SIZE 可能大于 N（为了对齐到 2 的幂），越界位置仍需 mask 保护。最终 <code>tl.store</code> 一次性写回归一化结果，整个 kernel 只产生 2N 字节的 HBM 流量（读输入 + 写输出），weight 和 bias 的访问量可忽略（它们在 L2 中命中率极高，因为每行都读相同的 weight/bias 向量）。如果不做 fusion 而是分成三个独立 kernel（求均值、求方差、归一化），HBM 流量会增加到 6N 字节——对于 hidden_dim=4096、batch_size=2048 的典型 Transformer 场景，这意味着从 64 MB 增加到 192 MB 的 HBM 读写，在 A100 的 2 TB/s 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>下多出约 64 微秒的额外延迟。对于推理场景中每层都要做 LayerNorm 的 Transformer，这些延迟逐层累积会很可观。</p>
+<p>注意 <code>w</code> 和 <code>b</code> 的加载也带 mask——虽然 weight 和 bias 的长度恒等于 N，但 BLOCK_SIZE 可能大于 N（为了对齐到 2 的幂），越界位置仍需 mask 保护。最终 <code>tl.store</code> 一次性写回归一化结果，整个 kernel 只产生 2N 字节的 HBM 流量（读输入 + 写输出），weight 和 bias 的访问量可忽略（它们在 L2 中命中率极高，因为每行都读相同的 weight/bias 向量）。如果不做 fusion 而是分成三个独立 kernel（求均值、求方差、归一化），HBM 流量会增加到 6N 字节——对于 hidden_dim=4096、batch_size=2048 的典型 Transformer 场景，这意味着从 64 MB 增加到 192 MB 的 HBM 读写，在 A100 的 2 TB/s 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>下多出约 64 微秒的额外延迟。对于推理场景中每层都要做 LayerNorm 的 Transformer，这些延迟逐层累积会很可观。</p>
 
 <p>LayerNorm 展示了 Triton 处理 fused elementwise + reduction 的简洁性。对比 CUDA 实现（<a href="../op17-softmax-norm/op17-softmax-norm.html">第 17 篇</a>）：Triton 版不需要手动实现 Welford 在线算法、不需要 <code>__shfl_xor_sync</code> 做 warp 归约、不需要两遍扫描。<code>.to(tl.float32)</code> 确保中间计算用 FP32 精度——和我们在 CUDA 中手动选择累加器类型等价。编译器会在必要时插入 <code>__float2half</code> 和 <code>__half2float</code> 等类型转换指令。</p>
 
@@ -471,7 +471,7 @@ def layernorm_kernel(
 <li><b>算法选择</b>：编译器不会帮你把普通注意力变成 FlashAttention——你需要自己写出外层 KV 分块循环、内层在线 softmax 的 rescale 逻辑、以及中间状态的累积更新。编译器只优化你写出的每一步操作。</li>
 <li><b>跨 block 通信</b>：Triton 的 program 之间完全独立（就像 CUDA block 之间），没有 grid-level 同步原语。需要跨 block 归约（如 split-K GEMM 的最终合并）时必须用多个 kernel。</li>
 <li><b>Warp 级别原语</b>：没有 <code>__shfl_sync</code>、<code>__ballot_sync</code>、<code>__match_any_sync</code> 等直接暴露。Triton 的归约 API 在内部使用 warp shuffle，但程序员无法直接控制数据在 lane 间的移动方式。</li>
-<li><b>异步拷贝的精细控制</b>：<code>num_stages</code> 控制流水线深度，但具体的 <code>cp.async</code> 组提交和等待顺序由编译器决定。Hopper 的 TMA 描述符创建和 barrier 管理的精细控制不可用。</li>
+<li><b>异步拷贝的精细控制</b>：<code>num_stages</code> 控制流水线深度，但具体的 <code>cp.async</code> 组提交和等待顺序由编译器决定。TMA 可以通过张量描述符使用 <span class="cite">[<a href="#ref-tldesc" title="Triton 文档. triton.language.make_tensor_descriptor。">6</a>]</span>，但 mbarrier 和 warp 角色的手工管理不暴露，要用更底层的 Gluon <span class="cite">[<a href="#ref-gluon" title="Triton 文档. Gluon：Triton 的底层 GPU 编程模型。">7</a>]</span>。</li>
 </ul>
 
 <h2 id="sec-limits-detail">Triton 的边界</h2>
@@ -480,64 +480,54 @@ def layernorm_kernel(
 
 <figure id="fig-triton_limits" data-kind="diagram">
 <img aria-labelledby="fig-triton_limits-cap" src="figs/triton_limits.svg" alt="Triton limitations"/>
-<figcaption id="fig-triton_limits-cap"><span class="fig-label">图 6</span><b>Triton 适用范围与局限。</b>约 90% 的 ML kernel 可以用 Triton 高效实现，剩余 10% 需要 CUDA 的底层控制。</figcaption>
+<figcaption id="fig-triton_limits-cap"><span class="fig-label">图 6</span><b>Triton 适合规则的 tile 计算，不规则访存和 warp 级控制仍要回到 CUDA。</b>左栏是 Triton 擅长的 kernel 类型，右栏是需要 CUDA 底层控制的场景。示意图，两栏的大小不代表任何定量比例。</figcaption>
 </figure>
 
 <ul>
 <li><b>不规则访存</b>：哈希表（上一篇的 <code>atomicCAS</code> 探测链）、稀疏卷积的间接索引——Triton 的 tile 模型不适合这类随机访问。</li>
 <li><b>自定义 warp 级操作</b>：如 3DGS 中的 warp-level shuffle 归约、自定义的 ballot scan——Triton 没有暴露这些原语。</li>
-<li><b>Hopper 的完整特性</b>：TMA、warp specialization、cluster 级通信——Triton 对 Hopper 特性的支持在快速演进中，但仍落后于手写 CUDA。</li>
+<li><b>架构特性的手工安排</b>：Triton 已经能用张量描述符走 TMA，并在 Blackwell 上对简单的矩阵乘循环做自动 warp specialization <span class="cite">[<a href="#ref-tlrange" title="Triton 文档. triton.language.range（<code>warp_specialize</code> 参数说明）。">8</a>]</span>；但手工指定 warp 角色、barrier 协议和 cluster 级通信，要么不暴露，要么要换到 Gluon。</li>
 <li><b>极端的寄存器/smem 调优</b>：当 kernel 的瓶颈是寄存器压力或 occupancy 的精确平衡时，Triton 的自动决策可能不如手动调优。</li>
 </ul>
 
-<p>生态扩展正在拓宽 Triton 的能力边界。Gluon（字节跳动）在 Triton 之上添加了 Hopper 特性的直接支持——TMA 描述符操作、warp group 级别的 MMA、以及 cluster 级别的共享内存访问。Triton 原生的 <code>tl.inline_asm</code> 允许在 kernel 中嵌入 PTX 汇编——比如手动插入一条 <code>ldmatrix</code> 指令来绕过编译器的次优选择。TileLang 则提供了更高层的 DSL，用声明式语法描述 tile 计算图，自动生成 Triton 或 CUDA 代码。但这些扩展本质上是在 Triton 框架内借用 CUDA 的能力——当你需要大量使用 inline PTX 或 Gluon 扩展时，直接写 CUDA 可能是更清晰的选择。</p>
+<p>生态扩展正在拓宽 Triton 的能力边界。Gluon 是 Triton 项目自己的底层编程模型，直接暴露 layout、共享内存、warp specialization 以及 TMA、<code>tcgen05</code> 等目标相关特性 <span class="cite">[<a href="#ref-gluon" title="Triton 文档. Gluon：Triton 的底层 GPU 编程模型。">7</a>]</span>。<code>tl.inline_asm_elementwise</code> 允许在 kernel 中嵌入逐元素的 PTX 片段。TileLang 是另一个独立的 tile 级 DSL，建在 TVM 编译栈上，由北京大学的团队发起 <span class="cite">[<a href="#ref-tilelang" title="tile-ai. TileLang（README：基于 TVM 的编译栈、支持的后端与致谢）。">9</a>]</span>。当一个 kernel 需要大量这类底层控制时，直接写 CUDA 往往更清晰。</p>
 
-<h2 id="sec-perf">性能对比</h2>
+<h2 id="sec-perf">性能：用自己的形状实测</h2>
 
-<table>
-<thead>
-<tr><th>Kernel</th><th>Triton vs CUDA</th><th>说明</th></tr>
-</thead>
-<tbody>
-<tr><td>Fused Softmax</td><td>95%&ndash;100%</td><td>简单归约 + elementwise，编译器优化充分</td></tr>
-<tr><td>LayerNorm</td><td>90%&ndash;98%</td><td>类似 softmax，偶尔 smem 决策次优</td></tr>
-<tr><td>GEMM (FP16, 4K&times;4K)</td><td>90%&ndash;95%</td><td>接近 cuBLAS，autotune 关键</td></tr>
-<tr><td>FlashAttention-2</td><td>80%&ndash;90%</td><td>Triton FA2 存在，但手写 CUDA 版快 10%&ndash;20%</td></tr>
-<tr><td>Custom fused ops</td><td>85%&ndash;95%</td><td>Triton 的主要优势场景（开发效率 10&times;）</td></tr>
-</tbody>
-</table>
+<p>Triton 比手写 CUDA 慢多少，没有一个通用的百分比：它取决于 kernel 类型、GPU 代际、Triton 版本和对比对象。本系列能核实的同行评审数据点只有一条：在 B200 上，FlashAttention-4 的 BF16 前向比 Triton 的 attention 实现快 2.1&ndash;2.7 倍 <span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§5.1：B200、BF16 下比 Triton 快 2.1–2.7 倍。">10</a>]</span>。它说明在新架构刚出现、编译器还没跟上硬件特性时，差距可以很大。规则的逐元素和归约 kernel 则是另一种情况：它们受 HBM 带宽限制，编译器生成的代码更容易贴近带宽屋顶。</p>
 
-<p>Triton 的价值不仅在于性能接近 CUDA，更在于开发效率：一个 Triton GEMM 约 50 行 Python，一个优化的 CUDA GEMM 需要 500+ 行 C++。对于大多数团队来说，用 Triton 写一个 90% 性能的 kernel 然后转向下一个优化点，远优于花两周手写 CUDA 追求最后 10% 的性能。这个权衡尤其适用于自定义 fused op——比如把 RMSNorm + 旋转位置编码 + 量化融合进一个 kernel——手写 CUDA 可能需要一周，Triton 半天就能写完并 autotune 到可接受的性能。</p>
+<p>所以评估一个 Triton kernel，不要拿一个流传的百分比去比，而要和两条线比：一是 roofline 下界（<a href="../hw03-performance-model/hw03-performance-model.html">第 3 篇</a>），二是同一块 GPU 上的厂商库（cuBLAS、cuDNN）或手写实现，两者都在自己的形状上实测。</p>
 
-<p>性能差距主要来自两个方面：一是编译器的 smem 和流水线决策有时不如手动优化（例如 FlashAttention 中的 smem 双缓冲策略）；二是 Triton 无法使用某些架构特定的指令（如 Hopper 的 <code>wgmma.mma_async</code>），只能用上一代的 <code>mma.sync</code>。不过这些差距在缩小——Triton 编译器每个版本都在改进，社区贡献了大量的后端优化。</p>
+<p>Triton 的另一半价值是开发效率。本篇的 GEMM kernel（<code>code/tl45-triton/triton_gemm.py</code>）连同 autotune 配置不到 60 行 Python，而第 24&ndash;26 篇的 CUDA GEMM 要自己处理 smem 布局、流水线和 Tensor Core 指令。对自定义 fused op 来说这个差别尤其明显：比如把 RMSNorm、旋转位置编码和量化融合进一个 kernel，每换一种组合，CUDA 版本都要重写一遍，而 Triton 版本改几行再 autotune 即可。</p>
 
-<p>从工程实践的角度看，Triton 最大的陷阱不是性能本身，而是&ldquo;性能幻觉&rdquo;。开发者容易犯的错误是只看 wall-clock time 而忽略了 roofline 分析——一个看起来很快的 Triton kernel 可能只利用了 40% 的硬件峰值，因为编译器选择了次优的 smem layout 导致 bank conflict 严重。正确的评估方法是用 Nsight Compute 检查实际的 HBM 带宽利用率和 Tensor Core 利用率：memory-bound kernel 的 HBM 带宽应该接近峰值的 80%，compute-bound kernel 的 FLOP/s 应该在理论峰值的 70% 以上。如果远低于这些数字，说明编译器的自动优化有问题——此时应该调整 autotune 的配置空间（增加候选的 tile 形状和流水线深度），或者用 <code>triton.compile</code> 导出中间 IR 检查编译器的具体决策。常见的低效模式包括：BLOCK_K 不是 Tensor Core 对齐要求的倍数导致 MMA 回退到 FMA、num_stages 过高导致 smem 占满而 occupancy 降到 1 block/SM、以及 tile 形状不匹配矩阵的实际形状导致大量 mask 边界处理开销。</p>
+<p>性能差距通常来自两处：一是编译器的 layout、流水线和 tile 决策不一定是某个形状下的最优；二是新架构的特性（Hopper 的 TMA 与 <code>wgmma</code>，Blackwell 的 <code>tcgen05</code>、TMEM 与 2-CTA）要靠编译器逐版本跟进。Triton 近几个版本的发布说明里，tcgen05、TMEM、2-CTA 与 multicast 的支持和修复是陆续加入的 <span class="cite">[<a href="#ref-tlrel" title="triton-lang. Triton Releases（3.7–3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。">4</a>]</span>。</p>
+
+<p>从工程实践的角度看，Triton 最大的陷阱不是性能本身，而是&ldquo;性能幻觉&rdquo;。开发者容易犯的错误是只看 wall-clock time 而忽略了 roofline 分析——一个看起来很快的 Triton kernel 可能离屋顶还很远，比如编译器选了次优的 smem layout，bank conflict 严重。正确的评估方法是用 Nsight Compute 检查实际的 HBM 带宽和 Tensor Core 利用率，再和 roofline 对比。如果离屋顶很远，说明编译器的自动优化有问题——此时应该调整 autotune 的配置空间（增加候选的 tile 形状和流水线深度），或者用 <code>triton.compile</code> 导出中间 IR 检查编译器的具体决策。常见的低效模式包括：BLOCK_K 不是 Tensor Core 对齐要求的倍数导致 MMA 回退到 FMA、num_stages 过高导致 smem 占满而 occupancy 降到 1 block/SM、以及 tile 形状不匹配矩阵的实际形状导致大量 mask 边界处理开销。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的演进</h2>
 
-<p>Hopper（H100）引入了三项改变 GEMM 性能上限的硬件特性：TMA（Tensor Memory Accelerator）把多维张量的地址计算和数据搬运卸载到专用硬件、warp specialization 让不同的 warp group 分别负责数据搬运和计算形成异步流水线、cluster 让多个 SM 共享 smem 实现更大的 tile 协作。这些特性让 Hopper 上手写 CUDA GEMM 的峰值利用率从 Ampere 的约 70% 提升到约 85%。</p>
+<p>Hopper（H100）引入了三项改变 GEMM 性能上限的硬件特性：TMA（Tensor Memory Accelerator）把多维张量的地址计算和数据搬运卸载到专用硬件、warp specialization 让不同的 warp group 分别负责数据搬运和计算形成异步流水线、cluster 让多个 SM 共享 smem 实现更大的 tile 协作。第 26 篇用这些特性在 CUDA 里搭出了完整的 Hopper GEMM。</p>
 
-<p>Triton 对这些特性的支持程度参差不齐：</p>
+<p>Triton 对这些特性的支持在逐版本推进。下表是本文写作时（2026 年）官方文档与教程中的状态，使用时请以所用版本的文档为准：</p>
 
 <table>
 <thead>
-<tr><th>特性</th><th>Triton 支持状态</th></tr>
+<tr><th>特性</th><th>Triton 中的用法</th></tr>
 </thead>
 <tbody>
-<tr><td>FP8 Tensor Core</td><td>支持——<code>tl.dot</code> 自动选择 FP8 MMA 指令（Hopper+），无需特殊配置</td></tr>
-<tr><td>TMA（Tensor Memory Accelerator）</td><td>部分支持——编译器在某些访问模式下自动使用 TMA load，但手动 TMA 描述符创建不支持</td></tr>
-<tr><td>Warp Specialization</td><td>不支持——Triton 的 block 模型假设所有 warp 执行相同代码，无法让 warp 0 做数据搬运、warp 1&ndash;3 做计算</td></tr>
-<tr><td>Cluster（SM 组）</td><td>实验性——<code>num_ctas</code> 参数控制 cluster 大小，但跨 CTA 的 smem 访问未完全暴露</td></tr>
-<tr><td>Blackwell WGMMA / TMA Multicast</td><td>初步支持——社区正在快速迭代，预计在后续版本中成熟</td></tr>
+<tr><td>TMA</td><td><code>tl.make_tensor_descriptor</code> 在设备端创建张量描述符，在有 TMA 的 NVIDIA GPU 上由 TMA 硬件实现 <span class="cite">[<a href="#ref-tldesc" title="Triton 文档. triton.language.make_tensor_descriptor。">6</a>]</span>；官方 persistent matmul 教程有完整示例 <span class="cite">[<a href="#ref-tlpm" title="Triton 教程. Persistent Matmul（TMA、warp specialization 与 two-CTA 变体）。">11</a>]</span></td></tr>
+<tr><td>Warp specialization</td><td>自动：<code>tl.range(..., warp_specialize=True)</code>，文档写明目前只支持 Blackwell 上的简单矩阵乘循环 <span class="cite">[<a href="#ref-tlrange" title="Triton 文档. triton.language.range（<code>warp_specialize</code> 参数说明）。">8</a>]</span>；手工指定 warp 角色要用 Gluon <span class="cite">[<a href="#ref-gluon" title="Triton 文档. Gluon：Triton 的底层 GPU 编程模型。">7</a>]</span></td></tr>
+<tr><td>2-CTA / cluster</td><td>教程里的 two-CTA 变体设 <code>num_ctas=2</code>，只在计算能力 10.x 上启用 <span class="cite">[<a href="#ref-tlpm" title="Triton 教程. Persistent Matmul（TMA、warp specialization 与 two-CTA 变体）。">11</a>]</span>；多 CTA 与 multicast 在 3.7&ndash;3.8 版本陆续加入 <span class="cite">[<a href="#ref-tlrel" title="triton-lang. Triton Releases（3.7–3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。">4</a>]</span></td></tr>
+<tr><td>tcgen05 / TMEM</td><td>用户代码仍然只写 <code>tl.dot</code>，指令由编译器选择；发布说明列出了 tcgen05.mma、TMEM 相关的支持与修复 <span class="cite">[<a href="#ref-tlrel" title="triton-lang. Triton Releases（3.7–3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。">4</a>]</span></td></tr>
 </tbody>
 </table>
 
-<p>对于 Hopper 和 Blackwell 上的高性能 GEMM，目前最优实现仍然是手写 CUDA（使用 CUTLASS 或直接写 PTX 内联汇编）。Triton 在 Hopper 上的 GEMM 性能约为手写最优的 80%&ndash;85%，主要瓶颈在 warp specialization 的缺失——没有专门的数据搬运 warp，计算和搬运的重叠不如手写版本充分。</p>
+<p>对于 Hopper 和 Blackwell 上追求极限的 GEMM 和 attention，主流实现仍然是 CUTLASS/CuTe 或手写 CUDA，FA4 对 Triton 的 2.1&ndash;2.7 倍差距 <span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§5.1：B200、BF16 下比 Triton 快 2.1–2.7 倍。">10</a>]</span> 就是一例。编译器能自动做的事情在变多，但新硬件特性落地到编译器总要晚一步。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：Triton 和 CUDA 的核心区别是什么？</b></p>
-<p>编程粒度不同。CUDA 是线程级——程序员指定每个线程的行为、手动管理 shared memory 的分配和使用、控制寄存器压力和 occupancy 的平衡。Triton 是块级——程序员操作 tile（固定大小的 2D 数据块），编译器自动处理 smem 分配、合并访存、软件流水线和 Tensor Core 指令选择。Triton 用 Python 语法，代码量约为等价 CUDA 实现的十分之一，性能通常在手写 CUDA 的 85%&ndash;95%。追问：什么时候 Triton 不够用？主要三类场景——不规则访存模式（哈希表开放寻址探测、稀疏卷积间接索引、图神经网络的邻居聚合）、自定义 warp 级操作（warp shuffle 实现的特殊归约或通信模式、ballot scan）、以及需要完整利用 Hopper/Blackwell 架构特性的场景（TMA 描述符创建、warp specialization 异步流水线、cluster 级 SM 间通信）。</p>
+<p>编程粒度不同。CUDA 是线程级——程序员指定每个线程的行为、手动管理 shared memory 的分配和使用、控制寄存器压力和 occupancy 的平衡。Triton 是块级——程序员操作 tile（固定大小的 2D 数据块），编译器自动处理 smem 分配、合并访存、软件流水线和 Tensor Core 指令选择。Triton 用 Python 语法，代码量通常比等价的 CUDA 实现少得多；性能对规则的 kernel 往往能接近厂商库，但差距随 kernel 类型和 GPU 代际变化，要在自己的形状上实测。追问：什么时候 Triton 不够用？主要三类场景——不规则访存模式（哈希表开放寻址探测、稀疏卷积间接索引、图神经网络的邻居聚合）、自定义 warp 级操作（warp shuffle 实现的特殊归约或通信模式、ballot scan）、以及需要手工安排 Hopper/Blackwell 架构特性的场景（自定义 warp 角色和 barrier 协议、cluster 级 SM 间通信）。</p>
 
 <p id="sec-q2"><b>Q2：Triton 编译器如何决定 smem 和流水线？</b></p>
 <p>在 TTGIR 阶段，编译器为每个操作选择 data layout。<code>tl.dot</code> 的操作数被标记为 &ldquo;shared&rdquo; layout——数据经过 smem 传递给 Tensor Core，地址计算自动应用 swizzle 避免 bank conflict。流水线深度由 <code>num_stages</code> 参数控制——编译器自动插入 <code>cp.async</code> 指令实现异步数据搬运，配合多级缓冲实现计算和数据预取的重叠。swizzle 模式也是自动选择的——具体的 XOR 掩码根据 tile 形状和数据类型位宽确定，目标是让同一 warp 的 32 个线程同时访问 smem 时命中不同 bank。追问：如果编译器的 smem 决策不好怎么办？可以通过调整 <code>num_stages</code> 间接影响 smem 分配大小，或者在 autotune 中提供多种 tile 配置让编译器生成不同的 smem layout 方案，从中选最优的。极端情况下回退到 CUDA 手动控制。</p>
@@ -546,13 +536,13 @@ def layernorm_kernel(
 <p>程序员用 <code>@triton.autotune</code> 提供一组候选配置（tile 大小、num_warps、num_stages 等），并指定 key（决定缓存查找的输入维度）。首次调用时，Triton 编译所有候选配置的 kernel，在实际输入上运行 benchmark，选择最快的，并按 key 缓存。后续相同 key 的调用直接查缓存。追问：autotune 的缺点？首次调用的编译和测量延迟（可能几秒到几十秒）；配置空间过大时搜索时间长；不同硬件需要重新 tune。</p>
 
 <p id="sec-q4"><b>Q4：你会如何选择 Triton 和 CUDA？</b></p>
-<p>决策框架：先用 Triton 写原型——如果性能满足需求（通常在最优的 85%&ndash;95%）就用 Triton；如果需要最后 10%&ndash;15% 的性能提升，或者需要 Triton 不支持的特性（warp 级原语、TMA 精细控制），再用 CUDA 重写。大多数自定义 fused op 用 Triton 就够了；核心的推理 kernel（如 FlashAttention、PagedAttention）通常需要手写 CUDA。追问：如何评估 Triton kernel 是否&ldquo;够用&rdquo;？用 Nsight Compute 对比 roofline——如果 kernel 已经达到了 memory-bound 或 compute-bound 的理论峰值的 80% 以上，进一步优化的收益有限，Triton 版本足够。如果离峰值还有很大差距，检查编译器生成的 PTX（<code>triton.compile</code> 可以输出中间表示）——寻找多余的 smem 读写、suboptimal 的指令选择。</p>
+<p>决策框架：先用 Triton 写原型——如果和 roofline、厂商库对比后性能满足需求就用 Triton；如果还要追最后一段性能，或者需要 Triton 不暴露的控制（warp 级原语、barrier 与 warp 角色的手工安排），再用 CUDA 重写。大多数自定义 fused op 用 Triton 就够了；核心的推理 kernel（如 FlashAttention、PagedAttention）通常需要手写 CUDA。追问：如何评估 Triton kernel 是否&ldquo;够用&rdquo;？用 Nsight Compute 对比 roofline——如果 kernel 已经贴近它所在那一侧的屋顶（带宽或算力），进一步优化的收益有限，Triton 版本足够。如果离峰值还有很大差距，检查编译器生成的 PTX（<code>triton.compile</code> 可以输出中间表示）——寻找多余的 smem 读写、suboptimal 的指令选择。</p>
 
 <p id="sec-q5"><b>Q5：Triton 的 constexpr 和 CUDA 的 template 参数有什么关系？</b></p>
 <p>Triton 的 <code>tl.constexpr</code> 参数在编译期确定——不同值生成不同的 kernel 特化版本（不同的 PTX/cubin）。这等价于 CUDA 中的模板参数 <code>template &lt;int BLOCK_SIZE&gt;</code>：编译器看到常量后能展开循环、消除死代码、优化寄存器分配。区别在于 CUDA 的模板特化是手动指定的（每个组合都要显式实例化），而 Triton 的 autotune 自动在多个 constexpr 组合中搜索。追问：这对编译时间有什么影响？每个 constexpr 组合生成独立的 kernel 二进制——10 个 autotune 配置意味着编译 10 个不同的 kernel，首次调用延迟会线性增长。</p>
 
 <p id="sec-q6"><b>Q6：Triton kernel 中如何诊断性能瓶颈？</b></p>
-<p>用 <code>triton.compile</code> 导出编译的中间表示——可以查看 Triton IR（验证类型推断正确）、TTGIR（检查 layout 选择——如果 <code>tl.dot</code> 的操作数没有被标记为 shared layout 说明编译器没有使用 smem 传递数据给 Tensor Core）、最终 PTX（确认使用了预期的 MMA 指令变体而非 FMA 回退）。用 Nsight Compute 分析 kernel 的实际性能：重点关注 Memory Workload Analysis（确认 HBM 带宽利用率——fused kernel 理论上应该接近峰值的 80%+）和 Compute Workload Analysis（检查 Tensor Core 利用率——如果 <code>tl.dot</code> 没有走 MMA 指令，Tensor Core 利用率会是零）。常见的性能陷阱包括：tile 大小不是 Tensor Core 对齐要求的倍数导致 MMA 回退到 FMA、BLOCK_SIZE 过大导致寄存器溢出到 local memory（检查 PTX 中是否有 <code>st.local</code> 指令）、以及 num_stages 设置过高导致 occupancy 过低。追问：如何区分 memory-bound 和 compute-bound？用 Nsight Compute 的 roofline 视图——kernel 落在屋顶的左侧斜面说明 memory-bound，落在水平屋顶说明 compute-bound，两者的优化方向完全不同。</p>
+<p>用 <code>triton.compile</code> 导出编译的中间表示——可以查看 Triton IR（验证类型推断正确）、TTGIR（检查 layout 选择——如果 <code>tl.dot</code> 的操作数没有被标记为 shared layout 说明编译器没有使用 smem 传递数据给 Tensor Core）、最终 PTX（确认使用了预期的 MMA 指令变体而非 FMA 回退）。用 Nsight Compute 分析 kernel 的实际性能：重点关注 Memory Workload Analysis（确认 HBM 带宽利用率——memory-bound 的 fused kernel 应该贴近带宽屋顶）和 Compute Workload Analysis（检查 Tensor Core 利用率——如果 <code>tl.dot</code> 没有走 MMA 指令，Tensor Core 利用率会是零）。常见的性能陷阱包括：tile 大小不是 Tensor Core 对齐要求的倍数导致 MMA 回退到 FMA、BLOCK_SIZE 过大导致寄存器溢出到 local memory（检查 PTX 中是否有 <code>st.local</code> 指令）、以及 num_stages 设置过高导致 occupancy 过低。追问：如何区分 memory-bound 和 compute-bound？用 Nsight Compute 的 roofline 视图——kernel 落在屋顶的左侧斜面说明 memory-bound，落在水平屋顶说明 compute-bound，两者的优化方向完全不同。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
@@ -566,7 +556,7 @@ def layernorm_kernel(
 
 <h2 id="sec-summary" class="no-toc">小结</h2>
 
-<p>Triton 重新定义了 GPU kernel 开发的效率前沿——用十分之一的代码量达到手写 CUDA 85%&ndash;95% 的性能。它的块级编程模型和 autotune 机制让大多数 ML 工程师不需要深入理解 smem bank conflict 和 warp 调度就能写出高效的 kernel。从工程实践角度看，Triton 最大的价值在于自定义 fused op——把多个小操作（normalization、activation、quantization）融合进一个 kernel 消除中间结果的 HBM 读写，这类 kernel 手写 CUDA 的投入产出比很低（每个组合都要重写），Triton 让它们变得经济可行。</p>
+<p>Triton 重新定义了 GPU kernel 开发的效率前沿——用少得多的代码，在规则的 kernel 上接近手写实现的性能。它的块级编程模型和 autotune 机制让大多数 ML 工程师不需要深入理解 smem bank conflict 和 warp 调度就能写出高效的 kernel。从工程实践角度看，Triton 最大的价值在于自定义 fused op——把多个小操作（normalization、activation、quantization）融合进一个 kernel 消除中间结果的 HBM 读写，这类 kernel 手写 CUDA 的投入产出比很低（每个组合都要重写），Triton 让它们变得经济可行。</p>
 
 <p>但 Triton 不是 CUDA 的替代——它是 CUDA 的高层抽象。理解 CUDA 的底层细节（本系列前 44 篇的内容）是有效使用 Triton 的前提：只有知道编译器在做什么、什么情况下它做不好，才能写出真正高效的 Triton kernel 并在必要时回退到 CUDA。实践中的工程建议是：用 Triton 做第一版实现和性能基线，用 Nsight Compute 分析瓶颈，只在 Triton 编译器确实做不好的环节（如 smem 布局、TMA 利用率）用 CUDA 重写。下一篇介绍 CUTLASS 和 CuTe——另一种在 CUDA 基础上构建抽象的方式，更接近底层但也提供了结构化的 tile 操作接口。</p>
 
@@ -585,7 +575,14 @@ def layernorm_kernel(
   <li id="ref-flash2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. ICLR 2024.</li>
   <li id="ref-triton">Tillet, Kung &amp; Cox (2019). <a href="https://arxiv.org/abs/1907.00062">Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</a>. MLSys 2019.</li>
   <li id="ref-triton2">OpenAI (2021). <a href="https://openai.com/index/triton/">Introducing Triton: Open-source GPU programming for neural networks</a>.</li>
+  <li id="ref-tlrel">triton-lang. <a href="https://github.com/triton-lang/triton/releases">Triton Releases</a>（3.7&ndash;3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-tldesc">Triton 文档. <a href="https://triton-lang.org/main/python-api/generated/triton.language.make_tensor_descriptor.html">triton.language.make_tensor_descriptor</a>。</li>
+  <li id="ref-gluon">Triton 文档. <a href="https://triton-lang.org/main/gluon/index.html">Gluon</a>：Triton 的底层 GPU 编程模型。</li>
+  <li id="ref-tlrange">Triton 文档. <a href="https://triton-lang.org/main/python-api/generated/triton.language.range.html">triton.language.range</a>（<code>warp_specialize</code> 参数说明）。</li>
+  <li id="ref-tilelang">tile-ai. <a href="https://github.com/tile-ai/tilelang">TileLang</a>（README：基于 TVM 的编译栈、支持的后端与致谢）。</li>
+  <li id="ref-fa4">Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). <a href="https://arxiv.org/abs/2603.05451">FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling</a>. arXiv:2603.05451。§5.1：B200、BF16 下比 Triton 快 2.1&ndash;2.7 倍。</li>
+  <li id="ref-tlpm">Triton 教程. <a href="https://triton-lang.org/main/getting-started/tutorials/09-persistent-matmul.html">Persistent Matmul</a>（TMA、warp specialization 与 two-CTA 变体）。</li>
 </ol>
 
 </article>

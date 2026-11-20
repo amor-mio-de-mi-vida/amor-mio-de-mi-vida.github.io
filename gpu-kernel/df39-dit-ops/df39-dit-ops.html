@@ -504,7 +504,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <tbody>
 <tr><td>adaLN 融合</td><td>手写 CUDA kernel</td><td>同左 + TMA 预取条件向量到 smem</td><td>同 Hopper + TMEM 可存 scale/shift</td></tr>
 <tr><td>RoPE</td><td>elementwise kernel</td><td>可融合进 FlashAttention 的 Q/K 加载<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">4</a>]</span></td><td>同 Hopper</td></tr>
-<tr><td>长序列 attention</td><td>FlashAttention-2</td><td>FA3（WGMMA + TMA + warp specialization）</td><td>FA4（tcgen05 + TMEM + 2-CTA）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA / tcgen05）。">5</a>]</span></td></tr>
+<tr><td>长序列 attention</td><td>FlashAttention-2</td><td>FA3（WGMMA + TMA + warp specialization）</td><td>FA4（tcgen05 + TMEM + FMA 上的 exp 模拟）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA / tcgen05）。">5</a>]</span></td></tr>
 <tr><td>FP8 GEMM</td><td>不支持</td><td>WGMMA FP8（e4m3/e5m2）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、FP8 支持等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>tcgen05 FP8 + FP4</td></tr>
 <tr><td>HBM 带宽<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、FP8 支持等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>2.0 TB/s</td><td>3.35 TB/s</td><td>8.0 TB/s</td></tr>
 <tr><td>memory-bound 加速</td><td>基线</td><td>~1.7&times;（HBM 带宽比）</td><td>~4&times;（HBM 带宽比）</td></tr>

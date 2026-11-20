@@ -56,7 +56,7 @@
   <text x="528" y="73" text-anchor="middle" class="sublabel">acc</text>
 
   <path d="M600,105 L600,145" class="arrow" stroke="#D55E00"/>
-  <text x="618" y="130" class="sublabel">tcgen05.st</text>
+  <text x="618" y="130" class="sublabel">tcgen05.ld</text>
 
   <path d="M550,175 L512,220" class="arrow" stroke="#666"/>
   <text x="540" y="200" class="sublabel">store</text>

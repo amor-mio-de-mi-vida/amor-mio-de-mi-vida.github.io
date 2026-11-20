@@ -442,9 +442,9 @@ struct EVT_GELU {
 <figcaption id="fig-dsl_comparison-cap"><span class="fig-label">图 6</span><b>GPU kernel DSL 抽象层次对比。</b>从 Triton 的块级 Python 到 Raw CUDA 的线程级 C++，抽象越高开发越快，控制越细性能上限越高。</figcaption>
 </figure>
 
-<p><b>Triton</b>——最高抽象层。块级 Python 编程，编译器自动处理 smem 分配和布局、合并访存、软件流水线、Tensor Core 指令选择。优势：开发效率最高（代码量约为 CUDA 的十分之一），autotune 自动搜索 tile 大小和资源参数的最优组合。劣势：无法使用 warp 级原语（没有 <code>__shfl_sync</code>）、TMA 控制有限（编译器决定是否使用）、对 Hopper warp specialization 不支持（block 内所有 warp 执行相同代码）。适用场景：自定义 fused op 的快速原型和大多数生产部署——当性能在手写 CUDA 的 85%&ndash;95% 可以接受时。</p>
+<p><b>Triton</b>——最高抽象层。块级 Python 编程，编译器自动处理 smem 分配和布局、合并访存、软件流水线、Tensor Core 指令选择。优势：开发效率最高（代码量远少于等价的 CUDA），autotune 自动搜索 tile 大小和资源参数的最优组合。劣势：无法使用 warp 级原语（没有 <code>__shfl_sync</code>）、TMA 通过张量描述符使用、barrier 不暴露，warp specialization 只能交给编译器自动做（文档写明目前只支持 Blackwell 上的简单矩阵乘循环，见<a href="../tl45-triton/tl45-triton.html">第 45 篇</a>）。适用场景：自定义 fused op 的快速原型和大多数生产部署——前提是在自己的形状上和厂商库对比后，性能可以接受。</p>
 
-<p><b>TileLang</b>——声明式 tile 计算图。用 Python DSL 描述 tile 之间的数据流和计算依赖，自动生成 Triton 或 CUDA 代码。比 Triton 更结构化——你显式声明&ldquo;这个 tile 从全局内存加载到 smem、从 smem 加载到寄存器、做 MMA 计算、写回 smem、写回全局内存&rdquo;，每一步的数据 layout 和缓冲策略都可以控制。编译器在声明的数据流图上做优化——自动合并操作、选择流水线策略。比 Triton 更接近硬件，因为你能指定数据通过 smem 的具体方式；但比 CUTLASS 更容易上手，因为不需要理解 layout 代数。</p>
+<p><b>TileLang</b>——声明式 tile 计算图。用 Python DSL 描述 tile 之间的数据流和计算依赖，建在 TVM 编译栈上，生成 CUDA、HIP 等后端的代码。比 Triton 更结构化——你显式声明&ldquo;这个 tile 从全局内存加载到 smem、从 smem 加载到寄存器、做 MMA 计算、写回 smem、写回全局内存&rdquo;，每一步的数据 layout 和缓冲策略都可以控制。编译器在声明的数据流图上做优化——自动合并操作、选择流水线策略。比 Triton 更接近硬件，因为你能指定数据通过 smem 的具体方式；但比 CUTLASS 更容易上手，因为不需要理解 layout 代数。</p>
 
 <p><b>ThunderKittens <span class="cite">[<a href="#ref-thunderkittens" title="Spector &amp; Re (2024). ThunderKittens: Simple, Fast, and Adorable AI Kernels. Stanford.">3</a>]</span></b>（Stanford）——warp 级 C++ DSL。操作粒度是 warp tile（通常 16&times;16 的数据块），提供 <code>load</code>、<code>mma</code>、<code>store</code>、<code>mul</code>、<code>row_sum</code> 等 warp 级别的原语。比 CUTLASS 更简洁（不需要理解 layout 代数和模板元编程），比 Triton 更接近硬件（能直接控制 warp 级行为和寄存器 tile 的形状）。设计上特别适合注意力机制的变体——线性注意力、稀疏注意力、因果注意力等——这些 kernel 的核心是 warp 级的矩阵乘和归约的灵活组合。</p>
 
@@ -456,23 +456,23 @@ struct EVT_GELU {
 
 <table>
 <thead>
-<tr><th>工具</th><th>GEMM 峰值利用率</th><th>开发时间</th><th>适用场景</th></tr>
+<tr><th>工具</th><th>能控制到的层次</th><th>开发时间</th><th>适用场景</th></tr>
 </thead>
 <tbody>
-<tr><td>CUTLASS/CuTe</td><td>85%&ndash;95%</td><td>周级别</td><td>核心推理 kernel、库开发</td></tr>
-<tr><td>Triton</td><td>80%&ndash;90%</td><td>天级别</td><td>自定义 fused op、快速原型</td></tr>
-<tr><td>ThunderKittens</td><td>85%&ndash;92%</td><td>天级别</td><td>注意力变体、warp 级控制</td></tr>
-<tr><td>Raw CUDA</td><td>90%&ndash;98%</td><td>月级别</td><td>极致性能、新硬件特性</td></tr>
+<tr><td>CUTLASS/CuTe</td><td>全部硬件特性（TMA、warp 特化、cluster）</td><td>周级别</td><td>核心推理 kernel、库开发</td></tr>
+<tr><td>Triton</td><td>tile 级，指令与流水线由编译器定</td><td>天级别</td><td>自定义 fused op、快速原型</td></tr>
+<tr><td>ThunderKittens</td><td>warp tile 级</td><td>天级别</td><td>注意力变体、warp 级控制</td></tr>
+<tr><td>Raw CUDA</td><td>每条指令</td><td>月级别</td><td>极致性能、新硬件特性</td></tr>
 </tbody>
 </table>
 
-<p>选型的核心问题不是&ldquo;哪个工具最好&rdquo;，而是&ldquo;性能要求和开发预算的交叉点在哪&rdquo;。推理框架（vLLM、SGLang、TensorRT-LLM）的核心 attention 和 GEMM kernel 通常用 CUTLASS 或手写 CUDA——这些 kernel 贡献了 LLM 推理中大部分的计算时间（对于 decode 阶段的大 batch GEMM，矩阵乘占了超过 70% 的 GPU 时间），多 5% 的性能在大规模部署中意味着节省数百万美元的 GPU 成本，因此值得投入数周的工程时间来精细优化。训练框架中的自定义 fused op（如 RoPE + RMSNorm + SwiGLU 激活融合）用 Triton 更经济——这些 kernel 虽然频繁调用但单次计算量小、不是计算瓶颈，开发速度和迭代灵活性比极致性能更重要。</p>
+<p>选型的核心问题不是&ldquo;哪个工具最好&rdquo;，而是&ldquo;性能要求和开发预算的交叉点在哪&rdquo;。推理框架（vLLM、SGLang、TensorRT-LLM）的核心 attention 和 GEMM kernel 通常用 CUTLASS 或手写 CUDA——这些 kernel 贡献了 LLM 推理中大部分的计算时间，几个百分点的性能在大规模部署中就是可观的 GPU 成本，因此值得投入数周的工程时间来精细优化。训练框架中的自定义 fused op（如 RoPE + RMSNorm + SwiGLU 激活融合）用 Triton 更经济——这些 kernel 虽然频繁调用但单次计算量小、不是计算瓶颈，开发速度和迭代灵活性比极致性能更重要。</p>
 
 <p>实际工程中，混合使用多种工具是常态。一个 LLM 推理框架可能同时包含：用 CUTLASS 写的 FP8 GEMM（核心路径需要 EVT 融合 epilogue）、用 Triton 写的 fused RoPE-RMSNorm（开发快、性能足够）、用手写 CUDA 写的 PagedAttention（需要不规则的 KV cache 访问和自定义的 token 调度逻辑）。理解每个工具的边界让你能做出正确的选型决策。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的 CUTLASS</h2>
 
-<p>CUTLASS 3.x 对 Hopper 的支持是各种 DSL 和库中最完整的。核心 Hopper 特性的利用包括：TMA 描述符的创建和使用（把多维张量的地址计算和数据搬运卸载到专用硬件单元，减轻 warp 的负载）、warp specialization（producer-consumer 模式——一部分 warp 专门负责通过 TMA 把数据从 HBM 加载到 smem，另一部分 warp 专门负责从 smem 读取数据做 MMA 计算，两组 warp 通过 <code>mbarrier</code> 同步实现流水线式的数据预取和计算重叠）、cluster 级 smem 共享（多个 SM 组成 cluster，一个 SM 可以直接访问另一个 SM 的 smem，实现更大的有效 tile 而不需要经过 L2 cache）、persistent kernel（block 在完成一个 tile 后从全局的 tile scheduler 获取下一个 tile 继续计算，避免了 kernel 重新 launch 的开销，支持 stream-K 等动态负载均衡策略）。这些特性的组合让 CUTLASS 在 H100 上的 GEMM 峰值利用率达到约 85%&ndash;90%。</p>
+<p>CUTLASS 3.x 对 Hopper 的支持是各种 DSL 和库中最完整的。核心 Hopper 特性的利用包括：TMA 描述符的创建和使用（把多维张量的地址计算和数据搬运卸载到专用硬件单元，减轻 warp 的负载）、warp specialization（producer-consumer 模式——一部分 warp 专门负责通过 TMA 把数据从 HBM 加载到 smem，另一部分 warp 专门负责从 smem 读取数据做 MMA 计算，两组 warp 通过 <code>mbarrier</code> 同步实现流水线式的数据预取和计算重叠）、cluster 级 smem 共享（多个 SM 组成 cluster，一个 SM 可以直接访问另一个 SM 的 smem，实现更大的有效 tile 而不需要经过 L2 cache）、persistent kernel（block 在完成一个 tile 后从全局的 tile scheduler 获取下一个 tile 继续计算，避免了 kernel 重新 launch 的开销，支持 stream-K 等动态负载均衡策略）。这些特性组合起来，是 CUTLASS 在 Hopper 上接近厂商库性能的基础。</p>
 
 <p>CUTLASS 4.x（仍在活跃开发中）引入了 Blackwell 支持——B200 的 WGMMA 新指令集（更大的 MMA 原子尺寸和更高的吞吐量）、TMA multicast（一次 TMA 操作同时加载到 cluster 内多个 SM 的 smem，减少重复的 HBM 读取）、以及更大的 tile size（利用 Hopper 起每个 SM 最多 228 KB 的 shared memory <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）。对于需要在最新硬件上达到最佳性能的团队，CUTLASS 是 Triton 之外的主要选择——代价是显著更高的开发、调试和维护成本，特别是跨版本升级时接口兼容性的处理需要额外的工程投入。</p>
 
@@ -488,7 +488,7 @@ struct EVT_GELU {
 <p>把 GEMM 之后的操作（bias 加法、activation、量化/反量化、残差连接）融合进一次 epilogue pass——避免额外的 kernel launch 和 HBM 读写。设计为操作树——每个节点是一个 visitor，接收 fragment 和坐标、输出处理后的 fragment，编译器把整棵树内联。对比 Triton——Triton 没有声明式 epilogue 组合机制，需要手写 epilogue 逻辑，但代码更简洁直观。追问：EVT 的限制？树中的每个操作必须是逐元素或广播的——不支持 epilogue 中的归约或跨行操作（这些需要额外的 kernel）。</p>
 
 <p id="sec-q4"><b>Q4：你会如何选择 GPU kernel DSL？</b></p>
-<p>根据性能需求和开发预算做选型决策：大多数自定义 fused op 用 Triton（十分之一的代码量、autotune 自动调参、Python 生态方便调试）；核心推理 GEMM 和 attention 用 CUTLASS（EVT 可定制 epilogue 实现零开销的后处理融合、完整利用 Hopper/Blackwell 硬件特性）；需要 warp 级控制但不想处理 CUTLASS 模板元编程复杂度的中间场景用 ThunderKittens；只有在所有抽象都不满足需求时才回到 Raw CUDA。追问：什么情况下 ThunderKittens 比 CUTLASS 更合适？需要快速实现注意力机制的变体（如线性注意力、稀疏注意力、因果注意力的自定义 mask 模式）且对 CUTLASS 的模板元编程不熟悉时——ThunderKittens 的 warp 级 API 更直观，开发速度介于 Triton 和 CUTLASS 之间。但 ThunderKittens 目前对 epilogue 的定制能力不如 CUTLASS 的 EVT 灵活，且社区规模较小。</p>
+<p>根据性能需求和开发预算做选型决策：大多数自定义 fused op 用 Triton（代码量少、autotune 自动调参、Python 生态方便调试）；核心推理 GEMM 和 attention 用 CUTLASS（EVT 可定制 epilogue 实现零开销的后处理融合、完整利用 Hopper/Blackwell 硬件特性）；需要 warp 级控制但不想处理 CUTLASS 模板元编程复杂度的中间场景用 ThunderKittens；只有在所有抽象都不满足需求时才回到 Raw CUDA。追问：什么情况下 ThunderKittens 比 CUTLASS 更合适？需要快速实现注意力机制的变体（如线性注意力、稀疏注意力、因果注意力的自定义 mask 模式）且对 CUTLASS 的模板元编程不熟悉时——ThunderKittens 的 warp 级 API 更直观，开发速度介于 Triton 和 CUTLASS 之间。但 ThunderKittens 目前对 epilogue 的定制能力不如 CUTLASS 的 EVT 灵活，且社区规模较小。</p>
 
 <p id="sec-q5"><b>Q5：CUTLASS 的学习路径应该怎么走？</b></p>
 <p>建议从上到下：先用 CollectiveBuilder 搭一个标准 GEMM（不需要理解内部细节），验证它跑起来并理解输入输出接口。然后阅读 CuTe 的 layout 教程，理解 (Shape, Stride) 的含义和 composition 操作——这是所有后续工作的数学基础。接下来尝试自定义 epilogue（用 EVT 组合一个 bias + GELU 的 epilogue），这是最常见的定制需求。最后深入 CollectiveMainloop 和 TiledMMA——只有在需要修改主循环逻辑（如自定义的 K-分块策略或异步流水线行为）时才需要触及这些层。不要一上来就看 Atom 层的 PTX 指令封装——那是 CUTLASS 开发者而非使用者关心的层次。</p>

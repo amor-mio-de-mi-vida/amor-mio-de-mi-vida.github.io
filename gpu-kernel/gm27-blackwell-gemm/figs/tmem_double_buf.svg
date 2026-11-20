@@ -59,7 +59,7 @@
   <text x="360" y="98" text-anchor="middle" class="d-note" style="font-weight:600">交换</text>
 
   <!-- Note -->
-  <text x="360" y="220" text-anchor="middle" class="d-note">Hopper 不能做到这一点——MMA 累加器在寄存器文件中，</text>
-  <text x="360" y="236" text-anchor="middle" class="d-note">epilogue 读累加器时 MMA 无法同时写入。</text>
-  <text x="360" y="252" text-anchor="middle" class="d-note" style="fill:#D55E00;font-weight:600">TMEM 是 Blackwell 独有的，让 epilogue 和 MMA 真正并行。</text>
+  <text x="360" y="220" text-anchor="middle" class="d-note">Hopper 上同样的重叠靠两个消费者 warpgroup 交替（ping-pong），</text>
+  <text x="360" y="236" text-anchor="middle" class="d-note">两份累加器各自占着一组线程的寄存器。</text>
+  <text x="360" y="252" text-anchor="middle" class="d-note" style="fill:#D55E00;font-weight:600">TMEM 放得下两份累加器时，同一组线程就能轮流 MMA 与写回。</text>
 </svg>

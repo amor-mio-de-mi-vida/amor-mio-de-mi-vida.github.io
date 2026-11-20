@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Blackwell GEMM：tcgen05、TMEM 与 2-CTA 协作</title>
-<meta name="description" content="从零精通 GPU Kernel 第 27 篇：Blackwell GEMM 从 tcgen05.mma 单 tile 到 TMEM 双缓冲、persistent + CLC、2-CTA warp specialization，MLC Step 1–9 全复盘。">
+<meta name="description" content="从零精通 GPU Kernel 第 27 篇：Blackwell GEMM 的 tcgen05.mma、TMEM 容量账、PIPE_DEPTH=2 流水线、persistent 与 CLC、2-CTA 合作 MMA，以及 MLC 教程 9 步 GEMM 阶梯的实测复盘。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -216,24 +216,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 27 篇</div>
   <h1>Blackwell GEMM：tcgen05、TMEM<br>与 2-CTA 协作</h1>
-  <p class="subtitle">Blackwell 的 tcgen05.mma 让一个线程发射矩阵乘，累加器搬进 TMEM，2-CTA 集群让搬运和计算跨 SM 协作。</p>
+  <p class="subtitle">Blackwell 的 tcgen05.mma 让一个线程发射矩阵乘，累加器搬进 TMEM，一对 CTA 合作做一条 MMA，提高每份操作数的复用。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 21 分钟阅读</span>
+    <span data-reading-time>约 16 分钟阅读</span>
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 Hopper 到 Blackwell：累加器瓶颈的消除</a><li><a href="#sec-tcgen05">tcgen05.mma：单线程发射矩阵乘</a><li><a href="#sec-tmem">TMEM：专用累加器存储</a><li><a href="#sec-pipeline">TMA 流水线：PIPE_DEPTH=2</a><li><a href="#sec-persistent">Persistent Kernel 与 CLC</a><li><a href="#sec-warpspec">2-CTA Warp Specialization</a><li><a href="#sec-mlc">MLC 优化阶梯复盘</a><li><a href="#sec-hb">与 Hopper 的对比</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 Hopper 到 Blackwell：累加器离开寄存器</a><li><a href="#sec-tcgen05">tcgen05.mma：单线程发射矩阵乘</a><li><a href="#sec-tmem">TMEM：专用累加器存储</a><li><a href="#sec-pipeline">TMA 流水线：PIPE_DEPTH=2</a><li><a href="#sec-persistent">Persistent Kernel 与 CLC</a><li><a href="#sec-warpspec">2-CTA Warp Specialization</a><li><a href="#sec-mlc">MLC 优化阶梯复盘</a><li><a href="#sec-hb">与 Hopper 的对比</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>Blackwell 的 <code>tcgen05.mma</code> 把矩阵乘的发射粒度从 warpgroup（128 线程）降到单线程——一条指令做 m256&times;n128&times;k64 的乘累加，Tensor Core 利用率更高。</li>
-<li>累加器从寄存器搬进了 TMEM（Tensor Memory，每 SM 256 KB），彻底消除了累加器对寄存器文件的压力——PIPE_DEPTH=2 的简单双缓冲就够用。</li>
-<li>2-CTA 模式让一对 CTA 合作计算一个更大的 tile：两个 SM 的 TMA 一起搬运操作数，计算时要读到对方 CTA 的共享内存。</li>
-<li>CLC（Cluster Launch Control）替代全局原子计数器做 tile 调度——SM 内的硬件调度器直接分配 tile，减少全局争用。</li>
+<li><code>tcgen05.mma</code> 是单线程语义：一个线程发射整条矩阵乘，操作数从共享内存读，结果写进 TMEM。稠密 FP16 每条指令的 K 固定为 16，一个 BK=64 的 K 块要发 4 条。</li>
+<li>累加器搬进 TMEM 后，寄存器不再被累加器占满；TMEM 放得下两份累加器时，同一组线程就能让 MMA 和写回轮流进行。</li>
+<li>2-CTA（<code>cta_group::2</code>）让一对 CTA 合作做一条 MMA：各搬自己那份 A 和一半 B，由 CTA 0 的一个线程发射，硬件读两边的共享内存。每份搬进来的操作数因此参与约两倍的计算。</li>
+<li>MLC 教程用 9 步把 B200 上 4096³ 的 FP16 GEMM 做到与 cuBLAS 持平；最大的一跳是换成 TMA，后面几步都在减少等待、提高复用。CLC 不在这条阶梯里，它解决的是动态调度。</li>
   </ul>
 </div>
 
@@ -241,25 +241,27 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="callout note"><p class="callout-title">主线定位：① 字节账 · ③ 算力账 · ⑤ 整卡账</p><p>Blackwell GEMM：2-CTA（①），tcgen05 与 TMEM（③），持久化与 CLC 调度（⑤）。全系列的分析主线是&ldquo;一个下界 + 五笔账&rdquo;，见<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>。</p></div>
 <!-- /mainline -->
 
-<h2 id="sec-motivation">从 Hopper 到 Blackwell：累加器瓶颈的消除</h2>
+<h2 id="sec-motivation">从 Hopper 到 Blackwell：累加器离开寄存器</h2>
 
-<p>上一篇（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）在 Hopper 上构建了完整的 GEMM：TMA + WGMMA + warp specialization + cluster multicast。Hopper GEMM 的性能已经非常接近理论峰值，但有一个结构性瓶颈难以绕开：累加器占用通用寄存器文件。</p>
+<p>上一篇（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）在 Hopper 上搭了完整的 GEMM：TMA + WGMMA + warp specialization + cluster multicast。剩下一个结构性的负担是累加器：<code>wgmma</code> 的结果留在发射它的 warpgroup 的寄存器里。一个 m64&times;n256 的 FP32 累加器有 64 &times; 256 = 16,384 个值，摊到 128 个线程上，每线程 128 个 32 位寄存器，而每线程上限是 255 个 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</p>
 
-<p>具体来说，Hopper 的 WGMMA 输出一个 m64&times;n256 的 FP32 累加矩阵——这 64&times;256 = 16,384 个 FP32 值分散在 warpgroup 的 128 个线程中，每线程 128 个 32 位寄存器。如果做 ping-pong（两个 warpgroup 交替执行 WGMMA 以掩盖延迟），就需要两组累加器，每线程 256 个寄存器——接近 H100 每线程 255 个寄存器的硬件上限<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：Blackwell Ultra 的 160 SMs、256 KB TMEM/SM、256 KB L1/SMEM 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>。这迫使 Hopper GEMM 的 tile 大小、流水线深度和 consumer warpgroup 数量之间存在严格的寄存器预算约束。</p>
+<p>累加器占掉一半寄存器，带来两个后果。一是消费者线程没多少余量做别的事；二是 epilogue（把累加结果写回显存）和下一个 tile 的 MMA 很难由同一组线程重叠，因为两者要用同一批寄存器。Hopper 的办法是让两个消费者 warpgroup 各持一份累加器、交替计算和写回，即 ping-pong（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html#sec-pingpong">第 26 篇</a>）。</p>
 
-<p>Blackwell（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>详细讲过）的核心回答是 TMEM（Tensor Memory）：每 SM 一块 256 KB 的专用 SRAM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：Blackwell Ultra 的 160 SMs、256 KB TMEM/SM、256 KB L1/SMEM 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，完全独立于寄存器文件，专门给 Tensor Core 累加器用。累加器不再挤占通用寄存器后，三个连锁约束同时松绑：</p>
+<p>Blackwell 的回答是 TMEM（Tensor Memory）：每个 CTA 一块 128 行 &times; 512 列、每格 32 位的专用存储，合 256 KB，专门放 Tensor Core 的累加器 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>, <a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>（<a href="../tc23-blackwell/tc23-blackwell.html#sec-tmem">第 23 篇</a>讲过它的分配与读写规则）。这带来三个变化：</p>
 
 <ol>
-<li><b>寄存器压力大幅降低</b>：不需要 ping-pong 来分摊累加器占用——PIPE_DEPTH=2 的简单双缓冲就够。以 Hopper 的实际数据为例：m64&times;n256 的 FP32 累加器占每线程 128 个寄存器，ping-pong 需要两组即 256 个，而 H100 每线程上限是 255 个——几乎触顶。Blackwell 把累加器搬进 TMEM 后，通用寄存器全部留给地址计算、搬运控制和 epilogue 逻辑，每线程可用寄存器从不到 30 个恢复到完整的 255 个。</li>
-<li><b><code>tcgen05.mma</code> 的发射粒度降到单线程</b>：Hopper 的 WGMMA 需要 128 线程协作组织寄存器中的累加器 fragment；TMEM 把累加器搬出寄存器后，单线程就能发射 MMA——因为它不再需要跨线程分布 fragment。</li>
-<li><b>TMEM 自身可以双缓冲</b>：一组 TMEM 列在做当前 tile 的 MMA 累加，另一组在做上一个 tile 的 epilogue（TMEM &rarr; register &rarr; GMEM）。这样 epilogue 的内存带宽开销被 MMA 的计算时间掩盖——Hopper 上需要两个 consumer warpgroup 做 ping-pong 才能实现类似效果。</li>
+<li><b>寄存器不再被累加器占住</b>：累加器在 TMEM 里，写回时才用 <code>tcgen05.ld</code> 分批读进寄存器。</li>
+<li><b>MMA 由一个线程发射</b>：<code>tcgen05.mma</code> 不再需要 128 个线程各拿一片累加器，一个线程就能启动整条矩阵乘 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。</li>
+<li><b>TMEM 可以放两份累加器</b>：容量够时，一份在做当前 tile 的 MMA，另一份在写回上一个 tile，同一组线程就能完成 Hopper 上要两个 warpgroup 才能做的重叠。</li>
 </ol>
+
+<p>本篇沿着 MLC 教程的 GEMM 阶梯 <span class="cite">[<a href="#ref-mlcbasic" title="MLC Community (2026). GEMM Basics（第 1–3 步）. In Modern GPU Programming For MLSys.">3</a>, <a href="#ref-mlcasync" title="MLC Community (2026). Asynchronous GEMM（第 4–6 步：TMA、软件流水线、persistent kernel）. In Modern GPU Programming For MLSys.">4</a>, <a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span> 把这些部件串起来；指令层面的细节以第 23 篇为准，这里只讲它们在 GEMM 里怎么配合。</p>
 
 <h2 id="sec-tcgen05">tcgen05.mma：单线程发射矩阵乘</h2>
 
-<p>tcgen05 是 Blackwell 的第五代 Tensor Core 指令族（tc = tensor core, gen05 = 第五代）<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 5th Generation Tensor Core Instructions。">2</a>]</span>。<code>tcgen05.mma</code> 由单线程（通常是 thread 0）发射<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17.5（tcgen05.mma）、§9.7.14.11（tcgen05.ld/st/cp）、§9.7.5.8（cp.async.bulk.tensor）。">3</a>]</span>，操作数 A 和 B 从共享内存读取，累加器在 TMEM 中——整个操作对 warp 的其他线程完全透明，它们甚至不需要知道 MMA 正在执行。</p>
+<p>PTX 手册写明 <code>tcgen05.mma</code> 具有单线程语义，不同于 <code>mma.sync</code> 和 <code>wgmma.mma_async</code> 这类集合指令 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。操作数 B 从共享内存读，A 可以来自共享内存或 TMEM，累加器在 TMEM 中；同一 warp 的其他线程不参与这条指令。</p>
 
-<p>先看 kernel 入口的基础设施：共享内存按 A tile 和 B tile 划分，TMEM 累加器由硬件分配——程序通过 <code>tcgen05.alloc</code> 获得一组 TMEM 列的句柄，所有的 MMA 输出将写入这块专用存储。注意 kernel 签名中的 <code>__grid_constant__</code> 修饰符——这是 Hopper 引入、Blackwell 继续使用的特性，让 TMA tensor map 以只读方式传入 kernel，避免了把整个 tensor map 结构体复制到每个线程的寄存器中。</p>
+<p>先看 kernel 入口。共享内存按 A tile 和 B tile 划分；TMEM 累加器要由一个 warp 执行 <code>tcgen05.alloc</code> 显式申请，得到的 TMEM 地址写在共享内存里供其他线程读取 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。TMA 的 tensor map 以 <code>const __grid_constant__</code> 的 kernel 参数传入，这是编程指南推荐的方式 <span class="cite">[<a href="#ref-pgtma" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access（tensor map 以 <code>const __grid_constant__</code> 参数传入）。">6</a>]</span>。</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_basic.cu#L12-L27"><code>__global__ void bw_gemm_single_tile(
     __grid_constant__ const CUtensorMap a_map,
@@ -273,13 +275,15 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   const int bn = blockIdx.y * BN;
   const int tid = threadIdx.x;
 
-  // TMEM accumulator — allocated by hardware, addressed via
-  // tcgen05 descriptor. Zero-init at start.
+  // TMEM accumulator: one warp runs tcgen05.alloc, the
+  // TMEM address lands in smem. 128 lanes x 128 columns.
   // (In real code: asm volatile("tcgen05.alloc ...");)
 </code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_basic.cu</code> 第 12–27 行（未在 GPU 上运行）</p>
 
-<p>和 Hopper GEMM 的 kernel 入口对比可以看到关键差异：没有 <code>setmaxnreg</code>（TMEM 接管了累加器，通用寄存器压力大幅降低），没有 warpgroup 级的角色分配（单线程发射 MMA，无需区分 producer/consumer warp），也没有复杂的 SMEM swizzle 计算（TMA 硬件自动处理 swizzle）。整个 kernel 的结构非常接近一个教科书级的分块矩阵乘法——Blackwell 把底层复杂度封装到了硬件和 PTX 指令中。</p>
+<p>这个骨架只有一个 CTA 处理一个 128&times;128 的输出 tile，所以没有 warp 的角色分工，也没有 <code>setmaxnreg</code>。swizzle 并没有消失：tensor map 里选了 128B swizzle，MMA 用的共享内存描述符必须写上同样的 swizzle 模式（PTX Table 49），两边对不上，Tensor Core 就会读错数据 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。</p>
+
+<p>K 循环每轮搬一个 BK=64 的块。稠密 FP16 的 <code>tcgen05.mma</code> 每条指令的 K 固定为 16（PTX Table 48），所以每个 K 块要由同一个线程连发 4 条 MMA；除了整个 tile 的第一条，其余都打开 <code>enable-input-d</code>，把结果累加到已有的 D 上 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>：</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_basic.cu#L28-L46"><code>  for (int k = 0; k &lt; K; k += BK) {
     // TMA load A tile [bm : bm+BM, k : k+BK] to sA
@@ -293,8 +297,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }
     __syncthreads();
 
-    // tcgen05.mma: thread 0 issues MMA instruction
-    // Reads A, B from smem; accumulates into TMEM
+  // tcgen05.mma: one thread issues it (single-thread
+  // semantics); A, B read from smem, D accumulates in TMEM
     if (tid == 0) {
       // asm volatile("tcgen05.mma ... ;");
     }
@@ -302,10 +306,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   }</code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_basic.cu</code> 第 28–46 行（未在 GPU 上运行）</p>
 
-<p>K 循环结束后进入 epilogue 阶段——把 TMEM 中的累加结果搬回全局内存：</p>
+<p>和 MLC 的第 1–3 步相比，这个骨架有一处简化：MLC 在前三步里用普通线程把 A、B 拷进共享内存，到第 4 步才换成 TMA <span class="cite">[<a href="#ref-mlcbasic" title="MLC Community (2026). GEMM Basics（第 1–3 步）. In Modern GPU Programming For MLSys.">3</a>, <a href="#ref-mlcasync" title="MLC Community (2026). Asynchronous GEMM（第 4–6 步：TMA、软件流水线、persistent kernel）. In Modern GPU Programming For MLSys.">4</a>]</span>；这里为了少写一套拷贝代码，一开始就用了 TMA。骨架里的同步也只是示意（每轮重新初始化 mbarrier、用 <code>__syncthreads</code> 等待），真实 kernel 要按第 23 篇的交接协议等 mbarrier 的相位翻转。</p>
 
-<pre data-code="code/gm27-blackwell-gemm/bw_gemm_basic.cu#L48-L57"><code>  // Epilogue: copy TMEM → registers → global memory
-  // tcgen05.st copies TMEM region to registers, then store
+<p>K 循环结束后进入 epilogue，把 TMEM 中的累加结果写回全局内存：</p>
+
+<pre data-code="code/gm27-blackwell-gemm/bw_gemm_basic.cu#L48-L57"><code>  // Epilogue: TMEM -&gt; registers -&gt; global memory
+  // tcgen05.ld reads TMEM lanes into registers, then store
   for (int i = tid; i &lt; BM * BN / 2; i += blockDim.x) {
     int row = bm + i / (BN / 2);
     int col = bn + (i % (BN / 2)) * 2;
@@ -314,75 +320,78 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }
   }
 }</code></pre>
-<p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_basic.cu</code> 第 48–57 行（未在 GPU 上运行）</p>
+<p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_basic.cu</code> 第 48–57 行（未在 GPU 上运行，写回的数值用 0 占位）</p>
 
-<p>epilogue 的流程是 TMEM &rarr; 寄存器 &rarr; 全局内存。先用 <code>tcgen05.ld</code> 把 TMEM 列读到每个线程的通用寄存器中，再由所有线程并行地 store 到全局内存。这比 Hopper 的 epilogue 更简洁——Hopper 需要先在 128 线程的 warpgroup 内做 fragment 到连续内存的重排（因为 WGMMA 的输出 fragment 在寄存器中的布局并非连续），而 TMEM 的列式布局天然对应输出矩阵的行——<code>tcgen05.ld</code> 读出的数据可以直接 store，不需要额外的 shuffle 或重排。</p>
-
-<p>和 Hopper 的 WGMMA 相比，tcgen05 的关键区别不仅是发射线程数。更深层的变化是整个编程模型的简化：</p>
-
-<table data-source="paper">
-<caption><b>WGMMA vs tcgen05.mma 对比。</b>数据来自 PTX ISA 9.4。</caption>
-<thead>
-<tr><th></th><th>WGMMA (Hopper)</th><th>tcgen05.mma (Blackwell)</th></tr>
-</thead>
-<tbody>
-<tr><td>发射线程数</td><td>128 (warpgroup)</td><td>1</td></tr>
-<tr><td>A 操作数来源</td><td>SMEM (64b descriptor)</td><td>SMEM</td></tr>
-<tr><td>累加器位置</td><td>寄存器文件</td><td>TMEM</td></tr>
-<tr><td>最大 tile</td><td>m64&times;n256&times;k16</td><td>m256&times;n*&times;k*</td></tr>
-<tr><td>fence 协议</td><td>wgmma.fence/commit/wait</td><td>tcgen05.fence + mbarrier</td></tr>
-<tr><td>累加器分布</td><td>跨 128 线程的 register fragment</td><td>TMEM 列（按列连续分配）</td></tr>
-</tbody>
-</table>
-
-<p>tcgen05 的 M 维度从 64 扩大到 256。一条 <code>tcgen05.mma</code> 做 m256&times;n128&times;k64 的乘累加时，计算量为 256 &times; 128 &times; 64 &times; 2 = 4,194,304 FLOP——比 Hopper WGMMA 的 m64&times;n256&times;k16（524,288 FLOP）大 8 倍。更大的单指令计算量意味着更少的指令发射开销，更容易喂饱 Blackwell 更高的 Tensor Core 吞吐。</p>
-
-<p>单线程发射的另一个好处是简化了同步模型：不需要 warpgroup 内的 128 线程在 fence 时保持一致，只需要 thread 0 在发射 <code>tcgen05.mma</code> 前调用 <code>tcgen05.fence</code>，其他线程可以自由执行其他工作（搬运、地址计算等），不会被 fence 阻塞。</p>
-
-<p><code>tcgen05.fence</code> 的语义值得展开说明：它是一个 memory ordering 指令，确保 fence 之前所有对 SMEM 的写入（TMA 搬运的数据）对后续的 <code>tcgen05.mma</code> 读取可见<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17.5（tcgen05.mma）、§9.7.14.11（tcgen05.ld/st/cp）、§9.7.5.8（cp.async.bulk.tensor）。">3</a>]</span>。这和 Hopper 的 <code>wgmma.fence</code> 功能类似，但范围不同——<code>wgmma.fence</code> 需要整个 warpgroup 同步到达 fence 点，而 <code>tcgen05.fence</code> 只约束发射线程自身的内存可见性。在实践中，这意味着 consumer 的 31 个空闲线程（假设 warp 0 的 thread 0 发射 MMA）可以在 MMA 执行期间做下一轮的 TMA 描述符准备、mbarrier 状态查询等轻量工作，而不需要等待任何 fence。</p>
-
-<h2 id="sec-tmem">TMEM：专用累加器存储</h2>
-
-<p>TMEM 是 Blackwell SM 上的一块专用 SRAM，每 SM 256 KB（4 个子分区各 64 KB）<span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra. SM 架构、TMEM 与 5th-gen Tensor Core 的官方描述。">4</a>]</span>。它的地址空间完全独立于寄存器文件和共享内存——程序不能通过普通的 load/store 访问 TMEM，只能通过四条专用指令操作（<a href="#fig-tcgen05_data_path">图 1</a>）：</p>
-
-<ul>
-<li><code>tcgen05.mma</code>：MMA 结果写入 TMEM（写路径）</li>
-<li><code>tcgen05.ld</code>：从 TMEM 读数据到寄存器（读路径）</li>
-<li><code>tcgen05.st</code>：从寄存器写数据到 TMEM</li>
-<li><code>tcgen05.cp</code>：在 TMEM 和 SMEM 之间批量复制</li>
-</ul>
+<p>写回的路径是 TMEM &rarr; 寄存器 &rarr; 全局内存。读 TMEM 用 <code>tcgen05.ld</code>，它有一条访问限制：warpgroup 里的第 \(i\) 个 warp 只能访问第 \(32i\) 到 \(32i+31\) 行 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。在 <code>cta_group::1</code>、M=128 的情形下，输出的第 \(m\) 行正好放在 TMEM 的第 \(m\) 行 <span class="cite">[<a href="#ref-mlctc" title="MLC Community (2026). Blackwell Tensor Core — tcgen05.mma（TMEM 行映射与 <code>cta_group</code>）. In Modern GPU Programming For MLSys.">7</a>]</span>，所以一个 warpgroup 的 128 个线程各读一行，用 <code>.32x32b</code> 形状一次取若干个连续的列，再写回显存。<a href="#fig-tcgen05_data_path">图 1</a> 画出了整条数据通路。</p>
 
 <figure id="fig-tcgen05_data_path" data-kind="diagram">
 <img aria-labelledby="fig-tcgen05_data_path-cap" src="figs/tcgen05_data_path.svg" alt="Blackwell GEMM 数据通路"/>
-<figcaption id="fig-tcgen05_data_path-cap"><span class="fig-label">图 1</span><b>Blackwell 数据通路：HBM &rarr; TMA &rarr; SMEM &rarr; tcgen05.mma &rarr; TMEM &rarr; tcgen05.ld &rarr; 寄存器 &rarr; C。</b>累加器在 TMEM 中，不占寄存器文件。Epilogue 通过 <code>tcgen05.ld</code> 把 TMEM 数据搬到寄存器，再写全局内存。</figcaption>
+<figcaption id="fig-tcgen05_data_path-cap"><span class="fig-label">图 1</span><b>Blackwell 数据通路：HBM &rarr; TMA &rarr; 共享内存 &rarr; tcgen05.mma &rarr; TMEM &rarr; tcgen05.ld &rarr; 寄存器 &rarr; C。</b>累加器留在 TMEM 中，不占寄存器；只有写回时才用 <code>tcgen05.ld</code> 把它分批读进寄存器。TMA 与 MMA 都由一个线程发起。示意图，依据 PTX ISA 9.4 §9.7.18 绘制。</figcaption>
 </figure>
 
-<p>TMEM 的寻址模型和共享内存截然不同：它按&ldquo;列&rdquo;分配，每列 512 字节（128 个 FP32 值对应 128 线程<span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra. SM 架构、TMEM 与 5th-gen Tensor Core 的官方描述。">4</a>]</span>）。<code>tcgen05.mma</code> 的累加器自动映射到一组连续的 TMEM 列——m256&times;n128 的 FP32 累加矩阵需要 256 &times; 128 / 128 = 256 列，占用 256 &times; 512 = 128 KB。这恰好是 256 KB TMEM 容量的一半——留下另一半做双缓冲。TMEM 列的分配和释放通过 <code>tcgen05.alloc</code> 和 <code>tcgen05.dealloc</code> 指令完成——程序必须显式管理 TMEM 的生命周期，这类似于共享内存的动态分配，但粒度更粗（整列为单位）。</p>
+<p>和 Hopper 的 WGMMA 对比（<a href="#tab-wgmma_vs_tcgen05">表 1</a>）：</p>
 
-<p>容量规划上，TMEM 的 256 KB 需要在 MMA 累加器和其他用途（如 tcgen05.cp 的暂存区）之间分配。一个 m256&times;n128 的 FP32 累加矩阵需要 256 &times; 128 &times; 4 = 128 KB。做双缓冲就是 256 KB——恰好占满。这意味着如果要支持更大的 N 维度（如 n256），就必须放弃 TMEM 双缓冲，或者把 M 维度减小到 128。在实际的 CUTLASS 实现中，tile 大小选择（BM, BN）的首要约束就是 TMEM 容量——这和 Hopper 上寄存器预算决定 tile 大小的逻辑是类似的，只是约束对象从寄存器文件变成了 TMEM。同时需要注意的是，TMEM 的 4 个子分区（每个 64 KB）必须均匀使用——如果累加矩阵的列映射集中在某个子分区，硬件会报错或性能下降。CUTLASS 的 TMEM 分配器会自动做 round-robin 分配来避免这个问题。</p>
+<figure id="tab-wgmma_vs_tcgen05" class="table" data-source="paper">
+<figcaption id="tab-wgmma_vs_tcgen05-cap"><span class="fig-label">表 1</span><b>WGMMA 与 tcgen05.mma 的主要区别。</b>形状只列稠密 FP16/BF16（<code>.kind::f16</code>）、非 <code>.ws</code> 模式，依据 PTX ISA 9.4 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>；完整形状表见第 23 篇。</figcaption>
+<div class="table-wrap"><table>
+<thead>
+<tr><th></th><th>WGMMA（Hopper）</th><th>tcgen05.mma（Blackwell）</th></tr>
+</thead>
+<tbody>
+<tr><td>发射</td><td>warpgroup 的 128 个线程共同发射</td><td>单线程语义；<code>cta_group::2</code> 时由 CTA pair 中的一个线程发射</td></tr>
+<tr><td>A 来源</td><td>寄存器或共享内存</td><td>共享内存或 TMEM</td></tr>
+<tr><td>B 来源</td><td>共享内存</td><td>共享内存</td></tr>
+<tr><td>累加器</td><td>寄存器，分布在 128 个线程上</td><td>TMEM</td></tr>
+<tr><td>形状</td><td>M=64，N 为 8 到 256，K=16</td><td><code>cta_group::1</code>：M=64/128；<code>cta_group::2</code>：M=128/256；N 最大 256；K=16</td></tr>
+<tr><td>完成通知</td><td><code>wgmma.commit_group</code> / <code>wait_group</code></td><td><code>tcgen05.commit</code> 让 mbarrier 跟踪完成</td></tr>
+</tbody>
+</table></div>
+</figure>
 
-<p>TMEM 没有 bank 冲突——因为 Tensor Core 对 TMEM 的访问模式是硬件固定的，每列天然对应 Tensor Core 的一个输出 slice。这意味着不需要像共享内存那样做 swizzle 来避免 bank 冲突——TMEM 对 Tensor Core 来说是&ldquo;零开销&rdquo;的累加空间。对比 Hopper：WGMMA 的累加器分散在寄存器文件中，128 个线程各持有一部分 fragment，线程间需要通过 <code>__shfl_sync</code> 交换数据才能完成某些 epilogue 操作（比如跨 warp 的规约）。TMEM 的列式布局让 epilogue 变得更简单——<code>tcgen05.ld</code> 直接按列读出，每个线程拿到自己对应行的数据，不需要 shuffle。</p>
+<p>单条指令的计算量也变大了。WGMMA 最大的 m64&times;n256&times;k16 是 \(2 \times 64 \times 256 \times 16 = 524{,}288\) FLOP；<code>cta_group::1</code> 的 m128&times;n256&times;k16 是 1,048,576 FLOP，为它的 2 倍；<code>cta_group::2</code> 的 m256&times;n256&times;k16 是 2,097,152 FLOP，但这份活由两个 SM 一起完成，摊到每个 SM 仍是 1,048,576 FLOP。指令越大，发射一条指令的开销被摊得越薄。</p>
 
-<p>此外，<code>tcgen05.cp</code> 指令提供了 TMEM 和 SMEM 之间的批量数据通路——当 epilogue 需要先在 SMEM 做一些共享操作（如 cross-warp 的规约）再写回全局内存时，可以先用 <code>tcgen05.cp</code> 把 TMEM 列批量搬到 SMEM，比逐个 <code>tcgen05.ld</code> 到寄存器再 store 到 SMEM 效率更高。</p>
+<p>单线程发射也让同步变成了点对点的交接，而不是整个 warpgroup 的集合操作。发射线程先等 TMA 的 mbarrier，确认操作数已经到了共享内存，再发 MMA；发完用 <code>tcgen05.commit</code> 让另一个 mbarrier 跟踪这些 MMA 的完成 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。读结果的线程等这个 mbarrier，再执行 <code>tcgen05.fence::after_thread_sync</code>，然后才能 <code>tcgen05.ld</code>（<a href="../tc23-blackwell/tc23-blackwell.html#sec-handoff">第 23 篇</a>）。这道 fence 的作用是在线程同步前后给 tcgen05 操作定序，不是让 TMA 写进共享内存的数据可见，那件事由 mbarrier 负责。</p>
 
-<p>TMEM 双缓冲是 Blackwell GEMM 的关键优化之一（<a href="#fig-tmem_double_buf">图 2</a>）：分配两组 TMEM 列（各 128 KB），一组在做当前 tile 的 MMA 累加，另一组在做上一个 tile 的 epilogue（TMEM &rarr; register &rarr; GMEM）。</p>
+<h2 id="sec-tmem">TMEM：专用累加器存储</h2>
+
+<p>TMEM 的地址空间独立于寄存器和共享内存，普通的 load/store 访问不到，只能通过 tcgen05 指令操作 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>：</p>
+
+<ul>
+<li><code>tcgen05.mma</code>：把结果写进 TMEM，也可以从 TMEM 读 A 操作数；</li>
+<li><code>tcgen05.ld</code>：TMEM &rarr; 寄存器；</li>
+<li><code>tcgen05.st</code>：寄存器 &rarr; TMEM；</li>
+<li><code>tcgen05.cp</code>：共享内存 &rarr; TMEM 的批量拷贝，块缩放 MMA 的缩放因子就是这样放进 TMEM 的。</li>
+</ul>
+
+<p>TMEM 按列分配：由一个 warp 执行 <code>tcgen05.alloc</code>，单位是 32 列，列数取 32 到 512 之间的 2 的幂；分配一列就占住全部 128 行；kernel 退出前必须全部释放 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。NVIDIA 的 Blackwell Ultra 架构图把它画成 4 个子分区、每个 64 KB <span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra: The Chip Powering the AI Factory Era. NVIDIA Technical Blog（SM 结构图：每个子分区 64 KB TMEM）。">8</a>]</span>。</p>
+
+<p>容量是 tile 大小的硬约束，账很好算。M=128 时输出的每一行占 TMEM 的一行，FP32 累加器有多少列就占多少列：</p>
+
+<ul>
+<li>128&times;128 的累加器占 128 列，两份 256 列，还剩一半；</li>
+<li>128&times;256 的累加器占 256 列，两份正好 512 列，把整块 TMEM 用光。</li>
+</ul>
+
+<p><code>cta_group::2</code>、M=256 时，两个 CTA 各存 128 行（偶 CTA 存第 0–127 行，奇 CTA 存第 128–255 行）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>, <a href="#ref-mlctc" title="MLC Community (2026). Blackwell Tensor Core — tcgen05.mma（TMEM 行映射与 <code>cta_group</code>）. In Modern GPU Programming For MLSys.">7</a>]</span>，所以每个 CTA 的账和上面相同：N=256 的 tile 在每个 CTA 里占 256 列。MLC 的第 9 步让两个 MMA 消费者分用 TMEM 的第 0–255 列和第 256–511 列 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>，整块 TMEM 都给了累加器，也就没有余地再做双缓冲。</p>
+
+<p>双缓冲是一种通用做法（<a href="#fig-tmem_double_buf">图 2</a>）：分配两份累加器，一份在做当前 tile 的 MMA，另一份在写回上一个 tile。按上面的账，128&times;128 的 tile 做得起，128&times;256 的 tile 做双缓冲就要占满 TMEM。MLC 的阶梯没有用 TMEM 双缓冲，它在每一步都只用一块累加器区域 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。</p>
 
 <figure id="fig-tmem_double_buf" data-kind="diagram">
 <img aria-labelledby="fig-tmem_double_buf-cap" src="figs/tmem_double_buf.svg" alt="TMEM 双缓冲"/>
-<figcaption id="fig-tmem_double_buf-cap"><span class="fig-label">图 2</span><b>TMEM 双缓冲让 MMA 和 epilogue 完全重叠。</b>Tile N 的 MMA 结果写入 TMEM buffer 0，同时 tile N&minus;1 的结果从 TMEM buffer 1 经由 <code>tcgen05.ld</code> 读出到寄存器并写回全局内存。两个 buffer 交替使用，每个 128 KB。</figcaption>
+<figcaption id="fig-tmem_double_buf-cap"><span class="fig-label">图 2</span><b>TMEM 双缓冲让写回和下一个 tile 的 MMA 重叠。</b>tile \(k\) 的 MMA 写 TMEM₀ 时，tile \(k-1\) 的结果从 TMEM₁ 经 <code>tcgen05.ld</code> 读进寄存器再写回；下一个 tile 两块交换角色。代价是两份累加器的列数，128&times;256 的 FP32 tile 两份就是 512 列，占满 TMEM。示意图。</figcaption>
 </figure>
 
-<p>在 Hopper 上实现类似的 MMA/epilogue 重叠需要两个 consumer warpgroup 做 ping-pong——这意味着两组寄存器累加器（每组 128 寄存器/线程）。Blackwell 的 TMEM 双缓冲不需要额外的线程——同一组 consumer 线程在 MMA 发射后立刻开始上一个 tile 的 epilogue，因为 MMA 写的是 TMEM buffer A 而 epilogue 读的是 TMEM buffer B，完全不冲突。</p>
+<p>和 Hopper 相比，这里省掉的是线程，而不是工作量：Hopper 要两个消费者 warpgroup 各持一份寄存器累加器才能交替，Blackwell 让一组线程在发完 MMA 后去读另一块 TMEM，两者用的存储不重叠。</p>
 
 <h2 id="sec-pipeline">TMA 流水线：PIPE_DEPTH=2</h2>
 
-<p>Blackwell GEMM 的搬运流水线比 Hopper 简单得多：只需要 PIPE_DEPTH=2 的双缓冲。回顾 Hopper 需要 4 级流水线的原因——每 stage 48 KB（BM=128 BN=256 BK=64），4 stage = 192 KB，这已经是为了在寄存器压力下尽可能多地隐藏搬运延迟。Blackwell 不需要这么深的流水线，因为 TMEM 消除了累加器对寄存器的压力，producer 线程可以用更少的 stage 实现同样的延迟隐藏。</p>
+<p>MLC 的第 4 步把搬运换成 TMA：一个线程发起 TMA，mbarrier 跟踪完成；第 5 步再把共享内存做成两级的环形缓冲（PIPE_DEPTH=2），让下一块的搬运和当前块的 MMA 重叠 <span class="cite">[<a href="#ref-mlcasync" title="MLC Community (2026). Asynchronous GEMM（第 4–6 步：TMA、软件流水线、persistent kernel）. In Modern GPU Programming For MLSys.">4</a>]</span>。下面是同样结构的骨架：</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_pipe.cu#L56-L86"><code>    // Prologue: fill pipe
     for (int s = 0; s &lt; PIPE_DEPTH &amp;&amp; s &lt; k_tiles; ++s) {
       if (tid == 0) {
-        // TMA load A[tile_m*BM.., s*BK..] &rarr; sA[s]
-        // TMA load B[s*BK.., tile_n*BN..] &rarr; sB[s]
+        // TMA load A[tile_m*BM.., s*BK..] → sA[s]
+        // TMA load B[s*BK.., tile_n*BN..] → sB[s]
         // Arrive on mbar[s]
       }
     }
@@ -395,7 +404,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
       // mbarrier.try_wait on mbar[stage]
       __syncthreads();
 
-      // tcgen05.mma on sA[stage], sB[stage] &rarr; TMEM
+      // tcgen05.mma on sA[stage], sB[stage] → TMEM
       if (tid == 0) {
         // asm volatile("tcgen05.mma ...;");
       }
@@ -411,59 +420,98 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }</code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_pipe.cu</code> 第 56–86 行（未在 GPU 上运行）</p>
 
-<p>每 stage 的共享内存占用：(BM&times;BK + BK&times;BN) &times; 2 = (128&times;64 + 64&times;128) &times; 2 = 32 KB。两个 stage 共 64 KB，加上 mbarrier 等开销不到 1 KB——远低于 Blackwell 每 SM 的 SMEM 限制。这意味着大量 SMEM 空间被释放出来，可以用于 L1 cache（Blackwell 的 L1/SMEM 分区和 Hopper 类似：SMEM 越少则 L1 越多），提升其他数据的访问效率。</p>
+<p>每级缓冲的共享内存是 \((128 \times 64 + 64 \times 128) \times 2\) B = 32 KB，两级 64 KB，远低于 Blackwell（计算能力 10.0）每 SM 228 KB 的共享内存上限 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>]</span>。流水线开几级，是在&ldquo;能藏住多少搬运延迟&rdquo;和&ldquo;共享内存还剩多少&rdquo;之间取舍，和累加器放在哪里无关；MLC 在这一步用的是两级。</p>
 
-<p>和 Hopper 的 4-stage 192 KB 相比，Blackwell 的 2-stage 64 KB 节省了 128 KB 的共享内存——这些空间可以自动变成 L1 cache，提升 epilogue 写回和 TMA 描述符访问的效率。这是一个隐含但重要的性能收益：更少的 SMEM 占用意味着更多的 L1 cache 容量，对于 epilogue 中可能涉及的 bias 加法、激活函数等操作来说有显著帮助。</p>
-
-<p>具体到数值：BM=128、BK=64 的 A tile 大小为 128 &times; 64 &times; 2 = 16 KB（FP16），BK=64、BN=128 的 B tile 同样 16 KB，每 stage 总共 32 KB。Hopper 的 4-stage 方案中每 stage 48 KB（BM=128 BN=256 BK=64），4 stage 合计 192 KB；Blackwell 的 2-stage 合计仅 64 KB——节省了 128 KB 的 SMEM，这些空间自动变成 L1 cache，对 epilogue 阶段的 bias 加法和激活函数读取有直接帮助。</p>
-
-<p>流水线的时序如下图所示（<a href="#fig-timeline">图 3</a>）：prologue 阶段填满 2 个 stage，之后进入 mainloop 的稳态——每做完一个 <code>tcgen05.mma</code> 就发起下一个 TMA 预取。由于只有 2 个 stage，代码逻辑非常简单：<code>k % 2</code> 决定读哪个缓冲区，<code>k + 2</code> 决定预取到哪个缓冲区。相比之下，Hopper 的 4-stage 流水线需要 <code>k % 4</code> 索引和更复杂的 mbarrier 管理。</p>
-
-<figure id="fig-timeline" data-kind="diagram">
-<img aria-labelledby="fig-timeline-cap" src="figs/blackwell_timeline.svg" alt="Blackwell GEMM 流水线时序"/>
-<figcaption id="fig-timeline-cap"><span class="fig-label">图 3</span><b>Blackwell GEMM 的双缓冲流水线时序。</b>Prologue 填充 2 个 stage 后进入稳态。每个 K 迭代中，TMA 预取下一个 stage 的数据（蓝色），同时 tcgen05.mma 在当前 stage 上执行（绿色）。TMEM 双缓冲让 epilogue（橙色）和下一个 tile 的 MMA 重叠。</figcaption>
-</figure>
+<p>代码结构很简单：<code>k % 2</code> 决定读哪一级缓冲，<code>k + 2</code> 决定预取到哪一级。骨架里用 <code>__syncthreads</code> 示意等待，真实 kernel 要对每一级的 mbarrier 按相位等待，并在 MMA 读完一级之后才允许 TMA 覆盖它。</p>
 
 <h2 id="sec-persistent">Persistent Kernel 与 CLC</h2>
 
-<p>和 Hopper 一样，Blackwell GEMM 使用 persistent kernel——只启动和 SM 数相同的 CTA（Blackwell Ultra 有 160 个 SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：Blackwell Ultra 的 160 SMs、256 KB TMEM/SM、256 KB L1/SMEM 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），每个 CTA 在循环中反复处理 tile。但 tile 调度机制有了根本升级。</p>
+<p>MLC 的第 6 步改成 persistent kernel：只启动和 SM 数相同的 CTA（B200 上 SM_COUNT=148），每个 CTA 在循环里反复取 tile 来算；取 tile 的方式是静态的 <code>ClusterPersistentScheduler2D</code>，按 L2 分组（<code>l2_group_size=8</code>）事先排好顺序 <span class="cite">[<a href="#ref-mlcasync" title="MLC Community (2026). Asynchronous GEMM（第 4–6 步：TMA、软件流水线、persistent kernel）. In Modern GPU Programming For MLSys.">4</a>]</span>。NVIDIA 没有公布 B200 的 SM 数 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>]</span>，148 是 MLC 代码里的取值；可移植的写法是运行时查询 SM 数。</p>
 
-<p>Hopper 的 persistent kernel 用全局 <code>atomicAdd</code> 抢 tile——虽然单次原子操作只需约 200 ns，但当 132 个 SM 同时争抢同一个计数器时，L2 分区的原子操作单元成为串行化瓶颈。假设 M=N=4096、BM=128、BN=128，总共 1024 个 tile，132 个 SM 平均每个处理 7.8 个 tile，在 tile 边界上的原子操作会形成短暂的争用热点——虽然绝对开销不大（每 tile &lt; 1%），但在 Tensor Core 利用率已经超过 95% 的场景下，这 1% 就是能否达到理论峰值的差距。</p>
-
-<p>Blackwell 引入了 CLC（Cluster Launch Control）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17.5（tcgen05.mma）、§9.7.14.11（tcgen05.ld/st/cp）、§9.7.5.8（cp.async.bulk.tensor）。">3</a>]</span>：SM 内的硬件调度器直接维护 tile 队列，每个 cluster 从本地队列取下一个 tile 编号，不需要跨 L2 的全局原子操作。CLC 的工作机制从根本上不同于原子计数器：它不是让所有 SM 争抢一个共享变量，而是由硬件调度器预先把 tile 分配到各个 SM 的本地队列中——每个 SM 只需从自己的队列头部取任务，完全避免了全局争用。</p>
-
-<p>CLC 的核心指令是 <code>clusterlaunchcontrol.try_cancel</code> 和 <code>clusterlaunchcontrol.query_cancel</code>——前者尝试从队列中取出一个待处理的 cluster 启动请求并转化为当前 cluster 的新任务，后者查询队列状态。这个机制把 tile 调度的延迟从跨芯片的 L2 原子操作（约 200 ns）降低到 SM 本地的硬件队列操作（预期 &lt; 50 ns），在大规模并行场景下大幅减少了调度争用。</p>
-
-<p>从调度公平性角度看，CLC 的硬件队列还有一个优势：调度器可以根据 SM 的实际执行进度动态调整 tile 分配，避免某些 SM 因为 cache 未命中或 epilogue 延迟而空转等待——这种动态负载均衡在 <code>atomicAdd</code> 方案中是无法实现的，因为 tile 的分配顺序完全取决于原子操作的竞争时序。</p>
-
-<p>不过在我们的代码示例中（为了可读性和兼容性），仍然使用 <code>atomicAdd</code> 做 tile 调度——CLC 的完整实现需要 sm_100a 编译和特定的 launch 配置：</p>
+<p>我们的骨架换了一种取法，用一个全局计数器的 <code>atomicAdd</code> 动态取 tile，和第 26 篇的 Hopper 版本一致：</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_pipe.cu#L45-L51"><code>  while (true) {
     // Persistent: grab next tile
-    int tile_idx;
+    int tile_idx = 0;
     if (tid == 0)
       tile_idx = atomicAdd(tile_counter, 1);
     tile_idx = __shfl_sync(0xffffffff, tile_idx, 0);
-    if (tile_idx >= total_tiles) break;</code></pre>
+    if (tile_idx &gt;= total_tiles) break;</code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_pipe.cu</code> 第 45–51 行（未在 GPU 上运行）</p>
+
+<p>静态排程的问题是它事先假定所有 SM 都能同时开工、每个 tile 代价相同。MLC 指出，kernel 启动时并不知道能拿到多少 SM，tile 的代价也可能不均，结果是一条长尾 <span class="cite">[<a href="#ref-mlcclc" title="MLC Community (2026). Advanced Scheduling — Cluster Launch Control. In Modern GPU Programming For MLSys.">9</a>]</span>。Blackwell 为此提供了 CLC（Cluster Launch Control）：正在运行的 cluster 用 <code>clusterlaunchcontrol.try_cancel</code> 请求取消一个<b>尚未开始运行</b>的 cluster，成功时拿到它第一个 CTA 的坐标，替它把活干掉；再用 <code>clusterlaunchcontrol.query_cancel</code> 解析响应 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。被取消的 cluster 从未执行，没有状态要搬。一旦某次请求失败，就该退出循环，PTX 规定之后再发 <code>try_cancel</code> 是未定义行为 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>。</p>
+
+<p>CLC 的完整用法（先发请求再算当前 tile、proxy fence）见<a href="../tc23-blackwell/tc23-blackwell.html#sec-clc">第 23 篇</a>。要注意的是，MLC 的 9 步 GEMM 阶梯并没有用 CLC，它从第 6 步起一直用静态的 persistent 调度器 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>；CLC 在 MLC 里是单独的一章。</p>
 
 <h2 id="sec-warpspec">2-CTA Warp Specialization</h2>
 
-<p>Blackwell 的 warp specialization 更进一步：不是在一个 CTA 内分 producer/consumer，而是用两个 CTA 组成一个 cluster（CLUSTER_M=2），让两个 SM 分工搬运（<a href="#fig-two_cta">图 4</a>）。</p>
+<p>MLC 的第 7 步把 CTA 内的线程分成角色：TMA 生产者、MMA 消费者、写回，用四组屏障衔接 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。第 8 步更进一步，让 cluster 里相邻的两个 CTA 组成 CTA pair，用 <code>tcgen05.mma.cta_group::2</code> 合作做一条 M=256 的 MMA（<a href="#fig-ctapair">图 3</a>）。</p>
 
-<figure id="fig-two_cta" data-kind="diagram">
-<img aria-labelledby="fig-two_cta-cap" src="figs/two_cta_cluster.svg" alt="2-CTA 协作"/>
-<figcaption id="fig-two_cta-cap"><span class="fig-label">图 4</span><b>2-CTA 集群：CTA 0 负责 TMA 加载 A，CTA 1 负责 TMA 加载 B。</b>两个 CTA 通过 <code>mapa</code> 指令访问对方的共享内存，各自的 consumer 线程从本地和远端 SMEM 读取操作数做 tcgen05.mma。TMEM 累加器在各自 SM 的 TMEM 中。</figcaption>
+<figure id="fig-ctapair" data-kind="diagram">
+  <div class="fig-body"><svg aria-labelledby="fig-ctapair-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 340" font-family="sans-serif" role="img" id="s1-root" style="max-width:560px;">
+  <defs>
+    <marker id="s1-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head"/>
+    </marker>
+    <marker id="s1-ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" class="d-head muted"/>
+    </marker>
+  </defs>
+
+  <text class="d-title" x="16" y="20">cta_group::2：两个 SM 合算一个 256 × 256 的 tile</text>
+
+  <rect class="d-group" x="16" y="36" width="256" height="252" rx="6"/>
+  <rect class="d-group" x="288" y="36" width="256" height="252" rx="6"/>
+  <text class="d-text" x="144" y="56" text-anchor="middle">CTA 0（偶）</text>
+  <text class="d-text" x="416" y="56" text-anchor="middle">CTA 1（奇）</text>
+
+  
+  <rect class="d-box blue" x="32" y="68" width="224" height="36" rx="4"/>
+  <text class="d-mono" x="144" y="91" text-anchor="middle">A 的第 0–127 行</text>
+  <rect class="d-box blue" x="304" y="68" width="224" height="36" rx="4"/>
+  <text class="d-mono" x="416" y="91" text-anchor="middle">A 的第 128–255 行</text>
+
+  <rect class="d-box blue" x="32" y="112" width="224" height="36" rx="4"/>
+  <text class="d-mono" x="144" y="135" text-anchor="middle">B 的第 0–127 列</text>
+  <rect class="d-box blue" x="304" y="112" width="224" height="36" rx="4"/>
+  <text class="d-mono" x="416" y="135" text-anchor="middle">B 的第 128–255 列</text>
+
+  
+  <path class="d-arrow muted dashed" d="M256 130 H304" marker-end="url(#s1-ahm)"/>
+  <path class="d-arrow muted dashed" d="M304 130 H256" marker-end="url(#s1-ahm)"/>
+
+  
+  <path class="d-arrow" d="M144 148 V174" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M416 148 V174" marker-end="url(#s1-ah)"/>
+  <rect class="d-box green" x="32" y="176" width="496" height="44" rx="4"/>
+  <text class="d-text" x="280" y="195" text-anchor="middle">一次 tcgen05.mma.cta_group::2</text>
+  <text class="d-small" x="280" y="212" text-anchor="middle">由 CTA 0 里一个被选中的线程发射，读两边的 A 与 B</text>
+
+  
+  <path class="d-arrow" d="M144 220 V246" marker-end="url(#s1-ah)"/>
+  <path class="d-arrow" d="M416 220 V246" marker-end="url(#s1-ah)"/>
+  <rect class="d-box accent" x="32" y="248" width="224" height="34" rx="4"/>
+  <text class="d-mono" x="144" y="270" text-anchor="middle">TMEM：D 第 0–127 行</text>
+  <rect class="d-box accent" x="304" y="248" width="224" height="34" rx="4"/>
+  <text class="d-mono" x="416" y="270" text-anchor="middle">TMEM：D 第 128–255 行</text>
+
+  <text class="d-small" x="16" y="310">每个 CTA 只搬一半操作数，却都要算自己那 128 行的全部 256 列。</text>
+  <text class="d-small" x="16" y="330">TMEM 的分配、释放也要两边各出一个 warp 共同完成。</text>
+</svg></div>
+  <figcaption id="fig-ctapair-cap"><span class="fig-label">图 3</span><b>每个 CTA 只搬一半操作数，却都要算自己那 128 行的全部 256 列，所以合作 MMA 要读到对方的共享内存。</b>以 M=256 为例：A 按行切开，两个 CTA 各存 128 行；B 按输出列切开，各存 128 列（虚线双箭头表示合作 MMA 跨 CTA 读取对方的 B）；结果分开存在两边的 TMEM 里，偶 CTA 存第 0–127 行，奇 CTA 存第 128–255 行。图与第 23 篇相同，切分方式依据 PTX ISA 9.4 §9.7.18.5.1 与 MLC 的 2-CTA GEMM 实现 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>, <a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。</figcaption>
 </figure>
 
-<p>为什么要用两个 CTA 而不是在一个 CTA 内做所有事？核心原因是搬运带宽。Hopper 的单 CTA warp specialization 中，一个 producer warp 要负责搬运 A 和 B 两个 tile——受限于单个 SM 的 TMA 单元吞吐。2-CTA 方案让两个 SM 的 TMA 单元并行工作：CTA 0 的 producer 只搬 A tile，CTA 1 的 producer 只搬 B tile，搬运总带宽翻倍（<a href="#fig-two_cta_split">图 5</a>）。</p>
+<p>具体的分工是（MLC 第 8 步 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>）：</p>
 
-<figure id="fig-two_cta_split" data-kind="diagram">
-<img aria-labelledby="fig-two_cta_split-cap" src="figs/two_cta_split.svg" alt="2-CTA 的搬运分工"/>
-<figcaption id="fig-two_cta_split-cap"><span class="fig-label">图 5</span><b>2-CTA 搬运分工：CTA 0 的 producer 只负责 A tile 的 TMA 加载，CTA 1 的 producer 只负责 B tile。</b>两个 SM 的 TMA 单元并行工作，总搬运带宽是单 CTA 的两倍。Consumer 通过 <code>mapa</code> 读取远端 SMEM。</figcaption>
-</figure>
+<ul>
+<li><b>搬运</b>：CTA 0 用 TMA 搬 A 的第 0–127 行和 B 的前 128 列，CTA 1 搬 A 的第 128–255 行和 B 的后 128 列。两个 CTA 的生产者都在干活，搬的量相同。</li>
+<li><b>发射</b>：只有 CTA 0 里由 <code>elect_sync</code> 选出的一个线程发射 <code>tcgen05.mma.cta_group::2</code>。Tensor Core 硬件直接读两个 CTA 的共享内存，并更新两边的 TMEM；没有哪个线程需要用 <code>ld.shared</code> 去读对方的共享内存。</li>
+<li><b>屏障</b>：两边的 TMA 都把完成信号报到 CTA 0 的 <code>tma2mma</code> 屏障上，CTA 0 的生产者登记的字节数是两个 CTA 加起来的总量；MMA 完成后，<code>mma2tma</code> 与 <code>mma2ld</code> 两个屏障都用 <code>cta_mask=3</code> 通知两边。</li>
+</ul>
 
-<p>2-CTA 版本的 barrier 结构也升级了——从 Hopper 的一维 full/empty 数组变成了二维的 <code>BarrierSet</code>（4 个 full + 4 个 empty），初始化时需要为 8 个 barrier 分别调用 <code>mbarrier.init</code>：</p>
+<p>为什么划算？看每份搬进共享内存的数据参与了多少计算。单 CTA 算 128&times;128 的 tile 时，每个 K 块搬 128&times;64 的 A 和 64&times;128 的 B，做 \(128 \times 128 \times 64\) 次乘加。2-CTA 时每个 CTA 搬的量不变（128 行 A 加一半 B），却要算自己 128 行 &times; 256 列的输出，乘加次数翻倍。MLC 的说法是每份 staged 操作数参与大约两倍的计算 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。收益来自复用，不是来自&ldquo;TMA 带宽翻倍&rdquo;：两个 CTA 搬的字节加起来，和两个独立 CTA 各算一块 128&times;128 时一样多。</p>
+
+<p>我们的骨架用一组 full/empty 屏障表达同样的结构：</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_warpspec.cu#L34-L49"><code>  // Barrier init (4 full + 4 empty = 8 barriers)
   BarrierSet* barriers = reinterpret_cast&lt;BarrierSet*&gt;(
@@ -483,142 +531,137 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   __syncthreads();</code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_warpspec.cu</code> 第 34–49 行（未在 GPU 上运行）</p>
 
-<p>8 个 barrier 的 arrive count 都初始化为 1——这意味着只需要一次 arrive 就能触发对端的 wait。在 2-CTA 方案中，full barrier 的 arrive 来自 producer（搬运完成信号），wait 来自 consumer（等待数据就绪）；empty barrier 反过来——arrive 来自 consumer（消费完成，缓冲区可复用），wait 来自 producer（等待空位）。这和 Hopper 的 mbarrier 协议完全一致，区别只在于 producer 和 consumer 现在可能在不同的 CTA 中——但 mbarrier 的 arrive/wait 语义天然支持跨 CTA 操作（因为 DSMEM 让 cluster 内的 CTA 可以直接访问对方的 SMEM，包括 barrier 所在的 SMEM 地址）。</p>
-
-<p>每个 CTA 内部仍然有 producer/consumer 分工。Consumer 线程通过 <code>mapa</code> 指令获取对方 CTA 的 SMEM 地址——<code>mapa.shared::cluster.u32</code> 把一个远端 CTA 的 SMEM 地址映射到本地可访问的地址空间<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17.5（tcgen05.mma）、§9.7.14.11（tcgen05.ld/st/cp）、§9.7.5.8（cp.async.bulk.tensor）。">3</a>]</span>。这是 cluster 架构提供的 DSMEM（Distributed Shared Memory）能力：同一个 cluster 内的 CTA 可以直接读写对方的共享内存，延迟比通过 L2 转发低得多。</p>
-
-<p><code>mapa</code> 的实际用法是：consumer 线程先用 <code>mapa.shared::cluster.u32 dest, src_addr, target_cta</code> 得到远端 CTA 共享内存在本地地址空间的映射指针，然后通过普通的 <code>ld.shared</code> 指令读取。这个映射是通过 cluster 级别的互联硬件实现的——同一个 GPC 内的 SM 之间有专用的 DSMEM 数据通路，不需要走 L2 cache 或 NoC（Network on Chip）。延迟预计在 30–50 ns 量级，接近本地 SMEM 的 20–30 ns，远低于 L2 转发路径的 200+ ns。但要注意的限制是：<code>mapa</code> 只在同一个 cluster 内有效，跨 cluster 的数据共享仍然需要通过全局内存或 L2。</p>
+<p>两种屏障的到达计数都初始化为 1。full 屏障（相当于 MLC 的 <code>tma2mma</code>）只有 CTA 0 的那一个有用：CTA 0 的生产者做一次 <code>mbarrier.arrive.expect_tx</code>，登记两边 TMA 的总字节数；两边的 TMA 用 <code>.shared::cluster</code> 形式把完成的字节数报到这同一个屏障上，字节数凑齐、相位翻转，MMA 才能开始。empty 屏障（相当于 <code>mma2tma</code>）由 <code>tcgen05.commit</code> 的 multicast 形式同时到达两个 CTA，告诉两边的生产者这一级缓冲可以覆盖了 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>, <a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。</p>
 
 <pre data-code="code/gm27-blackwell-gemm/bw_gemm_warpspec.cu#L64-L97"><code>    if (is_producer) {
-      // Producer: low register count (40)
-      // CTA0 loads A tiles, CTA1 loads B tiles
+      // Producer warp: one elected lane issues TMA
+      // This CTA: A rows [cta_rank*BM, +BM), half of B
       for (int k = 0; k &lt; K / BK; ++k) {
         int stage = k % N_STAGES;
 
-        // Wait for empty[stage]
-        // TMA load into smem[stage]
-        if (cta_rank == 0) {
-          // Load A tile via TMA
+        // Wait for empty[stage] (freed by the MMA commit)
+        // TMA A rows + B half -&gt; smem[stage]; completes on
+        if (cta_rank == 0) {  // CTA 0's full[stage]
+          // arrive.expect_tx: bytes of BOTH CTAs' loads
         } else {
-          // Load B tile via TMA
+          // .shared::cluster: signal CTA 0's barrier
         }
-        // Arrive on full[stage]
+        // CTA 1 never arrives; its TMA tx bytes count
       }
     } else {
-      // Consumer: high register count (232)
-      // TMEM double-buffered accumulators
-      int tmem_buf = 0;
+      // MMA + epilogue warps; one TMEM accumulator
+      // region per CTA (128 lanes x 256 columns)
+      const bool issuer = (cta_rank == 0);
 
       for (int k = 0; k &lt; K / BK; ++k) {
         int stage = k % N_STAGES;
 
-        // Wait for full[stage]
-        // tcgen05.mma: reads A from CTA0's smem (via mapa),
-        //              B from CTA1's smem (via mapa),
-        //              accumulates into TMEM[tmem_buf]
-        // Arrive on empty[stage]
+        if (issuer) {  // CTA 0: wait full[stage], then
+          // one elected thread: tcgen05.mma.cta_group::2
+          // (reads A, B in BOTH CTAs' smem; D -&gt; each TMEM)
+          // tcgen05.commit multicast cta_mask=3 -&gt; empty
+        }  // CTA 1 issues nothing; its smem is read by HW
       }
 
-      // TMEM &rarr; register &rarr; global
+      // Wait MMA-done barrier; tcgen05.ld TMEM -&gt; C
       int bm = tile_m * BM * CLUSTER_M + cta_rank * BM;
-      int bn = tile_n * BN;</code></pre>
+      int bn = tile_n * BN;
+      for (int i = tid - 32; i &lt; BM * BN / 2;</code></pre>
 <p class="src-note">完整代码：<code>code/gm27-blackwell-gemm/bw_gemm_warpspec.cu</code> 第 64–97 行（未在 GPU 上运行）</p>
 
-<p>注意代码中的 <code>tmem_buf</code> 变量：consumer 在 K 循环中交替使用两组 TMEM 列（<code>tmem_buf = 0</code> 和 <code>tmem_buf = 1</code>），一组在做 MMA 累加，另一组在做上一个 tile 的 epilogue（<code>tcgen05.ld</code> 读到寄存器，然后 store 到全局内存）。这是 Blackwell 相对于 Hopper 的核心简化——不需要两个 consumer warpgroup 做 ping-pong。单组 consumer 线程就能同时驱动 MMA 和 epilogue，因为两者操作不同的存储空间：MMA 写 TMEM，epilogue 读 TMEM 并写寄存器和 GMEM。</p>
+<p>代码里 CTA 1 的 MMA 线程什么也不发，它的共享内存由 CTA 0 发射的那条 MMA 直接读取，它的 TMEM 也由那条 MMA 写入；CTA 1 只需要在 MMA 完成后从自己的 TMEM 读出 128 行结果写回。骨架用了 4 级流水线，这是我们的选择，MLC 的级数本文没有核对；每级每个 CTA 存 128&times;64 的 A 和 128&times;64 的那一半 B，共 \((128 \times 64 + 128 \times 64) \times 2\) B = 32 KB，4 级 128 KB，仍在 228 KB 以内 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</p>
 
-<p>还值得注意 N_STAGES=4 的选择。虽然前面说过 Blackwell 只需要 PIPE_DEPTH=2 的 SMEM 双缓冲，但在 2-CTA warp specialization 的完整版本中，producer 和 consumer 之间的 full/empty 流水线仍然用 4 个 stage——这里的&ldquo;4 stage&rdquo;指的是 mbarrier 同步的级数，不是 SMEM 缓冲区数。4 级 mbarrier 流水线让 producer 可以领先 consumer 最多 4 个 K-tile 的搬运量，充分隐藏搬运延迟。每个 stage 的 SMEM 只需 32 KB（BM=256 BK=64 的 A tile + BK=64 BN=128 的 B tile），4 个 stage 共 128 KB——Blackwell 每 SM 的 SMEM 容量完全够用。</p>
+<p>MLC 的第 9 步（多消费者）没有写进骨架：它让 CTA 0 里的两个 MMA 消费者共用同一份 staged B，cluster tile 变成 512&times;256，两个消费者各用 TMEM 的一半列 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>，一份 B 因此参与两条合作 MMA。</p>
 
 <h2 id="sec-mlc">MLC 优化阶梯复盘</h2>
 
-<p>NVIDIA 的 CUTLASS MLC（Matrix Multiply-Accumulate Launch Configuration）文档<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Blackwell GEMM 的 MLC 参考实现。">5</a>]</span>把 Blackwell GEMM 的优化分成 9 步，从最简单的单 tile 验证到完整的 2-CTA persistent kernel。下面是逐步复盘（<a href="#fig-mlc_ladder">图 6</a>）：</p>
+<p>MLC 社区的教程《Modern GPU Programming For MLSys》用 9 步把 B200 上 \(M=N=K=4096\) 的 FP16 GEMM 从一个朴素版本做到与 cuBLAS 持平 <span class="cite">[<a href="#ref-mlcbasic" title="MLC Community (2026). GEMM Basics（第 1–3 步）. In Modern GPU Programming For MLSys.">3</a>, <a href="#ref-mlcasync" title="MLC Community (2026). Asynchronous GEMM（第 4–6 步：TMA、软件流水线、persistent kernel）. In Modern GPU Programming For MLSys.">4</a>, <a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。<a href="#tab-mlc_ladder">表 2</a> 列出每一步和它的实测耗时，耗时曲线见<a href="../hw03-performance-model/hw03-performance-model.html#sec-ladder">第 3 篇</a>的优化阶梯图。</p>
 
-<figure id="fig-mlc_ladder" data-kind="diagram">
-<img aria-labelledby="fig-mlc_ladder-cap" src="figs/mlc_ladder.svg" alt="MLC 9 步优化阶梯"/>
-<figcaption id="fig-mlc_ladder-cap"><span class="fig-label">图 6</span><b>MLC 9 步优化阶梯：从单 tile 到完整的 2-CTA persistent kernel。</b>每一步解决一个具体的性能瓶颈——数据搬运延迟、流水线深度、持久化调度、线程分工、跨 CTA 数据共享。</figcaption>
-</figure>
-
-<table data-source="paper">
-<caption><b>MLC Step 1–9 对应的优化及其解决的瓶颈。</b></caption>
+<figure id="tab-mlc_ladder" class="table" data-source="paper">
+<figcaption id="tab-mlc_ladder-cap"><span class="fig-label">表 2</span><b>MLC 的 9 步 Blackwell GEMM 阶梯。</b>耗时来自 MLC 的 &ldquo;End-to-End Results&rdquo; 表（B200，锁频，每版本 1000 次计时迭代，单次参考运行）<span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>，&ldquo;—&rdquo; 表示原表未单独计时；第 1 步的 70 ms 是整矩阵的基线，不是单 tile 版本的运行结果。&ldquo;加速&rdquo;是相对上一个有计时的步骤（第 7 步相对第 4 步），由本文按耗时相除得到。</figcaption>
+<div class="table-wrap"><table>
 <thead>
-<tr><th>Step</th><th>优化</th><th>关键变化</th><th>解决的瓶颈</th></tr>
+<tr><th>步</th><th>改动</th><th class="num">耗时 (ms)</th><th class="num">加速</th></tr>
 </thead>
 <tbody>
-<tr><td>1</td><td>单 tile tcgen05.mma</td><td>TMA &rarr; SMEM &rarr; tcgen05.mma &rarr; TMEM</td><td>基本功能验证</td></tr>
-<tr><td>2</td><td>K-loop</td><td>沿 K 维度循环累加</td><td>处理完整的 K 维度</td></tr>
-<tr><td>3</td><td>TMA 描述符 + mbarrier</td><td>异步搬运与硬件同步</td><td>搬运与计算串行化</td></tr>
-<tr><td>4</td><td>PIPE_DEPTH=2 双缓冲</td><td>搬运与计算重叠</td><td>搬运延迟暴露</td></tr>
-<tr><td>5</td><td>Persistent kernel</td><td>消除 launch overhead</td><td>Wave quantization</td></tr>
-<tr><td>6</td><td>TMEM 双缓冲</td><td>Epilogue 与 MMA 重叠</td><td>Epilogue 阻塞 MMA</td></tr>
-<tr><td>7</td><td>Warp specialization</td><td>Producer / consumer 解耦</td><td>搬运阻塞计算线程</td></tr>
-<tr><td>8</td><td>2-CTA cluster</td><td>CTA 0 搬 A、CTA 1 搬 B</td><td>单 SM TMA 带宽不足</td></tr>
-<tr><td>9</td><td>CLC 调度</td><td>硬件 tile 队列替代全局原子</td><td>全局原子调度延迟</td></tr>
+<tr><td>1</td><td>同步加载 + MMA</td><td class="num">70</td><td class="num">—</td></tr>
+<tr><td>2</td><td>K 循环累加</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>3</td><td>空间分块（每 CTA 一个 128&times;128 tile）</td><td class="num">53.6</td><td class="num">1.3&times;</td></tr>
+<tr><td>4</td><td>TMA 异步加载</td><td class="num">0.49</td><td class="num">109&times;</td></tr>
+<tr><td>5</td><td>软件流水线</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>6</td><td>Persistent kernel</td><td class="num">—</td><td class="num">—</td></tr>
+<tr><td>7</td><td>Warp specialization</td><td class="num">0.23</td><td class="num">2.1&times;</td></tr>
+<tr><td>8</td><td>2-CTA cluster（<code>cta_group::2</code>）</td><td class="num">0.104</td><td class="num">2.2&times;</td></tr>
+<tr><td>9</td><td>多消费者</td><td class="num">0.094</td><td class="num">1.1&times;</td></tr>
+<tr><td>—</td><td>cuBLAS</td><td class="num">0.094</td><td class="num">—</td></tr>
 </tbody>
-</table>
+</table></div>
+</figure>
 
-<p>本篇的三个代码文件分别对应 Step 1–3（<code>bw_gemm_basic.cu</code>）、Step 4–6（<code>bw_gemm_pipe.cu</code>）和 Step 7–9（<code>bw_gemm_warpspec.cu</code>）。每一步都是在前一步的基础上添加一个优化——这种增量式的构建方式正是理解 GPU GEMM 优化的最佳路径：先确保功能正确，再逐步消除瓶颈。</p>
+<p>这张表值得逐行读。第 1–3 步只是把计算铺开，耗时仍是几十毫秒；第 4 步换成 TMA，一下快了约 109 倍，这是整条阶梯里最大的一跳。第 5–7 步（流水线、persistent、warp 特化）原表只给了第 7 步的耗时，三步合起来又快了约 2.1 倍，它们都在让搬运、MMA 和写回不互相等待。第 8 步的 2-CTA 再快约 2.2 倍，来自上一节说的操作数复用；第 9 步的多消费者再快约 10%，追平 cuBLAS。从第 1 步到第 9 步一共快了七百四十多倍（\(70 / 0.094\)）。这些数字来自一次参考运行，MLC 没有说明 B200 的具体型号与锁定的频率，只能看量级和趋势。</p>
 
-<p>值得注意的是，这 9 步中最大的性能跳跃通常出现在 Step 4（双缓冲流水线）和 Step 7（warp specialization）。Step 4 让搬运和计算从串行变为并行——这是一个质变，通常能带来接近两倍的加速。Step 7 把搬运线程从计算逻辑中彻底分离出来，让 producer 线程以最低寄存器预算全速搬运，consumer 线程以最高寄存器预算全力计算——实现了资源的最优分配。Step 6（TMEM 双缓冲）和 Step 8（2-CTA）则是在此基础上的渐进优化，各自贡献约 10–20% 的性能提升。Step 9（CLC）的收益最小，主要体现在超大矩阵和高 SM 数的场景。从扩展性看，atomicAdd 的争用开销随 SM 数线性增长（更多 SM 争抢同一个 L2 分区的原子操作单元），而 CLC 的本地队列让调度延迟基本不随 SM 数变化——这意味着在 Blackwell Ultra（160 SM）和未来可能有更多 SM 的架构上，CLC 的优势会越来越明显。</p>
+<p>本篇的三个代码文件是按这条阶梯写的骨架：<code>bw_gemm_basic.cu</code> 对应第 1–3 步（但一开始就用了 TMA），<code>bw_gemm_pipe.cu</code> 对应第 4–6 步（用 <code>atomicAdd</code> 动态取 tile，而不是 MLC 的静态调度器），<code>bw_gemm_warpspec.cu</code> 对应第 7–8 步；第 9 步没有写。它们只表达结构，MMA、TMA 与屏障操作都用注释占位。</p>
 
 <h2 id="sec-hb">与 Hopper 的对比</h2>
 
-<p>从编程模型的演化角度看，Blackwell 的 GEMM 是 NVIDIA 持续推进&ldquo;硬件吞下软件复杂度&rdquo;策略的又一步。Volta 引入 Tensor Core 把矩阵乘从 CUDA Core 的标量乘累加变成了硬件指令；Ampere 的 mma.sync 把一个 warp 的 32 线程绑在一起协作做 MMA；Hopper 的 WGMMA 把粒度扩大到 128 线程的 warpgroup 并引入 TMA 硬件搬运；Blackwell 的 tcgen05 终于把 MMA 发射缩减到单线程——从 32 线程到 128 线程再到 1 线程，每一代都在减少&ldquo;参与但不贡献计算的线程开销&rdquo;。同时每一代的单指令计算量不断增大（4K &rarr; 524K &rarr; 4.2M FLOP），让指令发射的均摊开销越来越低。</p>
+<p>从编程模型看，Tensor Core 指令的发射粒度一路收缩：Ampere 的 <code>mma.sync</code> 由一个 warp 的 32 个线程共同执行，Hopper 的 <code>wgmma</code> 由 128 个线程的 warpgroup 共同发射，Blackwell 的 <code>tcgen05.mma</code> 由一个线程发射。单条指令的计算量则一路变大：m16&times;n8&times;k16 的 <code>mma.sync</code> 是 4,096 FLOP，m64&times;n256&times;k16 的 <code>wgmma</code> 是 524,288 FLOP，m128&times;n256&times;k16 的 <code>tcgen05.mma</code> 是 1,048,576 FLOP（均按 \(2MNK\) 计算）。<a href="#tab-hopper_vs_blackwell">表 3</a> 把两代 GEMM 的工具箱放在一起。</p>
 
-<p>把 Hopper 和 Blackwell 的 GEMM 工具箱放在一起做全景对比：</p>
-
-<table data-source="paper">
-<caption><b>Hopper vs Blackwell GEMM 全景对比。</b></caption>
+<figure id="tab-hopper_vs_blackwell" class="table" data-source="paper">
+<figcaption id="tab-hopper_vs_blackwell-cap"><span class="fig-label">表 3</span><b>Hopper 与 Blackwell GEMM 的工具箱。</b>指令语义依据 PTX ISA 9.4 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。">2</a>]</span>，FLOP 按 \(2MNK\) 计算，Blackwell 一栏的 GEMM 结构依据 MLC 教程 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">5</a>]</span>。</figcaption>
+<div class="table-wrap"><table>
 <thead>
 <tr><th>维度</th><th>Hopper GEMM</th><th>Blackwell GEMM</th></tr>
 </thead>
 <tbody>
-<tr><td>累加器</td><td>寄存器文件（65,536 regs/SM 共享）</td><td>TMEM（256 KB/SM 专用）</td></tr>
-<tr><td>MMA 指令</td><td>wgmma.mma_async m64&times;n256&times;k16</td><td>tcgen05.mma m256&times;n128&times;k64</td></tr>
-<tr><td>MMA FLOP/指令</td><td>524,288</td><td>4,194,304 (8&times;)</td></tr>
-<tr><td>流水线深度</td><td>4–8 stage（受寄存器压力约束）</td><td>2 stage（TMEM 消除了压力）</td></tr>
-<tr><td>Epilogue 重叠</td><td>Ping-pong 两个 warpgroup</td><td>TMEM 双缓冲（同一组线程）</td></tr>
-<tr><td>搬运分工</td><td>CTA 内 producer warp</td><td>2-CTA：CTA 0 搬 A，CTA 1 搬 B</td></tr>
-<tr><td>Tile 调度</td><td>全局 atomicAdd (~200 ns)</td><td>CLC 硬件队列 (&lt;50 ns)</td></tr>
+<tr><td>累加器</td><td>寄存器（m64&times;n256 FP32 每线程 128 个）</td><td>TMEM（每 CTA 128 行 &times; 512 列 &times; 32 位）</td></tr>
+<tr><td>最大稠密 FP16 指令</td><td>wgmma m64&times;n256&times;k16，524,288 FLOP</td><td>tcgen05 <code>cta_group::2</code> m256&times;n256&times;k16，2,097,152 FLOP（两个 SM 合作）</td></tr>
+<tr><td>发射</td><td>warpgroup（128 线程）</td><td>单线程</td></tr>
+<tr><td>MMA 与写回重叠</td><td>两个消费者 warpgroup ping-pong</td><td>TMEM 双缓冲，或多个 MMA 消费者分用 TMEM</td></tr>
+<tr><td>跨 SM 协作</td><td>cluster 内 TMA multicast</td><td>CTA pair 合作做一条 MMA</td></tr>
+<tr><td>动态调度</td><td>全局原子计数器</td><td>可用 CLC 接手尚未启动的 cluster</td></tr>
 </tbody>
-</table>
+</table></div>
+</figure>
 
-<p>Blackwell 的设计哲学可以总结为&ldquo;把通用资源的压力转移到专用资源上&rdquo;：累加器从通用寄存器移到专用 TMEM，tile 调度从通用原子操作移到专用 CLC 硬件调度器，搬运从单 CTA 的通用线程移到跨 CTA 的专用 producer。每一种资源都在做它最擅长的事情——代价是编程模型更复杂，但性能天花板更高。从编程复杂度来看，Hopper GEMM 的难点在于 WGMMA 描述符编码、full/empty mbarrier 协议和 ping-pong 双 warpgroup 的状态管理；而 Blackwell 的难点在于 TMEM 列的生命周期管理（alloc/dealloc 时机）、<code>mapa</code> 跨 CTA 地址映射、CLC 指令语义以及 2-CTA 之间的 barrier 协调。两代的优化手段不同，但核心思想一脉相承：让搬运和计算尽可能并行、让每种硬件资源承担最适合它的任务。</p>
+<p>两代的思路一脉相承：让搬运、计算和写回尽量并行，让每种硬件资源只做它擅长的事。Blackwell 把累加器交给 TMEM、把发射交给一个线程、把一个 tile 交给一对 SM，代价是要自己管的东西更多：TMEM 列的分配与释放、两种描述符的逐位编码、<code>cta_group::2</code> 下跨 CTA 的屏障协调，以及 CLC 请求的时机和 proxy fence。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：tcgen05.mma 和 WGMMA 的核心区别？</dt>
-<dd>三个层面：(1) 发射粒度——WGMMA 由 128 线程的 warpgroup 发射，tcgen05.mma 由单线程发射；(2) 累加器位置——WGMMA 的累加器在寄存器文件中（跨 128 线程分布），tcgen05.mma 的在 TMEM 中；(3) 计算粒度——tcgen05 的 M 维度从 64 扩大到 256，单条指令 FLOP 从 524K 增到 4.2M（8 倍）。
-<br><b>追问</b>：单线程发射怎么保证吞吐？&rarr; tcgen05.mma 是异步的——thread 0 发射后立刻返回，Tensor Core 在后台执行。其他线程可以自由做搬运或 epilogue 工作。</dd>
+<dd>三点。发射：WGMMA 由 128 线程的 warpgroup 共同发射，tcgen05.mma 是单线程语义。累加器：WGMMA 在寄存器里（m64&times;n256 的 FP32 累加器每线程 128 个寄存器），tcgen05 在 TMEM 里。形状：tcgen05 的 M 可到 128（单 CTA）或 256（CTA pair），K 和 WGMMA 一样是 16（稠密 FP16），m128&times;n256&times;k16 一条是 WGMMA 最大指令的 2 倍 FLOP。
+<br><b>追问</b>：单线程发射怎么知道 MMA 做完了？&rarr; 发射线程用 <code>tcgen05.commit</code> 让一个 mbarrier 跟踪此前发出的 MMA；读结果的线程等这个 mbarrier，再执行 <code>tcgen05.fence::after_thread_sync</code>，然后 <code>tcgen05.ld</code>。</dd>
 
-<dt id="sec-q2">Q2：为什么 Blackwell 只需要 PIPE_DEPTH=2？</dt>
-<dd>因为累加器在 TMEM 而非寄存器中。Hopper 需要 4–8 stage 部分是因为累加器占用大量寄存器（每线程 128–256 个），多个 stage 可以分时复用有限的寄存器；同时需要 ping-pong 两个 warpgroup 掩盖 epilogue。Blackwell 的 TMEM 容量足够双缓冲（两组各 128 KB &le; 256 KB），而 TMEM 双缓冲又让 epilogue 和 MMA 重叠，不需要额外的 stage 来分摊延迟。
-<br><b>追问</b>：TMEM 双缓冲和 SMEM 双缓冲有什么区别？&rarr; SMEM 双缓冲在搬运和计算之间切换（stage 0 在做 MMA 时 stage 1 在做 TMA 加载）；TMEM 双缓冲在计算和 epilogue 之间切换（TMEM buffer 0 在做 MMA 累加时 buffer 1 在做 TMEM&rarr;register&rarr;GMEM 的写回）。两种双缓冲可以同时使用。</dd>
+<dt id="sec-q2">Q2：TMEM 双缓冲和共享内存双缓冲有什么区别？</dt>
+<dd>共享内存双缓冲在搬运和计算之间切换：一级缓冲在被 MMA 读，另一级在被 TMA 写，这是 MLC 的第 5 步（PIPE_DEPTH=2）。TMEM 双缓冲在计算和写回之间切换：一份累加器在被 MMA 写，另一份在被 <code>tcgen05.ld</code> 读出写回。两者可以同时用。
+<br><b>追问</b>：TMEM 双缓冲有什么代价？&rarr; 列数翻倍。128&times;256 的 FP32 累加器占 256 列，两份就是 512 列，整块 TMEM 用光。MLC 的阶梯没有用 TMEM 双缓冲，第 9 步改用两个 MMA 消费者分用 TMEM 的两半。</dd>
 
-<dt id="sec-q3">Q3：2-CTA warp specialization 比单 CTA 的好在哪？</dt>
-<dd>搬运带宽翻倍。单 CTA 的 warp specialization 中，一个 producer warp 要搬 A 和 B 两个 tile——受限于一个 SM 的 TMA 单元吞吐。2-CTA 让两个 SM 的 TMA 单元分别搬 A 和 B，并行工作。Consumer 通过 <code>mapa</code> 指令读对方 CTA 的 SMEM。
-<br><b>追问</b>：<code>mapa</code> 的延迟比 L2 转发低多少？&rarr; <code>mapa</code> 走的是 cluster 内的 DSMEM 互联，延迟预计在 30–50 ns 量级，比通过 L2 转发的 200+ ns 快得多。代价是只在同一个 cluster 内有效——跨 cluster 仍然要走 L2。</dd>
+<dt id="sec-q3">Q3：2-CTA 比单 CTA 好在哪？</dt>
+<dd>操作数复用翻倍。一对 CTA 合作做一条 M=256 的 MMA：每个 CTA 搬自己的 128 行 A 和一半 B，却要算自己 128 行的全部 256 列，所以每份搬进共享内存的数据参与约两倍的计算。MLC 的第 8 步因此从 0.23 ms 降到 0.104 ms。
+<br><b>追问</b>：合作 MMA 怎么读到对方的共享内存？&rarr; 由 Tensor Core 硬件直接读，不需要线程去读远端共享内存。MMA 只由 CTA 0 的一个线程发射；两边的 TMA 都把完成字节数报到 CTA 0 的屏障上，MMA 完成后用 <code>cta_mask=3</code> 通知两边。</dd>
 
-<dt id="sec-q4">Q4：CLC 替代 atomicAdd 做调度有什么好处？</dt>
-<dd>全局 atomicAdd 需要跨 L2 分区的原子操作，延迟约 200 ns。当 160 个 SM 同时争用一个计数器时，L2 分区的原子操作单元成为串行化点——实际延迟可能数倍于理论值。CLC 在 SM 本地有硬件 tile 队列，调度延迟更低（预计 &lt; 50 ns）、争用更少（无全局共享状态）。代价是需要特定的 PTX 指令和更复杂的编程模型。</dd>
+<dt id="sec-q4">Q4：CLC 解决了什么问题？</dt>
+<dd>静态的 persistent 调度事先把 tile 分好，假定所有 SM 同时开工、每个 tile 代价相同；SM 被别的 kernel 占着或 tile 代价不均时，会拖出一条长尾。CLC 让正在运行的 cluster 用 <code>try_cancel</code> 取消一个尚未启动的 cluster，接手它的坐标，被取消的 cluster 从未执行，没有状态要搬。
+<br><b>追问</b>：请求失败了能不能再试？&rarr; 不能。本 CTA 观察到一次失败后再发 <code>try_cancel</code> 是未定义行为，应当退出循环。</dd>
 
-<dt id="sec-q5">Q5：TMEM 的列式寻址和 GPU 寄存器文件的线程式分配有什么本质区别？</dt>
-<dd>寄存器文件是按线程分配的——每线程最多 255 个 32 位寄存器，WGMMA 的 m64&times;n256 累加矩阵的 16,384 个 FP32 值被均匀分散到 128 个线程中（每线程 128 个寄存器），线程之间没有直接的访问路径（需要 <code>__shfl_sync</code>）。TMEM 是按列分配的——每列 512 字节对应 128 个 FP32 值，Tensor Core 硬件按固定的映射模式读写列，不需要跨线程的数据交换。这意味着 epilogue 时 <code>tcgen05.ld</code> 可以直接按列读出数据，每个线程拿到自己对应行的值，而 Hopper 的 epilogue 需要在线程间 shuffle 才能拼出完整的输出 tile。
-<br><b>追问</b>：TMEM 有容量限制吗？&rarr; 有。每 SM 256 KB，做双缓冲时每组 128 KB，对应 m256&times;n128 的 FP32 累加矩阵（256 列 &times; 512 B = 128 KB）。如果 N 维度更大（如 n256），单组累加器就需要 256 KB，无法双缓冲——这是 Blackwell GEMM tile 大小选择的硬约束之一。</dd>
+<dt id="sec-q5">Q5：TMEM 的寻址和寄存器文件有什么不同？</dt>
+<dd>寄存器按线程分配，每线程最多 255 个，WGMMA 的累加器分散在 128 个线程上。TMEM 按列分配：每 CTA 128 行 &times; 512 列 &times; 32 位，由一个 warp 用 <code>tcgen05.alloc</code> 申请，单位 32 列、列数为 2 的幂，分配一列就占住全部 128 行，kernel 退出前必须释放。读回时 warpgroup 的第 \(i\) 个 warp 只能访问第 \(32i\) 到 \(32i+31\) 行。
+<br><b>追问</b>：容量够放多大的累加器？&rarr; M=128 时，128&times;N 的 FP32 累加器占 N 列：128&times;256 占一半，两份占满。这决定了 tile 的 N 开多大、还能不能做双缓冲。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查（<code>check_cuda.sh</code>），<b>未在 GPU 上编译或运行</b>。<code>tcgen05.mma</code> 的实际 PTX 用注释占位，因为完整的 TMEM 描述符编码和 tcgen05 指令格式无法在非 GPU 环境中验证。</li>
-<li>CLC 调度的具体 PTX 指令（<code>clusterlaunchcontrol.*</code>）在代码中未出现——我们使用 <code>atomicAdd</code> 作为功能等价的替代。CLC 的完整实现见 CUTLASS 3.x<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Blackwell GEMM 的 MLC 参考实现。">5</a>]</span>。</li>
-<li><code>mapa</code> 指令（跨 CTA 的 SMEM 地址映射）在代码中用注释描述——实际的 PTX 为 <code>mapa.shared::cluster.u32</code>，需要 sm_100a 编译。</li>
-<li>Blackwell Ultra 的 SM 数为 160<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：Blackwell Ultra 的 160 SMs、256 KB TMEM/SM、256 KB L1/SMEM 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，但 B200（非 Ultra）的 SM 数未被 NVIDIA 公开——代码中使用 160 是基于 Blackwell Ultra 的数据。</li>
-<li>MLC Step 1–9 的描述是基于 CUTLASS 文档的简化版本——实际实现中每一步还涉及大量细节（TMEM 列分配策略、barrier group 管理、tcgen05.fence 与 mbarrier 的交互语义等）。</li>
+<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查（<code>check_cuda.sh</code>），<b>未在 GPU 上编译或运行</b>。<code>tcgen05.mma</code>、TMA 与屏障操作都用注释占位，两种描述符的逐位编码没有写出来。</li>
+<li>骨架和 MLC 的实现并不一一对应：前三步一开始就用了 TMA，persistent 调度用的是 <code>atomicAdd</code> 而不是 MLC 的静态调度器，第 9 步没有写，流水线级数是我们自己选的。</li>
+<li>CLC 只在正文里描述，代码里没有出现；可以参照第 23 篇的 CLC 循环骨架。</li>
+<li>B200 的 SM 数 NVIDIA 没有公布 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128×512×32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。">1</a>]</span>，代码用的 148 取自 MLC；Blackwell Ultra 最多 160 个 SM，各 SKU 不同。</li>
+<li>MLC 的耗时是单次参考运行，型号与锁定频率未注明；本文的倍数只由这些耗时相除得到，没有自己测量。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>Blackwell GEMM 的核心创新是 TMEM——这一个改变牵动了整条优化链：累加器从通用寄存器文件搬到专用存储后，流水线设计大幅简化（4–8 stage 缩减到 2 stage），epilogue 可以和 MMA 通过 TMEM 双缓冲完全重叠（不再需要 ping-pong 两个 warpgroup），warp specialization 升级到 2-CTA 跨 SM 协作以充分利用双倍的 TMA 带宽，Tensor Core 指令粒度从 warpgroup（128 线程）降到单线程、M 维度从 64 扩大到 256。代价是编程模型更复杂——<code>tcgen05.mma</code> 的 SMEM 描述符格式、TMEM 列的 alloc/dealloc 生命周期管理、<code>mapa</code> 跨 CTA 共享内存地址映射、CLC 硬件 tile 队列调度都是全新的概念，学习曲线比 Hopper 更陡。但这种&ldquo;专用资源做专用事&rdquo;的架构哲学，让 Blackwell 在不显著增加芯片面积的情况下大幅提升了 GEMM 的性能天花板。下一篇离开优化阶梯，看 GEMM 的各种变体：Split-K、Grouped GEMM、GEMV。</p>
+<p>Blackwell GEMM 的变化都围绕 TMEM 展开。累加器离开寄存器以后，MMA 可以由一个线程发射，写回可以和下一个 tile 的 MMA 在同一组线程里重叠（只要 TMEM 放得下两份累加器），一对 SM 可以合作做一条 M=256 的 MMA，让每份搬进来的操作数多参与一倍的计算。MLC 的 9 步阶梯给出了这些部件的实际收益：换成 TMA 是最大的一跳，之后的流水线、persistent、warp 特化、2-CTA 和多消费者把耗时一路压到与 cuBLAS 持平。CLC 不在这条阶梯里，它解决的是 SM 可用性与 tile 代价不均带来的长尾。下一篇离开优化阶梯，看 GEMM 的各种变体：Split-K、Grouped GEMM、GEMV。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -632,17 +675,21 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：Blackwell Ultra 的 160 SMs、256 KB TMEM/SM、256 KB L1/SMEM 等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 5th Generation Tensor Core Instructions。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17.5（tcgen05.mma）、§9.7.14.11（tcgen05.ld/st/cp）、§9.7.5.8（cp.async.bulk.tensor）。</li>
-  <li id="ref-bwu">NVIDIA (2025). <a href="https://developer.nvidia.com/blog/inside-nvidia-blackwell-ultra-the-chip-powering-the-ai-factory-era/">Inside NVIDIA Blackwell Ultra</a>. SM 架构、TMEM 与 5th-gen Tensor Core 的官方描述。</li>
-  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass">CUTLASS 3.x</a>。Blackwell GEMM 的 MLC 参考实现。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：每线程 255 个寄存器、计算能力 10.0 每 SM 228 KB 共享内存、TMEM 每 CTA 128&times;512&times;32 位、B200 的 SM 数未经 NVIDIA 公布、Blackwell Ultra 最多 160 SM。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、Table 48 形状、Table 49 共享内存描述符、commit 与 fence）、§9.7.15.18–19（Cluster Launch Control）、§9.7.10.28.5.3（cp.async.bulk.tensor）。</li>
+  <li id="ref-mlcbasic">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_basics/index.html">GEMM Basics</a>（第 1–3 步）. In <i>Modern GPU Programming For MLSys</i>.</li>
+  <li id="ref-mlcasync">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_async/index.html">Asynchronous GEMM</a>（第 4–6 步：TMA、软件流水线、persistent kernel）. In <i>Modern GPU Programming For MLSys</i>.</li>
+  <li id="ref-mlcgemm">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_advanced/index.html">Scaling GEMM with Warp Specialization and Clusters</a>（第 7–9 步、“How A and B Are Split Across the CTAs”、“Data Handoffs Within the Cluster”、“End-to-End Results” 表）. In <i>Modern GPU Programming For MLSys</i>.</li>
+  <li id="ref-pgtma">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide</a>. §7.29 Tensor Memory Access（tensor map 以 <code>const __grid_constant__</code> 参数传入）。</li>
+  <li id="ref-mlctc">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_tensor_cores/index.html">Blackwell Tensor Core — tcgen05.mma</a>（TMEM 行映射与 <code>cta_group</code>）. In <i>Modern GPU Programming For MLSys</i>.</li>
+  <li id="ref-bwu">NVIDIA (2025). <a href="https://developer.nvidia.com/blog/inside-nvidia-blackwell-ultra-the-chip-powering-the-ai-factory-era/">Inside NVIDIA Blackwell Ultra: The Chip Powering the AI Factory Era</a>. NVIDIA Technical Blog（SM 结构图：每个子分区 64 KB TMEM）。</li>
+  <li id="ref-mlcclc">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_clc/index.html">Advanced Scheduling — Cluster Launch Control</a>. In <i>Modern GPU Programming For MLSys</i>.</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 27 篇。文中代码完整版在系列目录的 <code>code/gm27-blackwell-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图，依据 PTX ISA 9.4 与 Blackwell Ultra 博客绘制；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
+  本文是「从零精通 GPU Kernel」系列第 27 篇。文中代码完整版在系列目录的 <code>code/gm27-blackwell-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–3 为手绘示意图，依据 PTX ISA 9.4 与 MLC 教程绘制（图 3 与第 23 篇相同）；耗时数据来自 MLC 教程，未在 GPU 上复现。
 </footer>
 
 </div>
