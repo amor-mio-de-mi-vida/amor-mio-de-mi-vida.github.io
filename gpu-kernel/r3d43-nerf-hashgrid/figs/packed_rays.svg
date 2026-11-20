@@ -39,7 +39,7 @@
   <rect x="194" y="28" width="25" height="18" rx="2" fill="#f3f4f6" stroke="#d1d5db"/>
   <text x="230" y="40" class="label" font-size="9">ray 1 (2 samples, 6 wasted)</text>
 
-  <text x="5" y="65" class="label" fill="#ef4444">Wasted memory &amp; compute on padding (rays have 1&ndash;1000+ samples)</text>
+  <text x="5" y="65" class="label" fill="#ef4444">Wasted memory &amp; compute on padding (sample counts vary widely per ray)</text>
 </g>
 
 <!-- Packed -->

@@ -29,8 +29,8 @@
 
 <!-- Layer 5: Device API -->
 <rect x="20" y="40" width="640" height="40" rx="5" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
-<text x="340" y="58" text-anchor="middle" class="title" fill="#166534">Device API (CollectiveBuilder)</text>
-<text x="340" y="73" text-anchor="middle" class="code" font-size="9">User-facing: pick arch + dtype + tile → auto-selects all layers</text>
+<text x="340" y="58" text-anchor="middle" class="title" fill="#166534">Device (GemmUniversalAdapter)</text>
+<text x="340" y="73" text-anchor="middle" class="code" font-size="9">Host-side handle: args, workspace, launch (CollectiveBuilder helps build the Collective)</text>
 
 <!-- Arrows -->
 <line x1="340" y1="260" x2="340" y2="248" stroke="#aaa" stroke-width="1" marker-end="url(#ah46)"/>

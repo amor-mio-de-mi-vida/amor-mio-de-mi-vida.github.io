@@ -34,7 +34,7 @@
   <rect x="200" y="45" width="130" height="24" fill="#56B4E9" opacity="0.2" rx="5"/>
   <text x="265" y="62" text-anchor="middle" class="d-label" style="font-size:11px">2. 拓扑检测</text>
   <text x="265" y="82" text-anchor="middle" class="d-note" style="font-size:10px">解析 /sys 和</text>
-  <text x="265" y="96" text-anchor="middle" class="d-note" style="font-size:10px">nvidia-smi topo</text>
+  <text x="265" y="96" text-anchor="middle" class="d-note" style="font-size:10px">NVML（NVLink）</text>
   <text x="265" y="110" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">NVLink/PCIe/NET</text>
 
   <path d="M330,85 L365,85" class="arrow-h"/>

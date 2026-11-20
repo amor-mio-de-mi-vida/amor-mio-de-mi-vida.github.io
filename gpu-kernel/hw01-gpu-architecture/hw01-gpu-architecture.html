@@ -2926,7 +2926,7 @@ z
   </table></div>
 </figure>
 
-<p>和 Hopper 一样，这些特性组合成了一种新的标准结构。以 GEMM 为例：一个线程发 TMA，一个线程发 <code>tcgen05.mma</code>，结果累加在 TMEM 的一半里；与此同时，一个 warpgroup 从 TMEM 的另一半读出上一个 tile 的结果做 epilogue；两个 SM 组成 CTA pair 合作完成一个 256 行的 tile；tile 的分配由 CLC 动态决定。MLC 教程的 GEMM 阶梯就是沿这个方向一步步搭起来的：第 7 到第 9 步把时间从 0.23 ms 降到 0.094 ms，用的就是 warp 特化、双 CTA cluster 和多个 MMA 消费者 <span class="cite">[<a href="#ref-mlc" title="MLC Community (2026). Modern GPU Programming For MLSys: Scaling GEMM with Warp Specialization and Clusters. “End-to-End Results” 一节的表（B200，M=N=K=4096，FP16，锁频，单次参考运行）。">1</a>]</span>。第 27 篇会逐步复现这个过程。</p>
+<p>和 Hopper 一样，这些特性组合成了一种新的标准结构。以 GEMM 为例：一个线程发 TMA，一个线程发 <code>tcgen05.mma</code>，结果累加在 TMEM 的一半里；与此同时，一个 warpgroup 从 TMEM 的另一半读出上一个 tile 的结果做 epilogue；两个 SM 组成 CTA pair 合作完成一个 256 行的 tile；tile 的分配由 CLC 动态决定。MLC 教程的 GEMM 阶梯沿这个方向搭了其中几步：第 7 步做完 warp 特化是 0.23 ms，第 8、9 步再加上双 CTA cluster 和两个 MMA 消费者，降到 0.104 ms 和 0.094 ms <span class="cite">[<a href="#ref-mlc" title="MLC Community (2026). Modern GPU Programming For MLSys: Scaling GEMM with Warp Specialization and Clusters. “End-to-End Results” 一节的表（B200，M=N=K=4096，FP16，锁频，单次参考运行）。">1</a>]</span>；阶梯本身没有用 CLC，也没有做 TMEM 累加器的双缓冲。第 27 篇会逐步复现这个过程。</p>
 
 <aside class="sidenote">表中“Hopper 为 4.5”等 SFU 吞吐数字是整颗芯片的值，单位是每秒万亿次指数运算；不同代芯片的 SM 数和时钟不同，不能直接换算成每 SM 的提升倍数。</aside>
 <p>Blackwell Ultra 的 attention 加速值得多说一句。attention 的 softmax 需要对每个分数求一次指数，而指数由 SFU 计算，吞吐远低于 Tensor Core。Tensor Core 越来越快，softmax 就越容易成为瓶颈。FlashAttention-4 在 Blackwell 上让硬件 \(\exp_2\) 和基于 FMA 的多项式近似分担指数运算 <span class="cite">[<a href="#ref-mlcfa4" title="MLC Community (2026). Modern GPU Programming For MLSys: Flash Attention 4.">18</a>]</span>，就是为了不让 SFU 成为瓶颈；Blackwell Ultra 则直接把 SFU 的指数吞吐翻倍。第 3 篇会算这个比例，第 36 篇会讲 FlashAttention-4 的具体做法。</p>

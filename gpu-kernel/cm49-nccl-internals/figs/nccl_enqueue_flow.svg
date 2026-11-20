@@ -25,7 +25,7 @@
 
 <!-- Step 3: Algo/Proto select -->
 <rect x="350" y="35" width="145" height="50" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
-<text x="422" y="55" text-anchor="middle" class="code" fill="#16a34a">ncclInfoSetDerived</text>
+<text x="422" y="55" text-anchor="middle" class="code" fill="#16a34a">tuning 代价模型</text>
 <text x="422" y="72" text-anchor="middle" class="label">选择 algo + proto</text>
 
 <!-- Arrow -->
@@ -40,23 +40,23 @@
 <!-- Algo selection details -->
 <rect x="20" y="110" width="320" height="90" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
 <text x="180" y="130" text-anchor="middle" class="title">算法选择逻辑</text>
-<text x="30" y="150" class="label">1. 查 topo + channel + 消息大小</text>
-<text x="30" y="168" class="label">2. 对 Ring / Tree / CollnetDirect 计算 alpha-beta 时间</text>
-<text x="30" y="186" class="label">3. 选时间最小的 algo; 小消息偏好 Tree, 大消息偏好 Ring</text>
+<text x="30" y="150" class="label">1. 输入：拓扑图、channel 数、消息大小</text>
+<text x="30" y="168" class="label">2. 对每个 (algo, proto) 估算 延迟 + 字节数 / 带宽</text>
+<text x="30" y="186" class="label">3. 取估算时间最小的组合（没有固定字节阈值）</text>
 
 <!-- Proto selection details -->
 <rect x="360" y="110" width="320" height="90" rx="5" fill="#f9fafb" stroke="#d1d5db"/>
 <text x="520" y="130" text-anchor="middle" class="title">协议选择逻辑</text>
-<text x="370" y="150" class="label">msg &lt; 8 KB       → LL  (flag inline, 最低延迟)</text>
-<text x="370" y="168" class="label">8 KB ≤ msg &lt; 256 KB → LL128 (NVLink 128B 原子)</text>
-<text x="370" y="186" class="label">msg ≥ 256 KB      → Simple (大块 DMA, 最高 BW)</text>
+<text x="370" y="150" class="label">LL：带宽效率 50%，延迟最低</text>
+<text x="370" y="168" class="label">LL128：效率 120/128，需平台支持</text>
+<text x="370" y="186" class="label">Simple：效率 100%，每步固定开销最大</text>
 
 <!-- Kernel template -->
 <rect x="20" y="220" width="660" height="85" rx="5" fill="#fef2f2" stroke="#ef4444"/>
-<text x="350" y="240" text-anchor="middle" class="title" fill="#dc2626">ncclKernel 模板实例化</text>
-<text x="30" y="262" class="code" fill="#dc2626">ncclKernel&lt;FUNC, T, ALGO, PROTO, NCHANNELS&gt;</text>
-<text x="30" y="280" class="label">FUNC = AllReduce/AllGather/...  T = float/half/bf16  ALGO = Ring/Tree</text>
-<text x="30" y="296" class="label">PROTO = Simple/LL/LL128  → 编译期确定的模板组合, 避免运行时分支</text>
+<text x="350" y="240" text-anchor="middle" class="title" fill="#dc2626">设备代码生成与分派</text>
+<text x="30" y="262" class="code" fill="#dc2626">设备函数按 (coll, redop, type, algo, proto) 生成</text>
+<text x="30" y="280" class="label">例：AllReduce · Sum · bf16 · RING · LL128 是一个独立的设备函数</text>
+<text x="30" y="296" class="label">kernel 入口较少，运行时按 work 中的函数 ID 分派到对应设备函数</text>
 
 <defs><marker id="a1" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#6b7280"/></marker></defs>
 <text x="350" y="318" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>

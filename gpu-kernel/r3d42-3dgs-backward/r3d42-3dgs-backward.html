@@ -216,7 +216,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 42 篇</div>
   <h1>3D Gaussian Splatting（二）<br>反向传播</h1>
-  <p class="subtitle">back-to-front 重放 α-blending 恢复透射率、warp 内 shuffle 归约将原子争用降 32×、per-splat 反向彻底消除原子操作、2D→3D 梯度链式法则。</p>
+  <p class="subtitle">back-to-front 重放 α-blending 恢复透射率、warp 内 shuffle 归约把同址原子操作减为 1/32、per-splat 反向在 tile 内改由线程独占 Gaussian、2D→3D 梯度链式法则。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
@@ -224,17 +224,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-overview">反向传播总览</a><li><a href="#sec-replay">Back-to-Front 重放</a><ol><li><a href="#sec-save">前向保存的信息</a></li><li><a href="#sec-t-recovery">透射率恢复</a></li></ol><li><a href="#sec-raster-bwd">光栅化反向 Kernel</a><ol><li><a href="#sec-grad-formulas">梯度公式</a></li><li><a href="#sec-kernel-structure">Kernel 结构</a></li></ol><li><a href="#sec-atomic">原子争用与优化</a><ol><li><a href="#sec-warp-reduce">Warp 内归约</a></li><li><a href="#sec-block-reduce">Block 级归约</a></li><li><a href="#sec-per-splat">Per-Splat 反向（gsplat）</a></li></ol><li><a href="#sec-preprocess-bwd">预处理反向</a><ol><li><a href="#sec-1">dL/dmean2d → dL/d&mu;</a></li><li><a href="#sec-2">dL/dconic → dL/dcov3d → dL/d(q, s)</a></li></ol><li><a href="#sec-training">训练相关 Kernel</a><ol><li><a href="#sec-densify">Adaptive Density Control</a></li><li><a href="#sec-adam">Adam 融合更新</a></li></ol><li><a href="#sec-perf">性能分析</a><li><a href="#sec-determinism">确定性问题</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-overview">反向传播总览</a><li><a href="#sec-replay">Back-to-Front 重放</a><ol><li><a href="#sec-save">前向保存的信息</a></li><li><a href="#sec-t-recovery">透射率恢复</a></li></ol><li><a href="#sec-raster-bwd">光栅化反向 Kernel</a><ol><li><a href="#sec-grad-formulas">梯度公式</a></li><li><a href="#sec-kernel-structure">Kernel 结构</a></li></ol><li><a href="#sec-atomic">原子争用与优化</a><ol><li><a href="#sec-warp-reduce">Warp 内归约</a></li><li><a href="#sec-block-reduce">Block 级归约</a></li><li><a href="#sec-per-splat">Per-Splat 反向（Taming 3DGS）</a></li></ol><li><a href="#sec-preprocess-bwd">预处理反向</a><ol><li><a href="#sec-1">dL/dmean2d → dL/d&mu;</a></li><li><a href="#sec-2">dL/dconic → dL/dcov3d → dL/d(q, s)</a></li></ol><li><a href="#sec-training">训练相关 Kernel</a><ol><li><a href="#sec-densify">Adaptive Density Control</a></li><li><a href="#sec-adam">Adam 融合更新</a></li></ol><li><a href="#sec-perf">性能分析</a><li><a href="#sec-determinism">确定性问题</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
 <li>3DGS 反向传播需要把前向的 front-to-back &alpha;-blending <b>反过来重放</b>（back-to-front）：从最后一个 Gaussian 开始，逐步恢复透射率 \(T\)，然后计算每个 Gaussian 对 loss 的梯度贡献。</li>
-<li>核心挑战是<b>原子争用</b>：同一个 Gaussian 可能被同一 tile 内 256 个像素同时更新梯度，naive 实现每个像素都做 atomicAdd，争用高达 256 路。</li>
-<li>优化手段：warp 内先用 <code>__shfl_down_sync</code> 归约再 atomicAdd（争用从 256 降到 8）；gsplat 提出 per-splat 反向（一个线程块负责一个 Gaussian 而非一个 tile），彻底消除原子操作。</li>
+<li>核心挑战是<b>原子争用</b>：同一个 Gaussian 可能被同一 tile 内多达 256 个像素更新梯度；原始实现每个像素直接 atomicAdd，同一 tile 内最多 256 路争用。</li>
+<li>优化手段：warp 内先归约再由 lane 0 做 atomicAdd（gsplat 的做法，每 tile 每 Gaussian 最多 8 次）；Taming 3DGS 提出 per-splat 反向（tile 内一个线程负责一个 Gaussian、遍历像素），进一步减少争用。</li>
 <li>光栅化反向产出 dL/dmean2d、dL/dconic、dL/dcolor、dL/dopacity 四组梯度；预处理反向通过链式法则把 2D 梯度传递回 3D 属性（位置 &mu;、协方差参数 q/s、SH 系数）。</li>
-<li>训练时反向通常比前向慢 2&ndash;3&times;，瓶颈在光栅化反向的原子操作和 SFU 吞吐。</li>
+<li>光栅化反向比前向重：它不能更早停止，而且每个 (像素, Gaussian) 对要做 9 次原子加；Taming 3DGS 的消融中去掉 per-splat 反向会让总训练时间约翻倍。</li>
   </ul>
 </div>
 
@@ -244,7 +244,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-overview">反向传播总览</h2>
 
-<p><a href="../r3d41-3dgs-forward/r3d41-3dgs-forward.html">上一篇</a>介绍了 3DGS <span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span> 的前向渲染流水线：预处理 → radix sort → tile-based &alpha;-blending。训练时，每次迭代前向渲染一张图，计算渲染图与真实照片的 loss（L1 + D-SSIM），然后反向传播到每个 Gaussian 的可学习参数。反向传播的目标是算出六组梯度：</p>
+<p><a href="../r3d41-3dgs-forward/r3d41-3dgs-forward.html">上一篇</a>介绍了 3DGS <span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span> 的前向渲染流水线：预处理 → radix sort → tile-based &alpha;-blending。训练时，每次迭代前向渲染一张图，计算渲染图与真实照片的 loss（L1 + D-SSIM），然后反向传播到每个 Gaussian 的可学习参数。反向传播的目标是算出以下几组梯度：</p>
 
 <ol>
 <li>\(\partial L / \partial \boldsymbol{\mu}\)：位置梯度，驱动 Gaussian 移动到正确位置。</li>
@@ -274,7 +274,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>值得注意的是，整个反向传播链路中没有矩阵乘法、没有卷积——全部是 elementwise 运算和规约。这和 NeRF 的反向传播不同（NeRF 有 MLP 的权重矩阵梯度，需要 cuBLAS GEMM）。3DGS 的所有可学习参数都是 per-Gaussian 的，所以反向传播也是 per-Gaussian 的——理论上完美并行。实际的瓶颈不在计算量，而在光栅化反向的内存访问模式：同一个 Gaussian 被多个像素引用，梯度累加需要原子操作或其他同步机制。</p>
 
-<p>从数据量来看，反向传播的梯度总量可以精确估算：每个 Gaussian 有约 60 个可学习参数（3 位置 + 4 四元数 + 3 缩放 + 1 不透明度 + 48 SH 系数），100 万 Gaussian 的梯度数组约 60M &times; 4 B = 240 MB。这些梯度在光栅化反向中通过 atomicAdd 逐步累加，之后被 Adam optimizer 读取做参数更新——两者合计的 HBM 流量约 480 MB（读 + 写），在 A100 的 2 TB/s 带宽下只需 0.24 ms。因此真正的瓶颈不是带宽，而是原子操作的串行化仲裁延迟。</p>
+<p>从数据量来看：每个 Gaussian 有 59 个可学习参数（3 位置 + 4 四元数 + 3 缩放 + 1 不透明度 + 48 SH 系数），100 万 Gaussian 的梯度数组约 59M &times; 4 B &asymp; 236 MB。光栅化反向并不直接写这些参数的梯度，而是写 2D 中间量的梯度（每个 Gaussian 9 个 float：2 个 mean2d、3 个 conic、3 个颜色、1 个 opacity），再由预处理反向转换。真正的难点不在总字节数，而在许多像素对同一地址的并发原子更新。</p>
 
 <h2 id="sec-replay">Back-to-Front 重放</h2>
 
@@ -292,7 +292,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li><code>n_contrib[pix]</code>：该像素实际处理了多少个 Gaussian（提前终止的像素只处理了前面一部分）。</li>
 </ul>
 
-<p>这两个值的内存开销很小：\(W \times H \times 8\) B（一个 float + 一个 uint32）。1920&times;1080 下约 16 MB。</p>
+<p>这两个值的内存开销很小：\(W \times H \times 8\) B（一个 float + 一个 uint32）。1920&times;1080 下约 16 MB。原论文正是靠这两个量避免了为每个像素存储任意长的贡献者列表<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
 <h3 id="sec-t-recovery">透射率恢复</h3>
 
@@ -312,9 +312,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>从 \(T_{N+1} = \text{final\_T}[\text{pix}]\) 开始，依次除以 \((1-\alpha_N)\)、\((1-\alpha_{N-1})\)、……就能恢复每个 Gaussian 的 \(T_i\)。这要求反向遍历的顺序和前向<b>严格一致</b>——相同的 tile range、相同的 batch 顺序、相同的提前终止截断点（<code>n_contrib</code>）。</p>
 
-<p>这个除法有一个数值风险：如果 \(\alpha_i\) 非常接近 1，\(1-\alpha_i\) 接近零，除法会放大浮点误差甚至产生无穷大。前向时 alpha 被 clamp 到 \(\leq 0.99\)（<a href="../r3d41-3dgs-forward/r3d41-3dgs-forward.html">第 41 篇</a>），保证 \(1-\alpha_i \geq 0.01\)，这就是 alpha 上限存在的另一个重要原因——不仅帮助训练时的梯度流动，还防止反向传播时的数值爆炸。</p>
+<p>这个除法有一个数值风险：如果 \(\alpha_i\) 非常接近 1，\(1-\alpha_i\) 接近零，除法会放大浮点误差甚至产生无穷大。前向时 alpha 被 clamp 到 \(\leq 0.99\)（<a href="../r3d41-3dgs-forward/r3d41-3dgs-forward.html">第 41 篇</a>），保证 \(1-\alpha_i \geq 0.01\)——论文附录 C 明确说，这个上限和 1/255 下限都是为了避免除以 0 之类的数值不稳定，并且前向和反向使用同样的规则<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
-<p>具体的误差传播分析：每次除以 \((1-\alpha_i)\) 引入相对误差 \(\epsilon_\text{div} \approx u / (1-\alpha_i)\)，其中 \(u \approx 6 \times 10^{-8}\) 是 FP32 的机器精度。如果连续 N 步除法，相对误差累积为 \(\sum_{i=1}^{N} u/(1-\alpha_i)\)。当所有 \(\alpha_i = 0.3\)（典型值）时，N = 200 步的累积误差约 \(200 \times 6 \times 10^{-8} / 0.7 \approx 1.7 \times 10^{-5}\)——这对梯度计算来说完全可以接受。但如果 \(\alpha_i\) 频繁接近 0.99，累积误差可达 \(200 \times 6 \times 10^{-6} \approx 1.2 \times 10^{-3}\)，可能影响训练稳定性。clamp 到 0.99 是工程上经验验证的安全阈值。</p>
+<p>误差的量级可以粗估：FP32 的单位舍入 \(u = 2^{-24} \approx 6 \times 10^{-8}\)，每次除法本身引入不超过 \(u\) 的相对误差，N 步后累积到约 \(N u\)（N = 200 时约 \(10^{-5}\)）。更危险的是 \(\alpha_i\) 自身的误差 \(\delta\)：\(1/(1-\alpha)\) 对 \(\alpha\) 的相对灵敏度是 \(\alpha/(1-\alpha)\)，\(\alpha = 0.99\) 时约为 99——clamp 把这个放大倍数限制在 100 以内。</p>
 
 <h2 id="sec-raster-bwd">光栅化反向 Kernel</h2>
 
@@ -328,7 +328,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>第二项是 \(\alpha_i\) 通过影响后续所有 Gaussian 的 \(T_j\) 产生的间接贡献。直觉：\(\alpha_i\) 不仅决定了 Gaussian \(i\) 自己对像素颜色的权重，还决定了 Gaussian \(i\) 之后所有 Gaussian 的透射率——\(\alpha_i\) 增大意味着后面的 Gaussian 被挡得更多，它们对颜色的贡献全部减少。</p>
 
-<p>实际实现中不需要显式求这个求和——后到前遍历时维护一个 running sum 累加器 \(S = \sum_{j>i} c_j \alpha_j T_j \cdot \partial L / \partial C\)。每处理一个 Gaussian，先用当前的 \(S\) 计算 \(\partial L / \partial \alpha_i\)，然后把当前 Gaussian 的贡献加入 \(S\)。这就是 back-to-front 遍历顺序的第二个好处：不仅能恢复 \(T_i\)，还能按正确的顺序维护累加器。</p>
+<p>实际实现中不需要显式求这个求和——后到前遍历时维护一个 running sum 累加器 \(S = \sum_{j>i} c_j \alpha_j T_j \cdot \partial L / \partial C\)。每处理一个 Gaussian，先用当前的 \(S\) 计算 \(\partial L / \partial \alpha_i\)，然后把当前 Gaussian 的贡献加入 \(S\)。这就是 back-to-front 遍历顺序的第二个好处：不仅能恢复 \(T_i\)，还能按正确的顺序维护累加器。（官方实现还要加上背景色项；本文的简化代码只保留了第一项 \(T_i (c_i \cdot \partial L/\partial C)\)。）</p>
 
 <p>进一步展开：\(\alpha_i = o_i \cdot G_i\)，\(G_i = \exp(-\frac{1}{2} d^\top \Sigma'^{-1} d)\)，所以：</p>
 <ul>
@@ -392,7 +392,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>注意代码结构中的双重 <code>__syncthreads</code>：第一次在加载 smem 之后（等所有线程完成加载），第二次在使用 smem 之后（等所有线程完成读取，然后才能在下一个 round 覆写 smem）。反向的双重 barrier 和前向完全相同——smem 的复用模式不变。另一个实现细节：<code>inside</code> 标记标识像素是否在图像边界内。边界外的线程仍然参与 smem 加载（保证所有 Gaussian 被加载），但跳过梯度计算和累加。</p>
 
-<p>反向 kernel 的寄存器使用比前向更高：每个线程需要维护恢复的透射率 \(T\)、running sum 累加器（RGB 三通道 = 3 float）、当前像素的梯度 \(\partial L / \partial C\)（3 float），以及各种中间变量。在 A100 上，每 SM 有 65536 个 32-bit 寄存器<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">2</a>]</span>；256 线程的 block 每线程可分配 256 个寄存器——足够。但如果每 SM 想运行 2 个 block（occupancy = 512/2048 = 25%），每线程的寄存器上限就降到 128。反向 kernel 的寄存器压力通常限制 occupancy 到 25%&ndash;50%，比前向稍低。</p>
+<p>反向 kernel 的寄存器使用比前向更高：每个线程需要维护恢复的透射率 \(T\)、running sum 累加器（RGB 三通道 = 3 float）、当前像素的梯度 \(\partial L / \partial C\)（3 float），以及各种中间变量。在 A100 上，每 SM 有 65536 个 32-bit 寄存器<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">2</a>]</span>：每 SM 驻留 2 个 256 线程的 block（occupancy = 512/2048 = 25%）时每线程最多 128 个寄存器，驻留 4 个 block（50%）时最多 64 个。实际 occupancy 取决于编译后的寄存器数，需要看 <code>-Xptxas -v</code> 或 profiler。</p>
 
 <h2 id="sec-atomic">原子争用与优化</h2>
 
@@ -405,11 +405,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <ul>
 <li>256 个像素线程各自计算 dL/dcolor[gi]、dL/dconic[gi]、dL/dmean2d[gi]、dL/dopacity[gi]。</li>
-<li>Naive 实现：每个线程对这些全局数组做 atomicAdd——一个 Gaussian 每个属性被 256 个线程同时原子更新。</li>
-<li>一个 Gaussian 有 10 个梯度分量（mean2d &times; 2 + conic &times; 3 + color &times; 3 + opacity &times; 1 + SH 若干）。256 &times; 10 = 2560 次 atomicAdd，严重瓶颈。</li>
+<li>Naive 实现（原始 3DGS 就是这样）：每个线程对这些全局数组直接做 atomicAdd——一个 Gaussian 的每个分量最多被 256 个线程原子更新。</li>
+<li>每个 (像素, Gaussian) 对有 9 个梯度分量（mean2d &times; 2 + conic &times; 3 + color &times; 3 + opacity &times; 1），官方代码正是 9 次 atomicAdd。256 &times; 9 = 2304 次 atomicAdd 打在同一个 Gaussian 的 9 个地址上。</li>
 </ul>
 
-<p>更糟糕的是，大的 Gaussian 可能覆盖多个 tile，来自不同 tile 的 block 也在同时原子更新同一个 Gaussian 的梯度——争用数量与覆盖的 tile 数成正比。一个覆盖 100 个 tile 的 Gaussian，可能有 100 &times; 256 = 25600 个线程在争用同一组地址。</p>
+<p>更糟糕的是，大的 Gaussian 可能覆盖多个 tile，来自不同 tile 的 block 也在同时原子更新同一个 Gaussian 的梯度——争用数量与覆盖的 tile 数成正比。一个覆盖 100 个 tile 的 Gaussian，最多有 100 &times; 256 = 25600 个线程（分属不同时间运行的 block）更新同一组地址。</p>
 
 <h3 id="sec-warp-reduce">Warp 内归约</h3>
 
@@ -431,35 +431,33 @@ __device__ void warpReducedAtomicAdd(
   int lane = threadIdx.x &amp; 31;</code></pre>
 <p class="src-note">完整代码：<code>code/r3d42-3dgs-backward/warp_reduce_atomic.cu</code> 第 3&ndash;16 行（未在 GPU 上运行）</p>
 
-<p>Warp 归约的开销是 5 步 shuffle（log<sub>2</sub>32 = 5），每步延迟约 1&ndash;2 个时钟周期——远快于 32 次 atomicAdd 排队等待 L2 仲裁。</p>
+<p>Warp 归约的开销是每个分量 5 步 shuffle（log<sub>2</sub>32 = 5），换来的是同一地址上的原子操作次数减少到 1/32。gsplat<span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">3</a>]</span> 的光栅化反向就是这种结构：每个 warp 先用 <code>cg::reduce</code> 式的 warp 求和合并颜色、conic、xy、opacity 的梯度，再只由 lane 0 执行 atomicAdd。</p>
 
 <h3 id="sec-block-reduce">Block 级归约</h3>
 
-<p>进一步：在 shared memory 中做 block 级归约，只由一个线程执行 atomicAdd——把 256 次降到 1 次。但这需要在 smem 中为每个 Gaussian 的每个梯度分量分配空间。一个 batch 256 个 Gaussian &times; 10 个分量 &times; 4 B = 10 KB——加上前向已用的 9 KB smem，总共约 19 KB，仍在 A100 的 164 KB 限制之内<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>。</p>
+<p>进一步：在 shared memory 中做 block 级归约，只由一个线程执行 atomicAdd——把 256 次降到 1 次。但这需要在 smem 中为每个 Gaussian 的每个梯度分量分配空间。一个 batch 256 个 Gaussian &times; 9 个分量 &times; 4 B = 9 KB——加上前向已用的 9 KB smem，总共约 18 KB，仍在 A100 的 164 KB 限制之内<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>。</p>
 
-<p>但 block 级归约有个问题：内层循环中每个线程处理不同的 Gaussian（因为不同像素可能在不同 Gaussian 上提前终止），不是所有 256 个线程都在同一时刻更新同一个 Gaussian。warp 归约可以在每个 Gaussian 处理完毕后立即做，而 block 归约需要额外的同步——复杂度上升，实际收益取决于 warp 归约后剩余的争用程度。原始 3DGS 实现采用的是 warp 归约方案。</p>
+<p>但 block 级归约有个问题：内层循环里各线程虽然按同一个 j 推进，但每个像素都可能因 \(\alpha < 1/255\)、或该 Gaussian 在自己的 last contributor 之后而跳过，真正贡献梯度的线程集合每次都不同。warp 归约可以在每个 Gaussian 处理完毕后立即做，而 block 归约需要额外的同步——复杂度上升，实际收益取决于 warp 归约后剩余的争用程度。原始 3DGS 实现两者都没做，是逐像素直接 atomicAdd；gsplat 做了 warp 归约。</p>
 
-<h3 id="sec-per-splat">Per-Splat 反向（gsplat）</h3>
+<h3 id="sec-per-splat">Per-Splat 反向（Taming 3DGS）</h3>
 
-<p>gsplat<span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">4</a>]</span> 提出了一种完全不同的并行化策略（<a href="#fig-per_pixel_vs_per_splat">图 6</a>）：</p>
+<p>Taming 3DGS<span class="cite">[<a href="#ref-taming" title="Mallick, Goel, Kerbl, Vicente Carrasco, Steinberger &amp; De La Torre (2024). Taming 3DGS: High-Quality Radiance Fields with Limited Resources. arXiv:2406.15643.">5</a>]</span> 提出了一种不同的并行化策略（<a href="#fig-per_pixel_vs_per_splat">图 6</a>）：</p>
 
 <figure id="fig-per_pixel_vs_per_splat" data-kind="diagram">
 <img aria-labelledby="fig-per_pixel_vs_per_splat-cap" src="figs/per_pixel_vs_per_splat.svg" alt="Per-pixel vs per-splat parallelism"/>
-<figcaption id="fig-per_pixel_vs_per_splat-cap"><span class="fig-label">图 6</span><b>Per-Pixel（原始 3DGS）vs Per-Splat（gsplat）反向并行策略。</b>Per-splat 把并行维度从像素改为 Gaussian，每个 Gaussian 独占自己的梯度——无需原子操作。</figcaption>
+<figcaption id="fig-per_pixel_vs_per_splat-cap"><span class="fig-label">图 6</span><b>Per-Pixel（原始 3DGS）vs Per-Splat（Taming 3DGS）反向并行策略（示意）。</b>Per-splat 在 tile 内把并行维度从像素改为 Gaussian，梯度先在线程寄存器里累加，每个 (Gaussian, tile) 只需写回一次。</figcaption>
 </figure>
 
 <ul>
 <li><b>Per-pixel（原始）</b>：一个 block = 一个 tile = 256 pixels，每个像素遍历自己的 Gaussian 列表，多像素更新同一 Gaussian → 原子争用。</li>
-<li><b>Per-splat（gsplat）</b>：一个 block = 一个 Gaussian（或一组 Gaussian），每个 Gaussian 遍历自己覆盖的所有像素，把梯度累加到线程私有变量中 → 无原子操作。</li>
+<li><b>Per-splat（Taming 3DGS）</b>：仍按 tile 组织，但 tile 内一个线程负责一个 Gaussian（每 32 个 Gaussian 一组交给一个 warp），线程遍历 tile 内的像素，把梯度累加到私有寄存器 → 同一 tile 内不再有多个像素争用同一个 Gaussian；跨 tile 的累加仍然需要原子操作。</li>
 </ul>
 
-<p>Per-splat 的挑战是负载不均衡：小 Gaussian 只覆盖几个像素，大 Gaussian 覆盖数万个像素。gsplat 通过把每个 Gaussian 的像素列表分块、动态调度来缓解这个问题。但 per-splat 反向需要在前向时为每个像素保存它接收到的所有 Gaussian 的索引和 alpha 值（或者像 per-pixel 反向那样重新计算），内存开销更大。</p>
+<p>Per-splat 的难点是：线程 i 处理第 i 个 Gaussian 时，需要每个像素在&ldquo;第 i 个 Gaussian 之前&rdquo;的状态（透射率 T 和已累积的颜色）。Taming 3DGS 的做法是折中的 checkpoint + 重算：前向每隔 32 个 Gaussian 为每个像素存一次 (T, 累积 RGB)，反向时每个线程从最近的 checkpoint 出发，相邻线程通过 warp 内 shuffle 传递状态、每步做一次标准的 &alpha;-blending 递推<span class="cite">[<a href="#ref-taming" title="Mallick, Goel, Kerbl, Vicente Carrasco, Steinberger &amp; De La Torre (2024). Taming 3DGS: High-Quality Radiance Fields with Limited Resources. arXiv:2406.15643.">5</a>]</span>。代价是前向要多存这些 checkpoint。</p>
 
-<p>Per-splat 反向的一个关键优势：它的访存模式更 cache-friendly。Per-pixel 反向中，不同 tile 在不同时间访问同一个 Gaussian 的梯度地址——L2 命中率低。Per-splat 反向中，同一 Gaussian 的所有像素梯度在一个 block 内连续处理——梯度累加完全在寄存器/smem 中完成，最后一次写入全局内存即可。</p>
+<p>效果上，Taming 3DGS 的消融实验显示：去掉 per-splat 反向后，Truck 场景的总训练时间从 7 分钟增加到 14 分钟、Train 场景从 9 分钟增加到 17 分钟（这是整段训练时间，不只是反向）<span class="cite">[<a href="#ref-taming" title="Mallick, Goel, Kerbl, Vicente Carrasco, Steinberger &amp; De La Torre (2024). Taming 3DGS: High-Quality Radiance Fields with Limited Resources. arXiv:2406.15643.">5</a>]</span>。</p>
 
-<p>Per-splat 反向还有一个实用优势：它更容易支持高阶特性。例如在反向时需要同时计算 densification 的梯度统计（每个 Gaussian 的 2D 位置梯度范数），per-splat 模式可以在同一个 block 内顺便完成这个统计，不需要额外的 kernel 或原子操作。而 per-pixel 模式下，统计每个 Gaussian 的梯度范数又需要额外一轮 atomicAdd。因此 per-splat 反向在工程可维护性和扩展性上也更有优势。另外，per-splat 反向可以自然地实现&ldquo;梯度裁剪&rdquo;——在累加完所有像素贡献后、写入全局内存前，对梯度范数做 clamp，这在 per-pixel 模式下无法做到（每个 atomicAdd 只是部分累加，无法判断最终范数）。</p>
-
-<p>从硬件利用率的角度看，per-pixel 和 per-splat 的选择本质是<b>并行粒度</b>的权衡。Per-pixel 的 block 大小固定（256 线程 = 一个 tile），occupancy 可预测；per-splat 需要根据每个 Gaussian 的覆盖面积动态分配线程数，可能导致某些 block 线程利用率低。在 Gaussian 大小分布均匀的场景中，per-splat 的优势更明显；而在 Gaussian 大小极度不均匀的场景中（如远处的天空用超大 Gaussian、近处的物体用极小 Gaussian），per-pixel 的固定负载反而更稳定。</p>
+<p>从硬件利用率的角度看，per-pixel 和 per-splat 的选择本质是<b>并行粒度</b>的权衡：per-pixel 的争用集中在&ldquo;多个像素 &rarr; 同一 Gaussian&rdquo;，per-splat 把这部分移到寄存器里，但要额外的 checkpoint 存储和 warp 内状态传递。</p>
 
 <h2 id="sec-preprocess-bwd">预处理反向</h2>
 
@@ -471,7 +469,7 @@ __device__ void warpReducedAtomicAdd(
 
 \[\frac{\partial L}{\partial \boldsymbol{\mu}} = W^\top J_\text{proj}^\top \frac{\partial L}{\partial \boldsymbol{\mu}'}\]
 
-<p>其中 \(W\) 是视图矩阵（world → camera）。这只是矩阵乘法：2 个 3&times;2 矩阵乘 2&times;1 向量，约 12 FMA。</p>
+<p>其中 \(W\) 是视图矩阵（world → camera）。这只是小矩阵乘向量，十几次乘加。注意 \(\boldsymbol{\mu}\) 还通过 Jacobian \(J\)（依赖相机坐标 x, y, z）影响 2D 协方差，官方实现会把 conic 梯度经这条路径传回的部分也加到 \(\partial L/\partial \boldsymbol{\mu}\) 上。</p>
 
 <h3 id="sec-2">dL/dconic → dL/dcov3d → dL/d(q, s)</h3>
 
@@ -479,7 +477,7 @@ __device__ void warpReducedAtomicAdd(
 
 <p>其中 EWA 投影的反向（dL/dcov2d → dL/dcov3d）需要对 \(\Sigma' = JW\Sigma W^\top J^\top\) 求关于 \(\Sigma\) 的导数。利用矩阵微分恒等式 \(d\text{vec}(\Sigma') = (JW \otimes JW)\, d\text{vec}(\Sigma)\)（Kronecker product），但实际实现不需要显式构造 Kronecker product——直接用 \(dL/d\Sigma = (JW)^\top (dL/d\Sigma') (JW)\) 即可，因为 \(\Sigma\) 和 \(\Sigma'\) 都是对称矩阵，只需要存上三角的 6 个和 3 个分量。</p>
 
-<p>每步都是解析微分——没有数值微分或自动微分。整个链式法则的 FLOP 数约 200&ndash;300 每 Gaussian，是 one-thread-per-Gaussian 模式，完全 compute-bound，无 shared memory 需求。这个 kernel 的执行时间通常不到光栅化反向的 1/10。</p>
+<p>每步都是手写的解析微分——没有数值微分或自动微分。整个链式法则每 Gaussian 几百 FLOP，是 one-thread-per-Gaussian 模式，无 shared memory 需求，也不需要原子操作（每个线程只写自己 Gaussian 的梯度）。</p>
 
 <p>EWA 投影反向函数 <code>computeCov2DBackward</code> 展示了这条链的核心——重建前向的 Jacobian，然后把 2D 协方差梯度反传回相机坐标系下的 3D 均值梯度：</p>
 
@@ -505,7 +503,7 @@ __device__ void warpReducedAtomicAdd(
   float dc = dL_dcov2d[2];</code></pre>
 <p class="src-note">完整代码：<code>code/r3d42-3dgs-backward/preprocess_backward.cu</code> 第 4&ndash;23 行</p>
 
-<p>注意这个函数和前向的 <code>computeCov2D</code> 共享完全相同的 Jacobian 构建代码（J00、J02、J11、J12），然后把上游梯度 <code>da, db, dc</code>（对应 2D 协方差的三个分量）通过链式法则传播回去。这种&ldquo;前向计算什么、反向就重建什么&rdquo;的模式在手写可微 kernel 中反复出现——反向不缓存前向的中间结果，而是当场重算（recomputation），用额外的 FLOP 换取不需要存储中间 Jacobian 矩阵的内存节省。对于 100 万个 Gaussian，存储每个 Gaussian 的完整 Jacobian（2&times;3 = 6 个 float = 24 B）需要 24 MB——而重算只需约 20 个 FMA，在 GPU 上不到 0.01 微秒/线程。这就是为什么 3DGS 的预处理反向选择 recomputation 而非 checkpointing。</p>
+<p>注意这个函数和前向的 <code>computeCov2D</code> 共享完全相同的 Jacobian 构建代码（J00、J02、J11、J12），然后把上游梯度 <code>da, db, dc</code>（对应 2D 协方差的三个分量）通过链式法则传播回去。这种&ldquo;前向计算什么、反向就重建什么&rdquo;的模式在手写可微 kernel 中反复出现——反向不缓存前向的中间结果，而是当场重算（recomputation），用额外的 FLOP 换取不需要存储中间 Jacobian 矩阵的内存节省。对于 100 万个 Gaussian，存储每个 Gaussian 的 Jacobian（4 个非零元，或 2&times;3 = 6 个 float）需要十几到二十几 MB，还要额外一次写和一次读；而重算只需十几次乘法——用便宜的算术换掉访存，这是手写可微 kernel 的常见取舍。</p>
 
 <pre data-code="code/r3d42-3dgs-backward/preprocess_backward.cu#L46-L63"><code>__global__ void preprocessBackward(
     int P,
@@ -533,33 +531,33 @@ __device__ void warpReducedAtomicAdd(
 
 <h3 id="sec-densify">Adaptive Density Control</h3>
 
-<p>每隔 N 步（如 100 步），根据累积的 2D 位置梯度 \(\|\partial L / \partial \boldsymbol{\mu}'\|\) 和 Gaussian 大小决定 clone、split 或 prune：</p>
+<p>每隔 N 步（论文中为 100 次迭代<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>），根据累积的 2D（view-space）位置梯度 \(\|\partial L / \partial \boldsymbol{\mu}'\|\) 和 Gaussian 大小决定 clone、split 或 prune：</p>
 <ul>
 <li><b>Clone</b>：梯度大但尺寸小的 Gaussian → 复制一份并沿梯度方向微移。</li>
 <li><b>Split</b>：梯度大且尺寸大的 Gaussian → 分裂成两个更小的。</li>
-<li><b>Prune</b>：opacity 低于阈值（如 0.005）或世界空间体积过大的 Gaussian → 删除。</li>
+<li><b>Prune</b>：opacity 低于阈值（官方代码用 0.005）或在世界空间 / 视图空间中过大的 Gaussian → 删除。</li>
 </ul>
 
-<p>在 GPU 上实现为：一个 kernel 计算每个 Gaussian 的决策（clone/split/prune/keep），然后用 stream compaction（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）重新排列数组。Clone 和 split 产生新 Gaussian 需要扩展所有属性数组——位置、协方差参数、SH 系数、opacity，以及 Adam 的 m 和 v 状态。新 Gaussian 的 Adam 状态初始化为零，这会导致 warmup 步骤中学习率偏低（Adam 的 bias correction），但实践中影响不大。Gaussian 数量在训练中动态变化——通常从 ~10 万开始，经过 densification 增长到 100 万&ndash;500 万。</p>
+<p>在 GPU 上实现为：一个 kernel 计算每个 Gaussian 的决策（clone/split/prune/keep），然后用 stream compaction（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）重新排列数组。Clone 和 split 产生新 Gaussian 需要扩展所有属性数组——位置、协方差参数、SH 系数、opacity，以及 Adam 的 m 和 v 状态。官方实现中新 Gaussian 的 Adam 一阶、二阶矩初始化为零。Gaussian 数量在训练中动态变化——从 SfM 点云初始化开始，论文测试的场景最终有 100 万&ndash;500 万个 Gaussian<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
-<p>梯度累积的实现细节：每次反向传播后，把 \(\|\partial L / \partial \boldsymbol{\mu}'\|_2\) 累加到一个 per-Gaussian 的缓冲区中，同时累加计数。每隔 N 步取平均梯度作为 densification 的判据。这个缓冲区在 densification 之后清零重新开始累积。整个过程只需要两个额外数组（梯度累积和计数），内存开销为 Gaussian 数量 &times; 8 B。</p>
+<p>梯度累积的实现细节：每次反向传播后，把 \(\|\partial L / \partial \boldsymbol{\mu}'\|_2\) 累加到一个 per-Gaussian 的缓冲区中，同时累加计数。每隔 N 步取平均梯度作为 densification 的判据。这个缓冲区在 densification 之后清零重新开始累积。核心是两个额外数组（梯度累积和计数），内存开销约为 Gaussian 数量 &times; 8 B。</p>
 
 <h3 id="sec-adam">Adam 融合更新</h3>
 
-<p>标准 PyTorch 训练中，optimizer step 对每个参数独立调用 Adam kernel。3DGS 的参数数量很多（100 万 Gaussian &times; 约 60 个参数 = 6000 万个标量），但每个参数的更新是 elementwise 的。可以把 Adam 更新融合到一个 kernel 里，对所有参数一次完成：省掉多次 kernel launch 的开销（<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）。融合 Adam 需要为每个参数维护一阶矩 m、二阶矩 v 和步数 t 的状态，内存额外 2&times; 参数量。</p>
+<p>标准 PyTorch 训练中，optimizer step 对每个参数张量调用 Adam kernel（官方 3DGS 用的是 <code>torch.optim.Adam</code>，按属性分成多个参数组）。3DGS 的参数数量很多（100 万 Gaussian &times; 59 个参数 &asymp; 5900 万个标量），但每个参数的更新是 elementwise 的。可以把 Adam 更新融合到一个 kernel 里，对所有参数一次完成：省掉多次 kernel launch 的开销（<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）。融合 Adam 需要为每个参数维护一阶矩 m、二阶矩 v 和步数 t 的状态，内存额外 2&times; 参数量。</p>
 
 <h2 id="sec-perf">性能分析</h2>
 
-<p>反向传播为什么比前向慢 2&ndash;3&times;？</p>
+<p>光栅化反向为什么比前向重？</p>
 
 <ol>
-<li><b>原子操作开销</b>：前向光栅化没有任何原子操作（每个像素独立写入自己的颜色），反向光栅化有大量 atomicAdd——即使用了 warp 归约，仍然是 8 次 atomicAdd/Gaussian/tile，且 L2 仲裁是串行的。</li>
-<li><b>无法提前终止</b>：前向的提前终止在密集场景下可以跳过 50%+ 的 Gaussian。反向不能这样做——它必须处理所有在前向中被处理过的 Gaussian（通过 n_contrib 截断），不能跳过中间的任何一个。原因是透射率恢复依赖于每个 Gaussian 的 alpha 值——跳过一个就无法正确恢复后续的透射率，整条梯度链断裂。</li>
-<li><b>更多全局内存写入</b>：前向每像素写 3 个 float（RGB）加 2 个辅助值（final_T 和 n_contrib），反向每像素对遇到的每个 Gaussian 写 10+ 个 float 的梯度分量到全局内存（通过 atomicAdd）。按平均每像素处理 20 个 Gaussian 计算，反向写入量约为前向的 40 倍以上。</li>
-<li><b>SFU 双重使用</b>：前向和反向都需要 <code>__expf</code> 计算 \(G\)——反向的 <code>__expf</code> 调用次数和前向相同，而前向本身已经是 SFU-bound 的（<a href="../r3d41-3dgs-forward/r3d41-3dgs-forward.html">第 41 篇</a>）。</li>
+<li><b>原子操作开销</b>：前向光栅化没有任何原子操作（每个像素独立写入自己的颜色），反向光栅化有大量 atomicAdd——原始实现每个 (像素, Gaussian) 对 9 次；即使用了 warp 归约，每 tile 每 Gaussian 仍最多 8 &times; 9 次，同一地址上的原子操作在 L2 上是串行完成的。</li>
+<li><b>无法更早终止</b>：反向不能比前向更早停——它必须处理所有在前向中被处理过的 Gaussian（通过 n_contrib 截断），不能跳过中间的任何一个。原因是透射率恢复依赖于每个 Gaussian 的 alpha 值——跳过一个就无法正确恢复后续的透射率，整条梯度链断裂。</li>
+<li><b>更多全局内存写入</b>：前向每像素写 3 个 float（RGB）加 2 个辅助值（final_T 和 n_contrib），原始反向每像素对遇到的每个 Gaussian 发出 9 次原子加。假设每像素平均处理 20 个 Gaussian，就是 180 次原子操作对 5 次普通写，约 36 倍。</li>
+<li><b>重算前向</b>：反向要重新计算每个 (像素, Gaussian) 的 \(G\) 和 \(\alpha\)（含一次指数），再加上梯度公式本身的乘加，单次处理的算术量比前向多。</li>
 </ol>
 
-<p>估算反向的原子操作带宽：假设 P = 10<sup>6</sup>，每 Gaussian 平均被 50 个像素覆盖，warp 归约后每 Gaussian 每 tile 约 2 次 atomicAdd（50 pixels / 32 lanes &asymp; 2 warps），每个 Gaussian 覆盖 ~10 个 tile → 20 次 atomicAdd &times; 10 个梯度分量 = 200 次 atomicAdd/Gaussian。总计 2 &times; 10<sup>8</sup> 次 float atomicAdd。A100 的 L2 原子吞吐约 1&ndash;2 G operations/s（取决于争用程度），仅原子操作就需要 ~0.1&ndash;0.2 s——远超前向的 ~10 ms。实际中，大多数 Gaussian 很小（只覆盖 1&ndash;5 个 tile），平均争用程度低得多，所以实际反向时间约为前向的 2&ndash;3&times;，不是 10&times;。</p>
+<p>估算原子操作的次数（只数次数，不估时间）：假设 P = 10<sup>6</sup>，每个 Gaussian 覆盖约 10 个 tile、在每个 tile 里平均落在 2 个 warp 的像素上；warp 归约后每 Gaussian 每 tile 约 2 &times; 9 = 18 次 atomicAdd，合计约 180 次/Gaussian、总计约 1.8 &times; 10<sup>8</sup> 次。不做 warp 归约时，次数要乘上每个 warp 内有贡献的像素数。原子操作的实际耗时取决于争用程度和 L2 原子吞吐，本文没有可引用的测量值，不给时间估计。</p>
 
 <h2 id="sec-determinism">确定性问题</h2>
 
@@ -568,7 +566,7 @@ __device__ void warpReducedAtomicAdd(
 <p>要实现确定性反向，有两种方法：</p>
 <ul>
 <li><b>排序后归约</b>：不用 atomicAdd，而是把所有 (Gaussian_id, 梯度) pair 存到一个大数组中，排序后按 Gaussian_id 归约——顺序固定，结果确定。代价是额外的排序开销和内存。</li>
-<li><b>Per-splat 反向</b>：每个 Gaussian 的梯度由一个 block 独占——归约在 smem/寄存器中完成，顺序确定。</li>
+<li><b>固定顺序的分段归约</b>：先把每个 (Gaussian, tile) 的部分和写到各自的槽位，再按固定顺序把同一 Gaussian 的槽位加起来——顺序确定，代价是额外内存和一次归约 kernel。注意 per-splat 反向本身并不保证确定性：跨 tile 的累加仍是原子操作。</li>
 </ul>
 
 <p>对于训练的最终质量（PSNR/SSIM），非确定性通常影响极小——随机初始化和数据 shuffle 引入的随机性远大于 atomicAdd 的舍入误差。但在调试或复现实验时，确定性很有价值。一个常见的调试陷阱：如果梯度计算有 bug，但由于 atomicAdd 的随机舍入误差，训练看起来还是能收敛（只是 PSNR 偏低一点）——这类 bug 在确定性模式下更容易通过比较两次运行的梯度差异来定位。</p>
@@ -580,51 +578,50 @@ __device__ void warpReducedAtomicAdd(
 <tr><th>特性</th><th>影响</th></tr>
 </thead>
 <tbody>
-<tr><td>L2 原子吞吐提升</td><td>Hopper/Blackwell 的 L2 原子操作带宽提升直接加速反向的 atomicAdd 瓶颈</td></tr>
-<tr><td>L2 容量增大（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>）</td><td>梯度数组更可能驻留 L2，减少 atomicAdd 的 HBM 回写</td></tr>
-<tr><td>SFU 吞吐（Blackwell Ultra 2&times;<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>）</td><td>反向中的 __expf 调用与前向同量级——SFU 加速对反向同样有效</td></tr>
-<tr><td>Shared memory 容量（A100 164 KB → H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>）</td><td>更大的 smem 可用于 block 级梯度归约，进一步减少原子操作次数</td></tr>
-<tr><td>Warp 级归约指令（redux.sync）</td><td>Hopper 的 PTX <code>redux.sync.add.f32</code> 比 5 步 shuffle 更快；但该指令在 CC 8.0 上不可用</td></tr>
+<tr><td>L2 容量增大（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>梯度数组更可能驻留 L2，减少 atomicAdd 的 HBM 回写</td></tr>
+<tr><td>SFU EX2 吞吐（Blackwell Ultra 相对 Blackwell 约 2&times;<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>反向中的 __expf 调用与前向同量级；但按第 41 篇的计数，SFU 并非约束单元，收益有限</td></tr>
+<tr><td>Shared memory 容量（A100 164 KB → H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>更大的 smem 可用于 block 级梯度归约，进一步减少原子操作次数</td></tr>
+<tr><td>Warp 级归约指令（redux.sync）</td><td>PTX 的 <code>redux.sync</code> 从 sm_80 起只支持整数的 add/min/max 和位运算；<code>.f32</code> 只有 min/max，且要求 sm_100a<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA. §9.7.15.13 redux.sync（Target ISA Notes）。">6</a>]</span>。浮点梯度求和仍要用 shuffle</td></tr>
 </tbody>
 </table>
 
-<p>更重要的是算法优化：per-splat 反向彻底消除了原子操作瓶颈，在任何硬件上都比 naive per-pixel 反向快。在 Hopper/Blackwell 上，per-splat 反向的瓶颈转移到 SFU 吞吐和 HBM 带宽——与前向相同的瓶颈模式。</p>
+<p>更重要的是算法优化：warp 归约和 per-splat 反向都在减少同一地址上的原子操作，这类收益不依赖具体硬件代际。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：3DGS 反向的主要瓶颈是什么？</b></p>
-<p>原子争用——多个像素同时对同一个 Gaussian 做 atomicAdd 更新梯度。一个 tile 内 256 个像素可能都在更新同一个 Gaussian，大 Gaussian 跨多个 tile 时争用更严重。优化：warp 内 shuffle 归约后再 atomicAdd（争用降 32&times;）；或 per-splat 反向彻底消除原子操作。追问：为什么前向没有原子争用？因为前向每像素独立写自己的颜色，不存在多写者更新同一地址。</p>
+<p>原子争用——多个像素同时对同一个 Gaussian 做 atomicAdd 更新梯度。一个 tile 内 256 个像素可能都在更新同一个 Gaussian，大 Gaussian 跨多个 tile 时争用更严重。优化：warp 内 shuffle 归约后再 atomicAdd（同一地址的原子操作降为 1/32，gsplat 的做法）；或 per-splat 反向（Taming 3DGS），在 tile 内改为每线程一个 Gaussian。追问：为什么前向没有原子争用？因为前向每像素独立写自己的颜色，不存在多写者更新同一地址。</p>
 
 <p id="sec-q2"><b>Q2：反向为什么要 back-to-front 遍历？</b></p>
-<p>因为需要恢复每个 Gaussian 位置的透射率 \(T_i\)。前向按 front-to-back 累积 \(T_i = \prod_{j&lt;i}(1-\alpha_j)\)，最后只保存了 \(T_{N+1}\)（final_T）。反向从 \(T_{N+1}\) 出发，每步除以 \((1-\alpha_i)\) 就恢复了 \(T_i\)——这要求严格按前向的逆序遍历。追问：如果 \(\alpha_i = 1\) 会怎样？除以零。所以前向必须 clamp alpha &le; 0.99，保证 \(1-\alpha \geq 0.01\)。</p>
+<p>因为需要恢复每个 Gaussian 位置的透射率 \(T_i\)。前向按 front-to-back 累积 \(T_i = \prod_{j&lt;i}(1-\alpha_j)\)，最后只保存了 \(T_{N+1}\)（final_T）。反向从 \(T_{N+1}\) 出发，每步除以 \((1-\alpha_i)\) 就恢复了 \(T_i\)——这要求严格按前向的逆序遍历。追问：如果 \(\alpha_i = 1\) 会怎样？除以零。所以前向和反向都 clamp alpha &le; 0.99，保证 \(1-\alpha \geq 0.01\)（论文附录 C）。</p>
 
 <p id="sec-q3"><b>Q3：如何减少 3DGS 反向的原子冲突？</b></p>
-<p>三个层次：（1）warp 归约：<code>__shfl_down_sync</code> 把 32 次 atomicAdd 合并成 1 次。（2）block 归约：用 smem 累加后只做 1 次 atomicAdd/Gaussian。（3）per-splat 反向：改变并行维度，每个 Gaussian 独占自己的梯度空间，零原子操作。追问：per-splat 的挑战？负载不均衡（大小 Gaussian 工作量差异大）和额外内存（需要保存每像素的 Gaussian 列表）。</p>
+<p>三个层次：（1）warp 归约：<code>__shfl_down_sync</code> 把 32 次 atomicAdd 合并成 1 次。（2）block 归约：用 smem 累加后只做 1 次 atomicAdd/Gaussian。（3）per-splat 反向：tile 内改为每线程一个 Gaussian，梯度在寄存器里累加，每个 (Gaussian, tile) 只写回一次；跨 tile 仍需原子操作。追问：per-splat 的挑战？线程需要每个像素在该 Gaussian 之前的状态——Taming 3DGS 在前向每 32 个 Gaussian 存一次 (T, 累积颜色) checkpoint，反向从 checkpoint 出发在 warp 内递推，代价是额外的 checkpoint 内存。</p>
 
 <p id="sec-q4"><b>Q4：为什么要保存每像素的最后贡献者（n_contrib）？</b></p>
 <p>提前终止使得不同像素处理的 Gaussian 数量不同。反向必须和前向处理完全相同的 Gaussian 子集——n_contrib 记录了每像素在前向中实际处理了多少个 Gaussian。没有这个信息，反向可能处理了前向跳过的 Gaussian（T &lt; 1e-4 之后的），导致梯度不正确。追问：不保存 n_contrib 而是在反向中重新检查 T &lt; 1e-4 可以吗？不行——反向的 T 是恢复的，累计浮点误差可能导致 T 的精确值和前向不一致，截断点不同就会产生梯度错误。</p>
 
 <p id="sec-q5"><b>Q5：3DGS 反向传播是确定性的吗？如何实现确定性？</b></p>
-<p>不是。浮点 atomicAdd 的结果取决于线程执行顺序——不同的 warp 调度会产生不同的舍入误差。方案一：排序后归约——把所有梯度贡献存到数组中，按 Gaussian ID 排序后归约，顺序固定。代价是额外排序和内存。方案二：per-splat 反向——每个 Gaussian 独占一个 block，归约在寄存器和 smem 中完成，顺序确定。追问：非确定性影响训练质量吗？通常影响极小——远小于随机初始化带来的随机性。但确定性在调试梯度 bug 时非常有价值。</p>
+<p>不是。浮点 atomicAdd 的结果取决于线程执行顺序——不同的 warp 调度会产生不同的舍入误差。方案一：排序后归约——把所有梯度贡献存到数组中，按 Gaussian ID 排序后归约，顺序固定。代价是额外排序和内存。方案二：先把每个 (Gaussian, tile) 的部分和写到独立槽位，再按固定顺序归约。仅改用 per-splat 并不够——跨 tile 的原子累加顺序仍不确定。追问：非确定性影响训练质量吗？通常影响极小——远小于随机初始化带来的随机性。但确定性在调试梯度 bug 时非常有价值。</p>
 
 <p id="sec-q6"><b>Q6：反向的 T 恢复经过很多步除法，误差会累积吗？怎么验证正确性？</b></p>
-<p>会累积，但通常在安全范围内。FP32 每步除法引入约 \(u/(1-\alpha) \approx 10^{-7}\) 的相对误差（\(\alpha = 0.3\) 时），200 步后累积到 \(\sim 10^{-5}\)。验证方法：恢复到第一个 Gaussian 时的 \(T_1\) 应当接近 1.0——如果偏差超过 \(10^{-3}\)，说明中间有数值问题。追问：alpha clamp 0.99 就是为了同时保证前向的梯度流动和反向的数值稳定——它是 3DGS 训练能收敛的隐含前提之一。</p>
+<p>会累积。FP32 每次除法本身引入不超过 \(u = 2^{-24} \approx 6 \times 10^{-8}\) 的相对误差，200 步后约 \(10^{-5}\) 量级；更大的风险是 \(\alpha\) 接近 1 时 \(\alpha\) 自身的误差被 \(1/(1-\alpha)\) 放大。验证方法：恢复到第一个 Gaussian 时的 \(T_1\) 应当接近 1.0，偏差明显大于上面的量级就说明有问题；也可以和保存前向逐步 T 的参考实现逐元素对比。追问：alpha 上限 0.99 的作用？论文说它（连同 1/255 下限）是为了避免除以 0 之类的数值不稳定，前向和反向用同样的规则<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本文代码<b>未在 GPU 上运行</b>，仅通过 host-only 语法检查。实际 3DGS 反向实现（diff-gaussian-rasterization、gsplat）有大量工程优化，此处做了简化。</li>
 <li>SH 系数的反向传播（dL/dcolor → dL/dSH）和四元数梯度的完整推导从简——每一步都是标准矩阵微分，不涉及新的 GPU kernel 设计模式。</li>
-<li>Per-splat 反向的具体实现细节（像素列表的存储格式、动态调度策略）未详述——参见 gsplat<span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">4</a>]</span> 的实现。</li>
+<li>Per-splat 反向的具体实现细节（checkpoint 布局、warp 内状态传递）未详述——参见 Taming 3DGS<span class="cite">[<a href="#ref-taming" title="Mallick, Goel, Kerbl, Vicente Carrasco, Steinberger &amp; De La Torre (2024). Taming 3DGS: High-Quality Radiance Fields with Limited Resources. arXiv:2406.15643.">5</a>]</span>。本文的反向代码也省略了 \(\partial L/\partial \alpha\) 中的 running-sum 项和背景色项。</li>
 <li>本文没有覆盖：2nd-order 优化（Hessian-vector product）、mixed precision 训练（FP16 梯度累加的精度问题）、大场景分块训练（单帧图像太大无法一次渲染）。</li>
-<li>原子操作吞吐的数量级（L2 ~1&ndash;2 G ops/s under contention on A100）为公开基准的典型值，非本文实测。</li>
+<li>文中没有给出原子操作的耗时估计——没有可引用的 L2 原子吞吐测量值，本文也未实测。</li>
 </ul>
 
 <h2 id="sec-summary" class="no-toc">小结</h2>
 
-<p>3DGS 反向传播的核心难点在于光栅化反向 kernel——它需要 back-to-front 重放前向的 &alpha;-blending 过程，恢复每步的透射率 \(T_i\)，然后为每个 Gaussian 累加来自所有像素的梯度贡献。这个累加过程天然涉及大量 atomicAdd 争用，是训练速度的主要瓶颈。</p>
+<p>3DGS 反向传播的核心难点在于光栅化反向 kernel——它需要 back-to-front 重放前向的 &alpha;-blending 过程，恢复每步的透射率 \(T_i\)，然后为每个 Gaussian 累加来自所有像素的梯度贡献。这个累加过程天然涉及大量 atomicAdd 争用，是训练速度的主要瓶颈之一。</p>
 
-<p>优化手段从 warp 级 shuffle 归约（32&times; 减少争用）到 per-splat 反向（彻底消除原子操作），体现了 GPU 编程中一个通用原则：<b>改变并行维度比优化原子操作更有效</b>。当多个线程必须更新同一地址时，先考虑能否把问题重构为每个线程拥有独占的写入空间。</p>
+<p>优化手段从 warp 级 shuffle 归约（同一地址的原子操作减为 1/32）到 per-splat 反向（tile 内改由线程独占 Gaussian），体现了 GPU 编程中一个通用原则：<b>改变并行维度比优化原子操作更有效</b>。当多个线程必须更新同一地址时，先考虑能否把问题重构为每个线程拥有独占的写入空间。</p>
 
 <p>预处理反向通过链式法则把 2D 梯度（mean2d、conic）传回 3D 属性（位置、协方差参数、SH 系数）——一条长但直接的解析微分链，在 GPU 上是简单的 elementwise kernel，完全不涉及原子操作或跨线程通信，不是性能瓶颈。训练相关的辅助 kernel（densification 统计和融合 Adam 更新）进一步丰富了 3DGS 的 GPU kernel 生态。下一篇转向 NeRF，讲体渲染和多分辨率哈希编码——与 3DGS 不同，NeRF 的反向传播需要处理 MLP 权重矩阵的梯度，瓶颈模式完全不同。</p>
 
@@ -642,14 +639,16 @@ __device__ void warpReducedAtomicAdd(
 <ol class="references">
   <li id="ref-kerbl23">Kerbl, Kopanas, Leimk&uuml;hler &amp; Drettakis (2023). <a href="https://arxiv.org/abs/2308.04079">3D Gaussian Splatting for Real-Time Radiance Field Rendering</a>. ACM Trans. Graphics (SIGGRAPH) 42(4).</li>
   <li id="ref-cc">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide</a>. Table 4 &ldquo;Throughput of Native Arithmetic Instructions&rdquo;; &sect;5.1 Compute Capabilities.</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
   <li id="ref-gsplat">Ye et al. (2024). <a href="https://arxiv.org/abs/2409.06765">gsplat: An Open-Source Library for Gaussian Splatting</a>. arXiv:2409.06765.</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-taming">Mallick, Goel, Kerbl, Vicente Carrasco, Steinberger &amp; De La Torre (2024). <a href="https://arxiv.org/abs/2406.15643">Taming 3DGS: High-Quality Radiance Fields with Limited Resources</a>. arXiv:2406.15643.</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA</a>. &sect;9.7.15.13 redux.sync（Target ISA Notes）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 42 篇。文中代码完整版在系列目录的 <code>code/r3d42-3dgs-backward/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 42 篇。文中代码完整版在系列目录的 <code>code/r3d42-3dgs-backward/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图均为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

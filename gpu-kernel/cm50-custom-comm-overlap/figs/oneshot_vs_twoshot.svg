@@ -20,7 +20,7 @@
   <text x="360" y="24" text-anchor="middle" class="d-label">Custom AllReduce：One-shot vs Two-shot</text>
 
   <!-- One-shot (left) -->
-  <rect x="20" y="45" width="330" height="300" fill="#56B4E9" class="phase-bg" stroke="#56B4E9" stroke-width="1"/>
+  <rect x="20" y="45" width="330" height="306" fill="#56B4E9" class="phase-bg" stroke="#56B4E9" stroke-width="1"/>
   <text x="185" y="68" text-anchor="middle" class="d-label" style="font-size:12px;fill:#56B4E9">One-shot（全读取）</text>
 
   <g transform="translate(40, 85)">
@@ -46,16 +46,16 @@
 
     <text x="0" y="160" class="d-label" style="font-size:11px;fill:#009E73">优点</text>
     <text x="0" y="176" class="d-note" style="font-size:10px">· 单次 kernel，最低延迟</text>
-    <text x="0" y="192" class="d-note" style="font-size:10px">· 无同步屏障</text>
+    <text x="0" y="192" class="d-note" style="font-size:10px">· 只在首尾各一次 barrier</text>
 
     <text x="0" y="215" class="d-label" style="font-size:11px;fill:#D55E00">缺点</text>
-    <text x="0" y="231" class="d-note" style="font-size:10px">· 读放大：每 GPU 读 N 份</text>
-    <text x="0" y="247" class="d-note" style="font-size:10px">· 总 NVLink 流量 = N·D</text>
-    <text x="0" y="263" class="d-note" style="font-size:10px;font-weight:600">适合：D &lt; ~256 KB</text>
+    <text x="0" y="231" class="d-note" style="font-size:10px">· 每 GPU 从 N−1 个 peer 各读 D</text>
+    <text x="0" y="247" class="d-note" style="font-size:10px">· 每卡读入 (N−1)·D</text>
+    <text x="0" y="263" class="d-note" style="font-size:10px;font-weight:600">vLLM（8 卡）：D &lt; 256 KB</text>
   </g>
 
   <!-- Two-shot (right) -->
-  <rect x="370" y="45" width="330" height="300" fill="#D55E00" class="phase-bg" stroke="#D55E00" stroke-width="1"/>
+  <rect x="370" y="45" width="330" height="306" fill="#D55E00" class="phase-bg" stroke="#D55E00" stroke-width="1"/>
   <text x="535" y="68" text-anchor="middle" class="d-label" style="font-size:12px;fill:#D55E00">Two-shot（RS + AG）</text>
 
   <g transform="translate(390, 85)">
@@ -79,15 +79,15 @@
     <text x="145" y="112" text-anchor="middle" class="d-note" style="font-size:9px">广播各自的 1/N → 全员得到完整结果</text>
 
     <text x="0" y="150" class="d-label" style="font-size:11px;fill:#009E73">优点</text>
-    <text x="0" y="166" class="d-note" style="font-size:10px">· 总 NVLink 流量 = 2·(N-1)/N · D</text>
+    <text x="0" y="166" class="d-note" style="font-size:10px">· 每卡读入 2·(N−1)/N · D</text>
     <text x="0" y="182" class="d-note" style="font-size:10px">· 带宽最优（≈ ring AllReduce）</text>
 
     <text x="0" y="205" class="d-label" style="font-size:11px;fill:#D55E00">缺点</text>
-    <text x="0" y="221" class="d-note" style="font-size:10px">· 需要 2 次 barrier 同步</text>
+    <text x="0" y="221" class="d-note" style="font-size:10px">· 两阶段之间多一次 barrier</text>
     <text x="0" y="237" class="d-note" style="font-size:10px">· 略高延迟（2 个 phase）</text>
-    <text x="0" y="253" class="d-note" style="font-size:10px;font-weight:600">适合：D &gt; ~256 KB</text>
+    <text x="0" y="253" class="d-note" style="font-size:10px;font-weight:600">vLLM（8 卡）：D ≥ 256 KB</text>
   </g>
 
   <!-- Bottom comparison -->
-  <text x="360" y="370" text-anchor="middle" class="d-note" style="font-size:10px">实际系统（如 DeepEP）根据消息大小自动选择：小消息 one-shot 低延迟，大消息 two-shot 高带宽</text>
+  <text x="360" y="370" text-anchor="middle" class="d-note" style="font-size:10px">实际系统（如 vLLM 的 custom all-reduce）按卡数和消息大小选择：小消息 one-shot，大消息 two-shot</text>
 </svg>

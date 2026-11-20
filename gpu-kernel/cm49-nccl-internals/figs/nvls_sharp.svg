@@ -27,7 +27,7 @@
 <line x1="159" y1="149" x2="92" y2="110" stroke="#ef4444" stroke-width="1.2" marker-end="url(#ar)"/>
 
 <text x="40" y="190" class="label">步数: 2(N-1) = 6</text>
-<text x="40" y="208" class="label">延迟: 6 × (α + D/4B)</text>
+<text x="40" y="208" class="label">时间: 6 × (α + (D/4)/B)</text>
 <text x="40" y="226" class="label" fill="#dc2626">每步都要等上一步完成</text>
 <text x="40" y="244" class="label" fill="#dc2626">数据在 GPU 之间逐跳传递</text>
 
@@ -38,7 +38,7 @@
 <!-- NVSwitch in center -->
 <rect x="460" y="100" width="130" height="40" rx="8" fill="#86efac" stroke="#22c55e" stroke-width="1.5"/>
 <text x="525" y="118" text-anchor="middle" class="code" fill="#16a34a">NVSwitch</text>
-<text x="525" y="132" text-anchor="middle" font-size="9" fill="#16a34a">SHARP engine</text>
+<text x="525" y="132" text-anchor="middle" font-size="9" fill="#16a34a">网内归约</text>
 
 <!-- GPUs around NVSwitch -->
 <circle cx="410" cy="85" r="16" fill="#bbf7d0" stroke="#22c55e"/>
@@ -56,13 +56,13 @@
 <line x1="425" y1="165" x2="460" y2="135" stroke="#22c55e" stroke-width="1.2"/>
 <line x1="624" y1="165" x2="590" y2="135" stroke="#22c55e" stroke-width="1.2"/>
 
-<text x="390" y="205" class="label">步数: 1 (写入) + 1 (读回) = 2</text>
-<text x="390" y="223" class="label">延迟: 2α + D/B</text>
+<text x="390" y="205" class="label">ld_reduce（RS）+ multimem.st（AG）</text>
+<text x="390" y="223" class="label">步数与 N 无关；每卡收发约 D</text>
 <text x="390" y="241" class="label" fill="#16a34a">NVSwitch 硬件归约, 无多步传递</text>
 
 <!-- Comparison -->
 <rect x="20" y="270" width="660" height="22" rx="4" fill="#f0fdf4" stroke="#22c55e"/>
-<text x="350" y="285" text-anchor="middle" class="label" fill="#16a34a">NVLS 延迟降低 3-5×: 从 O(N) 步降到 O(1) 步, 特别适合小到中等消息的 AllReduce</text>
+<text x="350" y="285" text-anchor="middle" class="label" fill="#16a34a">NVLS 主要省的是每卡传输量（Ring 为 2(N-1)/N·D）；固定延迟并不比 Ring+LL 小</text>
 
 <defs>
 <marker id="ar" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto"><path d="M0,0 L6,2.5 L0,5" fill="#ef4444"/></marker>

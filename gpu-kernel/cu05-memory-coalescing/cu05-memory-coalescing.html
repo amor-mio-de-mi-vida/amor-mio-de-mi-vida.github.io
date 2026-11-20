@@ -3302,7 +3302,7 @@ void copy(const float* in, float* out, size_t n,
 <p class="src-note">完整代码：<code>code/cu05-memory-coalescing/vec_copy.cu</code> 第 40–51 行（未在 GPU 上运行）</p>
 
 <aside class="sidenote">怎么确认编译器真的生成了 16 字节的加载？要看 SASS（GPU 的机器码），第 15 篇会讲 <code>cuobjdump</code> 的用法。本文没有编译环境，因此不展示任何编译器输出。</aside>
-<p>如果输入和输出的错位量相同（例如都从 <code>base + 1</code> 开始），还可以先用标量处理开头几个元素、把指针推到 16 字节边界，再走向量化主循环。PyTorch 等框架的逐元素 kernel 通常也会在启动前检查指针对齐，再决定用多宽的向量。</p>
+<p>如果输入和输出的错位量相同（例如都从 <code>base + 1</code> 开始），还可以先用标量处理开头几个元素、把指针推到 16 字节边界，再走向量化主循环。PyTorch 的逐元素 kernel 就是这样做的：启动前用 <code>can_vectorize_up_to</code> 按每个指针的对齐情况决定最多用几路向量 <span class="cite">[<a href="#ref-pytorchvec" title="PyTorch Contributors. aten/src/ATen/native/cuda/MemoryAccess.cuh. GitHub 源码，<code>can_vectorize_up_to</code>（按指针地址的对齐决定向量宽度）。">4</a>]</span>。</p>
 
 <h2 id="sec-cache" data-short="缓存与提示">缓存能救错位，救不了大步长；cache hint 是调优，不是修正</h2>
 
@@ -3310,10 +3310,10 @@ void copy(const float* in, float* out, size_t n,
 
 <p><b>只读数据路径。</b>如果一块数据在整个 kernel 运行期间都只读，可以用 <code>__ldg()</code> 读取，让它走 L1/纹理统一缓存的只读路径。编译器能证明数据只读时会自动这样做；把指针同时标成 <code>const</code> 和 <code>__restrict__</code>，可以提高编译器做出这个判断的概率 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。">3</a>, Global Memory]</span>。本文的拷贝 kernel 都给输入指针加了 <code>const ... __restrict__</code>，就是这个目的。<code>__restrict__</code> 是程序员的承诺：这个指针指向的数据不会通过别的指针被修改。承诺不成立时，结果是未定义的。</p>
 
-<p><b>cache operator。</b>PTX 允许在每条加载上附带缓存策略，CUDA C++ 以 <code>__ldcg</code>、<code>__ldcs</code> 等函数暴露出来 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。">3</a>, Load Functions Using Cache Hints]</span>。<a href="#tab-hints">表 2</a> 摘录了 PTX ISA 的定义。它们都只是<b>性能提示</b>，不改变内存一致性语义 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">4</a>, §9.7.10.1]</span>。</p>
+<p><b>cache operator。</b>PTX 允许在每条加载上附带缓存策略，CUDA C++ 以 <code>__ldcg</code>、<code>__ldcs</code> 等函数暴露出来 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。">3</a>, Load Functions Using Cache Hints]</span>。<a href="#tab-hints">表 2</a> 摘录了 PTX ISA 的定义。它们都只是<b>性能提示</b>，不改变内存一致性语义 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">5</a>, §9.7.10.1]</span>。</p>
 
 <figure id="tab-hints" class="table" data-source="paper">
-  <figcaption id="tab-hints-cap"><span class="fig-label">表 2</span><b>cache operator 决定数据进不进 L1、以什么优先级留在缓存里。</b>语义摘自 PTX ISA 9.4 §9.7.10.1 与 §9.7.10.2 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">4</a>]</span>；右列为对应的 CUDA C++ 函数 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。">3</a>]</span>。</figcaption>
+  <figcaption id="tab-hints-cap"><span class="fig-label">表 2</span><b>cache operator 决定数据进不进 L1、以什么优先级留在缓存里。</b>语义摘自 PTX ISA 9.4 §9.7.10.1 与 §9.7.10.2 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">5</a>]</span>；右列为对应的 CUDA C++ 函数 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。">3</a>]</span>。</figcaption>
   <div class="table-wrap"><table>
     <thead><tr><th>PTX</th><th>含义</th><th>CUDA C++</th></tr></thead>
     <tbody>
@@ -3343,7 +3343,7 @@ __global__ void copy_vec4_stream(const float4* __restrict__ in,
 
 <div class="callout warn"><p class="callout-title">常见误解</p><p>“加上 cache hint，跨步访问就不慢了。”cache operator 改变的是数据<b>留在缓存里的方式</b>，不改变一条 warp 指令要搬的 sector 数。步长为 32 的读，无论用哪种 hint，每条指令都要搬 32 个 sector。修正访问模式要改下标或布局（如 SoA、转置时经共享内存），hint 只是在模式正确之后再挤出一点缓存命中率。</p></div>
 
-<p>PTX 文档里还有一句对写 kernel 很重要的话：多个 SM 的 L1 缓存之间对全局数据<b>不保持一致</b>，一个线程通过一个 L1 写了数据，另一个 SM 上的线程用默认的 <code>ld.ca</code> 读，可能读到旧值 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">4</a>, §9.7.10.1]</span>。驱动会在相互依赖的 kernel 之间使 L1 失效，所以“上一个 kernel 写、下一个 kernel 读”是安全的；但在同一个 kernel 内跨 block 通信，就需要第 8 篇讲的内存栅栏和原子操作。</p>
+<p>PTX 文档里还有一句对写 kernel 很重要的话：多个 SM 的 L1 缓存之间对全局数据<b>不保持一致</b>，一个线程通过一个 L1 写了数据，另一个 SM 上的线程用默认的 <code>ld.ca</code> 读，可能读到旧值 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">5</a>, §9.7.10.1]</span>。同一个 stream 里先后执行的两个 kernel 之间，前一个 kernel 的写对后一个 kernel 可见，所以&ldquo;上一个 kernel 写、下一个 kernel 读&rdquo;是安全的；但在同一个 kernel 内跨 block 通信，就需要第 8 篇讲的内存栅栏和原子操作。</p>
 
 <h2 id="sec-l2" data-short="L2 持久化">L2 持久化窗口：把反复用的数据钉在 L2 里</h2>
 
@@ -3387,7 +3387,7 @@ cudaStreamSetAttribute(stream,
 
 <h2 id="sec-transpose" data-short="矩阵转置">矩阵转置：读和写总有一侧在跨步</h2>
 
-<p>现在回到贯穿例子。把 \(n \times n\) 的行主序矩阵拷贝或转置，有四种基本写法，见下面的代码。每个 block 处理一个 \(32\times32\) 的 tile，block 有 \(32\times8\) 个线程，每个线程处理 4 行，这是 NVIDIA 转置博客使用的配置 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">5</a>]</span>。<code>threadIdx.x</code> 对应 \(x\)，同一个 warp 里的 32 个线程 \(x\) 连续、\(y\) 相同。</p>
+<p>现在回到贯穿例子。把 \(n \times n\) 的行主序矩阵拷贝或转置，有四种基本写法，见下面的代码。每个 block 处理一个 \(32\times32\) 的 tile，block 有 \(32\times8\) 个线程，每个线程处理 4 行，这是 NVIDIA 转置博客使用的配置 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">6</a>]</span>。<code>threadIdx.x</code> 对应 \(x\)，同一个 warp 里的 32 个线程 \(x\) 连续、\(y\) 相同。</p>
 
 <pre data-code="code/cu05-memory-coalescing/transpose.cu#L16-L32"><code>// Row read, column write: reads coalesced, writes strided by n.
 __global__ void transpose_rc(const float* in, float* out,
@@ -3425,7 +3425,7 @@ __global__ void transpose_cr(const float* in, float* out,
 
 <p>解法是让共享内存做“换方向”这件事：block 先按行合并地把一个 \(32\times32\) tile 读进共享内存，同步之后再按行合并地写出转置后的 tile，行列互换发生在共享内存里，而共享内存不受 32 字节 sector 的约束。完整的 <code>transpose_smem</code> 在代码文件里，它为什么要把 tile 声明成 <code>[32][33]</code>（多出来的一列是为了避免 bank 冲突），是下一篇的主题。</p>
 
-<p>这个分析和实测是否一致？<a href="#fig-harris">图 4</a> 复绘了 NVIDIA 转置博客在两款 GPU 上的测量结果 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">5</a>]</span>。朴素转置（行读列写）在 Tesla M2050 上只有拷贝带宽的约 18%，在 K20c 上约 41%；经共享内存中转并消除 bank 冲突后，回到与普通拷贝相当的水平：M2050 为拷贝带宽的约 95%（99.5 / 105.2），K20c 甚至略高于普通拷贝（144.3 / 136.0 ≈ 106%）。注意，这两款 GPU 都远早于本文讨论的架构，缓存结构和合并规则的细节与 CC 6.0 以上不同，所以这里只看趋势，不看具体比例。</p>
+<p>这个分析和实测是否一致？<a href="#fig-harris">图 4</a> 复绘了 NVIDIA 转置博客在两款 GPU 上的测量结果 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">6</a>]</span>。朴素转置（行读列写）在 Tesla M2050 上只有拷贝带宽的约 18%，在 K20c 上约 41%；经共享内存中转并消除 bank 冲突后，回到与普通拷贝相当的水平：M2050 为拷贝带宽的约 95%（99.5 / 105.2），K20c 甚至略高于普通拷贝（144.3 / 136.0 ≈ 106%）。注意，这两款 GPU 都远早于本文讨论的架构，缓存结构和合并规则的细节与 CC 6.0 以上不同，所以这里只看趋势，不看具体比例。</p>
 
 <figure id="fig-harris" data-kind="data" data-source="paper">
   <div class="fig-body"><svg aria-labelledby="fig-harris-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 428.39952 256.399596" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s4-root" style="max-width:571px;">
@@ -5271,18 +5271,18 @@ z
   </clipPath>
  </defs>
 </svg></div>
-  <figcaption id="fig-harris-cap"><span class="fig-label">图 4</span><b>朴素转置因为写入跨步，带宽远低于拷贝；经共享内存中转并消除 bank 冲突后，回到与拷贝相当的水平。</b>\(1024\times1024\) 的 float 矩阵，\(32\times32\) tile、\(32\times8\) 线程 block，ECC 开启；圆圈标出朴素转置。数据来自 Harris (2013) 的表格 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">5</a>]</span>，测量平台为 Tesla M2050 与 K20c，均早于本系列讨论的架构，只用于说明趋势。</figcaption>
+  <figcaption id="fig-harris-cap"><span class="fig-label">图 4</span><b>朴素转置因为写入跨步，带宽远低于拷贝；经共享内存中转并消除 bank 冲突后，回到与拷贝相当的水平。</b>\(1024\times1024\) 的 float 矩阵，\(32\times32\) tile、\(32\times8\) 线程 block，ECC 开启；圆圈标出朴素转置。数据来自 Harris (2013) 的表格 <span class="cite">[<a href="#ref-harris2013" title="Harris, M. (2013). An Efficient Matrix Transpose in CUDA C/C++. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。">6</a>]</span>，测量平台为 Tesla M2050 与 K20c，均早于本系列讨论的架构，只用于说明趋势。</figcaption>
 </figure>
 
 <h2 id="sec-hb" data-short="Hopper 与 Blackwell">Hopper 与 Blackwell 上：规则 tile 交给 TMA，其余照旧</h2>
 
-<p>第 1 篇介绍过，Hopper 新增的 TMA（Tensor Memory Accelerator）可以由一个线程发起整块 tile 在全局内存和共享内存之间的异步拷贝，地址计算由硬件完成 <span class="cite">[<a href="#ref-hoptg" title="NVIDIA. NVIDIA Hopper Tuning Guide. “Tensor Memory Accelerator” 一节。">6</a>]</span>。这改变了“合并”在高性能 kernel 里的位置。</p>
+<p>第 1 篇介绍过，Hopper 新增的 TMA（Tensor Memory Accelerator）可以由一个线程发起整块 tile 在全局内存和共享内存之间的异步拷贝，地址计算由硬件完成 <span class="cite">[<a href="#ref-hoptg" title="NVIDIA. NVIDIA Hopper Tuning Guide. “Tensor Memory Accelerator” 一节。">7</a>]</span>。这改变了“合并”在高性能 kernel 里的位置。</p>
 
-<p><b>对齐要求从运行时检查变成了描述符约束。</b>TMA 的拷贝由一个 tensor map 描述，它在主机端用 <code>cuTensorMapEncodeTiled</code> 创建。驱动 API 文档列出的约束包括：全局地址必须 16 字节对齐；各维的跨度（stride）必须是 16 字节的倍数；不交错存储时，tile 最内层一维的字节数必须是 16 的倍数；使用 128 字节 swizzle 时，tile 内层维度不能超过 128 字节 <span class="cite">[<a href="#ref-cudadrv" title="NVIDIA. CUDA Driver API, §6.30 Tensor Map Object Management. <code>cuTensorMapEncodeTiled</code> 的对齐、跨度、boxDim、swizzle 与 <code>l2Promotion</code> 说明。">7</a>]</span>。不满足这些条件，描述符根本创建不了。这和<a href="#sec-vector">向量化</a> 的 16 字节对齐要求是同一个道理，只是检查点移到了 kernel 启动之前。</p>
+<p><b>对齐要求从运行时检查变成了描述符约束。</b>TMA 的拷贝由一个 tensor map 描述，它在主机端用 <code>cuTensorMapEncodeTiled</code> 创建。驱动 API 文档列出的约束包括：全局地址必须 16 字节对齐；各维的跨度（stride）必须是 16 字节的倍数；不交错存储时，tile 最内层一维的字节数必须是 16 的倍数；使用 128 字节 swizzle 时，tile 内层维度不能超过 128 字节 <span class="cite">[<a href="#ref-cudadrv" title="NVIDIA. CUDA Driver API, §6.30 Tensor Map Object Management. <code>cuTensorMapEncodeTiled</code> 的对齐、跨度、boxDim、swizzle 与 <code>l2Promotion</code> 说明。">8</a>]</span>。不满足这些条件，描述符根本创建不了。这和<a href="#sec-vector">向量化</a> 的 16 字节对齐要求是同一个道理，只是检查点移到了 kernel 启动之前。</p>
 
-<p><b>L2 抓取粒度可以显式指定。</b>tensor map 有一个 <code>l2Promotion</code> 参数，文档的描述是“L2 请求从 DRAM 填充的字节粒度”，可选不提升、64、128 或 256 字节 <span class="cite">[<a href="#ref-cudadrv" title="NVIDIA. CUDA Driver API, §6.30 Tensor Map Object Management. <code>cuTensorMapEncodeTiled</code> 的对齐、跨度、boxDim、swizzle 与 <code>l2Promotion</code> 说明。">7</a>]</span>。这相当于给 TMA 访问附带了一个“预取多大一块进 L2”的提示。NVIDIA 没有公开它对不同访问模式的具体收益，本文不做定量讨论。</p>
+<p><b>L2 抓取粒度可以显式指定。</b>tensor map 有一个 <code>l2Promotion</code> 参数，文档的描述是“L2 请求从 DRAM 填充的字节粒度”，可选不提升、64、128 或 256 字节 <span class="cite">[<a href="#ref-cudadrv" title="NVIDIA. CUDA Driver API, §6.30 Tensor Map Object Management. <code>cuTensorMapEncodeTiled</code> 的对齐、跨度、boxDim、swizzle 与 <code>l2Promotion</code> 说明。">8</a>]</span>。这相当于给 TMA 访问附带了一个“预取多大一块进 L2”的提示。NVIDIA 没有公开它对不同访问模式的具体收益，本文不做定量讨论。</p>
 
-<p><b>合并规则仍然决定 tile 怎么切。</b>TMA 搬的是 tile，但 tile 的形状仍然由程序员选择。tile 的最内层维度应该沿内存中连续的那一维，并且足够宽；如果把一个行主序矩阵切成“很高、只有 16 字节宽”的 tile，每一行在显存里仍然只占半个 sector。我们的推断是这类 tile 无法高效利用搬运的 sector，NVIDIA 文档没有给出具体数字。Blackwell 在 PTX 层面新增了 <code>tile::gather4</code> 等 TMA 模式，它把二维张量中 4 个不连续的行拼成一个 tile <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">4</a>, §5.5.3.4]</span>，适合 MoE、分页 KV cache 这类按行收集数据的场景，第 21、37 篇会展开。</p>
+<p><b>合并规则仍然决定 tile 怎么切。</b>TMA 搬的是 tile，但 tile 的形状仍然由程序员选择。tile 的最内层维度应该沿内存中连续的那一维，并且足够宽；如果把一个行主序矩阵切成“很高、只有 16 字节宽”的 tile，每一行在显存里仍然只占半个 sector。我们的推断是这类 tile 无法高效利用搬运的 sector，NVIDIA 文档没有给出具体数字。Blackwell 在 PTX 层面新增了 <code>tile::gather4</code> 等 TMA 模式，它把二维张量中 4 个不连续的行拼成一个 tile <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。">5</a>, §5.5.3.4]</span>，适合 MoE、分页 KV cache 这类按行收集数据的场景，第 21、37 篇会展开。</p>
 
 <p><b>大量 kernel 并不走 TMA。</b>逐元素运算、归约、softmax、LayerNorm、gather/scatter、不经共享内存的 epilogue 写回，仍然是线程直接发 <code>ld.global</code>/<code>st.global</code>，本篇的每条规则都原样适用。更大的 L2（H100 SXM5 为 50 MB，GB200 为 126 MB，见第 1 篇）可能让错位和小步长更容易被缓存复用抵消，但不改变一条指令要碰多少 sector 这件事。</p>
 
@@ -5361,6 +5361,7 @@ z
   <li id="ref-ncu">NVIDIA. <a href="https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html">Nsight Compute Profiling Guide</a>. 术语表（request、sector、wavefront）与 Memory Tables（Sectors/Req）。</li>
   <li id="ref-bpg">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html">CUDA C++ Best Practices Guide</a>（13.4）. §9.2.2 Effective Bandwidth Calculation；§10.2.1 Coalesced Access to Global Memory 及其子节；§10.2.2 L2 Cache。</li>
   <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. “Device Memory Accesses”（Global Memory；Size and Alignment Requirement）、§7.10 Read-Only Data Cache Load Function、§7.11 Load Functions Using Cache Hints、§16 Compute Capabilities（各代 Global Memory 小节）。</li>
+  <li id="ref-pytorchvec">PyTorch Contributors. <a href="https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/cuda/MemoryAccess.cuh">aten/src/ATen/native/cuda/MemoryAccess.cuh</a>. GitHub 源码，<code>can_vectorize_up_to</code>（按指针地址的对齐决定向量宽度）。</li>
   <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §5.5.3.4 tile::scatter4 / tile::gather4 模式、§9.7.10.1 Cache Operators、§9.7.10.2 Cache Eviction Priority Hints。</li>
   <li id="ref-harris2013">Harris, M. (2013). <a href="https://developer.nvidia.com/blog/efficient-matrix-transpose-cuda-cc/">An Efficient Matrix Transpose in CUDA C/C++</a>. NVIDIA Technical Blog, 2013-02-18（1024×1024 float 的拷贝与转置有效带宽表，Tesla M2050 与 K20c）。</li>
   <li id="ref-hoptg">NVIDIA. <a href="https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html">NVIDIA Hopper Tuning Guide</a>. “Tensor Memory Accelerator” 一节。</li>

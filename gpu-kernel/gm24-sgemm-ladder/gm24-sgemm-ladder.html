@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到 90%</title>
+<title>GEMM 优化阶梯（一）：CUDA core SGEMM 从 1% 到九成 cuBLAS</title>
 <meta name="description" content="从零精通 GPU Kernel 第 24 篇：SGEMM 九步优化阶梯——从 naive 到共享内存分块、寄存器分块（outer product）、向量化加载、warp tiling、双缓冲、自动调参，以及 tile 参数的约束方程。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -215,12 +215,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 24 篇</div>
-  <h1>GEMM 优化阶梯（一）：<br>CUDA core SGEMM <span class="nobr">从 1% 到 90%</span></h1>
-  <p class="subtitle">九步阶梯把一个 naive SGEMM 从峰值的 1% 推到 90%，每一步只改一件事：合并访存、共享内存分块、寄存器分块、向量化、warp tiling、双缓冲、自动调参。</p>
+  <h1>GEMM 优化阶梯（一）：<br>CUDA core SGEMM <span class="nobr">从 1% 到九成 cuBLAS</span></h1>
+  <p class="subtitle">九步阶梯把一个 naive SGEMM 从 cuBLAS 的约 1% 推到九成以上（Boehm 在 A6000 上的实测），每一步只改一件事：合并访存、共享内存分块、寄存器分块、向量化、warp tiling、双缓冲、自动调参。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 21 分钟阅读</span>
+    <span data-reading-time>约 23 分钟阅读</span>
   </div>
 </header>
 
@@ -230,10 +230,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-    <li>GEMM 的计算量是 \(2MNK\) 次浮点乘加，但 naive kernel 对每个 C 元素都要从全局内存读一整行 A 和一整列 B，几乎没有数据复用——在 A100 上只跑到峰值的约 1%。</li>
+    <li>GEMM 的计算量是 \(2MNK\) 次浮点乘加，但 naive kernel 对每个 C 元素都要从全局内存读一整行 A 和一整列 B，几乎没有数据复用——Simon Boehm 在 A6000 上实测只有约 300 GFLOPS，是 cuBLAS 的 1.3%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</li>
     <li>共享内存分块（block tiling）把 \(\lceil K/\text{BK}\rceil\) 次全局访存换成共享内存的随机读，算术强度从 \(O(1)\) 跳到 \(O(\text{BK})\)；加上寄存器分块（2D outer product），每 K 步只从共享内存取 TM + TN 个 float 就能做 TM × TN 次 FMA。</li>
-    <li>向量化加载（<code>float4</code>）减少指令数，warp tiling 让每个 warp 拥有自己的 C 子块从而减少 bank conflict，双缓冲让搬运与计算重叠——九步阶梯从 1% 推到约 88% 峰值。</li>
-    <li>tile 参数（BM/BN/BK/WM/WN/TM/TN）必须同时满足共享内存容量、寄存器数量、线程数上限和对齐四组约束，常见的好配置是 block tile 取 128 见方、每个线程算 64 个结果。</li>
+    <li>向量化加载（<code>float4</code>）减少指令数，warp tiling 让每个 warp 拥有一块连续的 C 子块，双缓冲让搬运与计算重叠。Boehm 的同类阶梯在 A6000 上从 cuBLAS 的 1.3% 走到 93.7%（他没有实现双缓冲）。</li>
+    <li>tile 参数（BM/BN/BK/WM/WN/TM/TN）必须同时满足共享内存容量、寄存器数量、线程数上限和对齐四组约束，最优配置随 GPU 而变，Boehm 在 A6000 和 A100 上调出的配置就不同<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</li>
     <li>SGEMM 用的是 CUDA core 的 FP32 FMA，Tensor Core 不支持 FP32 矩阵乘（只有 TF32），所以这套阶梯在 Hopper 和 Blackwell 上仍然适用；真正的代际加速来自下一篇的 Tensor Core HGEMM。</li>
   </ul>
 </div>
@@ -246,9 +246,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>通用矩阵乘（General Matrix Multiply, GEMM）计算 \(C = AB\)，\(A \in \mathbb{R}^{M \times K}\)、\(B \in \mathbb{R}^{K \times N}\)、\(C \in \mathbb{R}^{M \times N}\)。总浮点运算量是 \(2MNK\)（每个 C 元素做 K 次乘加，共 MN 个元素）。</p>
 
-<p>当 \(M, N, K\) 足够大时，GEMM 是 compute-bound 的。以 A100 SXM 为例<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM 共享内存上限、寄存器数；每项都标有 NVIDIA 官方出处。">1</a>]</span>：FP32 峰值 19.5 TFLOPS，HBM 带宽 2.0 TB/s，算术强度临界点约 \(19.5 / 2.0 \approx 10\) FLOP/B。一个 4096×4096 的 SGEMM 的算术强度是 \(2 \times 4096 / (2 \times 4) = 1024\) FLOP/B，远超临界点——<b>瓶颈应该在计算而非带宽</b>。但一个什么都不优化的 naive kernel 竟然只跑到峰值的 1% 左右，差距全在数据搬运的组织方式上。</p>
+<p>当 \(M, N, K\) 足够大时，GEMM 是 compute-bound 的。以 A100 SXM 为例<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM / 每 block 共享内存上限、寄存器数、Blackwell CLC；每项都标有 NVIDIA 官方出处。">2</a>]</span>：FP32 峰值 19.5 TFLOPS，HBM 带宽 2.0 TB/s，算术强度临界点约 \(19.5 / 2.0 \approx 10\) FLOP/B。一个 4096×4096 的 SGEMM 的算术强度是 \(2 \times 4096 / (2 \times 4) = 1024\) FLOP/B，远超临界点——<b>瓶颈应该在计算而非带宽</b>。但一个什么都不优化的 naive kernel 只能跑到峰值的 1% 左右（Boehm 在 A6000 上测得约 300 GFLOPS，而 A6000 的标称 FP32 峰值约 30–39 TFLOPS<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>），差距全在数据搬运的组织方式上。</p>
 
-<p>本篇用九步阶梯把 SGEMM 从峰值的 1% 推到接近 90%，每一步只改一件事、讲清这一步为什么变快以及快了多少。这与 MLC 教程<span class="cite">[<a href="#ref-mlc" title="MLC Community (2026). Modern GPU Programming For MLSys: Basic GEMM Optimization. Step 1–3（单 tile、K 循环、多 CTA）的 TIRx 实现与 A100 性能数据。">2</a>]</span>的 GEMM 阶梯思路一致，但用纯 CUDA C++ 写成，更接近面试手撕和工程实践的真实场景。掌握了这条优化阶梯，就能理解后面 Tensor Core GEMM（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）和 Hopper/Blackwell GEMM（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26</a>、<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">27 篇</a>）的基础。</p>
+<p>本篇用九步阶梯讲 SGEMM 优化，每一步只改一件事、讲清这一步为什么变快；&ldquo;快了多少&rdquo;引用 Simon Boehm 的公开实测<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>（A6000，相对 cuBLAS）。MLC 教程<span class="cite">[<a href="#ref-mlc" title="MLC Community (2026). Modern GPU Programming For MLSys: Building a Tiled GEMM. Step 1–3（单 tile、K 循环、多 CTA），面向 Blackwell，用 TIRx 写 <code>tcgen05</code> FP16 GEMM；本章没有给出实测数字。">3</a>]</span>也是逐步加优化的 GEMM 阶梯，但它面向 Blackwell，用 TIRx 写 <code>tcgen05</code> Tensor Core 的 FP16 GEMM（见第 27 篇）；本篇则用纯 CUDA C++ 写 CUDA core 上的 FP32 版本，更接近面试手撕的场景。掌握了这条优化阶梯，就能理解后面 Tensor Core GEMM（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）和 Hopper/Blackwell GEMM（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26</a>、<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">27 篇</a>）的基础。</p>
 
 <h2 id="sec-naive" data-short="naive">第一步：Naive kernel 与合并访存</h2>
 
@@ -257,8 +257,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <pre data-code="code/gm24-sgemm-ladder/sgemm_naive.cu#L6-L17"><code>__global__ void sgemm_naive(
     const float* A, const float* B, float* C,
     int M, int N, int K) {
-  int row = blockIdx.y * blockDim.y + threadIdx.y;
-  int col = blockIdx.x * blockDim.x + threadIdx.x;
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  int col = blockIdx.y * blockDim.y + threadIdx.y;
   if (row &lt; M &amp;&amp; col &lt; N) {
     float sum = 0.f;
     for (int k = 0; k &lt; K; ++k)
@@ -268,11 +268,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_naive.cu</code> 第 6–17 行（未在 GPU 上运行）</p>
 
-<p>这里有两个问题。第一，<b>没有数据复用</b>：A 的每一行被 N 个线程各读一遍，B 的每一列被 M 个线程各读一遍，全局内存访问量高达 \(MNK + MNK = 2MNK\) 个 float，但实际只有 \(MK + KN\) 个不同的值。第二，<b>A 的访存不合并</b>：同一 warp 的 32 个线程 <code>row</code> 不同（因为 <code>threadIdx.y</code> 变化快），读 <code>A[row * K + k]</code> 时 32 个地址散布在 32 行上，产生 32 次 32B sector 读——浪费带宽 32 倍。</p>
+<p>这里有两个问题。第一，<b>没有数据复用</b>：A 的每一行被 N 个线程各读一遍，B 的每一列被 M 个线程各读一遍，全局内存访问量高达 \(MNK + MNK = 2MNK\) 个 float，但实际只有 \(MK + KN\) 个不同的值。第二，<b>A 的访存不合并</b>：一个 warp 由 <code>threadIdx.x</code> 连续的 32 个线程组成，而这个 naive 版本（与 Boehm 的 Kernel 1 相同）把 <code>threadIdx.x</code> 映射到 <code>row</code>，于是同一 warp 的 32 个线程读 <code>A[row * K + k]</code> 时 32 个地址散布在 32 行上，产生 32 次 32B sector 读，每个 sector 只用到 4 字节；读 B 时 32 个线程的 <code>col</code> 相同，是同一个地址的广播；写 C 也是跨行的。</p>
 
-<p>合并访存（coalesced access）的第一个修正是让 <code>blockDim.x</code> 尽量大（至少 32），使同一 warp 的线程在 <code>col</code> 方向连续，读 B 自然合并——一个 warp 的 32 个线程读 B 的连续 32 个 float（128 字节），正好是一次 128B 的合并事务。对 A 的问题用共享内存来解决——这就进入了第二步。用 Nsight Compute 看 naive kernel 的 stall 原因，几乎全是 stall_long_sb（等 HBM 返回数据），而不是 stall_math——进一步确认瓶颈在搬运而非计算。</p>
+<p>合并访存（coalesced access）的修正（代码里的 <code>sgemm_coalesced</code>）只是交换映射：让 <code>threadIdx.x</code> 对应 <code>col</code>，同一 warp 的线程在 <code>col</code> 方向连续。这样读 B 自然合并——32 个线程读 B 的连续 32 个 float（128 字节，4 个 sector），读 A 变成同一地址的广播。Boehm 实测这一步把性能从约 300 提到约 2000 GFLOPS（cuBLAS 的 8.5%）<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。A 和 B 的重复读取则要靠共享内存解决——这就进入了第二步。</p>
 
-<p>量化分析一下 naive kernel 的效率。对 M=N=K=4096 的 SGEMM，总 FLOP 为 \(2 \times 4096^3 \approx 137\) GFLOP。如果跑 1% 峰值（19.5 TFLOPS 的 1% = 0.195 TFLOPS），耗时约 \(137 / 0.195 \approx 703\) ms。而 cuBLAS 在 A100 上约 7.3 ms（96% 峰值）——差了 96 倍。这个差距的来源不是计算不够快，而是大部分时间在等数据搬运。naive kernel 的实际算术强度接近 0.5 FLOP/B（每次 FMA 读 2 个 float = 8 字节），远低于 roofline 的临界点 10 FLOP/B，瓶颈完全在带宽上。</p>
+<p>量化分析一下 naive kernel 的效率。对 M=N=K=4096 的 SGEMM，总 FLOP 为 \(2 \times 4096^3 \approx 137\) GFLOP。如果跑 1% 峰值（19.5 TFLOPS 的 1% = 0.195 TFLOPS），耗时约 \(137 / 0.195 \approx 703\) ms。Boehm 报告 cuBLAS SGEMM 在 A100 SXM4 40GB 上约 14.7 TFLOPS（约为 19.5 TFLOPS 峰值的 75%）<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>，折合 4096³ 约 \(137 / 14.7 \approx 9.3\) ms——差了约 75 倍。这个差距的来源不是计算不够快，而是大部分时间在等数据搬运。若不计缓存，naive kernel 每次 FMA（2 FLOP）读 2 个 float = 8 字节，算术强度只有 0.25 FLOP/B，远低于 roofline 的临界点 10 FLOP/B。</p>
 
 <h2 id="sec-smem" data-short="SMEM 分块">第二步：共享内存分块（block tiling）</h2>
 
@@ -306,19 +306,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     C[row * N + col] = sum;</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_naive.cu</code> 第 35–55 行（未在 GPU 上运行）</p>
 
-<p>用 BM=BN=BK=32 的配置，每个 block 用 32&times;32 = 1024 个线程。每次 K 步搬 \(32 \times 32 \times 2 = 2048\) 个 float 到 SMEM（8 KB），做 \(32^3 = 32768\) 次 FMA。算术强度从 0.5 FLOP/B 提升到 \(2 \times 32^3 / (2 \times 32^2 \times 4) = 8\) FLOP/B——接近 roofline 临界点了（A100 约 10 FLOP/B），但 SMEM 本身的吞吐也有限制。大约能到 15% 峰值。</p>
+<p>用 BM=BN=BK=32 的配置，每个 block 用 32&times;32 = 1024 个线程。每次 K 步搬 \(32 \times 32 \times 2 = 2048\) 个 float 到 SMEM（8 KB），做 \(32^3 = 32768\) 次 FMA。算术强度从 0.25 FLOP/B 提升到 \(2 \times 32^3 / (2 \times 32^2 \times 4) = 8\) FLOP/B——接近 roofline 临界点了（A100 约 10 FLOP/B），但内循环每次 FMA 要从 SMEM 读两个值，SMEM 本身的吞吐成了新瓶颈。Boehm 的同款 kernel（Kernel 3）在 A6000 上约 2980 GFLOPS，只是 cuBLAS 的 12.8%，比上一步只快了约 50%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
-<p>两个 <code>__syncthreads()</code> 不可少<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §3.2.3 Shared Memory（共享内存容量、bank 宽度）、§5.2.3 Maximize Utilization（occupancy、寄存器压力）、§5.4.1 Device Memory Accesses（合并访存规则）。">3</a>]</span>：第一个确保所有线程完成 SMEM 写入后再开始读（写后同步），第二个确保所有线程读完后才能写下一轮 tile 的数据（读后同步）。漏掉任何一个都是数据竞争——第一个漏掉会读到上一轮残留数据，第二个漏掉会让快线程覆盖慢线程还在读的数据。这是面试中最常考的同步问题之一。</p>
+<p>两个 <code>__syncthreads()</code> 不可少<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §3.2.4 Shared Memory（共享内存与 <code>__syncthreads()</code>）、§5.2.3 Multiprocessor Level（occupancy、寄存器压力）、§5.3.2 Device Memory Accesses（合并访存规则）。">4</a>]</span>：第一个确保所有线程完成 SMEM 写入后再开始读（写后同步），第二个确保所有线程读完后才能写下一轮 tile 的数据（读后同步）。漏掉任何一个都是数据竞争——第一个漏掉会读到上一轮残留数据，第二个漏掉会让快线程覆盖慢线程还在读的数据。这是面试中最常考的同步问题之一。</p>
 
 <p>一个常见的误解是&ldquo;BK 越大算术强度越高&rdquo;。实际上，BK 只决定了每次搬运的粒度和循环次数——BK 翻倍，每次搬运量翻倍但循环次数减半，总搬运量不变。真正决定算术强度的是 BM 和 BN（输出 tile 的面积），因为面积与周长的比决定了数据复用率。这就是为什么调参时 BK 通常取较小值（8 或 16）——太大的 BK 浪费 SMEM 空间但不提升算术强度，还会减少每轮内循环的迭代次数，降低指令级并行度。</p>
 
-<p>SMEM 分块的算术强度公式值得展开。每个 block tile（BM&times;BN）需要从 HBM 读 \(\lceil K/\text{BK}\rceil \times (\text{BM} \times \text{BK} + \text{BK} \times \text{BN}) \times 4\) 字节，做 \(2 \times \text{BM} \times \text{BN} \times K\) 次 FMA。算术强度 \(I = \frac{2 \times \text{BM} \times \text{BN} \times K}{(\text{BM} + \text{BN}) \times K \times 4} = \frac{\text{BM} \times \text{BN}}{2(\text{BM} + \text{BN})}\)。注意这个结果<b>与 BK 无关</b>——BK 只影响每次搬运的量和循环次数，不影响总搬运量。对 BM=BN=128，\(I = 128 \times 128 / (2 \times 256) = 32\) FLOP/B，远超临界点。这就是为什么更大的 BM/BN 更好——在 SMEM 和寄存器允许的范围内，尽量加大 tile。</p>
+<p>SMEM 分块的算术强度公式值得展开。每个 block tile（BM&times;BN）需要从 HBM 读 \(\lceil K/\text{BK}\rceil \times (\text{BM} \times \text{BK} + \text{BK} \times \text{BN}) \times 4\) 字节，做 \(2 \times \text{BM} \times \text{BN} \times K\) 次浮点运算（即 \(\text{BM} \times \text{BN} \times K\) 次 FMA）。算术强度 \(I = \frac{2 \times \text{BM} \times \text{BN} \times K}{(\text{BM} + \text{BN}) \times K \times 4} = \frac{\text{BM} \times \text{BN}}{2(\text{BM} + \text{BN})}\)。注意这个结果<b>与 BK 无关</b>——BK 只影响每次搬运的量和循环次数，不影响总搬运量。对 BM=BN=128，\(I = 128 \times 128 / (2 \times 256) = 32\) FLOP/B，远超临界点。这就是为什么更大的 BM/BN 更好——在 SMEM 和寄存器允许的范围内，尽量加大 tile。</p>
 
 <h2 id="sec-register" data-short="寄存器分块">第三步：寄存器分块——从 1D 到 2D outer product</h2>
 
 <p>共享内存分块让全局内存的重复搬运降下来了，但内循环里每个线程做一次 FMA 就要从 SMEM 读两个值（As 和 Bs），SMEM 的吞吐依然是瓶颈。解决办法是<b>寄存器分块</b>：让每个线程不再只算 C 的一个元素，而是算一整块 TM×TN 的子矩阵，把这块子矩阵的累加器全放在寄存器里。</p>
 
-<p><b>1D 寄存器分块</b>：每个线程计算 C 里一列的 TM=8 个元素。每次 K 步，从 SMEM 读 TM 个 A 值和 1 个 B 值，做 TM 次 FMA。SMEM 读取量：每线程每 K 步 TM + 1 = 9 个 float；比不用寄存器分块时的 2 个 float 多了些，但 FMA 变成了 8 次——算术强度翻了 4 倍。</p>
+<p><b>1D 寄存器分块</b>：每个线程计算 C 里一列的 TM=8 个元素。每次 K 步，从 SMEM 读 TM 个 A 值和 1 个 B 值，做 TM 次 FMA。SMEM 读取量：每线程每 K 步 TM + 1 = 9 个 float，FMA 变成 8 次；每次 SMEM 读对应的 FMA 从 0.5 次提到 8/9 ≈ 0.9 次，约 1.8 倍。（代码里 TM 个 A 值在 SMEM 里，B 值读进寄存器 <code>bv</code> 后复用 TM 次。）</p>
 
 <p>1D 分块的关键在于线程到输出的映射。每个线程用 <code>tx / BN</code> 算出自己负责的起始行 <code>row0</code>，用 <code>tx % BN</code> 得到列号 <code>col</code>，然后持有一个长度为 TM 的累加器数组 <code>acc[TM]</code>。线程总数变成了 <code>BM / TM * BN</code>——对 BM=64、TM=8、BN=64 就是 512 个线程，比 SMEM 分块时少了一半，但每线程做 8 倍的计算量：</p>
 
@@ -334,7 +334,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float acc[TM] = {};</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_register.cu</code> 第 6–15 行（未在 GPU 上运行）</p>
 
-<p>线程数减少但每线程工作量翻倍——这正是寄存器分块的核心思路：用更少的线程做更多计算，大幅减少对 SMEM 带宽的竞争压力。1D 分块把每个从 SMEM 读出的 B 值复用 TM=8 次，已经比纯 SMEM 分块快了约一倍。但 A 方向的读取没有被复用——每次 K 步每线程读 TM=8 个 A 值，每个只用了一次。这就是 2D 分块要解决的问题。</p>
+<p>线程数减少但每线程工作量翻倍——这正是寄存器分块的核心思路：用更少的线程做更多计算，大幅减少对 SMEM 带宽的竞争压力。1D 分块把每个从 SMEM 读出的 B 值复用 TM=8 次；Boehm 的 Kernel 4 在 A6000 上从约 2980 提到约 8475 GFLOPS，约 2.8 倍（cuBLAS 的 36.5%）<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。但 A 方向的读取没有被复用——每次 K 步每线程读 TM=8 个 A 值，每个只用了一次。这就是 2D 分块要解决的问题。</p>
 
 <p><b>2D 寄存器分块</b>（outer product，<a href="#fig-tile_hierarchy">图 2</a>）：每个线程拥有 TM×TN = 8×8 = 64 个累加器。每次 K 步，读 TM 个 A 值到 <code>a_reg</code>、TN 个 B 值到 <code>b_reg</code>，做一个 TM×TN 的外积：</p>
 
@@ -356,9 +356,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     __syncthreads();</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_register.cu</code> 第 72–82 行（未在 GPU 上运行）</p>
 
-<p>每次 K 步：SMEM 读 8 + 8 = 16 个 float，FMA 8 &times; 8 = 64 次。每个 float 读出来复用 8 次（a_reg[m] 被 TN=8 个 b_reg[n] 各用一次），算术强度翻了一个数量级。代价是每个线程要 64 个 float 寄存器做累加器，加上 <code>a_reg</code>、<code>b_reg</code> 等临时变量，总共约 80 个寄存器——这在 A100 的 255 寄存器上限内，但会影响 occupancy（每 SM 能同时驻留的 block 数减少）。在<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>中我们讨论过这个权衡：更多寄存器意味着更好的数据复用，但更低的 occupancy 意味着更少的 warp 来隐藏延迟。对 GEMM 来说，寄存器复用的收益远大于 occupancy 的损失——这是与普通 kernel 不同的优化方向。</p>
+<p>每次 K 步：SMEM 读 8 + 8 = 16 个 float，FMA 8 &times; 8 = 64 次。每个 float 读出来复用 8 次（a_reg[m] 被 TN=8 个 b_reg[n] 各用一次），每次 SMEM 读对应 4 次 FMA，是纯 SMEM 分块（0.5 次）的 8 倍。Boehm 的 Kernel 5 在 A6000 上约 16 TFLOPS（cuBLAS 的 68.7%），又快了约 1.9 倍<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。代价是每个线程要 64 个 float 寄存器做累加器，加上 <code>a_reg</code>、<code>b_reg</code> 的 16 个，下界就是 80 个寄存器，再加地址和循环变量——这在 A100 的 255 寄存器上限内，但会影响 occupancy（每 SM 能同时驻留的 block 数减少）。在<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>中我们讨论过这个权衡：更多寄存器意味着更好的数据复用，但更低的 occupancy 意味着更少的 warp 来隐藏延迟。对 GEMM 来说，寄存器复用的收益远大于 occupancy 的损失——这是与普通 kernel 不同的优化方向。</p>
 
-<p><b>向量化加载</b>是在 2D 分块基础上的进一步优化。SMEM 的访问以 4 字节为单位（一个 bank 每周期服务一个 4B 请求），但 <code>float4</code> 加载一次搬 16 字节、4 个 float——指令数减少 4 倍、SMEM 吞吐相应提升。关键是把 A 在 SMEM 里转置存放（<code>As[BK][BM]</code> 而非 <code>As[BM][BK]</code>），这样同一线程读连续 TM 个 A 值时地址连续，可以用 <code>float4</code> 读。对 B 也类似——<code>Bs[BK][BN]</code> 使同一线程读连续 TN 个 B 值也是连续地址。SMEM 转置有一个陷阱：写入 SMEM 时需要注意 bank conflict，因为转置后写入的地址模式变了。这一步大约从 55% 推到 65%。</p>
+<p><b>向量化加载</b>是在 2D 分块基础上的进一步优化。SMEM 的访问以 4 字节为单位（一个 bank 每周期服务一个 4B 请求），但 <code>float4</code> 加载（SASS 里的 <code>LDS.128</code>）一次搬 16 字节、4 个 float——SMEM 读指令数减少 4 倍。关键是把 A 在 SMEM 里转置存放（<code>As[BK][BM]</code> 而非 <code>As[BM][BK]</code>），这样同一线程读连续 TM 个 A 值时地址连续，可以用 <code>float4</code> 读。对 B 也类似——<code>Bs[BK][BN]</code> 使同一线程读连续 TN 个 B 值也是连续地址。SMEM 转置有一个陷阱：写入 SMEM 时需要注意 bank conflict，因为转置后写入的地址模式变了。Boehm 的 Kernel 6（转置 As + GMEM/SMEM 向量化）在 A6000 上约 18.2 TFLOPS，从 cuBLAS 的 68.7% 提到 78.4%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
 <p>向量化加载的代码核心是用 <code>float4</code> 一次搬四个值，同时把 A 矩阵转置存入 SMEM（<code>As[BK][BM]</code> 而非 <code>As[BM][BK]</code>），使后续沿 M 方向的读取地址连续：</p>
 
@@ -378,11 +378,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_register.cu</code> 第 103–116 行（未在 GPU 上运行）</p>
 
-<p>注意写入 SMEM 的地址模式是 <code>As[c][r]</code> 而非 <code>As[r][c]</code>——这就是转置存放。转置的目的是让后续内循环中 <code>As[k][wr + m]</code> 的 m 方向地址连续，可以用 <code>float4</code> 向量化读取。同时 B 矩阵不需要转置，因为 <code>Bs[k][wc + n]</code> 的 n 方向本来就是列方向连续。这种&ldquo;A 转置、B 不转置&rdquo;的 SMEM 布局在高性能 GEMM 中几乎是标配——它同时优化了写入和读取两个方向的访存效率。值得注意的是转置写入本身可能引入 bank conflict：32 个线程同时写 <code>As[c][r]</code>，如果 BM 不是 32 的倍数或没有 padding，不同线程的 <code>r</code> 值可能落在同一 bank 上。通常通过加 1 列 padding（<code>As[BK][BM+1]</code>）或 XOR swizzle（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>）解决。</p>
+<p>注意写入 SMEM 的地址模式是 <code>As[c][r]</code> 而非 <code>As[r][c]</code>——这就是转置存放。转置的目的是让后续内循环中 <code>As[k][wr + m]</code> 的 m 方向地址连续，可以用 <code>float4</code> 向量化读取。同时 B 矩阵不需要转置，因为 <code>Bs[k][wc + n]</code> 的 n 方向本来就是列方向连续。这种&ldquo;A 转置、B 不转置&rdquo;的 SMEM 布局在高性能 GEMM 中几乎是标配——它同时优化了写入和读取两个方向的访存效率。值得注意的是转置写入本身可能引入 bank conflict：32 个线程同时写 <code>As[c][r]</code>，如果 BM 不是 32 的倍数或没有 padding，不同线程的 <code>r</code> 值可能落在同一 bank 上。通常通过 padding 或 XOR swizzle（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>）解决；注意 padding 要保持行首 16 字节对齐（例如 <code>As[BK][BM+4]</code>），否则会破坏后面的 <code>float4</code> 读取。Boehm 试过两种消除 bank conflict 的写法（他的 Kernel 7、8），冲突消掉了，但整体反而更慢<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
 <h2 id="sec-warp" data-short="warp tiling 与双缓冲">第四步：Warp tiling 与双缓冲</h2>
 
-<p><b>Warp tiling</b>在 block tile 和 thread tile 之间再加一级：把 BM×BN 的 block tile 切成 \(\text{WARPS\_M} \times \text{WARPS\_N}\) 个 WM×WN 的 warp tile，每个 warp 拥有自己的子块。好处是减少不同 warp 之间对同一 SMEM bank 的竞争——每个 warp 读 SMEM 的地址范围分开了，bank conflict 概率降低。没有 warp tiling 时，block 内的所有线程按行优先编号，相邻线程可能属于不同 warp 但读同一个 SMEM 地址，造成多路 bank conflict；warp tiling 保证同一 warp 的线程读 SMEM 的地址是连续的或有规律交错的，减少了冲突。典型配置是 BM=BN=128、WM=WN=64，4 个 warp 分四象限。</p>
+<p><b>Warp tiling</b>在 block tile 和 thread tile 之间再加一级：把 BM×BN 的 block tile 切成 \(\text{WARPS\_M} \times \text{WARPS\_N}\) 个 WM×WN 的 warp tile，每个 warp 拥有自己的子块。注意 bank conflict 只发生在同一 warp 的线程之间<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>，所以 warp tiling 的意义不是&ldquo;减少跨 warp 的 bank 竞争&rdquo;，而是让 warp 这个硬件调度单位在代码里显式出现：同一 warp 的 32 个线程负责一块紧凑的 C 子块，它们读 SMEM 的地址范围由我们直接控制；Boehm 还提到它改善了寄存器缓存的局部性，并把 block / warp / 线程三级并行都显式写了出来<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。本篇代码的配置是 BM=BN=128、WM=64、WN=32、TM=TN=8：8 个 warp 排成 2×4，每个 warp 的 32 个线程排成 8×4，正好覆盖 64×32。</p>
 
 <p>下面展示 warp tiling 的线程映射代码。每个线程先根据一维 <code>threadIdx.x</code> 算出 warp 编号和 lane 编号，再映射到 C 矩阵中的 (warpRow + tRow, warpCol + tCol) 位置。SMEM 也做了转置存放（<code>As[BK][BM]</code>），保持和向量化加载一致的布局：</p>
 
@@ -400,9 +400,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float acc[TM][TN] = {};</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_warp_dbuf.cu</code> 第 12–23 行（未在 GPU 上运行）</p>
 
-<p>Warp tiling 把 128&times;128 的 block tile 分成 WARPS_M &times; WARPS_N = 2&times;2 = 4 个 64&times;64 的 warp tile，每个 warp 内部的 32 个线程再按 (tRow, tCol) 排列，各自拥有 8&times;8 的寄存器子块。这种三级嵌套（block &rarr; warp &rarr; thread）让 SMEM 的访问模式更规则——同一 warp 的 32 个线程读 SMEM 的连续区域，bank conflict 几乎消失。对比没有 warp tiling 的 2D 寄存器分块：block 内所有线程按全局编号排布，相邻线程可能属于不同 warp 但读同一段 SMEM，造成多路 bank conflict。从 2D 分块到 warp tiling 的改进本质上是把&ldquo;block 内随机交错&rdquo;变成&ldquo;warp 内局部连续&rdquo;，是从 55% 推到 75% 最关键的一步。</p>
+<p>Warp tiling 把 128&times;128 的 block tile 分成 WARPS_M &times; WARPS_N = 2&times;4 = 8 个 64&times;32 的 warp tile，每个 warp 内部的 32 个线程再按 (tRow, tCol) 排成 8&times;4，各自拥有 8&times;8 的寄存器子块（8 &times; 8 = 64 行、4 &times; 8 = 32 列，正好铺满 warp tile）。约束是 \((\text{WM}/\text{TM}) \times (\text{WN}/\text{TN}) = 32\)：如果取 WM=WN=64、TM=TN=8，一个 warp 的 32 个线程只能覆盖 64&times;64 中的一半。这种三级嵌套（block &rarr; warp &rarr; thread）让每个 warp 读 SMEM 的区域紧凑而规则。Boehm 的 warptiling kernel（Kernel 10，每个线程再在 warp tile 内做多次子迭代）在 autotune 之后再做，A6000 上从约 19.7 提到约 21.8 TFLOPS，即从 cuBLAS 的 84.8% 到 93.7%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
-<p><b>双缓冲</b>（double buffering，<a href="#fig-double_buffer">图 3</a>）是阶梯里最后一个大幅提升：在计算当前 K tile 的乘加时，同时把下一个 K tile 从全局内存预取到另一块 SMEM 缓冲区。两块缓冲区交替使用，搬运和计算的延迟重叠，不再互相等待。</p>
+<p><b>双缓冲</b>（double buffering，<a href="#fig-double_buffer">图 3</a>）是本篇阶梯里最后一种结构性改动：在计算当前 K tile 的乘加时，同时把下一个 K tile 从全局内存预取到另一块 SMEM 缓冲区。两块缓冲区交替使用，搬运和计算的延迟重叠，不再互相等待。</p>
 
 <figure id="fig-double_buffer" data-kind="diagram">
   <img aria-labelledby="fig-double_buffer-cap" src="figs/double_buffer.svg" alt="双缓冲时间线：搬运与计算重叠">
@@ -429,17 +429,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     __syncthreads();</code></pre>
 <p class="src-note">完整代码：<code>code/gm24-sgemm-ladder/sgemm_warp_dbuf.cu</code> 第 87–104 行（未在 GPU 上运行）</p>
 
-<p><code>load_tile(nxt, t + BK)</code> 在计算循环之前发射，GPU 的 warp scheduler 可以在计算指令等待的空隙里调度内存指令——这就是<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>讲的延迟隐藏。没有双缓冲时，计算和搬运是串行的——先搬完一个 tile，再计算，再搬下一个，计算单元和内存总线各有一半时间空闲。双缓冲后两者可以重叠——当搬运延迟被计算延迟完全掩盖时，kernel 变成 compute-bound。实际效果取决于两者的时间比：如果计算时间 > 搬运时间（compute-bound），双缓冲几乎能把搬运延迟全部隐藏；反之如果搬运时间更长（memory-bound），双缓冲也只能隐藏等量于计算时间的那部分搬运延迟。在 A100 上，BM=BN=128、BK=8 时每个 K 步的计算约 \(128^2 \times 8 \times 2 \approx 262\) K FLOP、搬运约 \((128+128) \times 8 \times 4 = 8\) KB，计算时间通常远大于搬运时间，双缓冲能从 75% 推到 82% 左右。</p>
+<p><code>load_tile(nxt, t + BK)</code> 在计算循环之前发射，GPU 的 warp scheduler 可以在计算指令等待的空隙里调度内存指令——这就是<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>讲的延迟隐藏。没有双缓冲时，计算和搬运是串行的——先搬完一个 tile，再计算，再搬下一个，计算单元和内存总线各有一半时间空闲。双缓冲后两者可以重叠——当搬运延迟被计算延迟完全掩盖时，kernel 变成 compute-bound。实际效果取决于两者的时间比：如果计算时间 > 搬运时间（compute-bound），双缓冲几乎能把搬运延迟全部隐藏；反之如果搬运时间更长（memory-bound），双缓冲也只能隐藏等量于计算时间的那部分搬运延迟。BM=BN=128、BK=8 时每个 K 步的计算约 \(128^2 \times 8 \times 2 \approx 262\) K FLOP、搬运约 \((128+128) \times 8 \times 4 = 8\) KB，按 A100 的 roofline 临界点（约 10 FLOP/B）算，计算时间大于搬运时间，双缓冲有机会把搬运延迟藏住。这一步具体能快多少，本篇没有实测数据：Boehm 的阶梯止步于 warptiling，双缓冲只列在他未完成的&ldquo;Kernel 11&rdquo;计划里<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
-<p>进一步优化可以用 Ampere 的 <code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）替代显式的 <code>load_tile</code>——<code>cp.async</code> 是硬件级的异步拷贝，不占 warp 的执行槽位，搬运指令发射后 warp 立即继续执行计算指令。配合 <code>cp.async.wait_group</code> 和 <code>__syncthreads()</code>，可以构建多 stage 的软件流水线（3 缓冲甚至 4 缓冲），进一步掩盖搬运延迟。</p>
+<p>进一步优化可以用 Ampere 的 <code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）替代显式的 <code>load_tile</code>——<code>cp.async</code> 是硬件级的异步拷贝，数据从全局内存直接进 SMEM、不经过寄存器，搬运指令发射后 warp 不必等数据返回，立即继续执行计算指令。配合 <code>cp.async.wait_group</code> 和 <code>__syncthreads()</code>，可以构建多 stage 的软件流水线（3 缓冲甚至 4 缓冲），进一步掩盖搬运延迟。</p>
 
 <h2 id="sec-intensity" data-short="算术强度">算术强度的阶梯式提升</h2>
 
-<p>把各步的算术强度放在一起看更直观（<a href="#fig-arithmetic_intensity">图 4</a>）。naive kernel 的算术强度只有 0.5 FLOP/B，远在 roofline 的 memory-bound 区域。SMEM 分块后，算术强度由 tile 大小决定——\(\text{BM} \times \text{BN} / [2(\text{BM}+\text{BN})]\)——32&times;32 给 8 FLOP/B，64&times;64 给 16，128&times;128 给 32。加上 2D 寄存器分块后，SMEM 层面的每次读取又被放大 TM 或 TN 倍。总体算术强度的提升是<b>两级级联</b>的：第一级是 block tiling 提升 HBM → SMEM 的复用，第二级是 register tiling 提升 SMEM → register 的复用。理解这个两级结构，就理解了为什么单独加大 BM/BN 或单独加大 TM/TN 都只能走到一半——必须两级都优化才能逼近峰值。</p>
+<p>把各步的算术强度放在一起看更直观（<a href="#fig-arithmetic_intensity">图 4</a>）。naive kernel 的算术强度（不计缓存）只有 0.25 FLOP/B，远在 roofline 的 memory-bound 区域。SMEM 分块后，算术强度由 tile 大小决定——\(\text{BM} \times \text{BN} / [2(\text{BM}+\text{BN})]\)——32&times;32 给 8 FLOP/B，64&times;64 给 16，128&times;128 给 32。加上 2D 寄存器分块后，SMEM 层面的每次读取又被放大 TM 或 TN 倍。总体算术强度的提升是<b>两级级联</b>的：第一级是 block tiling 提升 HBM → SMEM 的复用，第二级是 register tiling 提升 SMEM → register 的复用。理解这个两级结构，就理解了为什么单独加大 BM/BN 或单独加大 TM/TN 都不够——两级都要优化：Boehm 的实测里，SMEM 分块（只做第一级）只到 cuBLAS 的 12.8%，加上寄存器分块后才到 68.7%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。</p>
 
 <figure id="fig-arithmetic_intensity" data-kind="diagram">
   <img aria-labelledby="fig-arithmetic_intensity-cap" src="figs/arithmetic_intensity.svg" alt="各优化步骤的算术强度对比">
-  <figcaption id="fig-arithmetic_intensity-cap"><span class="fig-label">图 4</span><b>算术强度随优化步骤的阶梯式提升。</b>红色虚线是 A100 的 roofline 临界点（~10 FLOP/B）。只有超过这条线的 kernel 才是 compute-bound——能被计算峰值而非带宽限制。naive kernel 在线下方，128&times;128 的 SMEM 分块 + 2D 寄存器分块则远超临界点。</figcaption>
+  <figcaption id="fig-arithmetic_intensity-cap"><span class="fig-label">图 4</span><b>算术强度随优化步骤的阶梯式提升。</b>红色虚线是 A100 的 roofline 临界点（~10 FLOP/B）。只有超过这条线的 kernel 才是 compute-bound——能被计算峰值而非带宽限制。naive kernel 在线下方，128&times;128 的 SMEM 分块则远超临界点。寄存器分块不改变 HBM 层面的强度，它提高的是 SMEM 层面每次读取对应的 FMA 数（右上框）。纵轴非等比，仅示意。</figcaption>
 </figure>
 
 <h2 id="sec-autotune" data-short="自动调参">Tile 参数选择与自动调参</h2>
@@ -447,46 +447,46 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>阶梯里有 7 个模板参数：BM、BN、BK、WM、WN、TM、TN。它们必须同时满足四组约束：</p>
 
 <ol>
-  <li><b>共享内存</b>：\((\text{BM} \times \text{BK} + \text{BK} \times \text{BN}) \times 4 \times n_{\text{buf}} \leq \text{smem}_{\max}\)。A100 默认 48 KB；用 <code>cudaFuncSetAttribute</code> 可扩到 164 KB。双缓冲时 \(n_{\text{buf}} = 2\)。</li>
-  <li><b>寄存器</b>：每线程寄存器数 \(\approx \text{TM} \times \text{TN} + \text{TM} + \text{TN} + \text{overhead} \leq 255\)。TM=TN=8 时累加器用 64 个，加临时变量约 80–90 个，可以接受。</li>
+  <li><b>共享内存</b>：\((\text{BM} \times \text{BK} + \text{BK} \times \text{BN}) \times 4 \times n_{\text{buf}} \leq \text{smem}_{\max}\)。静态分配上限 48 KB；A100 上用动态共享内存加 <code>cudaFuncSetAttribute</code> 可扩到每 block 163 KB（每 SM 164 KB）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM / 每 block 共享内存上限、寄存器数、Blackwell CLC；每项都标有 NVIDIA 官方出处。">2</a>]</span>。双缓冲时 \(n_{\text{buf}} = 2\)。</li>
+  <li><b>寄存器</b>：每线程寄存器数 \(\approx \text{TM} \times \text{TN} + \text{TM} + \text{TN} + \text{overhead} \leq 255\)。TM=TN=8 时累加器用 64 个，加 <code>a_reg</code>/<code>b_reg</code> 至少 80 个，可以接受。</li>
   <li><b>线程数</b>：\(n_{\text{thread}} = \frac{\text{BM}}{\text{WM}} \times \frac{\text{BN}}{\text{WN}} \times 32\)，必须是 32 的倍数且 \(\leq 1024\)。</li>
   <li><b>对齐</b>：BK 必须是 4 的倍数（<code>float4</code> 向量化）；BM、BN 最好是 32 的倍数以保证合并写回。</li>
 </ol>
 
-<p>常见的好配置是 <code>BM=BN=128, BK=8, WM=WN=64, TM=TN=8</code>，即 4 个 warp、每 warp 32 个线程、每线程 8×8。SMEM 用 \((128 \times 8 + 8 \times 128) \times 4 = 8192\) B = 8 KB（单缓冲），双缓冲也才 16 KB，远低于 48 KB 上限。最终版本的代码把这些参数做成模板参数，在 host 端遍历几个候选配置、取最快的——这就是&ldquo;自动调参&rdquo;。</p>
+<p>本篇代码用的配置是 <code>BM=BN=128, BK=8, WM=64, WN=32, TM=TN=8</code>，即 8 个 warp（256 个线程）、每线程 8×8。SMEM 用 \((128 \times 8 + 8 \times 128) \times 4 = 8192\) B = 8 KB（单缓冲），双缓冲也才 16 KB，远低于 48 KB 上限。最终版本的代码把这些参数做成模板参数，在 host 端遍历几个候选配置、取最快的——这就是&ldquo;自动调参&rdquo;。</p>
 
 <p>模板参数的好处是编译期特化：编译器看到 BM、BN 等是 <code>constexpr</code> 后，会把循环边界、SMEM 大小、线程数全部常量折叠，循环次数已知时还会做展开——同一份源代码在不同参数下编译出完全不同的机器码。这和运行期用 <code>if (BM == 128)</code> 分支的做法有本质区别：后者的分支预测开销和指令 cache 压力会吃掉不少性能。面试中如果被问&ldquo;为什么 GEMM tile 参数要做成模板参数而不是函数参数&rdquo;，答案就是编译期特化带来的零开销抽象——一种配置对应一份独立的机器码，运行时没有任何分支和间接跳转。</p>
 
-<p>自动调参的搜索空间并不大。BM 和 BN 通常只取 {64, 128, 256} 三个值（更小则算术强度不够，更大则 SMEM 放不下），BK 取 {4, 8, 16}（更大搬运量增加），TM 和 TN 取 {4, 8}（更大寄存器溢出），WM 和 WN 取 {32, 64}。总搜索空间约 \(3 \times 3 \times 3 \times 2 \times 2 \times 2 \times 2 = 432\) 种，去掉违反四组约束的，通常剩不到 50 种有效配置。在 host 端分别 launch 每种配置、各跑几次取中位数，总共几秒就能完成。cuBLAS 内部做的也是类似的事——对不同的 M、N、K 选最优配置，只是它的搜索空间更大（包括 epilogue 策略、split-K 等），且配置表是预先离线生成的。CUTLASS 则把这些参数暴露为模板参数，用户可以直接指定或自动搜索。</p>
+<p>自动调参的搜索空间并不大。BM 和 BN 通常只取 {64, 128, 256} 三个值（更小则算术强度不够，更大则 SMEM 放不下），BK 取 {4, 8, 16}（更大搬运量增加），TM 和 TN 取 {4, 8}（更大寄存器溢出），WM 和 WN 取 {32, 64}。总搜索空间约 \(3 \times 3 \times 3 \times 2 \times 2 \times 2 \times 2 = 432\) 种，再去掉违反四组约束的。最优配置与 GPU 有关：Boehm 在 A6000 上调出 BM=BN=128、BK=16、TM=TN=8，同一配置在 A100 SXM4 40GB 上反而比那里的最优配置（BM=BN=64、BK=16、TM=TN=4）慢约 6%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。cuBLAS 的做法类似但规模大得多：库里带着许多 SGEMM kernel，运行时按形状挑一个——Boehm 对边长不超过 4096 的方阵追踪到 16 个不同的 SGEMM kernel，边长 256 时还会调用 split-K 加一个 reduce kernel<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。CUTLASS 则把这些参数暴露为模板参数，用户可以直接指定或自动搜索。</p>
 
 <h2 id="sec-ladder" data-short="优化阶梯">优化阶梯总览</h2>
 
-<p>把九步放在一起看（<a href="#fig-optimization_ladder">图 5</a> 和<a href="#tab-ladder">表 1</a>）：</p>
+<p>把九步放在一起看（<a href="#fig-optimization_ladder">图 5</a> 和<a href="#tab-ladder">表 1</a>）。注意实测数字来自 Boehm 的实现和 A6000，顺序也与本篇略有不同：</p>
 
 <figure id="fig-optimization_ladder" data-kind="diagram">
   <img aria-labelledby="fig-optimization_ladder-cap" src="figs/optimization_ladder.svg" alt="SGEMM 九步优化阶梯柱状图">
-  <figcaption id="fig-optimization_ladder-cap"><span class="fig-label">图 5</span><b>九步阶梯的累积效果。</b>柱高为 M=N=K=4096 SGEMM 在 A100 上的相对峰值性能，数值参考 Simon Boehm 的 SGEMM 优化博客<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客（A100 上 M=N=K=4096 SGEMM 九步优化阶梯，每步给出 GFLOPS 与峰值百分比）。">4</a>]</span>（精确数字取决于具体实现与时钟，这里只取近似量级）。cuBLAS 参考线约 96%。</figcaption>
+  <figcaption id="fig-optimization_ladder-cap"><span class="fig-label">图 5</span><b>Boehm 阶梯的实测累积效果。</b>柱高为 RTX A6000 上 4092² FP32 SGEMM 的 GFLOPS 相对 cuBLAS 的百分比，按他的 kernel 编号排列（K7、K8 是他放弃的 bank conflict 实验，未列出）<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。本篇的双缓冲一步没有对应数据。</figcaption>
 </figure>
 
 <figure id="tab-ladder" class="table" data-source="paper">
-  <figcaption id="tab-ladder-cap"><span class="fig-label">表 1</span><b>每一步改了什么、为什么变快。</b>算术强度是理论值（computed）；性能百分比参考 Simon Boehm 博客<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客（A100 上 M=N=K=4096 SGEMM 九步优化阶梯，每步给出 GFLOPS 与峰值百分比）。">4</a>]</span>，精确值因实现细节和 GPU 时钟而异。</figcaption>
+  <figcaption id="tab-ladder-cap"><span class="fig-label">表 1</span><b>每一步改了什么、为什么变快。</b>&ldquo;实测&rdquo;列是 Simon Boehm 在 RTX A6000 上测 4092² FP32 SGEMM 的结果，百分比相对 cuBLAS（23,250 GFLOPS），不是相对硬件峰值；括号里是他的 kernel 编号<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>。他的实现与本篇代码不完全相同，且先做 autotune（K9）再做 warptiling（K10）。</figcaption>
   <div class="table-wrap"><table>
-    <thead><tr><th>步骤</th><th>关键改动</th><th>约 % 峰值</th><th>为什么快了</th></tr></thead>
+    <thead><tr><th>步骤</th><th>关键改动</th><th>实测（A6000，相对 cuBLAS）</th><th>为什么快了</th></tr></thead>
     <tbody>
-      <tr><td>1. naive</td><td>一线程一元素</td><td>~1%</td><td>基线；没有数据复用</td></tr>
-      <tr><td>2. coalesced</td><td>修正线程映射</td><td>~5%</td><td>B 的访存合并</td></tr>
-      <tr><td>3. SMEM</td><td>BM=BN=BK=32</td><td>~15%</td><td>A/B 每元素只搬一次到 SMEM</td></tr>
-      <tr><td>4. 1D reg</td><td>TM=8</td><td>~30%</td><td>SMEM 读出的 B 复用 8 次</td></tr>
-      <tr><td>5. 2D reg</td><td>TM=TN=8</td><td>~55%</td><td>每次 K 步 16 SMEM 读做 64 FMA</td></tr>
-      <tr><td>6. vec load</td><td>float4 + A 转置存</td><td>~65%</td><td>SMEM 指令数减少 4×</td></tr>
-      <tr><td>7. warp tile</td><td>WM=WN=64</td><td>~75%</td><td>减少跨 warp bank conflict</td></tr>
-      <tr><td>8. 双缓冲</td><td>2 SMEM buffer</td><td>~82%</td><td>搬运与计算重叠</td></tr>
-      <tr><td>9. autotune</td><td>模板参数搜索</td><td>~88%</td><td>找到最优配置组合</td></tr>
+      <tr><td>1. naive</td><td>一线程一元素</td><td>1.3%（K1）</td><td>基线；没有数据复用，A 的读取不合并</td></tr>
+      <tr><td>2. coalesced</td><td>修正线程映射</td><td>8.5%（K2）</td><td>B 的读取合并，A 变成广播</td></tr>
+      <tr><td>3. SMEM</td><td>BM=BN=BK=32</td><td>12.8%（K3）</td><td>A/B 每元素只搬一次到 SMEM</td></tr>
+      <tr><td>4. 1D reg</td><td>TM=8</td><td>36.5%（K4）</td><td>SMEM 读出的 B 复用 8 次</td></tr>
+      <tr><td>5. 2D reg</td><td>TM=TN=8</td><td>68.7%（K5）</td><td>每次 K 步 16 次 SMEM 读做 64 次 FMA</td></tr>
+      <tr><td>6. vec load</td><td>float4 + A 转置存</td><td>78.4%（K6）</td><td>SMEM 读指令数减少 4×</td></tr>
+      <tr><td>7. warp tile</td><td>WM=64, WN=32</td><td>93.7%（K10，autotune 之后）</td><td>warp 负责紧凑子块，三级并行显式化</td></tr>
+      <tr><td>8. 双缓冲</td><td>2 SMEM buffer</td><td>无数据（未实现）</td><td>搬运与计算重叠</td></tr>
+      <tr><td>9. autotune</td><td>模板参数搜索</td><td>84.8%（K9，warptiling 之前）</td><td>按 GPU 选最优配置组合</td></tr>
     </tbody>
   </table></div>
 </figure>
 
-<p>剩下的 ~8% 差距来自哪里？至少有四个来源：（1）<b>epilogue 优化</b>——累加器写回全局内存时，cuBLAS 会做合并写（coalesced store）和 bias/activation 融合（fused epilogue），省去额外的 kernel launch 和全局读写；（2）<b>bank conflict 消除</b>——<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>讲的 swizzle / padding 技术在 SMEM 分块阶段消除了跨 warp 的 bank conflict，每个 K 步省下几个周期，累积起来可观；（3）<b>tile 调度</b>——cuBLAS 会用 persistent kernel 和 swizzle 的 tile 分配策略（比如沿 L2 cache 的列优先遍历），减少不同 CTA 之间的 L2 cache thrashing；（4）<b>shape 自适应</b>——对细长矩阵（M 很大 N 很小，或反过来）、小矩阵（M=N=K&lt;256）和非 2 的幂对齐等特殊场景，cuBLAS 有专门的 tile 参数和代码路径。这些优化在 SGEMM 里有但不关键，在 Tensor Core GEMM（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）里则决定了能否逼近峰值。</p>
+<p>剩下约 6% 的差距（这是 4096 附近方阵的情形；Boehm 也指出小矩阵上差距大得多）可能来自哪里？Boehm 的 profiling 和后续计划里点到了几项<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span>：（1）<b>bank conflict</b>——cuBLAS 的 kernel 没有 SMEM bank conflict，他的 kernel 有（同一 warp 内的冲突，消除方法见<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>的 swizzle / padding）；（2）<b>双缓冲</b>——GMEM→SMEM 和 SMEM→寄存器两级都做预取，他没有实现；（3）<b>shape 自适应</b>——cuBLAS 针对不同形状带了多个 kernel（见上一节），小矩阵还会用 split-K。此外，写回阶段的合并写（以及 bias/activation 融合，省去额外的 kernel 和全局读写）也是工程实现常做的优化。这些优化在 SGEMM 里有但不关键，在 Tensor Core GEMM（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）里则决定了能否逼近峰值。</p>
 
 <h2 id="sec-hb" data-short="H/B 变化">Hopper 与 Blackwell 上的变化</h2>
 
@@ -494,13 +494,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <ul>
   <li><b>Hopper TMA</b>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）可以替代人工的 <code>float4</code> 搬运和 <code>cp.async</code>，一个线程发一条指令就能搬一整块 2D tile 到 SMEM，边界检查由硬件完成。对 SGEMM 的 SMEM 分块阶段，这省去了大量坐标计算代码。</li>
-  <li><b>Hopper SMEM 228 KB</b><span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM 共享内存上限、寄存器数；每项都标有 NVIDIA 官方出处。">1</a>]</span>（vs A100 的 164 KB），可以放更多 stage 的缓冲区，进一步掩盖搬运延迟。</li>
-  <li><b>Blackwell CLC</b>（Cluster Launch Control，<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）支持 persistent kernel 由硬件调度 tile，减少 grid launch 开销。对于 SGEMM 的 persistent 变体，不需要手写 tile 计数器和原子操作。</li>
+  <li><b>Hopper SMEM 228 KB</b><span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM / 每 block 共享内存上限、寄存器数、Blackwell CLC；每项都标有 NVIDIA 官方出处。">2</a>]</span>（vs A100 的 164 KB），可以放更多 stage 的缓冲区，进一步掩盖搬运延迟。</li>
+  <li><b>Blackwell CLC</b>（Cluster Launch Control，<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）让 persistent kernel 能原子地&ldquo;取消&rdquo;一个尚未启动的 cluster 并接手它的坐标（work stealing）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM / 每 block 共享内存上限、寄存器数、Blackwell CLC；每项都标有 NVIDIA 官方出处。">2</a>]</span>。对于 SGEMM 的 persistent 变体，不需要手写全局 tile 计数器和原子操作。</li>
 </ul>
 
 <p>但这些改进对 SGEMM 的收益有限——FP32 CUDA core 的峰值算力本身就不高（A100 19.5 TFLOPS vs FP16 Tensor Core 312 TFLOPS），实际应用中大矩阵乘几乎都用半精度或更低精度走 Tensor Core。SGEMM 的价值在于教学：它把 GEMM 优化的每一步都暴露在 CUDA core 层面，没有 Tensor Core 的&ldquo;黑盒 MMA&rdquo;挡住视线。</p>
 
-<p>值得一提的是，Blackwell 架构（B100/B200）引入了 FP32 的快速累加路径（配合第五代 Tensor Core），但乘数侧仍然是 TF32（19 位尾数）而非全精度 FP32（23 位尾数），所以严格意义上的 IEEE 754 FP32 SGEMM 在可预见的未来仍然只能走 CUDA core。如果应用允许 TF32 精度损失（大多数深度学习推理可以），那么直接用 <code>cublasMath_t = CUBLAS_TF32_TENSOR_OP_MATH</code> 开启 TF32 模式即可获得 Tensor Core 加速——这实际上是 cuBLAS 在 Ampere 及更新架构上的默认行为。但如果是科学计算、金融计算等对精度敏感的场景，就必须显式关闭 TF32 模式，回退到 CUDA core 的 SGEMM——此时本篇的优化阶梯就直接适用。</p>
+<p>值得一提的是，TF32 只有 10 位尾数（加 8 位指数、1 位符号共 19 位），而 FP32 有 23 位尾数，所以 TF32 Tensor Core 算不出严格的 FP32 结果。如果应用允许 TF32 的精度损失，可以用 <code>cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH)</code> 或计算类型 <code>CUBLAS_COMPUTE_32F_FAST_TF32</code> 显式开启。cuBLAS 的默认模式 <code>CUBLAS_DEFAULT_MATH</code> 要求计算精度的尾数和指数位不少于输入类型，因此默认的 SGEMM 不会降到 TF32<span class="cite">[<a href="#ref-cublas" title="NVIDIA. cuBLAS Library Documentation. §1.5.1 BF16x9（FP32 模拟，CC 10.0/10.3，CUDA 12.9+）；cublasMath_t（CUBLAS_DEFAULT_MATH、CUBLAS_TF32_TENSOR_OP_MATH）。">5</a>]</span>。另一条路是<b>用 Tensor Core 模拟 FP32</b>：cuBLAS 从 CUDA 12.9 起在 CC 10.0/10.3（B200/B300 一代）上提供 BF16x9 算法，把每个 FP32 数精确拆成 3 个 BF16，用 9 次 BF16 乘积重构 FP32 乘加<span class="cite">[<a href="#ref-cublas" title="NVIDIA. cuBLAS Library Documentation. §1.5.1 BF16x9（FP32 模拟，CC 10.0/10.3，CUDA 12.9+）；cublasMath_t（CUBLAS_DEFAULT_MATH、CUBLAS_TF32_TENSOR_OP_MATH）。">5</a>]</span>。不走这些路径时，SGEMM 仍然跑在 CUDA core 上，本篇的阶梯直接适用。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
@@ -516,7 +516,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ul>
   <li>核心回答：每个 K 步只从 SMEM 读 TM + TN 个值，就做 TM × TN 次 FMA——每个读出来的值被复用 TN 或 TM 次。</li>
   <li>算术强度从 \(O(1)\) 提到 \(O(\min(\text{TM}, \text{TN}))\)。</li>
-  <li>代价是寄存器压力：TM×TN 个累加器 + 临时变量。TM=TN=8 大约用 80–90 个寄存器。</li>
+  <li>代价是寄存器压力：TM×TN 个累加器 + 临时变量。TM=TN=8 至少用 64 + 16 = 80 个寄存器。</li>
   <li><i>追问</i>：TM、TN 能不能更大？（受 255 寄存器上限和 occupancy 约束——<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>。）</li>
 </ul>
 
@@ -532,7 +532,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ul>
   <li>两块 SMEM 缓冲区 buf0 和 buf1，计算用一块、搬运填另一块，每次 K 步交换。</li>
   <li>计算和搬运访问不同地址，不需要 __syncthreads 隔开（但每轮结束时仍需一个同步确保搬运完成）。</li>
-  <li>进一步可以用 <code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）做真正的异步拷贝，搬运不占 warp 的执行槽。</li>
+  <li>进一步可以用 <code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）做真正的异步拷贝，数据不经过寄存器，warp 发射后不用等它完成。</li>
   <li><i>追问</i>：三缓冲（triple buffering）有没有用？（有——更多 stage 能更好地掩盖延迟，但 SMEM 占用线性增长，需要权衡 occupancy。）</li>
 </ul>
 
@@ -548,13 +548,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <li>SGEMM 用 CUDA core 的 FP32 FMA（标量乘加），HGEMM 用 Tensor Core 的矩阵乘指令（<code>mma.sync</code> 或 <code>wgmma</code>）。</li>
   <li>Tensor Core 一条指令做一个小矩阵乘（比如 16&times;8&times;16），吞吐比 CUDA core 高一个数量级以上（A100 上 FP16 Tensor Core 312 TFLOPS vs FP32 CUDA core 19.5 TFLOPS）。</li>
   <li>但 Tensor Core 对数据布局有严格要求（寄存器到 fragment 的映射），且只支持特定精度组合——这些在<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>详细讲。</li>
-  <li><i>追问</i>：TF32 算 SGEMM 吗？（不算——TF32 虽然输入输出都是 FP32，但中间的乘法只用 19 位尾数而非 23 位，走 Tensor Core 路径。严格的 FP32 SGEMM 必须走 CUDA core。）</li>
+  <li><i>追问</i>：TF32 算 SGEMM 吗？（不算——TF32 GEMM 的输入输出都以 FP32 存储，但进入 Tensor Core 前尾数被截到 10 位（FP32 是 23 位）。要在 Tensor Core 上拿到 FP32 精度，得用 BF16x9 这类拆分模拟<span class="cite">[<a href="#ref-cublas" title="NVIDIA. cuBLAS Library Documentation. §1.5.1 BF16x9（FP32 模拟，CC 10.0/10.3，CUDA 12.9+）；cublasMath_t（CUBLAS_DEFAULT_MATH、CUBLAS_TF32_TENSOR_OP_MATH）。">5</a>]</span>；否则走 CUDA core。）</li>
 </ul>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 <ul>
   <li><b>所有代码只经 clang 语法检查，没有在 GPU 上编译或运行过。</b>正确性和性能都未验证。</li>
-  <li><b>性能百分比来自 Simon Boehm 的博客<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客（A100 上 M=N=K=4096 SGEMM 九步优化阶梯，每步给出 GFLOPS 与峰值百分比）。">4</a>]</span></b>（A100，M=N=K=4096），精确数字取决于实现细节、GPU 时钟和驱动版本，本篇只取近似量级。</li>
+  <li><b>性能数字来自 Simon Boehm 的博客<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。">1</a>]</span></b>：他的主表在 RTX A6000 上测 4092² FP32 矩阵，百分比是<b>相对 cuBLAS</b> 而不是相对硬件峰值；他的 kernel 与本篇代码并不逐行相同，本篇第 8 步（双缓冲）在他的阶梯里没有对应数据。博文里 Kernel 10 一段写着&ldquo;on an A100&rdquo;，但 21.7 TFLOPS 超过了 A100 的 19.5 TFLOPS FP32 峰值，应是 A6000 主表的数字。</li>
   <li><b>没有 profiling 数据。</b>本机没有 Nsight Compute，所以没有 stall 原因分析、bank conflict 计数等。实际优化中这些数据比理论分析更重要。</li>
   <li><b>Epilogue 没展开。</b>累加器写回全局内存时的合并写、bias 融合、激活融合等在<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>讲。</li>
   <li><b>SGEMM 不是实际应用的主力。</b>大模型训练和推理用 FP16/BF16/FP8 走 Tensor Core，SGEMM（FP32 CUDA core）主要用于教学和特殊场景。下一篇切入 Tensor Core HGEMM。</li>
@@ -563,7 +563,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
-<p>SGEMM 的优化是一条不断把数据搬运层次往上推的阶梯：从全局内存到共享内存（block tiling），从共享内存到寄存器（register tiling），从串行搬运到并行搬运（double buffering）。每一步的核心都是同一个原则——<b>减少每次 FMA 需要的数据搬运量</b>，或者说提升算术强度。naive kernel 每次 FMA 读 8 字节（两个 float），算术强度 0.5 FLOP/B；到最终版本，每次 FMA 只需要从 HBM 搬运约 0.03 字节，算术强度超过 60 FLOP/B，提升了两个数量级。</p>
+<p>SGEMM 的优化是一条不断把数据搬运层次往上推的阶梯：从全局内存到共享内存（block tiling），从共享内存到寄存器（register tiling），从串行搬运到并行搬运（double buffering）。每一步的核心都是同一个原则——<b>减少每次 FMA 需要的数据搬运量</b>，或者说提升算术强度。naive kernel 每次 FMA 读 8 字节（两个 float），算术强度 0.25 FLOP/B；到 128&times;128 的 block tile，每次 FMA 只需要从 HBM 搬运 \(1/16 \approx 0.06\) 字节，算术强度 32 FLOP/B，提升了两个数量级（128 倍）。</p>
 <p>这条阶梯的每一步都映射到一个硬件机制：合并访存对应内存控制器的事务合并、共享内存对应片上 SRAM 的低延迟高带宽、寄存器对应最快的存储层级、双缓冲对应 warp scheduler 的延迟隐藏。理解了这些映射关系，就能把同样的优化思路迁移到其他 kernel——不只是矩阵乘，<a href="../cv30-conv-basics/cv30-conv-basics.html">卷积</a>（im2col + GEMM）、<a href="../at33-flashattention-fwd/at33-flashattention-fwd.html">注意力</a>（FlashAttention 的分块累加）都在复用同样的分块和缓冲策略。</p>
 <p>下一篇把矩阵乘的精度从 FP32 切到 FP16，把计算单元从 CUDA core 换成 Tensor Core：相同的分块思路不变，但指令变了（<code>mma.sync</code> 替代标量 FMA）、布局变了（fragment 到寄存器的映射有严格规定）、流水线也变了（<code>cp.async</code> 和 <code>ldmatrix</code> 替代手动搬运）。Tensor Core 的峰值算力是 CUDA core 的 16 倍以上——正因如此，把搬运优化到极致就更加关键。</p>
 
@@ -579,16 +579,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM 共享内存上限、寄存器数；每项都标有 NVIDIA 官方出处。</li>
-  <li id="ref-mlc">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_basic/index.html">Modern GPU Programming For MLSys: Basic GEMM Optimization</a>. Step 1–3（单 tile、K 循环、多 CTA）的 TIRx 实现与 A100 性能数据。</li>
-  <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §3.2.3 Shared Memory（共享内存容量、bank 宽度）、§5.2.3 Maximize Utilization（occupancy、寄存器压力）、§5.4.1 Device Memory Accesses（合并访存规则）。</li>
-  <li id="ref-siboehm">Simon Boehm (2022). <a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog</a>. 个人博客（A100 上 M=N=K=4096 SGEMM 九步优化阶梯，每步给出 GFLOPS 与峰值百分比）。</li>
+  <li id="ref-siboehm">Simon Boehm (2022). <a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog</a>. 个人博客，2022 年 12 月（RTX A6000 上 4092² FP32 SGEMM，Kernel 1–6、9、10 的 GFLOPS 与相对 cuBLAS 的百分比；另有 A100 上 cuBLAS 14.7 TFLOPS、autotune 配置与 cuBLAS kernel 追踪）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 SXM 的 FP32 峰值算力 19.5 TFLOPS、HBM 带宽 2.0 TB/s、每 SM / 每 block 共享内存上限、寄存器数、Blackwell CLC；每项都标有 NVIDIA 官方出处。</li>
+  <li id="ref-mlc">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_basics/index.html">Modern GPU Programming For MLSys: Building a Tiled GEMM</a>. Step 1–3（单 tile、K 循环、多 CTA），面向 Blackwell，用 TIRx 写 <code>tcgen05</code> FP16 GEMM；本章没有给出实测数字。</li>
+  <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §3.2.4 Shared Memory（共享内存与 <code>__syncthreads()</code>）、§5.2.3 Multiprocessor Level（occupancy、寄存器压力）、§5.3.2 Device Memory Accesses（合并访存规则）。</li>
+  <li id="ref-cublas">NVIDIA. <a href="https://docs.nvidia.com/cuda/cublas/index.html">cuBLAS Library Documentation</a>. §1.5.1 BF16x9（FP32 模拟，CC 10.0/10.3，CUDA 12.9+）；cublasMath_t（CUBLAS_DEFAULT_MATH、CUBLAS_TF32_TENSOR_OP_MATH）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 24 篇。文中代码完整版在系列目录的 <code>code/gm24-sgemm-ladder/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1、3 为手绘示意图；图 2 的性能百分比参考 Simon Boehm 博客（paper）；表 1 的“约 % 峰值”同样参考该博客，精确值因实现与时钟而异。
+  本文是「从零精通 GPU Kernel」系列第 24 篇。文中代码完整版在系列目录的 <code>code/gm24-sgemm-ladder/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为示意图；图 5 与表 1 的性能百分比取自 Simon Boehm 博客（RTX A6000，相对 cuBLAS），不是本篇代码的实测。
 </footer>
 
 </div>

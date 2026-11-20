@@ -5764,7 +5764,7 @@ std::printf("effective bandwidth %.0f GB/s\n",
 
 <p>在运行之前，先算出上限，作为判断测量结果的标尺。三个数组共搬运 \(3\times 2^{30}\) 字节，约 3.22 GB。在 H100 SXM 上，按 3.35 TB/s 算，时间下限约为 0.962 ms；在 A100 80GB 上，按 2.039 TB/s 算，约为 1.580 ms。这两个是 computed 的理论下限，实测只会更慢。如果测出来比下限还快，说明计时或字节计数出了错，常见原因是数据量小于 L2 而没有冲刷、字节数少算了，或者编译器发现结果没被使用而删掉了计算。</p>
 
-<div class="callout warn"><p class="callout-title">常见错误：混用十进制与二进制单位</p><p>NVIDIA datasheet 的带宽单位是十进制的 GB/s（10<sup>9</sup> 字节/秒）。如果分子用 \(2^{30}\) 字节为 1 “GB”，算出的带宽会比真实值低 7.4%，和 datasheet 比较时就会误以为“只跑到了 93%”。<code>bench.cuh</code> 的 <code>gbps()</code> 统一按 10<sup>9</sup> 换算。</p></div>
+<div class="callout warn"><p class="callout-title">常见错误：混用十进制与二进制单位</p><p>NVIDIA datasheet 的带宽单位是十进制的 GB/s（10<sup>9</sup> 字节/秒）。如果分子用 \(2^{30}\) 字节为 1 “GB”，算出的数值会比十进制 GB/s 低约 6.9%（\(10^9/2^{30} \approx 0.931\)），和 datasheet 比较时就会误以为“只跑到了 93%”。<code>bench.cuh</code> 的 <code>gbps()</code> 统一按 10<sup>9</sup> 换算。</p></div>
 
 <p><b>有效吞吐与 kernel 自身吞吐。</b>MLC 的例子是一次 GEMM 后接一次 ReLU，整个操作 105.152 μs。用 \(2\times4096^3\) 除以它，得到约 1307 TFLOP/s。这是“有效吞吐”：分子只是 GEMM 的工作量，分母却包含了 ReLU。要报告 GEMM kernel 自己的 TFLOP/s，计时区间就只能包含 GEMM <span class="cite">[<a href="#ref-mlcbench" title="MLC Community (2026). Modern GPU Programming For MLSys, Appendix: Measuring and Analyzing GPU Kernel Performance（工具分工、CUDA event 计时、计时条件、吞吐换算、nsys 空隙诊断、“Worked Example: A B200 BF16 GEMM”、IKET）。">1</a>]</span>。另外，有效带宽按算法必须搬运的字节计算；kernel 实际从 DRAM 搬了多少字节，要用 ncu 的 <code>dram__bytes_read.sum</code> 和 <code>dram__bytes_write.sum</code> 去量（<a href="#tab-metrics">表 2</a>）。两者的差就是多搬的字节，比值反映访存效率，对应<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>讲的访存效率。</p>
 
@@ -6107,7 +6107,7 @@ if (threadIdx.x == 0) {  // one writer per block
 <h3 id="sec-q5">有效带宽怎么算？</h3>
 <ul>
   <li>算法必须搬运的字节数 ÷ 中位耗时；SAXPY 每个元素 12 字节（读 x、读 y、写 y）。</li>
-  <li>单位与 datasheet 一致用 10<sup>9</sup> 字节；分子误用 2<sup>30</sup> 会低估 7.4%。</li>
+  <li>单位与 datasheet 一致用 10<sup>9</sup> 字节；分子误用 2<sup>30</sup> 会低估约 6.9%。</li>
   <li>实际 DRAM 流量用 <code>dram__bytes_read.sum</code> 与 <code>dram__bytes_write.sum</code> 量，两者之差就是多搬的字节。</li>
   <li><i>追问</i>：测出来比理论下限还快怎么办？（先查 L2 是否冲刷、字节是否数少了、计算是否被编译器删掉。）</li>
 </ul>

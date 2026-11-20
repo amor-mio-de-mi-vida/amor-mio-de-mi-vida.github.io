@@ -19,10 +19,10 @@
 
 <!-- Step 2: Hadamard rotation -->
 <rect x="250" y="35" width="200" height="90" rx="5" fill="#dcfce7" stroke="#22c55e"/>
-<text x="350" y="55" text-anchor="middle" class="title" fill="#16a34a">Step 2: Hadamard Rotation</text>
-<text x="265" y="78" class="code">Q' = Q &#xb7; H / &#x221A;d</text>
-<text x="265" y="95" class="code">K' = K &#xb7; H / &#x221A;d</text>
-<text x="265" y="112" class="label">Smooths outliers (incoherent)</text>
+<text x="350" y="55" text-anchor="middle" class="title" fill="#16a34a">Step 2: Random Rotation</text>
+<text x="265" y="78" class="code">Q' = Q&#xb7;M,  K' = K&#xb7;M</text>
+<text x="265" y="95" class="code">M = D&#xb7;H/&#x221A;d (D: random &#xb1;1)</text>
+<text x="265" y="112" class="label">MM&#x1D40; = I, so Q'K'&#x1D40; = QK&#x1D40;</text>
 
 <!-- Arrow -->
 <line x1="450" y1="80" x2="480" y2="80" stroke="#888" stroke-width="1.2" marker-end="url(#arr)"/>
@@ -30,29 +30,29 @@
 <!-- Step 3: Block quantize -->
 <rect x="480" y="35" width="200" height="90" rx="5" fill="#fef2f2" stroke="#ef4444"/>
 <text x="580" y="55" text-anchor="middle" class="title" fill="#dc2626">Step 3: Block Quantize</text>
-<text x="495" y="78" class="code">scale_q = max|Q'| / 448</text>
-<text x="495" y="95" class="code">Q_fp8 = round(Q' / scale_q)</text>
+<text x="495" y="78" class="code">e.g. scale = max|Q'_blk| / 448</text>
+<text x="495" y="95" class="code">one scale per Br&#xd7;d / Bc&#xd7;d block</text>
 <text x="495" y="112" class="label">E4M3: range [-448, 448]</text>
 
 <!-- Why Hadamard? -->
 <rect x="20" y="145" width="310" height="120" rx="5" fill="#fef9c3" stroke="#eab308"/>
-<text x="175" y="165" text-anchor="middle" class="title" fill="#a16207">Problem: Outlier-Dominated Scale</text>
+<text x="175" y="165" text-anchor="middle" class="title" fill="#a16207">Test data with outliers (FA3 &#xa7;4.3)</text>
 
-<text x="35" y="188" class="code">Before rotation:</text>
-<text x="35" y="205" class="code">  Q = [0.1, 0.2, 100, 0.3, ...]</text>
-<text x="35" y="222" class="label">scale = 100/448 = 0.223</text>
-<text x="35" y="238" class="label">Small values → 0.1/0.223 = 0.45 → rounds to 0</text>
-<text x="35" y="253" class="label" fill="#dc2626">&#x2717; Massive precision loss on small values!</text>
+<text x="35" y="188" class="code">entries ~ N(0,1) + N(0,100)&#xb7;Bern(0.001)</text>
+<text x="35" y="205" class="code">RMSE vs FP64 reference:</text>
+<text x="35" y="222" class="label">FP16 FlashAttention-3: 1.9e-4</text>
+<text x="35" y="238" class="label">FP8 baseline, per-tensor scale:</text>
+<text x="35" y="253" class="label" fill="#dc2626">&#x2717; RMSE 2.4e-2</text>
 
 <rect x="370" y="145" width="310" height="120" rx="5" fill="#dcfce7" stroke="#22c55e"/>
-<text x="525" y="165" text-anchor="middle" class="title" fill="#16a34a">Solution: After Hadamard</text>
+<text x="525" y="165" text-anchor="middle" class="title" fill="#16a34a">FA3 FP8 ablation (Table 3)</text>
 
-<text x="385" y="188" class="code">After rotation:</text>
-<text x="385" y="205" class="code">  Q' = [25.1, 24.9, 25.3, 25.0, ...]</text>
-<text x="385" y="222" class="label">scale = 25.3/448 = 0.056</text>
-<text x="385" y="238" class="label">All values &#x2248; 25 → good precision for all</text>
-<text x="385" y="253" class="label" fill="#16a34a">&#x2713; Uniform magnitude → better quantization</text>
+<text x="385" y="188" class="code">block quant + incoherent: 9.1e-3</text>
+<text x="385" y="205" class="code">without block quant: 9.3e-3</text>
+<text x="385" y="222" class="label">without incoherent processing: 2.4e-2</text>
+<text x="385" y="238" class="label">rotation does most of the work here</text>
+<text x="385" y="253" class="label" fill="#16a34a">&#x2713; 2.6&#xd7; lower RMSE than baseline</text>
 
 <defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#888"/></marker></defs>
-<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative — values are conceptual</text>
+<text x="350" y="278" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: FA3 paper (arXiv:2407.08608) Table 3; steps 1–3 illustrative</text>
 </svg>

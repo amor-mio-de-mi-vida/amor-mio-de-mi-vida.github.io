@@ -13,7 +13,7 @@
 <text x="25" y="165" text-anchor="middle" class="label" transform="rotate(-90,25,165)">Arithmetic Intensity (FLOP/B)</text>
 
 <!-- Y ticks -->
-<text x="72" y="278" text-anchor="end" class="sm">0.5</text>
+<text x="72" y="278" text-anchor="end" class="sm">0.25</text>
 <line x1="76" y1="275" x2="80" y2="275" stroke="#9ca3af"/>
 <text x="72" y="238" text-anchor="end" class="sm">8</text>
 <line x1="76" y1="235" x2="80" y2="235" stroke="#9ca3af"/>
@@ -26,15 +26,15 @@
 
 <!-- Roofline threshold line -->
 <line x1="80" y1="225" x2="650" y2="225" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="6,4"/>
-<text x="655" y="228" class="sm" fill="#ef4444">A100 roofline: ~10 FLOP/B</text>
+<text x="420" y="219" class="sm" fill="#ef4444">A100 ridge: ~10 FLOP/B</text>
 
 <!-- X axis -->
 <line x1="80" y1="280" x2="650" y2="280" stroke="#d1d5db" stroke-width="1"/>
 
 <!-- Bars -->
-<!-- naive: 0.5 FLOP/B -->
+<!-- naive: 0.25 FLOP/B -->
 <rect x="95" y="275" width="50" height="5" rx="2" fill="#fca5a5"/>
-<text x="120" y="270" text-anchor="middle" class="sm" fill="#dc2626">0.5</text>
+<text x="120" y="270" text-anchor="middle" class="sm" fill="#dc2626">0.25</text>
 <text x="120" y="298" text-anchor="middle" class="sm">naive</text>
 
 <!-- SMEM BM=BN=32: 8 FLOP/B -->
@@ -55,20 +55,14 @@
 <text x="315" y="298" text-anchor="middle" class="sm">SMEM</text>
 <text x="315" y="310" text-anchor="middle" class="sm">128&#xd7;128</text>
 
-<!-- 2D reg TM=TN=8 on SMEM level -->
-<rect x="355" y="115" width="50" height="165" rx="2" fill="#a78bfa"/>
-<text x="380" y="110" text-anchor="middle" class="sm" fill="#7c3aed">64</text>
-<text x="380" y="298" text-anchor="middle" class="sm">+ 2D reg</text>
-<text x="380" y="310" text-anchor="middle" class="sm">TM=TN=8</text>
-
 <!-- Formula annotations -->
 <rect x="430" y="55" width="220" height="105" rx="5" fill="#f8fafc" stroke="#e2e8f0"/>
-<text x="440" y="72" class="code" font-size="10">I_smem = BM&#xb7;BN / 2(BM+BN)</text>
+<text x="440" y="72" class="code" font-size="10">HBM: BM&#xb7;BN / 2(BM+BN)</text>
 <text x="440" y="90" class="sm" fill="#6b7280">&#x2192; 32&#xd7;32: 32&#xb7;32/128 = 8</text>
 <text x="440" y="105" class="sm" fill="#6b7280">&#x2192; 64&#xd7;64: 64&#xb7;64/256 = 16</text>
 <text x="440" y="120" class="sm" fill="#6b7280">&#x2192; 128&#xd7;128: 128&#xb7;128/512 = 32</text>
-<text x="440" y="140" class="code" font-size="10">I_reg = TM&#xb7;TN / (TM+TN)</text>
-<text x="440" y="155" class="sm" fill="#6b7280">&#x2192; 8&#xd7;8: 64/16 = 4&#xd7; per SMEM read</text>
+<text x="440" y="140" class="code" font-size="10">SMEM level: TM&#xb7;TN / (TM+TN)</text>
+<text x="440" y="155" class="sm" fill="#6b7280">&#x2192; 8&#xd7;8: 64/16 = 4 FMA per SMEM read</text>
 
 <text x="350" y="336" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

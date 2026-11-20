@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 52 篇</div>
   <h1>手写 Kernel：13 个白板面试模板</h1>
-  <p class="subtitle">vec_add &rarr; reduce &rarr; softmax &rarr; GEMM &rarr; atomicMax：可白板手写的 30&ndash;60 行 CUDA 模板</p>
+  <p class="subtitle">vec_add &rarr; reduce &rarr; softmax &rarr; GEMM &rarr; atomicMax：可白板手写的短小 CUDA 模板</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-28</span>
-    <span data-reading-time>约 19 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -244,14 +244,14 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <!-- sec-overview -->
 <section id="sec-overview">
 <h2 id="sec-1">总览：为什么要手写 Kernel？</h2>
-<p>CUDA 面试的最终环节通常是白板手写 Kernel：面试官给一个算子名称和数据规模，要求在 20&ndash;30 分钟内写出正确且高效的 CUDA 实现。这一环节考察的不仅是语法熟练度，更是对线程模型、内存层次和同步原语的肌肉记忆。和算法面试刷题类似，手写 Kernel 也存在一个&ldquo;模板库&rdquo;：大部分面试题目可以归结为几种核心模式的组合。本文整理了 13 个面试频率最高的 Kernel 模板，按照难度从低到高排列，每个模板都附带完整的可编译代码和关键技术点解析（<a href="#fig-kernel-categories">图 1</a>）。</p>
+<p>CUDA 面试的最终环节通常是白板手写 Kernel：面试官给一个算子名称和数据规模，要求在 20&ndash;30 分钟内写出正确且高效的 CUDA 实现。这一环节考察的不仅是语法熟练度，更是对线程模型、内存层次和同步原语的肌肉记忆。和算法面试刷题类似，手写 Kernel 也存在一个&ldquo;模板库&rdquo;：大部分面试题目可以归结为几种核心模式的组合。本文整理了 13 个常见的 Kernel 模板，大致按照难度从低到高排列，每个模板都附带通过语法检查的完整代码和关键技术点解析（<a href="#fig-kernel-categories">图 1</a>）。</p>
 
 <figure id="fig-kernel-categories" data-kind="diagram" data-source="illustrative">
   <img aria-labelledby="fig-kernel-categories-cap" src="figs/kernel_categories.svg" alt="13 个 Kernel 按类别分布图" />
   <figcaption id="fig-kernel-categories-cap"><span class="fig-label">图 1</span><span class="badge illustrative">示意数据</span>13 个 Kernel 模板按类别分组：基础模式、归一化与激活、线性代数、搜索选择四大类。每类覆盖的核心优化手法各有侧重（<a href="#fig-kernel-categories">图 1</a>）。</figcaption>
 </figure>
 
-<p>这些模板的设计原则是：每个 Kernel 控制在 30&ndash;60 行之内，在白板上 15&ndash;25 分钟可以写完；同时保留真实的性能优化手法（shared memory tiling 减少 global memory 访问、warp shuffle <span class="cite">[<a href="#ref-shfl" title="NVIDIA (2024). Warp Shuffle Functions. CUDA Programming Guide.">1</a>]</span> 实现零开销归约、coalesced access 最大化内存带宽利用率），不做过度简化。掌握这 13 个模板，可以覆盖 80% 以上的白板面试题目（<a href="#fig-complexity-ladder">图 2</a>）。即使遇到未见过的算子，也可以从这些模式中组合出解决方案——例如 GroupNorm 可以看作分组的 LayerNorm，SiLU 激活可以内联到任何逐元素 Kernel 中，而 multi-head attention 的 QK^T 部分就是一个 batched GEMM。每个模板都经过编译验证，代码中的同步和边界检查都遵循生产级实践——在面试中写出这些&ldquo;防御性编程&rdquo;细节（如 grid-stride loop 处理非对齐尾部、warp 0 才执行二次归约的 guard），比写出看似正确但边界有 bug 的代码更有竞争力。</p>
+<p>这些模板的设计原则是：每个 Kernel 的代码只有十来行到三十行左右，适合在白板上写完；同时保留真实的性能优化手法（shared memory tiling 减少 global memory 访问、warp shuffle <span class="cite">[<a href="#ref-shfl" title="NVIDIA (2024). Warp Shuffle Functions. CUDA Programming Guide.">1</a>]</span> 在寄存器之间直接交换数据做归约、coalesced access 提高内存带宽利用率），不做过度简化。这 13 个模板覆盖了白板面试里最常见的几类模式（<a href="#fig-complexity-ladder">图 2</a>）。即使遇到未见过的算子，也可以从这些模式中组合出解决方案——例如 GroupNorm 可以看作分组的 LayerNorm，SiLU 激活可以内联到任何逐元素 Kernel 中，而 multi-head attention 的 QK^T 部分就是一个 batched GEMM。每个模板都通过了编译器前端的语法和类型检查（没有在 GPU 上运行），代码注释写明了各自对 blockDim 等启动参数的假设——在面试中写出这些&ldquo;防御性编程&rdquo;细节（如 grid-stride loop 处理非对齐尾部、warp 0 才执行二次归约的 guard），比写出看似正确但边界有 bug 的代码更有竞争力。</p>
 
 <figure id="fig-complexity-ladder" data-kind="diagram" data-source="illustrative">
   <img aria-labelledby="fig-complexity-ladder-cap" src="figs/complexity_ladder.svg" alt="难度阶梯图" />
@@ -264,10 +264,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-2">基础 Kernel</h2>
 
 <h3 id="sec-3">1. Vector Add（grid-stride loop）</h3>
-<p>最基础的面试 Kernel，但很多候选人会忽略 grid-stride loop。朴素实现用 <code>if (i &lt; n)</code> 做边界检查，每个线程只处理一个元素；这种写法在 N 很大时必须 launch 大量 block，而 GPU 的 SM 数量有限，过多 block 会导致调度开销和 L2 cache 压力增大。grid-stride loop 的优势在于：一次 launch 可以处理任意大小的输入，不需要根据 N 动态计算 grid 大小；同时每个线程处理多个元素，提高了指令级并行（ILP）和内存合并效率。此外，grid-stride loop 天然支持处理不被 blockDim 整除的尾部元素，因为循环条件 <code>i &lt; n</code> 本身就是边界检查，不需要额外的 if-guard。面试中手写 <code>for (int i = bid*bdim + tid; i &lt; n; i += gdim*bdim)</code> 这个一行循环，比写一个长长的 if-guard 更显专业，也更接近生产代码风格。NVIDIA 官方的 CUDA samples 和 Thrust 库的底层实现都大量使用这个模式。</p>
+<p>最基础的面试 Kernel，但很多候选人会忽略 grid-stride loop。朴素实现用 <code>if (i &lt; n)</code> 做边界检查，每个线程只处理一个元素；这种写法的 grid 大小必须随 N 变化。grid-stride loop 的优势在于：grid 大小可以固定（例如按 SM 数的若干倍），一次 launch 就能处理任意大小的输入；每个线程处理多个元素，索引计算等开销被摊薄；同一个 kernel 也能用单线程 launch 来调试 <span class="cite">[<a href="#ref-gridstride" title="Harris, M. (2013). CUDA Pro Tip: Write Flexible Kernels with Grid-Stride Loops. NVIDIA Technical Blog.">2</a>]</span>。此外，grid-stride loop 天然支持处理不被 blockDim 整除的尾部元素，因为循环条件 <code>i &lt; n</code> 本身就是边界检查，不需要额外的 if-guard。面试中手写 <code>for (int i = bid*bdim + tid; i &lt; n; i += gdim*bdim)</code> 这个一行循环，比写一个长长的 if-guard 更显专业，也更接近生产代码风格。</p>
 
 <h3 id="sec-4">2. Block Reduce Sum（warp shuffle + shared memory）</h3>
-<p>Reduction 是 GPU 编程中最重要的原语之一，几乎所有归一化操作（LayerNorm、RMSNorm、Softmax）的内部都包含一个 reduce 步骤。面试中的标准实现是两级 reduce：第一级在 warp 内部用 <code>__shfl_xor_sync</code> 无需 shared memory 完成 32 个线程的归约；第二级将每个 warp 的局部结果写入 shared memory，然后由 warp 0 再做一次 shuffle reduce 得到全局结果。这个两级模式比纯 shared memory reduce 更高效，因为 warp 内 shuffle 不需要 <code>__syncthreads()</code> 屏障，延迟更低。</p>
+<p>Reduction 是 GPU 编程中最重要的原语之一，几乎所有归一化操作（LayerNorm、RMSNorm、Softmax）的内部都包含一个 reduce 步骤。面试中的标准实现是两级 reduce：第一级在 warp 内部用 <code>__shfl_xor_sync</code> 无需 shared memory 完成 32 个线程的归约；第二级将每个 warp 的局部结果写入 shared memory，然后由 warp 0 再做一次 shuffle reduce 得到 block 的结果，最后用一次 <code>atomicAdd</code> 加到全局结果上（调用前 <code>out</code> 要清零）。这个两级模式比纯 shared memory reduce 更高效，因为 warp 内 shuffle 不需要 <code>__syncthreads()</code> 屏障，也不经过 shared memory。代码假设 blockDim 是 32 的倍数：shuffle 用的是全掩码 <code>0xffffffff</code>，一个不满的 warp 会让结果未定义。</p>
 
 <pre data-code="code/iv52-handwritten-kernels/interview_kernels.cu#L16-L35"><code>__global__ void block_reduce_sum(
     const float* x, float* out, int n
@@ -296,7 +296,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-reduce-dataflow-cap"><span class="fig-label">图 3</span><span class="badge illustrative">示意数据</span>两级 Reduce 数据流：Warp shuffle &rarr; shared memory &rarr; 最终 warp reduce。这是所有归一化 Kernel 内部 reduce 的基本骨架。</figcaption>
 </figure>
 
-<p>需要注意 <code>sdata[32]</code> 的大小：一个 block 最多 1024 个线程，即 32 个 warp，所以 32 个 float 就够了。面试时常见的错误是忘记初始化 <code>sdata</code> 中未使用的元素（当 blockDim 不足 1024 时），或者忘记第二次 <code>__syncthreads()</code> 就直接读 <code>sdata</code>。写这个 Kernel 时建议先写 warp reduce 的循环（5 行），再写 shared memory 中转（4 行），最后写 warp 0 的二次 reduce（5 行），结构清晰不易出错（<a href="#fig-reduce-dataflow">图 3</a>）。</p>
+<p>需要注意 <code>sdata[32]</code> 的大小：一个 block 最多 1024 个线程，即 32 个 warp，所以 32 个 float 就够了。blockDim 不足 1024 时，<code>sdata</code> 里只有前 <code>blockDim.x / 32</code> 个元素被写过，所以 warp 0 读取时要用 <code>lane &lt; blockDim.x / 32</code> 做保护，其余 lane 填 0；面试时常见的错误是漏掉这个保护，或者漏掉写 <code>sdata</code> 与读 <code>sdata</code> 之间的那次 <code>__syncthreads()</code>。写这个 Kernel 时建议先写 warp reduce 的循环（5 行），再写 shared memory 中转（4 行），最后写 warp 0 的二次 reduce（5 行），结构清晰不易出错（<a href="#fig-reduce-dataflow">图 3</a>）。</p>
 </section>
 
 <!-- sec-norm -->
@@ -304,7 +304,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-5">归一化与激活 Kernel</h2>
 
 <h3 id="sec-6">3. Online Softmax（warp-per-row）</h3>
-<p>Softmax 是 Transformer 面试的必考题。传统实现需要三遍遍历（pass）数据：第一遍求 max，第二遍求 exp 之和，第三遍归一化。Online Softmax <span class="cite">[<a href="#ref-online_sf" title="Milakov, M. &amp; Gimelshein, N. (2018). Online normalizer calculation for softmax. arXiv.">2</a>]</span> 将前两遍融合为一遍：每读入一个新元素 v，如果 v 大于当前 max m，就将 m 更新为 v，同时把已有的 sum 乘以 <code>exp(old_m - new_m)</code> 来修正。这个修正因子保证了数值正确性，其核心恒等式是：当最大值从 m 变为 m&prime; 时，旧的部分和乘以 exp(m &minus; m&prime;) 就等价于用新的最大值重新计算。</p>
+<p>Softmax 是 Transformer 面试的高频题。传统实现需要三遍遍历（pass）数据：第一遍求 max，第二遍求 exp 之和，第三遍归一化。Online Softmax <span class="cite">[<a href="#ref-online_sf" title="Milakov, M. &amp; Gimelshein, N. (2018). Online normalizer calculation for softmax. arXiv.">3</a>]</span> 将前两遍融合为一遍：每读入一个新元素 v，如果 v 大于当前 max m，就将 m 更新为 v，同时把已有的 sum 乘以 <code>exp(old_m - new_m)</code> 来修正。这个修正因子保证了数值正确性，其核心恒等式是：当最大值从 m 变为 m&prime; 时，旧的部分和乘以 exp(m &minus; m&prime;) 就等价于用新的最大值重新计算。</p>
 
 <pre data-code="code/iv52-handwritten-kernels/interview_kernels.cu#L39-L53"><code>__global__ void softmax_warp(
     const float* x, float* y, int rows, int cols
@@ -325,21 +325,21 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-softmax-online" data-kind="diagram" data-source="illustrative">
   <img aria-labelledby="fig-softmax-online-cap" src="figs/softmax_online.svg" alt="Online Softmax 流程" />
-  <figcaption id="fig-softmax-online-cap"><span class="fig-label">图 4</span><span class="badge illustrative">示意数据</span>Online Softmax vs 传统三遍方法：节省 33% 的 max+sum 阶段内存流量，也是 FlashAttention 的核心思想。</figcaption>
+  <figcaption id="fig-softmax-online-cap"><span class="fig-label">图 4</span><span class="badge illustrative">示意数据</span>Online Softmax vs 传统三遍方法：max 和 sum 合成一遍读，总访存从&ldquo;读 3 遍、写 1 遍&rdquo;降到&ldquo;读 2 遍、写 1 遍&rdquo;；这个修正思路也是 FlashAttention 的核心。</figcaption>
 </figure>
 
-<p>面试中展示 online softmax 比传统三遍方法更有竞争力，因为它直接体现了你对 FlashAttention 核心思想的理解——FlashAttention 本质上就是将 online softmax 推广到了分块的 attention score 矩阵上。warp reduce 阶段的合并逻辑也是面试考点：当两个 warp lane 需要合并各自的 (m, s) 对时，先取两个 max 中较大的作为新 max nm，然后分别将各自的 sum 乘以 exp(各自旧 max - nm) 来修正，再相加得到新 sum。这个&ldquo;取大 max、修正 sum&rdquo;的模式具有结合律，因此可以用 <code>__shfl_xor_sync</code> 做树状归约。最终 <code>__shfl_sync(m, 0)</code> 和 <code>__shfl_sync(s, 0)</code> 将 warp 0 的 lane 0 的结果广播给所有 lane，供第二遍归一化使用（<a href="#fig-softmax-online">图 4</a>）。</p>
+<p>面试中展示 online softmax 比传统三遍方法更有竞争力，因为它直接体现了你对 FlashAttention 核心思想的理解——FlashAttention 本质上就是将 online softmax 推广到了分块的 attention score 矩阵上。warp reduce 阶段的合并逻辑也是面试考点：当两个 warp lane 需要合并各自的 (m, s) 对时，先取两个 max 中较大的作为新 max nm，然后分别将各自的 sum 乘以 exp(各自旧 max - nm) 来修正，再相加得到新 sum。这个&ldquo;取大 max、修正 sum&rdquo;的模式具有结合律，因此可以用 <code>__shfl_xor_sync</code> 做树状归约。用 xor 蝶形归约后每个 lane 都已经拿到合并结果，代码里再用 <code>__shfl_sync(m, 0)</code> 和 <code>__shfl_sync(s, 0)</code> 把 lane 0 的值广播一次，保证所有 lane 用完全相同的 (m, s) 做第二遍归一化（<a href="#fig-softmax-online">图 4</a>）。这个 kernel 一个 block 只有一个 warp（blockDim = 32），每个 block 处理一行。</p>
 
 <h3 id="sec-7">4. RMSNorm</h3>
-<p>RMSNorm 是 Llama 系列模型采用的归一化方式，相比 LayerNorm 去掉了均值的计算，只保留平方和的归约，计算量减少约一半。实现上是一个标准的 block reduce（对输入向量的每个元素求平方后累加），然后用 <code>rsqrtf</code> 计算倒数平方根（即 1/sqrt(ss/N + eps)），最后逐元素乘以可学习的权重向量 w。这里用 <code>rsqrtf</code> 而不是先 <code>sqrtf</code> 再除法，是因为 rsqrtf 在硬件上有专门的特殊函数单元（SFU）支持，一条指令就能完成，而除法需要多个时钟周期。面试中的关键点是：reduce 的结果需要广播给所有线程，所以由 warp 0 的 lane 0 将最终结果写入 <code>sdata[0]</code>，然后一次 <code>__syncthreads()</code> 确保所有线程都能看到这个值。另一个常见问题是 epsilon 的位置——它加在 <code>ss/N</code> 之后、rsqrtf 之前，即 <code>rsqrtf(ss/N + eps)</code>，而不是 <code>rsqrtf((ss + eps)/N)</code>，否则 epsilon 的效果会被 N 稀释（当 N=4096 时，1e-6 变成了 2.4e-10，完全失去了数值稳定的作用）。</p>
+<p>RMSNorm 是 Llama 系列模型采用的归一化方式，相比 LayerNorm 去掉了减均值这一步，只保留平方和的归约，少了一次归约和一遍减法。实现上是一个标准的 block reduce（对输入向量的每个元素求平方后累加），然后用 <code>rsqrtf</code> 计算倒数平方根（即 1/sqrt(ss/N + eps)），最后逐元素乘以可学习的权重向量 w。这里用 <code>rsqrtf</code> 而不是先 <code>sqrtf</code> 再除法，是因为 <code>rsqrtf</code> 是一个近似的快速倒数平方根，主要由特殊函数单元（SFU）完成，而 IEEE 精度的 <code>sqrtf</code> 和除法都要展开成多条指令。面试中的关键点是：reduce 的结果需要广播给所有线程，所以由 warp 0 的 lane 0 将最终结果写入 <code>sdata[0]</code>，然后一次 <code>__syncthreads()</code> 确保所有线程都能看到这个值。另一个常见问题是 epsilon 的位置——它加在 <code>ss/N</code> 之后、rsqrtf 之前，即 <code>rsqrtf(ss/N + eps)</code>，而不是 <code>rsqrtf((ss + eps)/N)</code>，否则 epsilon 的效果会被 N 稀释（当 N=4096 时，1e-6 变成了 2.4e-10，完全失去了数值稳定的作用）。</p>
 
 <h3 id="sec-8">5. LayerNorm</h3>
-<p>LayerNorm 比 RMSNorm 多一步均值计算，因此需要两遍 reduce：第一遍对输入向量所有元素求 sum 然后除以 N 得到 mean，第二遍对每个元素计算 (x[i] &minus; mean)&sup2; 并求和然后除以 N 得到 variance。两遍 reduce 的结构完全相同（warp shuffle + shared memory 广播），区别只在于累加的值不同。面试中容易犯的错误是在第一遍 reduce 和第二遍 reduce 之间忘记 <code>__syncthreads()</code>，导致某些线程在第二遍开始时读到的 mean 值还是上一轮 shared memory 中的旧值，计算出错误的方差。实现中用 <code>__shared__ float smean, svar</code> 两个标量做广播：thread 0 写入后通过 syncthreads 确保所有线程都能读到正确值，比用 warp broadcast 更直观也更安全。最终的归一化公式是 <code>(x - mean) * rsqrt(var + eps) * gamma + beta</code>，其中 gamma 和 beta 是逐元素的可学习参数，乘法顺序不能变：先减均值、再乘倒数标准差、再乘 gamma、最后加 beta。一个可能的面试追问是 Welford 算法——用一遍遍历同时在线计算 mean 和 variance，避免两遍 reduce 的开销，原理与 online softmax 类似。</p>
+<p>LayerNorm 比 RMSNorm 多一步均值计算，因此需要两遍 reduce：第一遍对输入向量所有元素求 sum 然后除以 N 得到 mean，第二遍对每个元素计算 (x[i] &minus; mean)&sup2; 并求和然后除以 N 得到 variance。两遍 reduce 的结构完全相同，代码里把它写成一个 <code>block_sum</code> 函数：先 warp 内 shuffle，再经 shared memory 跨 warp 合并，每个 warp 都再做一次 shuffle，于是 block 里所有线程都拿到总和，不需要另外广播。面试中最容易犯的错误是只做 warp 内归约就让 thread 0 去写 mean——blockDim 大于 32 时，这只是第一个 warp 的部分和。另一个坑是两次归约复用同一块 <code>red</code> 数组：<code>block_sum</code> 末尾那次 <code>__syncthreads()</code> 保证所有 warp 读完 <code>red</code> 之后，第二次归约才开始写它。最终的归一化公式是 <code>(x - mean) * rsqrt(var + eps) * gamma + beta</code>，其中 gamma 和 beta 是逐元素的可学习参数。一个可能的面试追问是 Welford 算法——用一遍遍历同时在线计算 mean 和 variance，避免两遍 reduce 的开销，原理与 online softmax 类似。</p>
 
 <h3 id="sec-9">6. RoPE（旋转位置编码）</h3>
-<p>RoPE（Rotary Position Embedding）是 Llama、Qwen、Mistral 等主流 LLM 使用的位置编码方案，也是面试中的热门考点。在面试中它考查的是三角函数旋转的向量化实现。每个位置 pos 对维度 i 有一个角频率 <code>&theta; = pos / 10000^(2i/d)</code>，然后对相邻的两个元素 (x0, x1) 做二维旋转：<code>y0 = x0*cos&theta; - x1*sin&theta;</code>，<code>y1 = x0*sin&theta; + x1*cos&theta;</code>。这本质上是一个二维旋转矩阵乘法，每对元素独立旋转，旋转角度由位置和维度共同决定。实现中 grid 的 x 维度对应 seq_len，每个 block 内的线程对应 d/2 对元素。注意 <code>powf(10000.f, 2.f*i/(float)d)</code> 这个频率计算：如果 d=128，则 i 从 0 到 63，频率跨度为 10000 倍，低维度的旋转频率高（角度变化快，编码短距离关系），高维度的旋转频率低（角度变化慢，编码长距离依赖），这种多频率设计是 RoPE 能同时捕获局部和全局位置关系的关键。面试中如果能提到 NTK-aware scaling（修改基频 10000 来扩展上下文长度）会是加分项。</p>
+<p>RoPE（Rotary Position Embedding）<span class="cite">[<a href="#ref-rope" title="Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B. &amp; Liu, Y. (2021). RoFormer: Enhanced Transformer with Rotary Position Embedding. arXiv:2104.09864.">4</a>]</span> 是 Llama、Qwen、Mistral 等主流 LLM 使用的位置编码方案，也是面试中的热门考点。在面试中它考查的是三角函数旋转的向量化实现。每个位置 pos 对第 i 对维度有一个旋转角 <code>&theta; = pos / 10000^(2i/d)</code>，然后对相邻的两个元素 (x0, x1) 做二维旋转：<code>y0 = x0*cos&theta; - x1*sin&theta;</code>，<code>y1 = x0*sin&theta; + x1*cos&theta;</code>。这本质上是一个二维旋转矩阵乘法，每对元素独立旋转，旋转角度由位置和维度共同决定。实现中 grid 的 x 维度对应 seq_len，每个 block 内的线程对应 d/2 对元素。代码按 RoFormer 原文把相邻的 (2i, 2i+1) 配成一对；不少实现（如 Hugging Face 的 Llama）把前一半和后一半配对（<code>rotate_half</code>），两种写法的权重排列不同，不能混用。注意 <code>powf(10000.f, 2.f*i/(float)d)</code> 这个频率计算：如果 d=128，则 i 从 0 到 63，最高与最低频率相差 10000<sup>126/128</sup> &asymp; 8700 倍，低维度的旋转频率高（角度变化快，编码短距离关系），高维度的旋转频率低（角度变化慢，编码长距离依赖），这种多频率设计是 RoPE 能同时捕获局部和全局位置关系的关键。面试中如果能提到 NTK-aware scaling（修改基频 10000 来扩展上下文长度）会是加分项。</p>
 
-<pre data-code="code/iv52-handwritten-kernels/interview_kernels2.cu#L77-L92"><code>__global__ void rope_fwd(
+<pre data-code="code/iv52-handwritten-kernels/interview_kernels2.cu#L78-L91"><code>__global__ void rope_fwd(
     float* x, int seq_len, int d
 ) {
     int pos = blockIdx.x;
@@ -353,9 +353,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     xp[2 * i]     = x0 * cos_t - x1 * sin_t;
     xp[2 * i + 1] = x0 * sin_t + x1 * cos_t;
 }</code></pre>
-<p class="src-note">interview_kernels2.cu:77-92</p>
+<p class="src-note">interview_kernels2.cu:78-91</p>
 
-<p>代码中 <code>powf(10000.f, 2.f*i/(float)d)</code> 在每个位置都重新计算频率——生产实现会预计算频率表避免 <code>powf</code> 的高延迟（SFU 上约 16 个时钟周期），但白板面试中直接写公式更清晰、更不容易出错。</p>
+<p>代码中 <code>powf(10000.f, 2.f*i/(float)d)</code> 在每个位置都重新计算频率——生产实现会预计算频率表（或 cos/sin 表），避免每次都算 <code>powf</code>、<code>cosf</code>、<code>sinf</code> 这些多指令的数学函数，但白板面试中直接写公式更清晰、更不容易出错。</p>
 </section>
 
 <!-- sec-linalg -->
@@ -366,10 +366,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-bank-conflict" data-kind="diagram" data-source="illustrative">
   <img aria-labelledby="fig-bank-conflict-cap" src="figs/bank_conflict.svg" alt="Bank conflict 对比图" />
-  <figcaption id="fig-bank-conflict-cap"><span class="fig-label">图 5</span><span class="badge illustrative">示意数据</span>Shared Memory Bank Conflict：左侧 padding 后每个线程访问不同 bank（1 cycle），右侧朴素布局所有线程争抢 bank 0（32 cycles 串行化）。</figcaption>
+  <figcaption id="fig-bank-conflict-cap"><span class="fig-label">图 5</span><span class="badge illustrative">示意数据</span>Shared Memory Bank Conflict（转置时按列读 tile）：左侧加一列 padding 后同一列的 32 个元素落在 32 个不同的 bank，一次完成；右侧朴素布局下同一列全在一个 bank，访问被拆成 32 次串行。</figcaption>
 </figure>
 
-<p>矩阵转置是 shared memory 用法的经典教学案例。朴素转置 <code>out[j*M+i] = in[i*N+j]</code> 的问题是：读入 coalesced 但写出不 coalesced（stride 为 M），反之亦然。如果强行以列优先的方式读取，虽然写出变成 coalesced，但读入又变成了 strided access，两种方式都浪费一半的内存带宽。解决方法是：用 shared memory 做中转，先 coalesced 读入 tile，再 coalesced 写出 transposed tile。具体流程是：32&times;32 的线程块将输入矩阵的一个 32&times;32 tile coalesced 地读入 shared memory，然后每个线程读取 shared memory 中转置后的位置（行列交换），最后 coalesced 地写出到输出矩阵的对应位置。但直接用 <code>tile[32][32]</code> 会产生 bank conflict：同一 warp 的 32 个线程访问同一 bank 的不同 row，在转置读取阶段（同一列、不同行）这 32 次访问全部落在同一个 bank 上，产生 32-way bank conflict，性能退回到完全序列化。经典的 fix 是 <code>tile[32][33]</code>，多加一列 padding 使得相邻行错开一个 bank，彻底消除 conflict。这个额外的一列只浪费了 3% 的 shared memory 空间（128 bytes），但性能提升可达 10 倍以上（<a href="#fig-bank-conflict">图 5</a>）。面试中写出这个 <code>[33]</code> 并能解释原因，是区分初级和中级候选人的分水岭。</p>
+<p>矩阵转置是 shared memory 用法的经典教学案例。朴素转置 <code>out[j*M+i] = in[i*N+j]</code> 的问题是：读入 coalesced 但写出不 coalesced（stride 为 M），反之亦然。如果强行以列优先的方式读取，虽然写出变成 coalesced，但读入又变成了 strided access。非合并的那一侧，一个 warp 的 32 个 4 字节访问会落在 32 个不同的 32 字节 sector 上，搬的字节是有用数据的 8 倍。解决方法是：用 shared memory 做中转，先 coalesced 读入 tile，再 coalesced 写出 transposed tile。具体流程是：32&times;32 的线程块将输入矩阵的一个 32&times;32 tile coalesced 地读入 shared memory，然后每个线程读取 shared memory 中转置后的位置（行列交换），最后 coalesced 地写出到输出矩阵的对应位置。但直接用 <code>tile[32][32]</code> 会产生 bank conflict：同一 warp 的 32 个线程访问同一 bank 的不同 row，在转置读取阶段（同一列、不同行）这 32 次访问全部落在同一个 bank 上，产生 32-way bank conflict，性能退回到完全序列化。经典的 fix 是 <code>tile[32][33]</code>，多加一列 padding 使得相邻行错开一个 bank，彻底消除 conflict。这个额外的一列只多占 3% 的 shared memory 空间（32 &times; 4 = 128 字节），却把按列读取从 32 次串行访问变回一次（<a href="#fig-bank-conflict">图 5</a>）。面试中写出这个 <code>[33]</code> 并能解释原因，是区分初级和中级候选人的分水岭。</p>
 
 <h3 id="sec-12">8. Tiled SGEMM</h3>
 
@@ -378,12 +378,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-sgemm-tiling-cap"><span class="fig-label">图 6</span><span class="badge illustrative">示意数据</span>Tiled SGEMM：A 和 B 的 tile 加载到 shared memory，在 SMEM 中做内层循环的乘加，沿 K 维度滑动直到遍历完所有 BK 段。</figcaption>
 </figure>
 
-<p>GEMM 是 GPU 计算的基石，也是面试中最能体现候选人 shared memory 理解深度的算子。白板面试中不会要求写出 CUTLASS 级别的实现（那需要数百行代码和多级 tiling），但基本的 tiled SGEMM 是必须掌握的。核心思路：将 C 矩阵分成 BM&times;BN 的 tile，每个 block 负责一个 tile；对 K 维度分段，每段长度 BK，将 A 和 B 的对应子矩阵从 global memory 加载到 shared memory，做乘加后移动到下一段。每个线程维护一个 float 累加器 <code>acc</code>，在 K 维度的所有段上逐步累加，循环结束后写回 global memory。关键细节包括：边界检查（M、N、K 不被 tile 大小整除时需要填零，否则会读取到未初始化的 global memory）；两次 <code>__syncthreads()</code>（一次在 load 后确保 smem 就绪，一次在计算后确保下一轮 load 不会覆盖正在使用的数据——如果省略第二次 sync，快的线程可能在慢的线程还在读取旧 tile 时就覆盖了 shared memory 中的值）。面试中 BM=BN=BK=32、每个线程负责 C 的一个元素是最简洁的配置，共 1024 个线程恰好是一个 block 的上限。生产级实现中每个线程会负责一个更大的子矩阵（例如 4&times;4 或 8&times;8），通过寄存器 tiling 来提高计算密度（<a href="#fig-sgemm-tiling">图 6</a>）。</p>
+<p>GEMM 是 GPU 计算的基石，也是面试中最能体现候选人 shared memory 理解深度的算子。白板面试中不会要求写出 CUTLASS 级别的实现（那需要数百行代码和多级 tiling），但基本的 tiled SGEMM 是必须掌握的。核心思路：将 C 矩阵分成 BM&times;BN 的 tile，每个 block 负责一个 tile；对 K 维度分段，每段长度 BK，将 A 和 B 的对应子矩阵从 global memory 加载到 shared memory，做乘加后移动到下一段。每个线程维护一个 float 累加器 <code>acc</code>，在 K 维度的所有段上逐步累加，循环结束后写回 global memory。关键细节包括：边界检查（M、N、K 不被 tile 大小整除时需要填零，否则会读取到未初始化的 global memory）；两次 <code>__syncthreads()</code>（一次在 load 后确保 smem 就绪，一次在计算后确保下一轮 load 不会覆盖正在使用的数据——如果省略第二次 sync，快的线程可能在慢的线程还在读取旧 tile 时就覆盖了 shared memory 中的值）。面试中 BM=BN=BK=32、每个线程负责 C 的一个元素是最简洁的配置，block 为 32&times;32 共 1024 个线程，恰好是一个 block 的上限。生产级实现中每个线程会负责一个更大的子矩阵（例如 4&times;4 或 8&times;8），通过寄存器 tiling 来提高计算密度（<a href="#fig-sgemm-tiling">图 6</a>）。</p>
 
 <h3 id="sec-13">9. GEMV（矩阵-向量乘）</h3>
-<p>GEMV 是 LLM decode 阶段的核心算子：batch size 为 1 时，每个 linear 层的 GEMM 退化为 GEMV，此时矩阵 A 是权重（M&times;N），向量 x 是 hidden state（N&times;1），输出 y 是 M&times;1。为什么 decode 阶段是 GEMV 而非 GEMM？因为自回归生成每次只产出一个 token，batch 维度为 1，所以 B 矩阵退化为向量。这意味着 decode 阶段的 linear 层性能完全由内存带宽决定——权重矩阵需要从 HBM 读取但只被使用一次，没有数据复用的机会。实现比 GEMM 简单得多：每行一个 warp（或一个 block），每个线程累加部分点积，然后 warp reduce 得到该行的结果。warp reduce 只需要 5 轮 <code>__shfl_xor_sync</code>（mask 从 16 递减到 1），总共 5 条指令就能完成 32 个线程的归约，这比 shared memory reduce 快得多。GEMV 是典型的 memory-bound 操作：每个输出元素需要读取一整行的 A 矩阵（N 个 float）和整个向量 x（N 个 float），但只做 N 次乘加。其计算强度约为 2N/(4N+4N) = 0.25 FLOP/Byte，远低于 GPU 的 roofline（A100 约 312 FLOP/Byte），因此优化方向是增大 memory 吞吐而非计算吞吐。实际优化中会使用 <code>float4</code> 向量化加载将内存事务数减少到 1/4，并且多行共享向量 x 的读取（通过 shared memory 缓存 x）来减少 global memory 流量。</p>
+<p>GEMV 是 LLM decode 阶段的核心算子：batch size 为 1 时，每个 linear 层的 GEMM 退化为 GEMV，此时矩阵 A 是权重（M&times;N），向量 x 是 hidden state（N&times;1），输出 y 是 M&times;1。为什么 decode 阶段是 GEMV 而非 GEMM？因为自回归生成每次只产出一个 token，batch 维度为 1，所以 B 矩阵退化为向量。这意味着 decode 阶段的 linear 层性能完全由内存带宽决定——权重矩阵需要从 HBM 读取但只被使用一次，没有数据复用的机会。实现比 GEMM 简单得多：每行一个 warp（或一个 block），每个线程累加部分点积，然后 warp reduce 得到该行的结果。warp reduce 只需要 5 轮 <code>__shfl_xor_sync</code>（mask 从 16 递减到 1），每轮一次 shuffle 加一次加法，不经过 shared memory。GEMV 是典型的 memory-bound 操作：权重 A 有 MN 个 float，每个只被读一次、做一次乘加（2 FLOP）；向量 x 被所有行共享，读一次之后大多命中缓存。所以计算强度约为 2MN/(4MN) = 0.5 FLOP/Byte（FP32；FP16 权重约为 1），远低于 A100 的拐点（FP32 CUDA core 约 9.6 FLOP/Byte，FP16 Tensor Core 约 153），优化方向是逼近带宽上限而非提高计算吞吐。实际优化中会使用 <code>float4</code> 向量化加载把 load 指令数减到 1/4，并让一个 block 处理多行、在 shared memory 里缓存 x。</p>
 
-<pre data-code="code/iv52-handwritten-kernels/interview_kernels3.cu#L5-L19"><code>__global__ void gemv(
+<pre data-code="code/iv52-handwritten-kernels/interview_kernels3.cu#L6-L19"><code>__global__ void gemv(
     const float* A, const float* x, float* y,
     int M, int N
 ) {
@@ -397,9 +397,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
         sum += __shfl_xor_sync(0xffffffff, sum, mask);
     if (threadIdx.x == 0) y[row] = sum;
 }</code></pre>
-<p class="src-note">interview_kernels3.cu:5-19</p>
+<p class="src-note">interview_kernels3.cu:6-19</p>
 
-<p>注意这个实现假设 blockDim 等于一个 warp（32 线程）——如果 N 很大（如 4096），每个线程需要累加 128 个乘加操作才开始 reduce，这恰好提供了足够的指令级并行来隐藏内存延迟。生产实现会用多个 warp 处理一行并在 shared memory 中做跨 warp 归约，同时使用向量化加载进一步提升内存吞吐。</p>
+<p>注意这个实现假设 blockDim 等于一个 warp（32 线程）：blockDim 更大时，<code>threadIdx.x == 0</code> 写出的只是第一个 warp 的部分和。N = 4096 时每个线程累加 128 个乘加。每个 block 只有一个 warp，而每个 SM 最多驻留 32 个 block <span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA Programming Guide, §5.1 Compute Capabilities（每 SM 最多 32 个驻留 block、64 个驻留 warp）.">5</a>]</span>，所以 occupancy 最多只有 64 个 warp 槽位的一半；生产实现会用多个 warp 处理一行（在 shared memory 中做跨 warp 归约）或让一个 block 处理多行，同时使用向量化加载增加在途字节。</p>
 </section>
 
 <!-- sec-advanced -->
@@ -413,16 +413,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-prefix-sum-cap"><span class="fig-label">图 7</span><span class="badge illustrative">示意数据</span>Blelloch 算法：上扫（up-sweep）逐层两两归约至根，下扫（down-sweep）从根向下传播部分和，得到 exclusive prefix sum。</figcaption>
 </figure>
 
-<p>Prefix Sum（前缀和）是并行算法的基础构件，用于 scan、compact、radix sort 等场景。Blelloch 算法分为 up-sweep 和 down-sweep 两个阶段：up-sweep 将数组两两相加形成二叉树结构（类似 reduce），经过 log2(N) 层后，数组的最后一个位置包含了全部元素的总和；down-sweep 从根节点向下传播部分和，每一层将当前节点的值传给左子节点，同时把左子节点的旧值加上当前值传给右子节点，最终得到 exclusive prefix sum。面试中需要特别注意的是：down-sweep 开始前需要将最后一个元素设为 0（exclusive scan 的定义），这是因为 exclusive scan 的第一个输出必须是零（identity element）；每一层的 stride 不同，up-sweep 从小到大（1, 2, 4, ...），down-sweep 从大到小（N/2, N/4, ...）；每一层都需要 <code>__syncthreads()</code> 确保当前层的写入对下一层的读取可见。这是面试中代码量最大的 Kernel 之一（up-sweep 和 down-sweep 各需要一个循环），建议先写 up-sweep 循环，再写 down-sweep 循环，分步验证逻辑（<a href="#fig-prefix-sum">图 7</a>）。面试官可能追问的 multi-block 版本需要三次 kernel launch：第一次每个 block 做局部 scan，第二次对 block-level sums 做 scan，第三次将 block-level prefix 加回到每个 block 的结果中。</p>
+<p>Prefix Sum（前缀和）是并行算法的基础构件，用于 scan、compact、radix sort 等场景。Blelloch 算法分为 up-sweep 和 down-sweep 两个阶段：up-sweep 将数组两两相加形成二叉树结构（类似 reduce），经过 log2(N) 层后，数组的最后一个位置包含了全部元素的总和；down-sweep 从根节点向下传播部分和，每一层将当前节点的值传给左子节点，同时把左子节点的旧值加上当前值传给右子节点，最终得到 exclusive prefix sum。面试中需要特别注意的是：down-sweep 开始前需要将最后一个元素设为 0（exclusive scan 的定义），这是因为 exclusive scan 的第一个输出必须是零（identity element）；每一层的 stride 不同，up-sweep 从小到大（1, 2, 4, ...），down-sweep 从大到小（N/2, N/4, ...）；每一层都需要 <code>__syncthreads()</code> 确保当前层的写入对下一层的读取可见。这是面试中代码量最大的 Kernel 之一（up-sweep 和 down-sweep 各需要一个循环），建议先写 up-sweep 循环，再写 down-sweep 循环，分步验证逻辑（<a href="#fig-prefix-sum">图 7</a>）。这个实现要求 blockDim 是 2 的幂（up-sweep 和 down-sweep 的下标都按完整二叉树计算），并且每个 block 各自做一段的 exclusive scan。面试官可能追问的 multi-block 版本，经典做法是三步：每个 block 做局部 scan，对 block-level sums 做 scan，再把 block-level prefix 加回到每个 block 的结果中；也可以用 decoupled look-back 单遍完成（见<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）。</p>
 
 <h3 id="sec-16">11. Histogram（shared memory privatization）</h3>
-<p>Histogram 的 GPU 实现展示了&ldquo;私有化&rdquo;（privatization）优化模式。朴素方法是所有线程直接对 global memory 的直方图数组做 <code>atomicAdd</code>，但当热门 bin 被大量线程同时更新时，global atomic 的吞吐会骤降——在 A100 上，一个地址的 global atomicAdd 吞吐约为每时钟 1 次操作，而 SM 上有数千个活跃线程，极端情况下序列化可以将性能拉低数百倍。私有化的解决方案是：每个 block 在 shared memory 中维护一份局部直方图，用 shared memory 的 <code>atomicAdd</code> 更新（延迟只有约 5 个时钟周期，且竞争范围限制在 block 的 256&ndash;1024 个线程之间）；block 内统计完成后，再用一次 <code>atomicAdd</code> 将局部结果汇总到 global memory 的全局直方图中。这个汇总阶段只有 nbins 次 global atomic（而非 N 次），竞争大幅降低。面试中 <code>extern __shared__</code> 的动态分配用法也是考点：需要在 kernel launch 时指定第三个参数 <code>&lt;&lt;&lt;grid, block, nbins * sizeof(int)&gt;&gt;&gt;</code>，运行时才确定 shared memory 大小。初始化时，每个线程以 grid-stride 方式将 <code>shist[i]</code> 清零，确保覆盖所有 nbins 个元素。这个 privatization 模式的适用范围远不止 histogram——任何需要对共享数据结构做频繁原子更新的场景都可以用 shared memory 做局部私有化：例如 sparse attention 中对不同 head 的分数累加、MoE routing 中对各 expert 的 token 计数。面试中如果能在写完 histogram kernel 后主动提到&ldquo;这个 privatization 模式还可以推广到 X 场景&rdquo;，展示的是对设计模式的理解，而非仅仅会写一个特定算子。</p>
+<p>Histogram 的 GPU 实现展示了&ldquo;私有化&rdquo;（privatization）优化模式。朴素方法是所有线程直接对 global memory 的直方图数组做 <code>atomicAdd</code>，但当热门 bin 被大量线程同时更新时，对同一地址的原子操作只能排队完成，整个 grid 的线程都挤在少数几个地址上。私有化的解决方案是：每个 block 在 shared memory 中维护一份局部直方图，用 shared memory 的 <code>atomicAdd</code> 更新（离 SM 更近，竞争范围也限制在一个 block 的线程之间）；block 内统计完成后，再用一次 <code>atomicAdd</code> 将局部结果汇总到 global memory 的全局直方图中。这个汇总阶段只有 nbins 次 global atomic（而非 N 次），竞争大幅降低。面试中 <code>extern __shared__</code> 的动态分配用法也是考点：需要在 kernel launch 时指定第三个参数 <code>&lt;&lt;&lt;grid, block, nbins * sizeof(int)&gt;&gt;&gt;</code>，运行时才确定 shared memory 大小。初始化时，每个线程以 block-stride（步长 blockDim.x）方式将 <code>shist[i]</code> 清零，确保覆盖所有 nbins 个元素；代码假设输入值都在 [0, nbins) 之内。这个 privatization 模式的适用范围远不止 histogram——任何需要对共享数据结构做频繁原子更新的场景都可以用 shared memory 做局部私有化：例如 MoE routing 中对各 expert 的 token 计数。面试中如果能在写完 histogram kernel 后主动提到&ldquo;这个 privatization 模式还可以推广到 X 场景&rdquo;，展示的是对设计模式的理解，而非仅仅会写一个特定算子。</p>
 
 <h3 id="sec-17">12. Top-K（Insertion Sort）</h3>
-<p>Top-K 选择在 LLM 的 sampling 阶段（top-k/top-p sampling）以及 MoE 的 expert routing（选择激活的 top-K 个专家）中频繁出现。白板面试中最实用的实现是基于 insertion sort 的方法：维护一个大小为 K 的已排序数组（降序排列），每读入一个新元素，如果它大于数组中最小的元素（即 <code>vr[K-1]</code>，排序后的末尾），就替换最小值并向前冒泡到正确位置。冒泡的过程就是不断和前一个元素比较并交换，直到找到正确的插入位置或者到达数组头部。这个方法的优势在于：代码简短（核心只有一个双层循环），不需要额外的 shared memory，对于小 K（比如 K=50）每次插入最多 K 次比较，总体复杂度 O(N*K)，在 K 远小于 N 时性能完全足够。面试中需要注意的是线程安全问题：这个简化版本中每个线程独立操作各自行的 K 数组，同一行的多个线程可能看到同一个 top 元素导致重复选择，但作为白板面试的解答已经足够展示算法思路。完整版本需要在最后做一次 block 级别的 merge 来去重和合并。</p>
+<p>Top-K 选择在 LLM 的 sampling 阶段（top-k/top-p sampling）以及 MoE 的 expert routing（选择激活的 top-K 个专家）中频繁出现。白板面试中最实用的实现是基于 insertion sort 的方法：维护一个大小为 K 的已排序数组（降序排列），每读入一个新元素，如果它大于数组中最小的元素（即 <code>vr[K-1]</code>，排序后的末尾），就替换最小值并向前冒泡到正确位置。冒泡的过程就是不断和前一个元素比较并交换，直到找到正确的插入位置或者到达数组头部。这个方法的优势在于：代码简短（核心只有一个双层循环），不需要额外的 shared memory，对于小 K（比如 K=50）每次插入最多 K 次比较，总体复杂度 O(N*K)，在 K 远小于 N 时可以接受。面试中需要注意的是线程安全问题：这个简化版本让一个线程负责一整行，每行的 K 数组只有它自己读写，所以不需要同步；代价是并行度只有行数。如果让一个 block 的多个线程直接改同一行的 <code>vr</code> 数组，会产生数据竞争，结果不可预测。行很长时（例如对整个词表的 logits 取 top-k）的正确做法是：每个线程先在寄存器或 shared memory 里维护自己那部分元素的 top-K，再在 block 内合并（见<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>）。</p>
 
 <h3 id="sec-18">13. Atomic Float Max（CAS 循环）</h3>
-<p>CUDA 原生不提供 <code>atomicMax</code> 的 float 版本（只有 int 版本）。面试中经常要求手写一个基于 CAS（Compare-And-Swap）的浮点原子最大值。核心思路是：将 float 指针转为 int 指针，用 <code>atomicCAS</code>（整数原子操作）来实现。具体流程：读取当前值，如果当前值已经大于等于目标值则直接返回；否则用 <code>atomicCAS</code> 尝试替换，如果替换失败（说明被其他线程修改了），则重试。<code>__float_as_int</code> 和 <code>__int_as_float</code> 用于 float/int 的位级转换（不改变二进制表示），这利用了 IEEE 754 float 的一个特性：正浮点数的整数表示保持单调性，因此 int 的比较结果与 float 的比较一致。</p>
+<p>CUDA 原生不提供 <code>atomicMax</code> 的 float 版本（只有 int 版本）。面试中经常要求手写一个基于 CAS（Compare-And-Swap）的浮点原子最大值。核心思路是：将 float 指针转为 int 指针，用 <code>atomicCAS</code>（整数原子操作）来实现。具体流程：读取当前值，如果当前值已经大于等于目标值则直接返回；否则用 <code>atomicCAS</code> 尝试替换，如果替换失败（说明被其他线程修改了），则重试。<code>__float_as_int</code> 和 <code>__int_as_float</code> 用于 float/int 的位级转换（不改变二进制表示）。注意这个循环里的大小比较是按 float 做的（<code>old_f &gt;= val</code>），<code>atomicCAS</code> 只负责&ldquo;位模式没变才写入&rdquo;，所以它对负数也成立。</p>
 
 <pre data-code="code/iv52-handwritten-kernels/interview_kernels3.cu#L89-L99"><code>__device__ void atomicMaxFloat(float* addr, float val) {
     int* addr_as_int = (int*)addr;
@@ -437,7 +437,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">interview_kernels3.cu:89-99</p>
 
-<p>这个 CAS 循环是 lock-free 编程的经典范式，不仅限于 atomicMax——同样的模式可以实现 atomicMin（将比较方向反转）、atomicAdd 的 double 版本（用 <code>__double_as_longlong</code> 做位级转换）、甚至自定义的原子聚合操作（比如原子地更新一个 running mean）。注意 CAS 循环的终止条件是 <code>assumed != old</code>：如果 <code>atomicCAS</code> 成功替换了值（即在比较时 <code>*addr</code> 仍然等于 assumed），函数返回的 old 等于 assumed，循环结束；如果被其他线程抢先修改，old 会变成新值，不等于 assumed，需要用新值重新判断是否还需要更新。面试中如果能在写完 CAS 循环后主动提到 IEEE 754 正浮点数的整数表示保持单调性（即 float a &gt; b 当且仅当对应的 int 位模式满足相同的大小关系），会显得对底层理解很深入。</p>
+<p>这个 CAS 循环是 lock-free 编程的经典范式，不仅限于 atomicMax——同样的模式可以实现 atomicMin（将比较方向反转）、double 版本的 atomicAdd（CUDA 编程指南用 <code>__double_as_longlong</code> 给出过这个例子，CC 6.0 起已有原生版本 <span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8, Atomic Functions（用 atomicCAS 实现 double atomicAdd 的示例）.">6</a>]</span>）、甚至自定义的原子聚合操作。注意 CAS 循环的终止条件是 <code>assumed != old</code>：如果 <code>atomicCAS</code> 成功替换了值（即在比较时 <code>*addr</code> 仍然等于 assumed），函数返回的 old 等于 assumed，循环结束；如果被其他线程抢先修改，old 会变成新值，不等于 assumed，需要用新值重新判断是否还需要更新。面试中常见的追问是另一种不用 CAS 循环的写法：IEEE 754 的非负浮点数按位解释成有符号整数后保持大小顺序，所以非负值可以直接 <code>atomicMax((int*)addr, __float_as_int(val))</code>；负数的顺序是反的，要用无符号整数的 <code>atomicMin</code> 处理，或者统一做一次位变换。能讲清楚这一点，说明你理解了浮点数的位表示。</p>
 </section>
 
 <!-- sec-tips -->
@@ -458,9 +458,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-20">难点与坑</h2>
 <ul>
 <li><b>syncthreads 在条件分支中的使用。</b>如果 <code>__syncthreads()</code> 出现在 if 分支内，且不是所有线程都会到达该分支，则行为未定义。例如 <code>if (threadIdx.x &lt; 16) __syncthreads();</code> 是错误的。解决方法是将 syncthreads 移到条件分支外面，让所有线程都执行到同一个屏障点。这个错误在白板面试中发生的频率极高。</li>
-<li><b>Warp divergence 对 shuffle 的影响。</b><code>__shfl_xor_sync</code> 的 mask 参数要求参与的线程全部活跃。如果某些线程因为条件分支已经 return，shuffle 的结果是未定义的。面试中的安全做法是确保参与 reduce 的所有线程都不会提前退出，或者使用 <code>__ballot_sync</code> 动态计算活跃掩码。</li>
+<li><b>Warp divergence 对 shuffle 的影响。</b><code>__shfl_xor_sync</code> 的 mask 参数要求参与的线程全部活跃。如果某些线程因为条件分支已经 return，shuffle 的结果是未定义的。面试中的安全做法是确保参与 reduce 的所有线程都不会提前退出（越界的线程贡献 0 而不是 return），或者让 mask 只包含确实会执行这条 shuffle 的线程。</li>
 <li><b>Shared memory bank conflict。</b>32 个 bank 对应 32 个连续 4-byte word，同一 warp 的线程如果访问同一 bank 的不同地址就会产生 conflict，序列化访问。除了转置的 <code>[33]</code> padding 技巧外，还有 swizzle 方案（将行列索引异或来打散 bank 映射），CUTLASS 中广泛使用后者。面试中能提到 swizzle 作为 padding 的替代方案，是加分项。</li>
-<li><b>浮点精度累积误差。</b>大规模 reduce 的顺序不同会导致浮点误差差异。GPU 上的 reduce 是树状归约（二叉树或 warp shuffle），而 CPU 参考实现通常是线性求和，两者的累积误差不同。面试中如果被问到&ldquo;你的 Kernel 结果和 CPU 不完全一致，是 bug 吗？&rdquo;要能解释这是浮点结合律不成立导致的正常现象，而非实现错误。具体数字：FP32 的有效位数约 7 位十进制，N=1M 的线性求和误差可达 O(N&epsilon;) &asymp; 0.1，而树状归约误差为 O(log(N)&epsilon;) &asymp; 2&times;10&minus;6，GPU 的树状归约反而更精确。</li>
+<li><b>浮点精度累积误差。</b>大规模 reduce 的顺序不同会导致浮点误差差异。GPU 上的 reduce 是树状归约（二叉树或 warp shuffle），而 CPU 参考实现通常是线性求和，两者的累积误差不同。面试中如果被问到&ldquo;你的 Kernel 结果和 CPU 不完全一致，是 bug 吗？&rdquo;要能解释这是浮点结合律不成立导致的正常现象，而非实现错误。具体数字：FP32 的机器精度 &epsilon; &asymp; 1.2&times;10<sup>&minus;7</sup>，N = 2<sup>20</sup> 时，线性求和的相对误差上界约为 N&epsilon; &asymp; 0.12，树状归约约为 log<sub>2</sub>N &middot; &epsilon; &asymp; 2.4&times;10<sup>&minus;6</sup>（都是最坏情况的上界）。本文的 kernel 先让每个线程线性累加自己的那部分，再做树状归约，误差界介于两者之间，通常比 CPU 的单线程线性求和更小。</li>
 </ul>
 </section>
 
@@ -468,7 +468,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <section id="sec-interview">
 <h2 id="sec-21">面试自测</h2>
 <ol>
-<li id="sec-q1">在 block_reduce_sum 中，为什么 <code>sdata</code> 的大小是 32 而不是 <code>blockDim.x / 32</code>？如果 blockDim 小于 1024 会怎样？（提示：未初始化的 sdata 元素可能包含垃圾值，warp 0 的 lane 会读到错误的数据。）</li>
+<li id="sec-q1">在 block_reduce_sum 中，为什么 <code>sdata</code> 的大小是 32 而不是 <code>blockDim.x / 32</code>？如果 blockDim 小于 1024 会怎样？（提示：静态 shared memory 的大小必须是编译期常量，32 覆盖了最多 32 个 warp；blockDim 较小时只有前几个元素被写过，所以 warp 0 要用 <code>lane &lt; blockDim.x / 32</code> 保护，否则会读到未初始化的值。）</li>
 <li id="sec-q2">Online Softmax 的修正因子 <code>exp(old_m - new_m)</code> 在数值上是否安全？什么条件下会有精度问题？（提示：old_m &minus; new_m 永远 &le; 0，所以 exp 的结果在 [0, 1] 之间，不会溢出。但如果差值非常大，如 &minus;100，则 exp 结果下溢为 0，旧的部分和被完全丢弃——这在数学上是正确的，因为旧的 max 远小于新 max。）</li>
 <li id="sec-q3">Transpose 中如果用 <code>tile[32][32]</code> 而不是 <code>[33]</code>，bank conflict 会导致多大的性能下降？</li>
 <li id="sec-q4">CAS 循环实现 atomicMaxFloat 时，如果输入包含 NaN，行为是什么？如何修复？</li>
@@ -479,7 +479,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <!-- sec-limits -->
 <section id="sec-limits">
 <h2 id="sec-22">局限</h2>
-<p>本文的 13 个 Kernel 模板为白板面试设计，有意简化了若干实际工程中的复杂度。第一，所有 Kernel 假设单精度浮点（float），实际生产中 FP16/BF16/FP8 的 Kernel 需要额外处理类型转换（如 <code>__half2float</code>/<code>__float2half</code>）和精度损失（FP16 的有效位数只有 10 位，大数值会溢出为 inf）。第二，multi-block 的协调（如全局 prefix sum 需要三次 kernel launch 完成 block 间通信、GEMM 的 split-K 模式需要额外的 reduce kernel）未涉及，这些需要额外的 kernel launch 或 cooperative groups API。第三，性能优化仅触及基础层面：生产级 Kernel 会使用向量化加载（<code>float4</code> 将内存事务数减少到 1/4）、double buffering（在计算当前 tile 的同时预取下一个 tile，隐藏 shared memory load 延迟）、寄存器 tile（每线程计算 4&times;4 或 8&times;8 的子矩阵，提高计算密度）等进阶技巧，这些在面试的 follow-up 讨论中可以口述思路但很难在白板上完整实现。第四，所有代码仅在编译层面验证语法正确性，未在真实 GPU 上运行和性能测试。</p>
+<p>本文的 13 个 Kernel 模板为白板面试设计，有意简化了若干实际工程中的复杂度。第一，所有 Kernel 假设单精度浮点（float），实际生产中 FP16/BF16/FP8 的 Kernel 需要额外处理类型转换（如 <code>__half2float</code>/<code>__float2half</code>）和精度损失（FP16 只有 10 位尾数，最大有限值是 65504，更大的数会溢出为 inf）。第二，multi-block 的协调（如全局 prefix sum 的经典做法需要多次 kernel launch 完成 block 间通信、GEMM 的 split-K 模式需要额外的 reduce kernel）未涉及，这些需要额外的 kernel launch 或 cooperative groups API。第三，性能优化仅触及基础层面：生产级 Kernel 会使用向量化加载（<code>float4</code> 把 load 指令数减少到 1/4）、double buffering（在计算当前 tile 的同时把下一个 tile 从全局内存预取进 shared memory，隐藏全局内存的加载延迟）、寄存器 tile（每线程计算 4&times;4 或 8&times;8 的子矩阵，提高计算密度）等进阶技巧，这些在面试的 follow-up 讨论中可以口述思路但很难在白板上完整实现。第四，所有代码只通过了 clang 的 CUDA 语法与类型检查，未在真实 GPU 上运行和性能测试；各 kernel 对 blockDim 的假设写在代码注释里。</p>
 </section>
 
 <!-- sec-summary -->
@@ -506,7 +506,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-shfl">NVIDIA (2024). <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/#warp-shuffle-functions">Warp Shuffle Functions</a>. <i>CUDA Programming Guide</i>.</li>
+  <li id="ref-gridstride">Harris, M. (2013). <a href="https://developer.nvidia.com/blog/cuda-pro-tip-write-flexible-kernels-grid-stride-loops/">CUDA Pro Tip: Write Flexible Kernels with Grid-Stride Loops</a>. <i>NVIDIA Technical Blog</i>.</li>
   <li id="ref-online_sf">Milakov, M. &amp; Gimelshein, N. (2018). <a href="https://arxiv.org/abs/1805.02867">Online normalizer calculation for softmax</a>. <i>arXiv</i>.</li>
+  <li id="ref-rope">Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B. &amp; Liu, Y. (2021). <a href="https://arxiv.org/abs/2104.09864">RoFormer: Enhanced Transformer with Rotary Position Embedding</a>. <i>arXiv:2104.09864</i>.</li>
+  <li id="ref-cc">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html">CUDA Programming Guide, §5.1 Compute Capabilities</a>（每 SM 最多 32 个驻留 block、64 个驻留 warp）.</li>
+  <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html#atomic-functions">CUDA C++ Programming Guide 12.8, Atomic Functions</a>（用 atomicCAS 实现 double atomicAdd 的示例）.</li>
 </ol>
 
 </article>

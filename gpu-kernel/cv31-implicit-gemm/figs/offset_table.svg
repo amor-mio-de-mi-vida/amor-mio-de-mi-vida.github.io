@@ -54,10 +54,10 @@
   <text x="200" y="136" text-anchor="middle" class="sublabel">&hellip; (C_in &times; R &times; S rows total) &hellip;</text>
 
   <rect x="30" y="142" width="400" height="20" rx="1" fill="#FFF3E0" stroke="#D55E00" stroke-width="0.5"/>
-  <text x="45" y="156" class="sublabel" fill="#D55E00">8</text>
+  <text x="45" y="156" class="sublabel" fill="#D55E00">9</text>
   <text x="80" y="156" class="sublabel" fill="#D55E00">1</text>
   <text x="115" y="156" class="sublabel" fill="#D55E00">0</text>
-  <text x="145" y="156" class="sublabel" fill="#D55E00">2</text>
+  <text x="145" y="156" class="sublabel" fill="#D55E00">0</text>
   <text x="195" y="156" class="sublabel" fill="#D55E00">-2</text>
   <text x="255" y="156" class="sublabel" fill="#D55E00">-2</text>
   <text x="320" y="156" class="sublabel" fill="#D55E00">+1</text>
@@ -75,6 +75,6 @@
   <!-- Bottom note -->
   <rect x="30" y="180" width="660" height="60" rx="6" fill="#E8F5E9" stroke="#388E3C"/>
   <text x="40" y="200" class="sublabel" fill="#388E3C" font-weight="600">为什么用增量而不是绝对地址？</text>
-  <text x="40" y="218" class="sublabel">同一 CTA 内所有线程的 k 步进相同 → delta 可以在 host 预计算并存入 constant memory。</text>
+  <text x="40" y="218" class="sublabel">同一 CTA 内所有线程的 k 步进相同 → delta 可以在 host 预计算、作为 kernel 参数传入。</text>
   <text x="40" y="232" class="sublabel">每步只需一次加法（指针 += delta）而不是除法/取模 → 地址计算开销从 O(K) 次除法降到 O(K) 次加法。</text>
 </svg>

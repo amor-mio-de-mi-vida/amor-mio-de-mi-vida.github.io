@@ -44,17 +44,17 @@
 
 <!-- DeepCache box -->
 <rect x="40" y="105" width="300" height="90" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
-<text x="190" y="125" text-anchor="middle" class="title" fill="#2563eb">DeepCache (Fixed Skip)</text>
-<text x="55" y="145" class="label">Every 2nd step: reuse prev features</text>
-<text x="55" y="162" class="code" font-size="10">if step % 2 == 1: out = cached_features</text>
-<text x="55" y="179" class="label">Saves ~50% of DiT compute</text>
+<text x="190" y="125" text-anchor="middle" class="title" fill="#2563eb">DeepCache (U-Net, fixed N)</text>
+<text x="55" y="145" class="label">Every N steps: full forward</text>
+<text x="55" y="162" class="code" font-size="10">else: reuse cached deep features,</text>
+<text x="55" y="179" class="label">recompute only the shallow branch</text>
 
 <!-- TeaCache box -->
 <rect x="370" y="105" width="290" height="90" rx="5" fill="#fef9c3" stroke="#eab308" stroke-width="1.2"/>
 <text x="515" y="125" text-anchor="middle" class="title" fill="#a16207">TeaCache (Adaptive Skip)</text>
-<text x="385" y="145" class="label">Measure feature distance to prev step</text>
-<text x="385" y="162" class="code" font-size="10">if dist(feat_t, feat_{t-1}) &lt; thr: skip</text>
-<text x="385" y="179" class="label">Early steps: skip more (noise similar)</text>
+<text x="385" y="145" class="label">Input modulated by timestep emb.</text>
+<text x="385" y="162" class="code" font-size="10">acc += poly(relL1(x_t, x_prev))</text>
+<text x="385" y="179" class="label">acc &lt; thr ? reuse : full fwd, acc=0</text>
 
 <!-- Legend -->
 <rect x="210" y="215" width="14" height="14" rx="2" fill="#dcfce7" stroke="#22c55e"/>

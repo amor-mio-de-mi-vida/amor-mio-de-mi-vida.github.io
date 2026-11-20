@@ -51,7 +51,7 @@
   <!-- Why it helps -->
   <rect x="20" y="215" width="680" height="75" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
   <text x="30" y="235" class="label" fill="#D55E00" font-weight="600">为什么 FlashDecoding 更快？</text>
-  <text x="30" y="255" class="sublabel">标准 FlashAttention decode：外层循环 Q block = 1 个 block → 只有 1 个 CTA，GPU 利用率极低。</text>
+  <text x="30" y="255" class="sublabel">标准 FlashAttention decode：每个 (batch, head) 只有 1 个 Q block → batch 小时 CTA 太少；博客称 batch=1 时用不到 GPU 的 1%。</text>
   <text x="30" y="270" class="sublabel">FlashDecoding：把 KV 拆成 T 个 split，T 个 CTA 并行处理，充分利用 GPU 的 SM。</text>
   <text x="30" y="285" class="sublabel">代价：第二步 reduce kernel（很小），以及临时存储 T 个 O_t 和 LSE_t。</text>
 </svg>

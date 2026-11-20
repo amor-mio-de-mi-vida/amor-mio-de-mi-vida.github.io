@@ -26,7 +26,7 @@
 <rect x="20" y="130" width="640" height="60" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
 <text x="340" y="150" text-anchor="middle" class="title">Online advantage: fuse max + sum into one pass</text>
 <text x="35" y="170" class="label">Key identity: when max updates from m to m', scale old sum by exp(m - m') to stay correct.</text>
-<text x="35" y="185" class="label">Saves one full pass over the data &rarr; 33% less memory traffic for the max+sum phase.</text>
+<text x="35" y="185" class="label">Saves one read pass: 3 reads + 1 write &rarr; 2 reads + 1 write (25% less traffic).</text>
 
 <text x="340" y="215" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

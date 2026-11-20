@@ -27,7 +27,7 @@
 
 <rect x="350" y="40" width="60" height="50" class="box" fill="#9333ea" stroke="#7e22ce" fill-opacity="0.15"/>
 <text x="380" y="60" text-anchor="middle" class="code" fill="#666" font-size="10">G&#x2085;</text>
-<text x="380" y="78" text-anchor="middle" class="code" fill="#666" font-size="9">skipped</text>
+<text x="380" y="78" text-anchor="middle" class="code" fill="#666" font-size="9">&#x2026;</text>
 
 <!-- Arrow -->
 <line x1="30" y1="100" x2="410" y2="100" stroke="#888" stroke-width="1.5" marker-end="url(#arr9)"/>
@@ -47,7 +47,7 @@
 <text x="140" y="190" text-anchor="middle" class="label" font-size="9">w=0.10</text>
 <text x="220" y="190" text-anchor="middle" class="label" font-size="9">w=0.03</text>
 <text x="300" y="190" text-anchor="middle" class="label" font-size="9">w=0.04</text>
-<text x="380" y="190" text-anchor="middle" class="label" fill="#dc2626" font-size="9">&lt; &#x3b5;</text>
+<text x="380" y="190" text-anchor="middle" class="label" fill="#dc2626" font-size="9">&#x2026;</text>
 
 <text x="220" y="220" text-anchor="middle" class="title" fill="#dc2626" font-size="11">T &lt; 10&#x207b;&#x2074; &#x2192; done = true (early exit)</text>
 
@@ -61,7 +61,7 @@
 <text x="445" y="158" class="label" font-size="10">&#x2718; Must process ALL</text>
 <text x="445" y="176" class="label" font-size="10">&#x2718; Fully occluded still pays</text>
 
-<text x="555" y="210" text-anchor="middle" class="code" fill="#16a34a" font-size="10">Dense scene: ~50% savings</text>
+<text x="555" y="210" text-anchor="middle" class="code" fill="#16a34a" font-size="10">Savings depend on occlusion</text>
 
 <defs><marker id="arr9" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
   <path d="M0,0 L8,3 L0,6" fill="#888"/>

@@ -246,7 +246,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>前面 44 篇我们一直在写 CUDA kernel——从基础的向量加法到 FlashAttention <span class="cite">[<a href="#ref-flash2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. ICLR 2024.">1</a>]</span> 和 3DGS。CUDA 给了完整的控制权：每个线程做什么、shared memory 怎么分配、寄存器怎么用、Tensor Core 怎么调。但代价是巨大的工程复杂度：一个优化良好的 GEMM 需要 500+ 行代码，处理 smem bank conflict、coalesced access、software pipelining、swizzle layout、register pressure——每一个细节都可能导致 2&times; 的性能差异。更重要的是，这些优化的模式是高度重复的——几乎每个 kernel 都需要 tiling、smem buffering 和流水线，差异只在 tile 形状和计算逻辑。</p>
 
-<p>Triton（Tillet 等 2019 年提出 <span class="cite">[<a href="#ref-triton" title="Tillet, Kung &amp; Cox (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MLSys 2019.">2</a>]</span>，OpenAI 2021 年发布 1.0 <span class="cite">[<a href="#ref-triton2" title="OpenAI (2021). Introducing Triton: Open-source GPU programming for neural networks.">3</a>]</span>）提出了一种折中：块级编程模型。程序员操作 tile（固定大小的 2D 数据块），编译器负责把 tile 操作映射到具体的线程、shared memory 和指令。核心理念是——大多数高性能 kernel 的优化模式是固定的（tiling + smem + pipeline），让编译器做这些重复性工作，程序员专注于算法逻辑（<a href="#fig-triton_vs_cuda">图 1</a>）。这种分工不是简单的自动化——Triton 编译器理解 GPU 架构的约束（smem 容量、warp 数量、Tensor Core 对齐要求），能够在这些约束下做出合理的优化决策。</p>
+<p>Triton（Tillet 等 2019 年提出 <span class="cite">[<a href="#ref-triton" title="Tillet, Kung &amp; Cox (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MAPL 2019.">2</a>]</span>，OpenAI 2021 年发布 1.0 <span class="cite">[<a href="#ref-triton2" title="OpenAI (2021). Introducing Triton: Open-source GPU programming for neural networks.">3</a>]</span>）提出了一种折中：块级编程模型。程序员操作 tile（固定大小的 2D 数据块），编译器负责把 tile 操作映射到具体的线程、shared memory 和指令。核心理念是——大多数高性能 kernel 的优化模式是固定的（tiling + smem + pipeline），让编译器做这些重复性工作，程序员专注于算法逻辑（<a href="#fig-triton_vs_cuda">图 1</a>）。这种分工不是简单的自动化——Triton 编译器理解 GPU 架构的约束（smem 容量、warp 数量、Tensor Core 对齐要求），能够在这些约束下做出合理的优化决策。</p>
 
 <p>Triton 的设计哲学借鉴了 SQL 的成功经验：程序员声明&ldquo;做什么&rdquo;（哪些数据参与计算、什么运算），编译器决定&ldquo;怎么做&rdquo;（数据怎么放、指令怎么排）。但 Triton 比 SQL 更精确——tile 大小和 grid 维度仍由程序员指定，这保证了对性能关键参数的控制权。</p>
 
@@ -573,7 +573,7 @@ def layernorm_kernel(
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-flash2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. ICLR 2024.</li>
-  <li id="ref-triton">Tillet, Kung &amp; Cox (2019). <a href="https://arxiv.org/abs/1907.00062">Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</a>. MLSys 2019.</li>
+  <li id="ref-triton">Tillet, Kung &amp; Cox (2019). <a href="https://doi.org/10.1145/3315508.3329973">Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</a>. MAPL 2019.</li>
   <li id="ref-triton2">OpenAI (2021). <a href="https://openai.com/index/triton/">Introducing Triton: Open-source GPU programming for neural networks</a>.</li>
   <li id="ref-tlrel">triton-lang. <a href="https://github.com/triton-lang/triton/releases">Triton Releases</a>（3.7&ndash;3.9 版本发布说明：Blackwell tcgen05/TMEM、2-CTA、multi-CTA 与 multicast）。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>

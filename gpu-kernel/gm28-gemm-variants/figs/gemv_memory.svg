@@ -45,7 +45,7 @@
   <text x="440" y="70" class="sublabel" fill="#D55E00" font-weight="600">算术强度分析：</text>
   <text x="440" y="86" class="sublabel">读取 = N &times; K &times; 2 bytes (FP16)</text>
   <text x="440" y="102" class="sublabel">计算 = 2 &times; N &times; K FLOPs</text>
-  <text x="440" y="118" class="sublabel">强度 = 2 FLOP/byte &laquo; 93 (H100 FP16/BW)</text>
+  <text x="440" y="118" class="sublabel">强度 = 1 FLOP/byte &laquo; 295 (H100 FP16/BW)</text>
 
   <!-- Optimization box -->
   <rect x="430" y="145" width="270" height="55" rx="4" fill="#E8F5E9" stroke="#009E73" stroke-width="1"/>

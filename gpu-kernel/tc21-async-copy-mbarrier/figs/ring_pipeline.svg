@@ -75,5 +75,5 @@
 <text class="d-small" x="286" y="308">每步同时填一个 stage、用一个 stage</text>
 <text class="d-small" x="286" y="332">fill 前 wait(empty[s])：确保消费完毕</text>
 <text class="d-small" x="286" y="350">use 前 wait(full[s])：确保数据到齐</text>
-<text class="d-small" x="286" y="374">stage 数 = smem / tile_bytes</text>
+<text class="d-small" x="286" y="374">stage 数 ≤ smem 上限 / 每 stage 字节数</text>
 </svg>

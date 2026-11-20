@@ -58,18 +58,18 @@
 
   <!-- PCIe reference bars -->
   <rect x="575" y="253" width="35" height="7" class="bar-pci" rx="2"/>
-  <text x="592" y="249" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">32</text>
+  <text x="592" y="249" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">64</text>
   <text x="592" y="278" text-anchor="middle" class="d-note" style="font-size:10px">PCIe 4</text>
 
-  <rect x="625" y="249" width="35" height="11" class="bar-pci" rx="2"/>
-  <text x="642" y="244" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">64</text>
+  <rect x="625" y="246" width="35" height="14" class="bar-pci" rx="2"/>
+  <text x="642" y="241" text-anchor="middle" class="d-note" style="font-size:9px;fill:#56B4E9">128</text>
   <text x="642" y="278" text-anchor="middle" class="d-note" style="font-size:10px">PCIe 5</text>
 
   <!-- Legend -->
   <rect x="110" y="320" width="12" height="12" class="bar-nvl" rx="1"/>
   <text x="128" y="331" class="d-note">NVLink 双向带宽</text>
   <rect x="260" y="320" width="12" height="12" class="bar-pci" rx="1"/>
-  <text x="278" y="331" class="d-note">PCIe 双向带宽</text>
+  <text x="278" y="331" class="d-note">PCIe x16 双向带宽</text>
 
-  <text x="360" y="352" text-anchor="middle" class="d-note" style="font-size:10px">NVLink 5.0 的带宽是 PCIe 5.0 的 28 倍</text>
+  <text x="360" y="352" text-anchor="middle" class="d-note" style="font-size:10px">双向口径：NVLink 4.0 ≈ 7× PCIe 5.0 x16；NVLink 5.0 ≈ 14× PCIe 5.0 x16</text>
 </svg>

@@ -68,7 +68,7 @@
   <path d="M100,85 L195,130" class="arrow" stroke="#009E73" stroke-width="2"/>
   <path d="M100,85 L455,130" class="arrow" stroke="#D55E00" stroke-width="2"/>
   <text x="260" y="80" text-anchor="middle" class="label" fill="#D55E00">TMA multicast</text>
-  <text x="260" y="93" text-anchor="middle" class="sublabel">(A 带宽减半)</text>
+  <text x="260" y="93" text-anchor="middle" class="sublabel">(A 的 L2&#x2192;SMEM 传输减半)</text>
 
   <!-- B arrows -->
   <path d="M100,200 L300,145" class="arrow" stroke="#009E73"/>

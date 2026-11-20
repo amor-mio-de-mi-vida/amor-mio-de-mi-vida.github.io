@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 18 分钟阅读</span>
+    <span data-reading-time>约 19 分钟阅读</span>
   </div>
 </header>
 
@@ -273,7 +273,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>操作数的位置是 Hopper 和 Ampere 最大的差别。PTX §9.7.17.5.1 写得很明确：“The input matrix A … can be either in registers or in the shared memory. The input matrix B … must be in the shared memory.” <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（warpgroup MMA：形状、数据类型、共享内存布局与矩阵描述符、wgmma.fence / commit_group / wait_group）、§9.7.21.5（setmaxnreg）、§9.7.15.3（barrier.cluster）、§9.7.15.15（elect.sync）、§9.7.10.26（mapa）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）。">1</a>]</span> 也就是说 B 一定不经过寄存器，A 通常也不经过——<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>里那条 <code>ldmatrix</code> 没有了。累加器 D 仍然在寄存器里：<code>.f32</code> 时每个线程持有 N/2 个 f32 寄存器，<code>.f16</code> 时持有 N/4 个 <code>.f16x2</code>（§9.7.17.5.1.1）。</p>
 
-<p>把这两点合起来看，Hopper 省掉的是 Ampere 数据通路上的一整段：数据从共享内存到张量核不再经过寄存器，<code>ldmatrix</code> 这条指令连同它占用的寄存器、它在 warp 里引发的 bank 冲突（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>）都不存在了。代价是指令必须知道共享内存里的布局——这就是下一节那个描述符的来历。</p>
+<p>把这两点合起来看，Hopper 省掉的是 Ampere 数据通路上的一整段：数据从共享内存到张量核不再经过寄存器，<code>ldmatrix</code> 这条指令连同它占用的寄存器都不需要了。代价是指令必须知道共享内存里的布局（共享内存的 bank 规则见<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>，这也是后面 swizzle 模式要和数据摆放对上的原因）——这就是下一节那个描述符的来历。</p>
 
 <p>累加器这个数字也值得停一下。取 N = 256、累加器 f32，每个线程要 128 个寄存器只放累加器。H100 每个 SM 有 65,536 个 32 位寄存器 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 SM 数、每 SM 寄存器与共享内存上限、cluster 可移植/非可移植大小、cluster 落在同一 GPC 的说明，以及 PTX 架构专属特性表中 <code>wgmma.*</code> 仅支持 sm_90a 一条。每项都标有 NVIDIA 官方出处。">2</a>]</span>，每线程上限 255（<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>）。一个 128 线程的 warpgroup 光累加器就占掉 128 × 128 = 16,384 个寄存器，占整个 SM 的四分之一。这是后面 warp 特化要解决的问题，也是 Blackwell 干脆把累加器挪出寄存器的动机。</p>
 
@@ -347,18 +347,20 @@ make_wgmma_desc(const void* smem, unsigned lbo, unsigned sbo,
 
 <h3 id="sec-1">一个算得出来的例子</h3>
 
-<p>把一个 16×16 的 bf16 B tile 放在共享内存偏移 0x1000 处，K 主序、不做 swizzle。按上一节的定义：LBO 是 8×2 小块里第一列到第二列的偏移，这里是 16 × 2 = 32 字节；SBO 是第 1–8 行到下 8 行的偏移，即 8 × 16 × 2 = 256 字节。三个字段分别编码：</p>
+<p>先说清无 swizzle 时共享内存里的数据该怎么摆。PTX 给的 K 主序、无 swizzle 规范布局（canonical layout）用 CuTe 记号写是 <code>((8,m),(T,2k)):((1T,SBO),(1,LBO))</code>（§9.7.17.5.1.2.1.3）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（warpgroup MMA：形状、数据类型、共享内存布局与矩阵描述符、wgmma.fence / commit_group / wait_group）、§9.7.21.5（setmaxnreg）、§9.7.15.3（barrier.cluster）、§9.7.15.15（elect.sync）、§9.7.10.26（mapa）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）。">1</a>]</span>：最小单位是一个 8 行 × 16 字节的“核心矩阵”，它的 8 行以 16 字节为步长<b>连续</b>存放，占 128 字节；核心矩阵之间沿行方向隔 SBO、沿 K 方向隔 LBO。所以一块普通的行主序 tile（例如每行 32 字节）不能直接交给无 swizzle 描述符，写共享内存时要先按核心矩阵重排。本篇代码里的 <code>kmajor_idx</code> 就做这件事：核心矩阵先沿行方向排，再沿 K 方向排。</p>
+
+<p>按这种排法，把一个 16×16 的 bf16 B tile 放在共享内存偏移 0x1000 处。16 行是 2 个核心矩阵高，所以 SBO（第 1–8 行到下 8 行）= 128 字节；K = 16 是 2 个核心矩阵宽，LBO（8×2 小块里第一列到第二列）= 2 × 128 = 256 字节。三个字段分别编码：</p>
 
 <ul>
   <li>地址：<code>(0x1000 &amp; 0x3FFFF) &gt;&gt; 4 = 0x100</code>，放进 bit 13–0；</li>
-  <li>LBO：<code>32 &gt;&gt; 4 = 2</code>，放进 bit 29–16；</li>
-  <li>SBO：<code>256 &gt;&gt; 4 = 16</code>，放进 bit 45–32；</li>
+  <li>LBO：<code>256 &gt;&gt; 4 = 16</code>，放进 bit 29–16；</li>
+  <li>SBO：<code>128 &gt;&gt; 4 = 8</code>，放进 bit 45–32；</li>
   <li>base offset = 0（无 swizzle 模式下该字段无效），swizzle 模式 = 0。</li>
 </ul>
 
-<p>拼起来就是 <code>0x0000_0010_0002_0100</code>。如果同一块 tile 改用 128B swizzle，只需把 bit 63–62 填 1，描述符变成 <code>0x4000_0010_0002_0100</code>——但这时共享内存里的数据摆放也必须跟着变，而且 LBO 不再使用。换句话说，<b>描述符里改一个两位的字段，等于要求共享内存里的字节重新排一遍</b>。</p>
+<p>拼起来就是 <code>0x0000_0008_0010_0100</code>。如果把 bit 63–62 改成 1（128B swizzle），数值上只是最高两位变了，描述的却已是另一种布局：每行要按 128 字节的 swizzle atom 摆放，LBO 不再使用，SBO 也要按新布局重新算。换句话说，<b>描述符里改一个两位的字段，等于要求共享内存里的字节重新排一遍</b>。</p>
 
-<p>PTX 文档自己也给了一组编码示例：K 主序、无 swizzle、tf32 类型时，LBO = 64 × sizeof(tf32)，编码为 <code>LBO &gt;&gt; 4 = 16</code>；SBO = 32 × sizeof(tf32)，编码为 8（§9.7.17.5.1.2.1.3）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（warpgroup MMA：形状、数据类型、共享内存布局与矩阵描述符、wgmma.fence / commit_group / wait_group）、§9.7.21.5（setmaxnreg）、§9.7.15.3（barrier.cluster）、§9.7.15.15（elect.sync）、§9.7.10.26（mapa）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）。">1</a>]</span>。可以照着同样的方法验算。</p>
+<p>PTX 文档自己也给了一组编码示例：K 主序、无 swizzle、tf32 类型时，LBO = 64 × sizeof(tf32)，编码为 <code>LBO &gt;&gt; 4 = 16</code>；SBO = 32 × sizeof(tf32)，编码为 8（§9.7.17.5.1.2.1.3）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（warpgroup MMA：形状、数据类型、共享内存布局与矩阵描述符、wgmma.fence / commit_group / wait_group）、§9.7.21.5（setmaxnreg）、§9.7.15.3（barrier.cluster）、§9.7.15.15（elect.sync）、§9.7.10.26（mapa）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）。">1</a>]</span>。tf32 的核心矩阵同样是 8 行 × 16 字节，那个例子也是 2 个核心矩阵高、2 个宽，所以 LBO = 256 字节、SBO = 128 字节，编码和上面的 bf16 例子一模一样。</p>
 
 <h3 id="sec-2">LBO、SBO 与 swizzle 三者必须自洽</h3>
 
@@ -424,11 +426,10 @@ make_wgmma_desc(const void* smem, unsigned lbo, unsigned sbo,
 
 <p>把这些拼起来，一个最小的单 tile kernel 就是这样：</p>
 
-<pre data-code="code/tc22-hopper/wgmma_tile.cu#L63-L75"><code>constexpr unsigned kElem = sizeof(__nv_bfloat16);
-unsigned long long a_desc = make_wgmma_desc(
-    sa, 16 * kElem, 8 * 16 * kElem, kSwizzleNone);
+<pre data-code="code/tc22-hopper/wgmma_tile.cu#L66-L77"><code>unsigned long long a_desc = make_wgmma_desc(
+    sa, 64 * 16, 128, kSwizzleNone);
 unsigned long long b_desc = make_wgmma_desc(
-    sb, 16 * kElem, 8 * 16 * kElem, kSwizzleNone);
+    sb, 16 * 16, 128, kSwizzleNone);
 
 float d[8];
 for (int i = 0; i &lt; 8; ++i) d[i] = 0.f;
@@ -437,7 +438,7 @@ wgmma_fence();
 wgmma_m64n16k16(d, a_desc, b_desc, false);
 wgmma_commit();
 wgmma_wait&lt;0&gt;();</code></pre>
-<p class="src-note">完整代码：<code>code/tc22-hopper/wgmma_tile.cu</code> 第 63–75 行（未在 GPU 上运行）</p>
+<p class="src-note">完整代码：<code>code/tc22-hopper/wgmma_tile.cu</code> 第 66–77 行（未在 GPU 上运行）</p>
 
 <p>指令本身用内联 PTX 写。<code>m64n16k16</code> 配 f32 累加器时每线程 8 个寄存器，正好写得下：</p>
 
@@ -461,7 +462,7 @@ wgmma_wait&lt;0&gt;();</code></pre>
 
 <ol>
   <li><b>转置只支持 16 位类型</b>：“The transpose operation is only supported for the <code>wgmma.mma_async</code> variants with .f16/.bf16 types on matrices accessed from shared memory using matrix descriptors.” FP8 想要转置，只能在写共享内存那一步（TMA 或拷贝尾声）就摆成需要的布局。</li>
-  <li><b>FP8 配 f32 累加器时精度有注记</b>：“current implementation does accumulation at higher than half precision but lower than single precision.” 这是 FP8 训练里要做分块缩放、把部分和升到 FP32 再累加的原因之一——<a href="../op18-quant-gather/op18-quant-gather.html">第 18 篇</a>讲过缩放因子的格式，DeepGEMM 在 Hopper 上的具体做法见<a href="https://blog.hesenyang-ethan.com/deepep-deepgemm/dg01-sm90-fp8/dg01-sm90-fp8.html">《DeepGEMM 精读》第 1 篇</a>。</li>
+  <li><b>FP8 配 f32 累加器时精度有注记</b>：“current implementation does accumulation at higher than half precision but lower than single precision.” 所以 FP8 GEMM 常常每隔一段 K 就把张量核的部分和取出来，放到 FP32 里继续累加。DeepGEMM 在 Hopper 上的具体做法见<a href="https://blog.hesenyang-ethan.com/deepep-deepgemm/dg01-sm90-fp8/dg01-sm90-fp8.html">《DeepGEMM 精读》第 1 篇</a>；FP8 分块缩放因子的格式另见<a href="../op18-quant-gather/op18-quant-gather.html">第 18 篇</a>。</li>
 </ol>
 
 <h2 id="sec-ws" data-short="warp 特化">warp 特化：让搬运和计算各管各的寄存器</h2>
@@ -532,7 +533,7 @@ __device__ __forceinline__ void reg_alloc() {
 
 <p>生产者那一侧的循环结构是：等本级缓冲区空 → 填数据 → 发一条 <code>fence.proxy.async</code> → 在 <code>full</code> 屏障上 arrive。注意只有一个线程真正发起搬运，其余线程只参与屏障：</p>
 
-<pre data-code="code/tc22-hopper/warp_specialized.cu#L104-L119"><code>if (wg == 1) {
+<pre data-code="code/tc22-hopper/warp_specialized.cu#L104-L121"><code>if (wg == 1) {
   // Producer: hand most of the register file to the consumer.
   reg_dealloc&lt;40&gt;();
   int stage = 0, phase = 1;
@@ -542,24 +543,27 @@ __device__ __forceinline__ void reg_alloc() {
       // Post 21 issues a TMA copy here; this placeholder keeps
       // the protocol visible without repeating that machinery.
       for (int i = 0; i &lt; kTileA; ++i)
-        sa[stage][i] = ga[(size_t)k * kTileA + i];
+        sa[stage][kmajor_idx(i / 64, i % 64, 64)] =
+            ga[(size_t)k * kTileA + i];
       for (int i = 0; i &lt; kTileB; ++i)
-        sb[stage][i] = gb[(size_t)k * kTileB + i];
+        sb[stage][kmajor_idx(i / 64, i % 64, 16)] =
+            gb[(size_t)k * kTileB + i];
       fence_async_proxy();
       mbar_arrive(&amp;full[stage]);
     }</code></pre>
-<p class="src-note">完整代码：<code>code/tc22-hopper/warp_specialized.cu</code> 第 104–119 行（未在 GPU 上运行）；真实 kernel 这里是一条 TMA 拷贝，见<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a></p>
+<p class="src-note">完整代码：<code>code/tc22-hopper/warp_specialized.cu</code> 第 104–121 行（未在 GPU 上运行）；真实 kernel 这里是一条 TMA 拷贝，见<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a></p>
 
-<p>消费者那一侧则是把描述符沿 K 推进。因为三个地址字段都以 16 字节为单位，推进一个 K 块就是给描述符加一个常数，不必重新构造：</p>
+<p>消费者那一侧则是把描述符沿 K 推进。因为三个地址字段都以 16 字节为单位，推进一个 K 块就是给描述符加一个常数，不必重新构造。在 <code>kmajor_idx</code> 布局里，K 方向再往前 16 列就是再跨两个核心矩阵，也就是起始地址加 2 × LBO：</p>
 
-<pre data-code="code/tc22-hopper/warp_specialized.cu#L139-L145"><code>wgmma_fence();
+<pre data-code="code/tc22-hopper/warp_specialized.cu#L140-L147"><code>wgmma_fence();
 for (int kb = 0; kb &lt; 4; ++kb) {
   wgmma_m64n16k16(d, a_desc, b_desc, k != 0 || kb != 0);
-  a_desc = desc_advance(a_desc, 16 * sizeof(__nv_bfloat16));
-  b_desc = desc_advance(b_desc, 16 * sizeof(__nv_bfloat16));
+  // next 16 columns of K = two core matrices = 2 * LBO
+  a_desc = desc_advance(a_desc, 2 * 64 * 16);
+  b_desc = desc_advance(b_desc, 2 * 16 * 16);
 }
 wgmma_commit();</code></pre>
-<p class="src-note">完整代码：<code>code/tc22-hopper/warp_specialized.cu</code> 第 139–145 行（未在 GPU 上运行）</p>
+<p class="src-note">完整代码：<code>code/tc22-hopper/warp_specialized.cu</code> 第 140–147 行（未在 GPU 上运行）</p>
 
 <p>这里还用到前面说的两条性质：同形状的多条 <code>mma_async</code> 之间对累加器的访问默认有序，所以循环里只需要开头一条 <code>wgmma.fence</code>；而 <code>scale-d</code> 在第一条传 false、之后传 true，省掉了把累加器清零的那一步。</p>
 
@@ -714,7 +718,7 @@ cfg.numAttrs = 1;</code></pre>
 
 <h3 id="sec-q3">为什么要做 warp 特化？</h3>
 <ul>
-  <li>TMA 只要一个线程就能发起整块搬运，而 WGMMA 的累加器要吃掉大量寄存器；两类工作对寄存器的需求差了一个数量级。</li>
+  <li>TMA 只要一个线程就能发起整块搬运，而 WGMMA 的累加器要吃掉大量寄存器；两类工作对寄存器的需求差得很远（CUTLASS 给生产者 40 个、消费者 232 个）。</li>
   <li>不分工的话，所有线程都要按最大需求分配寄存器，驻留的 warpgroup 数量就下来了。</li>
   <li>分工之后用 <code>setmaxnreg</code> 把生产者用不着的寄存器转给消费者，CUTLASS 的取值是 40 / 232。</li>
   <li><i>追问</i>：<code>setmaxnreg.inc</code> 有什么坑？（它会阻塞直到 CTA 寄存器池里有货；拿到的寄存器初值未定义；同一 warpgroup 必须一致执行。）</li>
@@ -739,7 +743,7 @@ cfg.numAttrs = 1;</code></pre>
 <ul>
   <li><b>没有实测，也没有汇编器校验。</b>本机没有 GPU、没有 nvcc/ptxas。代码只过了 clang 的 host-only 语法与类型检查，内联 PTX 字符串对它是不透明的——这些指令只经过人工逐条对照 PTX ISA 9.4，节号记在 <code>_notes/tc22-facts.md</code>。WGMMA 的延迟、吞吐、相对 <code>mma.sync</code> 的加速比，NVIDIA 未公开，本篇一个数字都没给。</li>
   <li><b>骨架不是 GEMM。</b><a href="#sec-ws">warp 特化</a> 的生产者里用普通循环占位，真实 kernel 那里是一条 TMA 拷贝（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）；多级流水线深度怎么选、persistent 调度、epilogue 怎么写，都在<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>。</li>
-  <li><b>布局只讲了够用的部分。</b>PTX 对 swizzle atom、canonical layout（CuTe 记号的 <code>Swizzle&lt;3,4,3&gt;</code> 之类）、各类型各模式的 LBO/SBO 取值给了一整套表格，本篇只取了理解描述符所必需的；完整的 layout 代数见<a href="../tc20-layout-algebra/tc20-layout-algebra.html">第 20 篇</a>。示例代码用的是无 swizzle 布局，没有演示 128B swizzle 下的描述符构造。</li>
+  <li><b>布局只讲了够用的部分。</b>PTX 对 swizzle atom、canonical layout（CuTe 记号的 <code>Swizzle&lt;3,4,3&gt;</code> 之类）、各类型各模式的 LBO/SBO 取值给了一整套表格，本篇只取了理解描述符所必需的；完整的 layout 代数见<a href="../tc20-layout-algebra/tc20-layout-algebra.html">第 20 篇</a>。示例代码用的是无 swizzle 规范布局（写共享内存时用 <code>kmajor_idx</code> 重排），没有演示 128B swizzle 下的描述符构造；真实 kernel 一般让 TMA 直接按 128B swizzle 写入，描述符也随之改变。</li>
   <li><b>128B 名字的推算是本系列自己的。</b>“8 行 × 128 字节 = 1024 字节，对应 base offset 的对齐规则”这一句是我们从 Table 47 与 base offset 规则推出来的，PTX 没有直接这么写。</li>
   <li><b>稀疏 WGMMA 没讲。</b><code>wgmma.mma_async.sp</code> 及其元数据格式（§9.7.17.6）整节略过。</li>
   <li><b>ping-pong 与 cooperative 只引用了文档的描述。</b>CUTLASS 的 Ordered Sequence Barrier 内部实现、两种调度的适用边界都没有展开。</li>

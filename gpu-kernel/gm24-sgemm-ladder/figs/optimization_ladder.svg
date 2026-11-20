@@ -1,68 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" font-family="sans-serif">
-<text class="d-title" x="28" y="28">SGEMM 优化阶梯：从 naive 到接近峰值</text>
-<text class="d-label" x="28" y="50">A100 上 M=N=K=4096 的 SGEMM 相对峰值性能（数据来自 siboehm 博客）</text>
-
-<!-- Y axis -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 390" font-family="sans-serif">
+<text class="d-title" x="28" y="28">SGEMM 优化阶梯：Boehm 的实测</text>
+<text class="d-label" x="28" y="50">RTX A6000，4092² FP32；GFLOPS 相对 cuBLAS（23,250 GFLOPS = 100%），不是相对峰值</text>
 <line x1="68" y1="70" x2="68" y2="330" stroke="#888" stroke-width="1"/>
-<text class="d-small" x="60" y="78" text-anchor="end">100%</text>
-<text class="d-small" x="60" y="135" text-anchor="end">75%</text>
-<text class="d-small" x="60" y="200" text-anchor="end">50%</text>
-<text class="d-small" x="60" y="265" text-anchor="end">25%</text>
-<text class="d-small" x="60" y="330" text-anchor="end">0%</text>
-<!-- grid lines -->
-<line x1="68" y1="78" x2="700" y2="78" stroke="#e4e4e0" stroke-width="0.5"/>
-<line x1="68" y1="135" x2="700" y2="135" stroke="#e4e4e0" stroke-width="0.5"/>
-<line x1="68" y1="200" x2="700" y2="200" stroke="#e4e4e0" stroke-width="0.5"/>
-<line x1="68" y1="265" x2="700" y2="265" stroke="#e4e4e0" stroke-width="0.5"/>
+<text class="d-small" x="60" y="334" text-anchor="end">0%</text>
 <line x1="68" y1="330" x2="700" y2="330" stroke="#888" stroke-width="1"/>
-
-<!-- bars: each bar 60px wide, 10px gap, starting at x=80 -->
-<!-- naive: 1% -> height ~2.5px from baseline 330 -->
-<rect x="80" y="327" width="60" height="3" rx="2" fill="#ccc"/>
-<text class="d-small" x="110" y="324" text-anchor="middle">1%</text>
-<text class="d-small" x="110" y="348" text-anchor="middle" transform="rotate(-35 110 348)">naive</text>
-
-<!-- coalesced: 5% -->
-<rect x="150" y="317" width="60" height="13" rx="2" fill="#bbb"/>
-<text class="d-small" x="180" y="314" text-anchor="middle">5%</text>
-<text class="d-small" x="180" y="348" text-anchor="middle" transform="rotate(-35 180 348)">coalesced</text>
-
-<!-- smem: 15% -->
-<rect x="220" y="291" width="60" height="39" rx="2" fill="#aaa"/>
-<text class="d-small" x="250" y="288" text-anchor="middle">15%</text>
-<text class="d-small" x="250" y="348" text-anchor="middle" transform="rotate(-35 250 348)">smem</text>
-
-<!-- 1D reg: 30% -->
-<rect x="290" y="252" width="60" height="78" rx="2" fill="#D55E00" opacity="0.6"/>
-<text class="d-small" x="320" y="249" text-anchor="middle">30%</text>
-<text class="d-small" x="320" y="348" text-anchor="middle" transform="rotate(-35 320 348)">1D reg</text>
-
-<!-- 2D reg: 55% -->
-<rect x="360" y="187" width="60" height="143" rx="2" fill="#D55E00" opacity="0.7"/>
-<text class="d-small" x="390" y="184" text-anchor="middle">55%</text>
-<text class="d-small" x="390" y="348" text-anchor="middle" transform="rotate(-35 390 348)">2D reg</text>
-
-<!-- vectorized: 65% -->
-<rect x="430" y="161" width="60" height="169" rx="2" fill="#D55E00" opacity="0.8"/>
-<text class="d-small" x="460" y="158" text-anchor="middle">65%</text>
-<text class="d-small" x="460" y="348" text-anchor="middle" transform="rotate(-35 460 348)">vec load</text>
-
-<!-- warp tiling: 75% -->
-<rect x="500" y="135" width="60" height="195" rx="2" fill="#D55E00" opacity="0.85"/>
-<text class="d-small" x="530" y="132" text-anchor="middle">75%</text>
-<text class="d-small" x="530" y="348" text-anchor="middle" transform="rotate(-35 530 348)">warp tile</text>
-
-<!-- double buffer: 82% -->
-<rect x="570" y="117" width="60" height="213" rx="2" fill="#D55E00" opacity="0.9"/>
-<text class="d-small" x="600" y="114" text-anchor="middle">82%</text>
-<text class="d-small" x="600" y="348" text-anchor="middle" transform="rotate(-35 600 348)">双缓冲</text>
-
-<!-- autotuned: 88% -->
-<rect x="640" y="101" width="60" height="229" rx="2" fill="#D55E00"/>
-<text class="d-small" x="670" y="98" text-anchor="middle">88%</text>
-<text class="d-small" x="670" y="348" text-anchor="middle" transform="rotate(-35 670 348)">autotune</text>
-
-<!-- cuBLAS reference line -->
-<line x1="68" y1="84" x2="700" y2="84" stroke="#0b5cad" stroke-width="1.2" stroke-dasharray="6 3"/>
-<text class="d-small" x="700" y="80" text-anchor="end" fill="#0b5cad">cuBLAS (~96%)</text>
+<text class="d-small" x="60" y="271" text-anchor="end">25%</text>
+<line x1="68" y1="267" x2="700" y2="267" stroke="#e4e4e0" stroke-width="0.5"/>
+<text class="d-small" x="60" y="208" text-anchor="end">50%</text>
+<line x1="68" y1="204" x2="700" y2="204" stroke="#e4e4e0" stroke-width="0.5"/>
+<text class="d-small" x="60" y="145" text-anchor="end">75%</text>
+<line x1="68" y1="141" x2="700" y2="141" stroke="#e4e4e0" stroke-width="0.5"/>
+<text class="d-small" x="60" y="82" text-anchor="end">100%</text>
+<line x1="68" y1="78" x2="700" y2="78" stroke="#e4e4e0" stroke-width="0.5"/>
+<rect x="84" y="326.7" width="64" height="3.3" rx="2" fill="#bbb" opacity="0.45"/>
+<text class="d-small" x="116" y="322" text-anchor="middle">1.3%</text>
+<text class="d-small" x="116" y="348" text-anchor="middle">K1</text>
+<text class="d-small" x="116" y="364" text-anchor="middle">naive</text>
+<rect x="160" y="308.6" width="64" height="21.4" rx="2" fill="#bbb" opacity="0.53"/>
+<text class="d-small" x="192" y="304" text-anchor="middle">8.5%</text>
+<text class="d-small" x="192" y="348" text-anchor="middle">K2</text>
+<text class="d-small" x="192" y="364" text-anchor="middle">coalesce</text>
+<rect x="236" y="297.7" width="64" height="32.3" rx="2" fill="#bbb" opacity="0.61"/>
+<text class="d-small" x="268" y="293" text-anchor="middle">12.8%</text>
+<text class="d-small" x="268" y="348" text-anchor="middle">K3</text>
+<text class="d-small" x="268" y="364" text-anchor="middle">SMEM</text>
+<rect x="312" y="238.0" width="64" height="92.0" rx="2" fill="#D55E00" opacity="0.69"/>
+<text class="d-small" x="344" y="233" text-anchor="middle">36.5%</text>
+<text class="d-small" x="344" y="348" text-anchor="middle">K4</text>
+<text class="d-small" x="344" y="364" text-anchor="middle">1D reg</text>
+<rect x="388" y="156.9" width="64" height="173.1" rx="2" fill="#D55E00" opacity="0.76"/>
+<text class="d-small" x="420" y="152" text-anchor="middle">68.7%</text>
+<text class="d-small" x="420" y="348" text-anchor="middle">K5</text>
+<text class="d-small" x="420" y="364" text-anchor="middle">2D reg</text>
+<rect x="464" y="132.4" width="64" height="197.6" rx="2" fill="#D55E00" opacity="0.84"/>
+<text class="d-small" x="496" y="127" text-anchor="middle">78.4%</text>
+<text class="d-small" x="496" y="348" text-anchor="middle">K6</text>
+<text class="d-small" x="496" y="364" text-anchor="middle">vec load</text>
+<rect x="540" y="116.3" width="64" height="213.7" rx="2" fill="#D55E00" opacity="0.92"/>
+<text class="d-small" x="572" y="111" text-anchor="middle">84.8%</text>
+<text class="d-small" x="572" y="348" text-anchor="middle">K9</text>
+<text class="d-small" x="572" y="364" text-anchor="middle">autotune</text>
+<rect x="616" y="93.9" width="64" height="236.1" rx="2" fill="#D55E00" opacity="1.00"/>
+<text class="d-small" x="648" y="89" text-anchor="middle">93.7%</text>
+<text class="d-small" x="648" y="348" text-anchor="middle">K10</text>
+<text class="d-small" x="648" y="364" text-anchor="middle">warptile</text>
+<line x1="68" y1="78" x2="700" y2="78" stroke="#0b5cad" stroke-width="1.2" stroke-dasharray="6 3"/>
+<text class="d-small" x="96" y="94" fill="#0b5cad">cuBLAS = 100%</text>
+<text class="d-small" x="28" y="384" fill="#666">K7/K8（bank conflict 实验）未列出；双缓冲 Boehm 未实现。数据：siboehm.com/articles/22/CUDA-MMM</text>
 </svg>

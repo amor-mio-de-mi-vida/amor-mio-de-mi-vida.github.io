@@ -48,7 +48,7 @@
 <line x1="520" y1="162" x2="520" y2="99" stroke="#ef4444" stroke-width="1.2" marker-end="url(#ar)"/>
 
 <text x="380" y="200" class="label">Steps: 2·log(N) = 4</text>
-<text x="380" y="215" class="label">BW: D·log(N) = 2D</text>
+<text x="380" y="215" class="label">BW (朴素树, 不分块流水): D·log₂N = 2D</text>
 <text x="380" y="230" class="label" fill="#16a34a">Latency: O(log N) &#x2713;</text>
 
 <defs>

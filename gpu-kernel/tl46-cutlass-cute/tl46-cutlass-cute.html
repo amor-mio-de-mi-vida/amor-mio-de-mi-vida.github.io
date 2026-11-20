@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 46 篇</div>
   <h1>CUTLASS 与 CuTe<br>Layout 代数与可组合 GEMM</h1>
-  <p class="subtitle">CUTLASS 五层抽象（Atom → TiledMMA → Collective → Kernel → CollectiveBuilder）、CuTe Layout 代数（Shape + Stride + Swizzle）、EVT 可组合 Epilogue、DSL 横向对比（Triton / TileLang / ThunderKittens / CUTLASS / Raw CUDA）。</p>
+  <p class="subtitle">CUTLASS 3.x 五层抽象（Atom → TiledMMA → Collective → Kernel → Device）、CuTe Layout 代数（Shape + Stride + Swizzle）、EVT 可组合 Epilogue、DSL 横向对比（Triton / TileLang / ThunderKittens / CUTLASS / Raw CUDA）。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-30</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -230,11 +230,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>CUTLASS 是 NVIDIA 的开源 GPU 线性代数模板库，提供从<b>硬件指令到完整 GEMM</b> 的五层抽象：Atom → TiledMMA → Collective → Kernel → Device API（CollectiveBuilder）。</li>
-<li><b>CuTe</b>（CUTLASS 的核心子库）用 Layout = (Shape, Stride) 描述张量的逻辑形状和物理存储。Layout 代数（composition、complement、product）让 tile 分割、线程映射和 smem swizzle 统一为一套数学操作。</li>
-<li><b>CollectiveBuilder</b> 是用户接口：指定架构（Sm90/Sm100）、数据类型（FP16/FP8）、tile 形状 → 自动选择 MMA 原子、TMA 配置、流水线深度和 epilogue 类型。</li>
-<li><b>EVT</b>（Epilogue Visitor Tree）把 GEMM 后的操作（bias、activation、量化）组合成一棵访问者树，在一次 epilogue pass 内融合执行——不需要额外的 kernel launch 和 HBM 读写。</li>
-<li>DSL 横向对比：Triton（块级 Python，最高抽象）→ TileLang（声明式 tile 图）→ ThunderKittens（warp 级 C++）→ CUTLASS/CuTe（layout 代数 C++）→ Raw CUDA（线程级）。抽象越高开发越快，控制越细性能上限越高。</li>
+<li>CUTLASS 是 NVIDIA 的开源 GPU 线性代数模板库，3.x 起的 GEMM API 分五层：Atom → TiledMMA/TiledCopy → Collective → Kernel → Device。</li>
+<li><b>CuTe</b>（CUTLASS 的核心子库）用 Layout = (Shape, Stride) 描述张量的逻辑形状和物理存储。Layout 代数（composition、complement、division、product 等）让 tile 分割、线程映射和 smem swizzle 统一为一套数学操作。</li>
+<li><b>CollectiveBuilder</b> 是组装 Collective 层的便捷接口（面向 Sm90 及以后）：指定架构、数据类型、tile 形状 → 自动选择 MMA 原子、TMA 配置和流水线深度；再交给 Kernel 层和 Device 层的 <code>GemmUniversalAdapter</code>。</li>
+<li><b>EVT</b>（Epilogue Visitor Tree）把 GEMM 后的操作（bias、activation、量化）组合成一棵访问者树，在一次 epilogue pass 内融合执行——不需要额外的 kernel launch，也不需要把中间结果写回 HBM 再读出。</li>
+<li>DSL 横向对比：Triton（块级 Python，最高抽象）→ TileLang（tile 级数据流 + 调度注解）→ ThunderKittens（以小矩阵 tile 为基本单元的 C++）→ CUTLASS/CuTe（layout 代数 C++，另有 Python 的 CuTe DSL）→ Raw CUDA（线程级）。抽象越高开发越快，控制越细可调的空间越大。</li>
   </ul>
 </div>
 
@@ -244,9 +244,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-overview">从 Triton 到 CUTLASS</h2>
 
-<p>上一篇介绍了 Triton 的块级编程模型——程序员操作 tile，编译器处理底层细节。这种模型对大多数场景足够好，但 Triton 的自动决策有时不如手动优化：smem 布局可能不是最优的 swizzle 模式（编译器根据启发式规则选择，不一定匹配特定问题形状的最佳 bank conflict 消除方案）、流水线策略可能不利用 TMA（编译器在 Hopper 上生成的数据搬运代码不一定使用 Tensor Memory Accelerator）、warp 之间的工作分配可能不是 warp specialization 的最佳方案（Triton 的 block 内所有线程执行相同代码，无法让一部分 warp 专门负责搬运、另一部分专门计算）。当需要对这些细节有精确的控制权而又不想从零手写几百行 CUDA 时，CUTLASS <span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub.">1</a>]</span> 和 CuTe <span class="cite">[<a href="#ref-cute" title="Thakkar et al. (2023). CuTe: A Layout Algebra for Efficient Dense Linear Algebra on GPUs. NVIDIA Tech Report.">2</a>]</span> 提供了一条中间路径——用数学抽象取代手工索引，在保留硬件控制力的同时提高代码的正确性和可维护性。</p>
+<p>上一篇介绍了 Triton 的块级编程模型——程序员操作 tile，编译器处理底层细节。这种模型对大多数场景足够好，但 Triton 的自动决策有时不如手动优化：smem 布局可能不是最优的 swizzle 模式（编译器根据启发式规则选择，不一定匹配特定问题形状的最佳 bank conflict 消除方案）、流水线策略可能不利用 TMA（编译器在 Hopper 上生成的数据搬运代码不一定使用 Tensor Memory Accelerator）、warp 之间的工作分配可能不是 warp specialization 的最佳方案（Triton 的 block 内所有线程执行相同代码，无法让一部分 warp 专门负责搬运、另一部分专门计算）。当需要对这些细节有精确的控制权而又不想从零手写几百行 CUDA 时，CUTLASS <span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span> 和 CuTe <span class="cite">[<a href="#ref-cute" title="Cecka (2026). CuTe Layout Representation and Algebra. arXiv:2603.02298。">2</a>]</span> 提供了一条中间路径——用数学抽象取代手工索引，在保留硬件控制力的同时提高代码的正确性和可维护性。</p>
 
-<p>CUTLASS（CUDA Templates for Linear Algebra Subroutines）是 NVIDIA 维护的开源模板库，经历了三个主要版本：1.x（基于 CUDA 模板实现 GEMM，需要手动组合组件）、2.x（引入了更结构化的 mainloop 和 epilogue 抽象）、3.x/4.x（引入 CuTe layout 代数，完整支持 Hopper/Blackwell 特性）。3.x 版本的核心变化是引入了 CuTe——一套基于 layout 代数的张量抽象。CuTe 不是一个新的编程语言或编译器——它是纯 C++ 模板库，在编译期通过模板元编程计算 layout 变换，在运行期生成的代码和手写 CUDA 完全等价（零抽象开销）。理解 CUTLASS 需要先理解 CuTe 的 layout 系统——它是整个库的数学基础。</p>
+<p>CUTLASS（CUDA Templates for Linear Algebra Subroutines）是 NVIDIA 维护的开源模板库。2.x 按 threadblock / warp / instruction 三级形状组织 GEMM；3.0（2023 年 1 月）引入 CuTe 作为新的核心库，用单一的 Layout 类型及其代数描述张量和线程<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>；3.8（2025 年 1 月）加入 Blackwell SM100 的 tcgen05 MMA 与 TMEM 支持；4.0（2025 年 6 月）推出 CuTe DSL——围绕同一套 CuTe 抽象的 Python DSL。CuTe 本身是 C++ 模板库：形状和步长可以是编译期常量，也可以是运行期整数，静态部分在编译期折叠掉。Cecka 的论文把这套表示形式化为层次化 layout 加一组 layout 运算（拼接、合并、组合、补、除、tiling、求逆）<span class="cite">[<a href="#ref-cute" title="Cecka (2026). CuTe Layout Representation and Algebra. arXiv:2603.02298。">2</a>]</span>。理解 CUTLASS 需要先理解 CuTe 的 layout 系统——它是整个库的数学基础。</p>
 
 <h2 id="sec-cute-layout">CuTe Layout 代数</h2>
 
@@ -257,7 +257,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <figcaption id="fig-cute_layout_algebra-cap"><span class="fig-label">图 1</span><b>CuTe Layout 代数。</b>Shape + Stride 定义了逻辑坐标到物理偏移的映射。Swizzle 通过 XOR 变换消除 smem bank conflict。</figcaption>
 </figure>
 
-<p>行主序的 Stride = (8, 1)：第一维（行）相邻元素间距 8，第二维（列）间距 1。列主序的 Stride = (1, 4)：行间距 1，列间距 4。Layout 的核心操作是把逻辑坐标 (i, j) 映射到线性偏移：<code>offset = i * stride_m + j * stride_n</code>。这和手写 CUDA 中的索引计算完全等价——区别在于 CuTe 把这些操作编码为类型系统中的编译期常量，让编译器在 compile time 完成大部分地址计算。</p>
+<p>行主序的 Stride = (8, 1)：第一维（行）相邻元素间距 8，第二维（列）间距 1。列主序的 Stride = (1, 4)：行间距 1，列间距 4。Layout 的核心操作是把逻辑坐标 (i, j) 映射到线性偏移：<code>offset = i * stride_m + j * stride_n</code>。这和手写 CUDA 中的索引计算完全等价——区别在于 CuTe 可以把形状和步长编码为类型里的编译期常量（静态整数），让编译器在编译期完成这部分地址计算。注意 CuTe 默认的是列主序（左边的模式步长最小），图中行主序只是为了直观。</p>
 
 <pre data-code="code/tl46-cutlass-cute/cute_layout.cu#L21-L36"><code>struct Layout2D {
     Shape2D  shape;
@@ -278,27 +278,27 @@ __host__ __device__ Layout2D make_layout_row(int M, int N) {
 </code></pre>
 <p class="src-note">完整代码：<code>code/tl46-cutlass-cute/cute_layout.cu</code> 第 21&ndash;36 行</p>
 
-<p>Layout 代数的强大之处在于<b>组合</b>（composition，<a href="#fig-cute_composition">图 2</a>）。线程到元素的映射可以表达为两个 layout 的组合：ThreadLayout 描述线程在 tile 中的分布（哪个线程负责 tile 的哪个区域）、ValueLayout 描述每个线程拥有的元素（每个线程处理几个元素、这些元素在 tile 中的相对位置）。例如 128 个线程处理一个 128&times;128 的 tile：ThreadLayout = (32, 4) 表示 32 行 &times; 4 列的线程网格，组合后每个线程得到一个 (4, 32) 的 fragment——共 128 个元素，恰好是 16384 / 128。CuTe 通过 layout composition 在编译期精确计算每个线程在全局内存中需要加载和存储哪些元素的偏移地址——生成的代码和手动计算的索引完全等价，零运行期开销。</p>
+<p>Layout 代数的强大之处在于<b>组合</b>（composition，<a href="#fig-cute_composition">图 2</a>）。线程到元素的映射可以表达为两个 layout 的组合：ThreadLayout 描述线程在 tile 中的分布（哪个线程负责 tile 的哪个区域）、ValueLayout 描述每个线程拥有的元素（每个线程处理几个元素、这些元素在 tile 中的相对位置）。例如 128 个线程处理一个 128&times;128 的 tile：ThreadLayout = (32, 4) 表示 32 行 &times; 4 列的线程网格，组合后每个线程得到一个 (4, 32) 的 fragment——共 128 个元素，恰好是 16384 / 128。CuTe 用 layout 运算推出每个线程在全局内存中要加载和存储哪些元素的偏移地址；当形状和步长都是静态的，这些计算会在编译期折叠，生成的代码和手写索引一样。</p>
 
 <figure id="fig-cute_composition" data-kind="diagram">
 <img aria-labelledby="fig-cute_composition-cap" src="figs/cute_composition.svg" alt="CuTe layout composition"/>
-<figcaption id="fig-cute_composition-cap"><span class="fig-label">图 2</span><b>CuTe Layout Composition：全局内存 Layout 与线程 Layout 的组合生成每个线程的 Fragment。</b>Blocked layout 和 MMA layout 的区别在于线程到元素的映射模式——layout 转换通过 SMEM 自动完成。</figcaption>
+<figcaption id="fig-cute_composition-cap"><span class="fig-label">图 2</span><b>CuTe Layout Composition：全局内存 Layout 与线程 Layout 的组合生成每个线程的 Fragment。</b>Blocked layout 和 MMA layout 的区别在于线程到元素的映射模式；两者之间的转换通常经 SMEM 中转（TiledCopy / ldmatrix）完成。</figcaption>
 </figure>
 
-<p>Layout 组合对于 Tensor Core 特别重要。MMA 指令要求操作数在 warp 内的线程间按特定模式分布——比如 <code>mma.sync.aligned.m16n8k16</code> 要求 A 矩阵的 16 行按特定模式分配到 warp 的 32 个线程中（每个线程持有 8 个 FP16 元素）。在手写 CUDA 中，这个映射关系需要查阅 PTX 文档并手动编码——稍有错误就会得到错误的计算结果。在 CuTe 中，MMA layout 被精确编码为类型，编译器验证操作数 layout 和 MMA 指令要求的 layout 匹配——不匹配时编译报错而非运行时产生错误结果。</p>
+<p>Layout 组合对于 Tensor Core 特别重要。MMA 指令要求操作数在 warp 内的线程间按特定模式分布——比如 <code>mma.sync.aligned.m16n8k16</code> 要求 A 矩阵的 16 行按特定模式分配到 warp 的 32 个线程中（每个线程持有 8 个 FP16 元素）。在手写 CUDA 中，这个映射关系需要查阅 PTX 文档并手动编码——稍有错误就会得到错误的计算结果。在 CuTe 中，MMA 的线程-数据映射被编码在 MMA_Atom 的类型里，分区函数据此直接推出每个线程的 fragment；很多形状不匹配会在编译期被 <code>static_assert</code> 拦下，而不是到运行时才算出错误结果。</p>
 
-<p>对于 smem，CuTe 引入了 <b>Swizzle</b> 函数——通过 XOR 变换修改地址的低位来避免 bank conflict。<code>Swizzle&lt;B, M, S&gt;</code> 对地址的第 M 到 M+B-1 位与第 S 到 S+B-1 位做 XOR。具体来说，当一个 warp 的 32 个线程同时访问 smem 的连续行时，如果不做 swizzle，相邻行的同一列会落在同一个 bank——导致 32 路 bank conflict。XOR swizzle 把行索引混入列地址的低位，让相邻行的访问散布到不同 bank。这等价于我们在<a href="../gm24-sgemm-ladder/gm24-sgemm-ladder.html">第 24 篇</a>手动实现的 smem 地址变换——但在 CuTe 中，swizzle 被编码进 layout 的类型参数，编译器自动在所有 smem 读写中应用正确的地址变换。程序员不需要手动计算异或掩码、不需要在每个 smem 访问处记得应用变换——从源头消除了一类常见的性能 bug。</p>
+<p>对于 smem，CuTe 引入了 <b>Swizzle</b> 函数——通过 XOR 变换修改地址的低位来避免 bank conflict。<code>Swizzle&lt;B, M, S&gt;</code> 保持最低的 M 位不变，取第 M+S 到 M+S+B-1 这 B 位，XOR 到第 M 到 M+B-1 位上（CuTe 源码 <code>swizzle.hpp</code> 的注释：<code>ZZZ ^= YYY</code>）。具体来说，当一个 warp 的线程同时访问 smem 中多行的同一列、而行宽又是 128 字节的整数倍时，如果不做 swizzle，这些访问会落在同一个 bank——产生多路 bank conflict。XOR swizzle 把行索引混入列地址，让不同行的访问散布到不同 bank。这和我们在<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>讲的 XOR swizzle、<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>在 HGEMM 里用到的 smem 地址变换是同一件事——但在 CuTe 中，swizzle 被编码进 layout 的类型参数，编译器自动在所有 smem 读写中应用正确的地址变换。程序员不需要手动计算异或掩码、不需要在每个 smem 访问处记得应用变换——从源头消除了一类常见的性能 bug。</p>
 
 <h2 id="sec-cutlass-layers">CUTLASS 的五层抽象</h2>
 
-<p>CUTLASS 3.x 将 GEMM 实现分为五个层次（<a href="#fig-cutlass_layers">图 3</a>），从底向上：</p>
+<p>CUTLASS 3.x 的 GEMM API 分为五个层次（<a href="#fig-cutlass_layers">图 3</a>），官方文档从上往下列为 Device、Kernel、Collective、Tiled MMA and Copy、Atom<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。下面从底向上讲：</p>
 
 <figure id="fig-cutlass_layers" data-kind="diagram">
 <img aria-labelledby="fig-cutlass_layers-cap" src="figs/cutlass_layers.svg" alt="CUTLASS layers"/>
-<figcaption id="fig-cutlass_layers-cap"><span class="fig-label">图 3</span><b>CUTLASS 五层抽象。</b>从单条硬件指令（Atom）到用户接口（CollectiveBuilder），每层封装了下层的细节。</figcaption>
+<figcaption id="fig-cutlass_layers-cap"><span class="fig-label">图 3</span><b>CUTLASS 五层抽象。</b>从单条硬件指令（Atom）到主机端句柄（Device 层的 <code>GemmUniversalAdapter</code>），每层封装了下层的细节；CollectiveBuilder 是组装 Collective 层的辅助接口。</figcaption>
 </figure>
 
-<p><b>Atom（原子层）</b>：对应一条 GPU 硬件指令，是整个层次结构中最底层的不可再分的操作单元。MMA_Atom 封装矩阵乘指令——Volta 的 <code>wmma.mma.sync</code>（首代 Tensor Core）、Ampere 的 <code>mma.sync.aligned.m16n8k16</code>（异步 warp 级矩阵乘）、Hopper 的 <code>wgmma.mma_async</code>（warp group 级矩阵乘，可直接从 smem 读取操作数）。Copy_Atom 封装数据搬运指令——<code>cp.async</code>（Ampere 的异步全局到共享内存拷贝）、TMA（Hopper 的 Tensor Memory Accelerator，支持多维张量的硬件地址计算和数据搬运）。每个 Atom 在类型中编码了输入输出的 shape（如 m16n8k16）和支持的数据类型组合（FP16/BF16/FP8/INT8 输入、FP32/FP16 累加器）。</p>
+<p><b>Atom（原子层）</b>：对应一条 GPU 硬件指令，是整个层次结构中最底层的不可再分的操作单元。MMA_Atom 封装矩阵乘指令——Volta 的 <code>mma.sync.aligned.m8n8k4</code>（首代 Tensor Core）、Ampere 的 <code>mma.sync.aligned.m16n8k16</code>（同步的 warp 级矩阵乘）、Hopper 的 <code>wgmma.mma_async</code>（异步的 warpgroup 级矩阵乘，B 必须、A 可以直接从 smem 读取）、Blackwell 的 <code>tcgen05.mma</code>（累加器在 TMEM 中）。Copy_Atom 封装数据搬运指令——<code>cp.async</code>（Ampere 的异步全局到共享内存拷贝）、TMA（Hopper 的 Tensor Memory Accelerator，支持多维张量的硬件地址计算和数据搬运）。每个 Atom 在类型中编码了输入输出的 shape（如 m16n8k16）和支持的数据类型组合（FP16/BF16/FP8/INT8 输入、FP32/FP16 累加器）。</p>
 
 <p><b>TiledMMA / TiledCopy</b>：把 Atom 在 warp 和 block 内 tile 化。例如 TiledMMA 把一个 m16n8k16 的 MMA_Atom 在 4 个 warp 间铺成 m64n64k16 的 block 级 MMA——每个 warp 处理 tile 的不同区域：</p>
 
@@ -313,7 +313,7 @@ struct TiledMMA_4Warp {
 };</code></pre>
 <p class="src-note">完整代码：<code>code/tl46-cutlass-cute/cutlass_gemm_concept.cu</code> 第 33&ndash;41 行</p>
 
-<p>TILE_M=64 意味着 M 方向铺了 4 个 m16 的 MMA Atom，TILE_N=64 则是 8 个 n8 的 Atom。4 个 warp 怎样瓜分这 4&times;8=32 个 Atom 实例？CuTe 的做法是通过 ThrLayout（线程 layout）声明分配策略——比如 (2,2) 的 warp 网格意味着 warp 0 和 warp 1 分别处理 M 方向的前后各 32 行，warp 2 和 warp 3 分别处理 N 方向的前后各 32 列，最终每个 warp 负责 32&times;32 的子 tile。如果选择 (4,1) 的分配，则 4 个 warp 沿 M 方向排列，每个 warp 处理 16&times;64 的长条——这种分配让每个 warp 访问 B 矩阵的相同列，有利于 B 的 smem 复用。选择哪种取决于 A 和 B 矩阵的 smem 布局和 bank conflict 情况。</p>
+<p>TILE_M=64 意味着 M 方向铺了 4 个 m16 的 MMA Atom，TILE_N=64 则是 8 个 n8 的 Atom。4 个 warp 怎样瓜分这 4&times;8=32 个 Atom 实例？CuTe 的做法是通过 ThrLayout（线程 layout）声明分配策略——比如 (2,2) 的 warp 网格意味着 M 方向排 2 个 warp、N 方向排 2 个 warp，每个 warp 负责 32&times;32 的子 tile（即 2&times;4 个 Atom 实例）。如果选择 (4,1) 的分配，则 4 个 warp 沿 M 方向排列，每个 warp 处理 16&times;64 的长条——这种分配让每个 warp 访问 B 矩阵的相同列，有利于 B 的 smem 复用。选择哪种取决于 A 和 B 矩阵的 smem 布局和 bank conflict 情况。</p>
 
 <p>TiledCopy 类似——把 Copy_Atom 铺成 block 级的 smem 搬运操作。这层的关键贡献是自动计算每个 warp/线程需要处理的元素坐标，避免了手动的索引推导。看一个具体的 TiledCopy 用法——每个线程按 layout 分配从全局内存搬运数据到目标区域：</p>
 
@@ -339,9 +339,9 @@ struct TiledMMA_4Warp {
         int gm = bm + local_m;</code></pre>
 <p class="src-note">完整代码：<code>code/tl46-cutlass-cute/cute_layout.cu</code> 第 46&ndash;65 行</p>
 
-<p>这里每个线程处理 <code>elems_per_thread = 128&times;32/128 = 32</code> 个元素。在实际 CuTe 中，这个分配不是简单的连续划分——CuTe 的 TiledCopy 会根据 Copy_Atom 的向量化宽度（如 128-bit = 8 个 FP16）自动计算每个线程的访问偏移，保证每次 load/store 都是最大宽度的向量操作。如果不做向量化，128 个线程各自发出 32 次标量 load——总共 4096 次 32-bit 事务；向量化后每次 load 搬运 8 个 FP16（128-bit），只需 4096/8=512 次事务，HBM 带宽利用率差 8 倍。</p>
+<p>这里每个线程处理 <code>elems_per_thread = 128&times;32/128 = 32</code> 个元素。这个示意代码用的是最朴素的连续划分：线程 t 负责第 32t 到 32t+31 个元素，于是同一条指令里相邻线程访问的地址相隔 32 个元素，warp 的访存无法合并——这正是手写索引容易犯的错。CuTe 的 TiledCopy 由 Copy_Atom 的向量宽度（如 128 bit = 8 个 FP16）和线程 layout 一起决定每个线程的偏移，让每条指令既是向量访存、在 warp 内又是连续的。向量化本身把访存指令数从 4096 条 16 位 load 降到 512 条 128 位 load（1/8）。</p>
 
-<p><b>CollectiveMainloop / CollectiveEpilogue</b>：block 级的主循环和尾声（<a href="#fig-cutlass_gemm_flow">图 4</a>）。CollectiveMainloop 实现了沿 K 维度的分块循环——每次迭代加载 A 和 B 的一个 K-slice 到 smem，然后用 TiledMMA 计算部分和。关键是软件流水线的实现：在 Ampere 上使用 <code>cp.async</code> 的多级流水线（等价于我们在<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>手写的 multi-stage pipeline），数据路径为 GMEM → cp.async → SMEM → ldmatrix → Registers → mma.sync → Accum；在 Hopper 上使用 TMA + warp specialization——producer warp 负责 TMA 数据搬运（TMA 由硬件单元完成地址计算和搬运，warp 只需发射 TMA 指令和管理 barrier）、consumer warp 负责 wgmma 计算（Hopper 的 wgmma 可以直接从 smem 读取操作数，跳过了 ldmatrix 到寄存器这一步），通过 <code>mbarrier</code> 同步协调。CollectiveEpilogue 把累加器结果从寄存器经 smem 写回全局内存，期间通过 EVT 插入自定义的后处理操作。</p>
+<p><b>CollectiveMainloop / CollectiveEpilogue</b>：block 级的主循环和尾声（<a href="#fig-cutlass_gemm_flow">图 4</a>）。CollectiveMainloop 实现了沿 K 维度的分块循环——每次迭代加载 A 和 B 的一个 K-slice 到 smem，然后用 TiledMMA 计算部分和。关键是软件流水线的实现：在 Ampere 上使用 <code>cp.async</code> 的多级流水线（等价于我们在<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>手写的多级流水线），数据路径为 GMEM → cp.async → SMEM → ldmatrix → Registers → mma.sync → Accum；在 Hopper 上使用 TMA + warp specialization——producer warp 负责 TMA 数据搬运（TMA 由硬件单元完成地址计算和搬运，warp 只需发射 TMA 指令和管理 barrier）、consumer warp 负责 wgmma 计算（Hopper 的 wgmma 的 B 操作数必须、A 操作数可以直接从 smem 读取，省掉了 ldmatrix 到寄存器这一步），通过 <code>mbarrier</code> 同步协调。CollectiveEpilogue 把累加器结果从寄存器经 smem 写回全局内存，期间通过 EVT 插入自定义的后处理操作。</p>
 
 <figure id="fig-cutlass_gemm_flow" data-kind="diagram">
 <img aria-labelledby="fig-cutlass_gemm_flow-cap" src="figs/cutlass_gemm_flow.svg" alt="CUTLASS GEMM mainloop flow"/>
@@ -372,17 +372,17 @@ struct TiledMMA_4Warp {
 };</code></pre>
 <p class="src-note">完整代码：<code>code/tl46-cutlass-cute/cutlass_gemm_concept.cu</code> 第 12&ndash;31 行</p>
 
-<p><b>Device API（CollectiveBuilder）</b>：面向用户的最高层接口。程序员指定目标架构（Sm80/Sm90/Sm100）、数据类型、tile 形状和 epilogue 类型，CollectiveBuilder 根据这些参数自动选择对应的 Atom、TiledMMA、流水线策略和 smem 配置。对于标准的 GEMM 变体（GEMM、batched GEMM、grouped GEMM），CollectiveBuilder 通常能直接给出接近最优的配置，不需要手动选择内部组件。</p>
+<p><b>Device（<code>GemmUniversalAdapter</code>）</b>：最上层是主机端句柄，负责参数检查、workspace 和 kernel launch。实际使用时，通常先用 <b>CollectiveBuilder</b> 组装 Collective 层：指定目标架构（CUTLASS 仓库里的 builder 覆盖 Sm90、Sm100、Sm120 等，没有 Sm80 版本）、数据类型、tile 形状和 cluster 形状，builder 自动选择对应的 Atom、TiledMMA、流水线级数和 smem 配置；再把 mainloop 和 epilogue 交给 <code>kernel::GemmUniversal</code>，最后用 <code>device::GemmUniversalAdapter</code> 包装<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。对于标准的 GEMM 变体（GEMM、batched GEMM、grouped GEMM），builder 的默认选择通常是很好的起点。</p>
 
 <h2 id="sec-evt">EVT：可组合的 Epilogue</h2>
 
 <p>GEMM 的 epilogue——从累加器到最终输出的处理步骤——在实际部署中几乎不会是简单的 D = Acc。常见的 epilogue 模式包括：D = &alpha; &times; Acc + &beta; &times; C（标准 GEMM epilogue，<code>cublasSgemm</code> 的行为）、D = GELU(Acc + bias)（Transformer FFN 层，前向传播中最常见的后处理）、D = quantize(Acc)（FP8 推理，把 FP32 累加器量化为 FP8 输出以减少后续 kernel 的内存带宽需求）。更复杂的实际场景中，一个 epilogue 可能是多步组合：D = dequant(Acc) + residual → SiLU → requant——反量化矩阵乘结果、加上残差连接、经过 SiLU 激活函数、再重新量化为低精度输出。</p>
 
-<p>传统做法是为每种 epilogue 组合写一个独立的 kernel 变体——导致代码的组合爆炸。如果有 3 种量化方案、4 种激活函数和 2 种 bias 模式（行 bias vs 无 bias），就需要 3 &times; 4 &times; 2 = 24 个 epilogue 变体，每个都需要单独编写、测试和维护。CUTLASS 3.x 的 EVT（Epilogue Visitor Tree，<a href="#fig-evt_tree">图 5</a>）用组合模式解决了这个问题——把 epilogue 设计为一棵操作树：每个节点是一个 &ldquo;visitor&rdquo;（如 LinearCombination、GELU、BroadcastLoad、RowReduction），接收累加器 fragment 和当前元素坐标作为输入，输出处理后的 fragment 给下一个节点。C++ 编译器把整棵树通过模板内联成一个紧凑的 epilogue 循环——所有操作在一次 smem → register → gmem 的 pass 内完成，零额外的内存读写。</p>
+<p>传统做法是为每种 epilogue 组合写一个独立的 kernel 变体——导致代码的组合爆炸。如果有 3 种量化方案、4 种激活函数和 2 种 bias 模式（行 bias vs 无 bias），就需要 3 &times; 4 &times; 2 = 24 个 epilogue 变体，每个都需要单独编写、测试和维护。CUTLASS 的 EVT（Epilogue Visitor Tree，<a href="#fig-evt_tree">图 5</a>）用组合模式解决了这个问题——把 epilogue 设计为一棵操作树：每个节点是一个 &ldquo;visitor&rdquo;（Sm90 的实现里有 AccFetch、SrcFetch、RowBroadcast、Compute&lt;激活函数&gt;、AuxStore、RowReduction 等节点），接收累加器 fragment 和当前元素坐标作为输入，输出处理后的 fragment 给下一个节点。C++ 编译器把整棵树通过模板内联成一个紧凑的 epilogue 循环——所有操作在一次 epilogue pass 内完成：C、bias 这些输入照常读，最终结果只写一次，中间结果不落 HBM。</p>
 
 <figure id="fig-evt_tree" data-kind="diagram">
 <img aria-labelledby="fig-evt_tree-cap" src="figs/evt_tree.svg" alt="EVT tree"/>
-<figcaption id="fig-evt_tree-cap"><span class="fig-label">图 5</span><b>EVT 示例：D = GELU(&alpha;&middot;Acc + &beta;&middot;C) + bias。</b>整棵树在一次 epilogue pass 内融合执行——零额外的 kernel launch 和 HBM 读写。</figcaption>
+<figcaption id="fig-evt_tree-cap"><span class="fig-label">图 5</span><b>EVT 示例：D = GELU(&alpha;&middot;Acc + &beta;&middot;C) + bias。</b>整棵树在一次 epilogue pass 内融合执行——不需要额外的 kernel launch，中间结果不写回 HBM。</figcaption>
 </figure>
 
 <pre data-code="code/tl46-cutlass-cute/evt_epilogue.cu#L58-L76"><code>    half* D, const float* acc,
@@ -427,11 +427,11 @@ struct EVT_GELU {
         return 0.5f * x * (1.0f + tanhf(inner));
     }
 };</code></pre>
-<p class="src-note">完整代码：<code>code/tl46-cutlass-cute/evt_epilogue.cu</code> 第 28&ndash;46 行</p>
+<p class="src-note">完整代码：<code>code/tl46-cutlass-cute/evt_epilogue.cu</code> 第 27&ndash;46 行</p>
 
 <p>每个 visitor 的 <code>visit</code> 函数只做一件事——LinearComb 做线性组合，GELU 做激活函数。C++ 编译器在模板内联时把整棵树展开成一个循环体内的连续运算——没有虚函数调用、没有函数指针、没有间接跳转。这意味着 EVT 的&ldquo;组合&rdquo;是编译期的零开销抽象：24 种 epilogue 组合只需要 24 种类型实例化，每种生成的代码和手写的 fused epilogue 完全等价。如果不用 EVT 而是手写每个组合，不仅代码量爆炸（24 个几乎相同但微妙不同的函数），更危险的是维护时改了一个忘了另一个——EVT 从设计上消除了这类 bug。</p>
 
-<p>EVT 的实际价值在推理场景特别突出：一个典型的 LLM 推理 GEMM 可能需要 FP8 反量化 → 矩阵乘 → 加 bias → SiLU 激活 → FP8 重量化——如果每步一个 kernel，光 kernel launch 开销和 HBM 带宽浪费就会抹掉 GEMM 的加速。EVT 把这些全部融合进 GEMM 的 epilogue，对延迟敏感的推理场景至关重要。对比 Triton——Triton 不直接提供 EVT 这样的声明式 epilogue 组合机制，你需要手写 epilogue 的逻辑；但 Triton 的 epilogue 代码更简短直观，适合快速原型。</p>
+<p>EVT 的实际价值在推理场景特别突出：一个典型的 LLM 推理 GEMM 可能需要 FP8 反量化 → 矩阵乘 → 加 bias → SiLU 激活 → FP8 重量化——如果每步一个 kernel，光 kernel launch 开销和 HBM 带宽浪费就会抹掉 GEMM 的加速。EVT 把这些全部融合进 GEMM 的 epilogue，对延迟敏感的推理场景至关重要。对比 Triton——Triton 没有 EVT 这样的声明式 epilogue 组合机制，epilogue 直接写在 kernel 里；写起来更直观，适合快速原型。</p>
 
 <h2 id="sec-dsl-compare">DSL 横向对比</h2>
 
@@ -444,11 +444,11 @@ struct EVT_GELU {
 
 <p><b>Triton</b>——最高抽象层。块级 Python 编程，编译器自动处理 smem 分配和布局、合并访存、软件流水线、Tensor Core 指令选择。优势：开发效率最高（代码量远少于等价的 CUDA），autotune 自动搜索 tile 大小和资源参数的最优组合。劣势：无法使用 warp 级原语（没有 <code>__shfl_sync</code>）、TMA 通过张量描述符使用、barrier 不暴露，warp specialization 只能交给编译器自动做（文档写明目前只支持 Blackwell 上的简单矩阵乘循环，见<a href="../tl45-triton/tl45-triton.html">第 45 篇</a>）。适用场景：自定义 fused op 的快速原型和大多数生产部署——前提是在自己的形状上和厂商库对比后，性能可以接受。</p>
 
-<p><b>TileLang</b>——声明式 tile 计算图。用 Python DSL 描述 tile 之间的数据流和计算依赖，建在 TVM 编译栈上，生成 CUDA、HIP 等后端的代码。比 Triton 更结构化——你显式声明&ldquo;这个 tile 从全局内存加载到 smem、从 smem 加载到寄存器、做 MMA 计算、写回 smem、写回全局内存&rdquo;，每一步的数据 layout 和缓冲策略都可以控制。编译器在声明的数据流图上做优化——自动合并操作、选择流水线策略。比 Triton 更接近硬件，因为你能指定数据通过 smem 的具体方式；但比 CUTLASS 更容易上手，因为不需要理解 layout 代数。</p>
+<p><b>TileLang</b><span class="cite">[<a href="#ref-tilelang" title="Wang, L., Cheng, Y., Shi, Y., et al. (2025). TileLang: A Composable Tiled Programming Model for AI Systems. arXiv:2504.17577。">3</a>]</span>——tile 级的 Python 编程模型，建在 TVM 编译栈上，后端以 CUDA 为主，也支持 ROCm 等。它的设计要点是把<b>数据流</b>和<b>调度空间</b>（线程绑定、layout、tensorize、流水线）分开：用户显式写出 tile 在全局内存、smem、寄存器之间怎么搬、在哪里做 MMA，调度相关的选择则以注解和原语的形式给出，多数交给编译器。比 Triton 更接近硬件，因为数据经过哪一级存储是你写出来的；又比 CUTLASS 容易上手，因为不需要直接操作 layout 代数。</p>
 
-<p><b>ThunderKittens <span class="cite">[<a href="#ref-thunderkittens" title="Spector &amp; Re (2024). ThunderKittens: Simple, Fast, and Adorable AI Kernels. Stanford.">3</a>]</span></b>（Stanford）——warp 级 C++ DSL。操作粒度是 warp tile（通常 16&times;16 的数据块），提供 <code>load</code>、<code>mma</code>、<code>store</code>、<code>mul</code>、<code>row_sum</code> 等 warp 级别的原语。比 CUTLASS 更简洁（不需要理解 layout 代数和模板元编程），比 Triton 更接近硬件（能直接控制 warp 级行为和寄存器 tile 的形状）。设计上特别适合注意力机制的变体——线性注意力、稀疏注意力、因果注意力等——这些 kernel 的核心是 warp 级的矩阵乘和归约的灵活组合。</p>
+<p><b>ThunderKittens <span class="cite">[<a href="#ref-thunderkittens" title="Spector, Arora, Singhal, Fu &amp; Ré (2024). ThunderKittens: Simple, Fast, and Adorable AI Kernels. arXiv:2410.20399.">4</a>]</span></b>（Stanford）——嵌在 CUDA C++ 里的小型框架。论文把它的抽象对应到 GPU 的三个层级：warp 级以 16&times;16 的矩阵 tile 为基本数据结构，提供类似 PyTorch 的 tile 运算；thread block 级提供一个让多个 warp 的异步操作相互重叠的模板；grid 级帮助隐藏 block 启动/退出和访存的开销。比 CUTLASS 更简洁（不需要直接操作 layout 代数），比 Triton 更接近硬件（能直接控制 warp 级行为和寄存器 tile）。论文里的例子覆盖 GEMM、注意力、线性注意力和状态空间模型，其中 GEMM 与注意力推理与 cuBLAS、FlashAttention-3 持平<span class="cite">[<a href="#ref-thunderkittens" title="Spector, Arora, Singhal, Fu &amp; Ré (2024). ThunderKittens: Simple, Fast, and Adorable AI Kernels. arXiv:2410.20399.">4</a>]</span>。</p>
 
-<p><b>CUTLASS/CuTe</b>——layout 代数 C++ 模板库。提供从 Atom 到 Kernel 的完整五层抽象，通过 CuTe 的 layout 系统统一管理全局内存、smem 和寄存器文件中数据的物理布局。优势：能利用 GPU 的所有硬件特性（TMA 描述符、warp specialization、cluster 级 smem 共享、persistent kernel）、epilogue 高度可定制（EVT 允许零开销组合任意后处理操作）、性能接近手写 PTX 内联汇编。劣势：学习曲线在所有 DSL 中最陡峭——C++ 模板元编程重度使用导致编译错误信息极长、layout 代数的数学概念需要时间消化、从 2.x 到 3.x 的接口变化较大。适合需要最佳性能且愿意投入工程时间的核心推理 kernel（GEMM、attention、MoE dispatch）。</p>
+<p><b>CUTLASS/CuTe</b>——layout 代数 C++ 模板库。提供从 Atom 到 Kernel 的完整五层抽象，通过 CuTe 的 layout 系统统一管理全局内存、smem 和寄存器文件中数据的物理布局。优势：新硬件特性通常最先在这里得到完整封装（TMA、warp specialization、cluster、persistent kernel、Blackwell 的 TMEM 与 tcgen05）、epilogue 高度可定制（EVT）。劣势：学习曲线最陡峭——C++ 模板元编程重度使用导致编译错误信息极长、layout 代数的数学概念需要时间消化、2.x 与 3.x 是两套编程模型。4.x 起的 CuTe DSL 把同一套抽象搬到了 Python，降低了一部分门槛<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。适合需要最佳性能且愿意投入工程时间的核心推理 kernel（GEMM、attention、MoE dispatch）。</p>
 
 <p><b>Raw CUDA + inline PTX</b>——最低层。完全控制每个线程的行为、每条指令的发射时机、每个寄存器的分配。当以上所有抽象都不满足需求时——比如自定义的 barrier 同步模式（Hopper 的 <code>mbarrier</code>）、特殊的 load/store 策略（<code>ld.global.nc</code> 非缓存 load）、或者尚未被任何 DSL 支持的新一代硬件特性——才需要回到这一层。本系列前 44 篇主要在这个层次工作，目的是建立理解底层的基础。</p>
 
@@ -456,7 +456,7 @@ struct EVT_GELU {
 
 <table>
 <thead>
-<tr><th>工具</th><th>能控制到的层次</th><th>开发时间</th><th>适用场景</th></tr>
+<tr><th>工具</th><th>能控制到的层次</th><th>开发成本（粗略经验）</th><th>适用场景</th></tr>
 </thead>
 <tbody>
 <tr><td>CUTLASS/CuTe</td><td>全部硬件特性（TMA、warp 特化、cluster）</td><td>周级别</td><td>核心推理 kernel、库开发</td></tr>
@@ -472,36 +472,36 @@ struct EVT_GELU {
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的 CUTLASS</h2>
 
-<p>CUTLASS 3.x 对 Hopper 的支持是各种 DSL 和库中最完整的。核心 Hopper 特性的利用包括：TMA 描述符的创建和使用（把多维张量的地址计算和数据搬运卸载到专用硬件单元，减轻 warp 的负载）、warp specialization（producer-consumer 模式——一部分 warp 专门负责通过 TMA 把数据从 HBM 加载到 smem，另一部分 warp 专门负责从 smem 读取数据做 MMA 计算，两组 warp 通过 <code>mbarrier</code> 同步实现流水线式的数据预取和计算重叠）、cluster 级 smem 共享（多个 SM 组成 cluster，一个 SM 可以直接访问另一个 SM 的 smem，实现更大的有效 tile 而不需要经过 L2 cache）、persistent kernel（block 在完成一个 tile 后从全局的 tile scheduler 获取下一个 tile 继续计算，避免了 kernel 重新 launch 的开销，支持 stream-K 等动态负载均衡策略）。这些特性组合起来，是 CUTLASS 在 Hopper 上接近厂商库性能的基础。</p>
+<p>CUTLASS 3.x 对 Hopper 特性的封装很完整。核心 Hopper 特性的利用包括：TMA 描述符的创建和使用（把多维张量的地址计算和数据搬运卸载到专用硬件单元，减轻 warp 的负载）、warp specialization（producer-consumer 模式——一部分 warp 专门负责通过 TMA 把数据从 HBM 加载到 smem，另一部分 warp 专门负责从 smem 读取数据做 MMA 计算，两组 warp 通过 <code>mbarrier</code> 同步实现流水线式的数据预取和计算重叠）、cluster 级 smem 共享（多个 SM 组成 cluster，一个 SM 可以直接访问另一个 SM 的 smem，实现更大的有效 tile 而不需要经过 L2 cache）、persistent kernel（block 在完成一个 tile 后从全局的 tile scheduler 获取下一个 tile 继续计算，避免了 kernel 重新 launch 的开销，支持 stream-K 等动态负载均衡策略）。这些特性组合起来，是 CUTLASS 在 Hopper 上做出高性能 GEMM 的基础。</p>
 
-<p>CUTLASS 4.x（仍在活跃开发中）引入了 Blackwell 支持——B200 的 WGMMA 新指令集（更大的 MMA 原子尺寸和更高的吞吐量）、TMA multicast（一次 TMA 操作同时加载到 cluster 内多个 SM 的 smem，减少重复的 HBM 读取）、以及更大的 tile size（利用 Hopper 起每个 SM 最多 228 KB 的 shared memory <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）。对于需要在最新硬件上达到最佳性能的团队，CUTLASS 是 Triton 之外的主要选择——代价是显著更高的开发、调试和维护成本，特别是跨版本升级时接口兼容性的处理需要额外的工程投入。</p>
+<p>Blackwell 支持从 CUTLASS 3.8 开始：CuTe 新增了第 5 代 Tensor Core 指令 <code>tcgen05</code> 的 MMA atom、Blackwell 的 TMA 扩展、把 TMEM 作为一等数据位置，以及基于 Cluster Launch Control 的动态 persistent 调度和 NVFP4/MXFP8 等块缩放格式<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。注意 Blackwell 的 MMA 不是 WGMMA 的延续，而是累加器放在 TMEM 里的 <code>tcgen05.mma</code>（见<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>）；TMA multicast 则是 Hopper 就有的特性。CUTLASS 4.0 在此基础上推出 CuTe DSL，官方示例里已有 Blackwell 的 persistent GEMM、grouped GEMM 和 FMHA<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。对于需要在最新硬件上达到最佳性能的团队，CUTLASS 是 Triton 之外的主要选择——代价是更高的开发、调试和维护成本。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：CUTLASS 的抽象层次是什么？</b></p>
-<p>五层，从底向上：Atom（单条硬件 MMA/Copy 指令）→ TiledMMA/TiledCopy（warp 和 block 内 tile 化）→ CollectiveMainloop/Epilogue（block 级主循环和尾声，含流水线）→ Kernel（grid 调度、tile scheduler）→ Device API（CollectiveBuilder，用户接口）。追问：CollectiveBuilder 做了什么？根据用户指定的架构和数据类型，自动选择 MMA 原子、流水线策略（Sm80 用 cp.async 多级流水线、Sm90 用 TMA + warp specialization）、smem 配置和 epilogue 类型。</p>
+<p>五层，从底向上：Atom（单条硬件 MMA/Copy 指令）→ TiledMMA/TiledCopy（warp 和 block 内 tile 化）→ Collective（CollectiveMainloop/Epilogue：block 级主循环和尾声，含流水线）→ Kernel（<code>GemmUniversal</code>：grid 调度、tile scheduler）→ Device（<code>GemmUniversalAdapter</code>：主机端句柄）。追问：CollectiveBuilder 做了什么？它是组装 Collective 层的辅助模板：根据架构、数据类型、tile 和 cluster 形状，自动选择 MMA 原子、流水线级数和 smem 配置——例如 Sm90 上选 TMA + warp specialization 的 mainloop。仓库里的 builder 从 Sm90 开始，Ampere 的 3.x mainloop 需要手动指定组件。</p>
 
 <p id="sec-q2"><b>Q2：CuTe 的 layout 代数为什么有用？</b></p>
-<p>Layout = (Shape, Stride) 统一了 gmem、smem 和寄存器文件中数据的物理分布描述。通过 layout 的 composition（组合），可以精确计算每个线程在 tile 中负责的元素坐标、smem 地址（含 swizzle）和寄存器 fragment 的映射——所有这些在编译期完成，运行期只剩下必要的整数运算。传统 CUDA 中这些索引计算是手动推导的，容易出错且难以维护——CuTe 把它系统化了。追问：swizzle 在 layout 中怎么表达？通过 Swizzle&lt;B, M, S&gt; 函数——对地址的指定位做 XOR 变换，编码进 layout 类型，编译器自动在所有 smem 访问中应用。</p>
+<p>Layout = (Shape, Stride) 统一了 gmem、smem 和寄存器文件中数据的物理分布描述。通过 layout 的 composition（组合），可以精确计算每个线程在 tile 中负责的元素坐标、smem 地址（含 swizzle）和寄存器 fragment 的映射——所有这些在编译期完成，运行期只剩下必要的整数运算。传统 CUDA 中这些索引计算是手动推导的，容易出错且难以维护——CuTe 把它系统化了。追问：swizzle 在 layout 中怎么表达？通过 Swizzle&lt;B, M, S&gt;——把第 M+S 起的 B 位 XOR 到第 M 起的 B 位上，它和普通 layout 组合成 smem 的 layout，凡是通过这个 layout 访问 smem 的地方都会自动带上这个变换。</p>
 
 <p id="sec-q3"><b>Q3：EVT 解决了什么问题？</b></p>
-<p>把 GEMM 之后的操作（bias 加法、activation、量化/反量化、残差连接）融合进一次 epilogue pass——避免额外的 kernel launch 和 HBM 读写。设计为操作树——每个节点是一个 visitor，接收 fragment 和坐标、输出处理后的 fragment，编译器把整棵树内联。对比 Triton——Triton 没有声明式 epilogue 组合机制，需要手写 epilogue 逻辑，但代码更简洁直观。追问：EVT 的限制？树中的每个操作必须是逐元素或广播的——不支持 epilogue 中的归约或跨行操作（这些需要额外的 kernel）。</p>
+<p>把 GEMM 之后的操作（bias 加法、activation、量化/反量化、残差连接）融合进一次 epilogue pass——避免额外的 kernel launch 和 HBM 读写。设计为操作树——每个节点是一个 visitor，接收 fragment 和坐标、输出处理后的 fragment，编译器把整棵树内联。对比 Triton——Triton 没有声明式 epilogue 组合机制，需要手写 epilogue 逻辑，但代码更简洁直观。追问：EVT 的限制？节点操作的是当前输出 tile。逐元素运算、广播、辅助张量的读写都能在 tile 内完成；EVT 也有行/列/标量归约节点，但每个 tile 只能贡献部分和，需要跨 tile 归并（典型如整行 softmax 需要先知道整行最大值）的计算无法在一次 epilogue 里闭合，要么借助原子累加的部分结果，要么另起 kernel。</p>
 
 <p id="sec-q4"><b>Q4：你会如何选择 GPU kernel DSL？</b></p>
-<p>根据性能需求和开发预算做选型决策：大多数自定义 fused op 用 Triton（代码量少、autotune 自动调参、Python 生态方便调试）；核心推理 GEMM 和 attention 用 CUTLASS（EVT 可定制 epilogue 实现零开销的后处理融合、完整利用 Hopper/Blackwell 硬件特性）；需要 warp 级控制但不想处理 CUTLASS 模板元编程复杂度的中间场景用 ThunderKittens；只有在所有抽象都不满足需求时才回到 Raw CUDA。追问：什么情况下 ThunderKittens 比 CUTLASS 更合适？需要快速实现注意力机制的变体（如线性注意力、稀疏注意力、因果注意力的自定义 mask 模式）且对 CUTLASS 的模板元编程不熟悉时——ThunderKittens 的 warp 级 API 更直观，开发速度介于 Triton 和 CUTLASS 之间。但 ThunderKittens 目前对 epilogue 的定制能力不如 CUTLASS 的 EVT 灵活，且社区规模较小。</p>
+<p>根据性能需求和开发预算做选型决策：大多数自定义 fused op 用 Triton（代码量少、autotune 自动调参、Python 生态方便调试）；核心推理 GEMM 和 attention 用 CUTLASS（EVT 可定制 epilogue 实现零开销的后处理融合、完整利用 Hopper/Blackwell 硬件特性）；需要 warp 级控制但不想处理 CUTLASS 模板元编程复杂度的中间场景用 ThunderKittens；只有在所有抽象都不满足需求时才回到 Raw CUDA。追问：什么情况下 ThunderKittens 比 CUTLASS 更合适？需要快速实现注意力机制的变体（如线性注意力、稀疏注意力、因果注意力的自定义 mask 模式）且对 CUTLASS 的模板元编程不熟悉时——ThunderKittens 的 warp 级 API 更直观，开发速度介于 Triton 和 CUTLASS 之间。</p>
 
 <p id="sec-q5"><b>Q5：CUTLASS 的学习路径应该怎么走？</b></p>
 <p>建议从上到下：先用 CollectiveBuilder 搭一个标准 GEMM（不需要理解内部细节），验证它跑起来并理解输入输出接口。然后阅读 CuTe 的 layout 教程，理解 (Shape, Stride) 的含义和 composition 操作——这是所有后续工作的数学基础。接下来尝试自定义 epilogue（用 EVT 组合一个 bias + GELU 的 epilogue），这是最常见的定制需求。最后深入 CollectiveMainloop 和 TiledMMA——只有在需要修改主循环逻辑（如自定义的 K-分块策略或异步流水线行为）时才需要触及这些层。不要一上来就看 Atom 层的 PTX 指令封装——那是 CUTLASS 开发者而非使用者关心的层次。</p>
 
 <p id="sec-q6"><b>Q6：CUTLASS 2.x 和 3.x 的本质区别是什么？</b></p>
-<p>数据布局的表达方式不同。2.x 用 <code>ThreadblockShape</code>、<code>WarpShape</code>、<code>InstructionShape</code> 三个硬编码的形状参数描述 tile 层次——每个 tile 大小组合需要手动验证对齐和约束。3.x 用 CuTe 的 layout 代数统一描述所有层次——Atom、Tiled、Collective 的 tile 分割、线程映射和数据搬运都是 layout composition 的结果。这个变化的工程意义是：2.x 新增一种 MMA 指令或流水线策略需要添加大量显式的 tile 映射代码，而 3.x 只需定义新的 Atom layout，上层的 TiledMMA 和 Collective 自动通过 layout composition 推导出正确的映射。代价是 3.x 的代码依赖更深的 C++ 模板嵌套——一个编译错误可能展开上千行模板实例化信息，调试更难。追问：从 2.x 迁移到 3.x 的主要障碍是什么？API 完全不兼容——2.x 的 <code>cutlass::gemm::device::Gemm</code> 和 3.x 的 <code>cutlass::gemm::collective::CollectiveMma</code> 是完全不同的接口。核心算法逻辑（tile 大小选择、数据类型组合）可以复用，但框架代码需要重写。CUTLASS 官方提供了 2.x → 3.x 的迁移指南和等价示例。</p>
+<p>数据布局的表达方式不同。2.x 用 <code>ThreadblockShape</code>、<code>WarpShape</code>、<code>InstructionShape</code> 三个形状参数描述以架构为中心的 tile 层次。3.x 用 CuTe 的 layout 代数统一描述所有层次——Atom、Tiled、Collective 的 tile 分割、线程映射和数据搬运都由 layout 运算推出，官方设计文档称之为把接口层次与硬件解耦<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>。工程意义是：接入新的 MMA 指令时，主要工作集中在定义它的 Atom（及其 layout），上层的 TiledMMA 和 Collective 可以复用。代价是 3.x 的代码依赖更深的 C++ 模板嵌套——一个编译错误可能展开上千行模板实例化信息，调试更难。追问：从 2.x 迁移到 3.x 的主要障碍是什么？两者是不同的编程模型：2.x 的 kernel 由 threadblock/warp 级的组件拼成，3.x 的 kernel 由 CollectiveMma + CollectiveEpilogue 组装进 <code>kernel::GemmUniversal</code>。不过 CUTLASS 3.0 保持了向后兼容：2.x 和 3.x 的 kernel 都可以通过同一个 <code>device::GemmUniversalAdapter</code> 使用<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。">1</a>]</span>，所以不必一次性重写；Hopper 及以后的新特性则只在 3.x 的写法里提供。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本文的代码是 CUTLASS/CuTe 概念的<b>简化演示</b>——实际 CUTLASS 代码重度使用 C++ 模板元编程（variadic templates、SFINAE、constexpr if、fold expressions），编译需要 NVCC 和 CUTLASS 头文件，编译时间较长（模板实例化开销大）。</li>
-<li>CollectiveBuilder 的完整 API 和可配置选项未详细展示——参数较多且随版本变化（3.x 到 4.x 有接口变更），参见 CUTLASS 官方示例和迁移指南。</li>
-<li>CUTLASS 的 profiling 和调试工具（cutlass_profiler、CUTLASS Python 接口、CUTLASS Emitter 用于调试中间表示）未覆盖。实际开发中这些工具对诊断性能问题很重要。</li>
+<li>CollectiveBuilder 的完整 API 和可配置选项未详细展示——参数较多且随版本变化，参见 CUTLASS 官方示例。</li>
+<li>CUTLASS 的 profiling 工具（cutlass_profiler）和 Python 接口、CuTe DSL 的具体写法未覆盖。</li>
 <li>TileLang、ThunderKittens 的代码示例未展示——重点在定位它们在 GPU kernel DSL 谱系中的位置和适用场景，详细用法参见各自的文档和官方教程。</li>
 <li>Stream-K tile scheduling（动态负载均衡，适合非方阵或不均匀 tile 分布的场景）、grouped GEMM（一次 kernel launch 处理多个不同大小的 GEMM，适合 MoE 推理）等高级 CUTLASS 特性从略。</li>
 </ul>
@@ -512,7 +512,7 @@ struct EVT_GELU {
 
 <p>CUTLASS 的五层抽象让你可以在合适的层次插入自定义逻辑——需要自定义后处理用 EVT 组合 visitor 节点、需要自定义主循环策略用 CollectiveMainloop、需要自定义 MMA 的线程分布用 TiledMMA、需要新的硬件指令用 Atom。大多数使用者只需要最上面两层（CollectiveBuilder + EVT），少数需要深入到 Collective 层定制主循环。掌握了 layout 代数的核心思想——任何数据分布都可以用 (Shape, Stride) + Swizzle 精确描述——就掌握了 CUTLASS 的数学基础，剩下的是工程细节和 API 熟悉度。</p>
 
-<p>从编译时间的角度看，CUTLASS 的重度模板元编程带来了显著的编译开销：一个完整的 CUTLASS GEMM 实例化可能需要 30 秒到 2 分钟的编译时间（取决于配置复杂度和 epilogue 树的深度），而等价的 Triton kernel 编译只需几秒。对于需要频繁修改和测试 epilogue 逻辑的开发周期，这个编译延迟会严重影响迭代效率——这是选择 CUTLASS 的一个常被忽略的隐性成本。
+<p>从编译时间的角度看，CUTLASS 的重度模板元编程会带来明显的编译开销，epilogue 树越复杂、实例化越多，编译越慢；对于需要频繁修改和测试 epilogue 逻辑的开发周期，这个延迟会影响迭代效率——这是选择 CUTLASS 的一个常被忽略的隐性成本。
 
 在 GPU kernel DSL 谱系中，没有&ldquo;最好&rdquo;的选择——只有在给定性能要求、开发预算和团队技能约束下最适合的选择。理解每个工具的能力边界和适用场景，比精通任何单一工具更有价值——因为实际工程中你几乎总会同时使用多个层次的工具。下一篇讨论如何把写好的 CUDA/Triton kernel 打包成 PyTorch 可调用的自定义算子——从 kernel 写好到工程落地的最后一公里。</p>
 
@@ -528,10 +528,10 @@ struct EVT_GELU {
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-cutlass">NVIDIA. <a href="https://github.com/NVIDIA/cutlass">CUTLASS: CUDA Templates for Linear Algebra Subroutines</a>. GitHub.</li>
-  <li id="ref-cute">Thakkar et al. (2023). <a href="https://research.nvidia.com/publication/2023-06_cute-layout-algebra-implementation-efficient-dense-linear-algebra-gpus">CuTe: A Layout Algebra for Efficient Dense Linear Algebra on GPUs</a>. NVIDIA Tech Report.</li>
-  <li id="ref-thunderkittens">Spector &amp; Re (2024). <a href="https://arxiv.org/abs/2407.11722">ThunderKittens: Simple, Fast, and Adorable AI Kernels</a>. Stanford.</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-cutlass">NVIDIA. <a href="https://github.com/NVIDIA/cutlass">CUTLASS: CUDA Templates for Linear Algebra Subroutines</a>. GitHub（2026-11 查阅）。本篇引用：<code>CHANGELOG.md</code>（3.0.0 引入 CuTe 与 3.x API、保持 2.x 兼容；3.8.0 Blackwell SM100；4.0.0 CuTe DSL）、<code>media/docs/cpp/gemm_api_3x.md</code>（五层 API）、<code>media/docs/cpp/cutlass_3x_design.md</code>、<code>include/cute/swizzle.hpp</code>、<code>include/cutlass/gemm/collective/builders/</code>、<code>include/cutlass/epilogue/fusion/sm90_visitor_*.hpp</code>。</li>
+  <li id="ref-cute">Cecka (2026). <a href="https://arxiv.org/abs/2603.02298">CuTe Layout Representation and Algebra</a>. arXiv:2603.02298。</li>
+  <li id="ref-tilelang">Wang, L., Cheng, Y., Shi, Y., et al. (2025). <a href="https://arxiv.org/abs/2504.17577">TileLang: A Composable Tiled Programming Model for AI Systems</a>. arXiv:2504.17577。</li>
+  <li id="ref-thunderkittens">Spector, Arora, Singhal, Fu &amp; R&eacute; (2024). <a href="https://arxiv.org/abs/2410.20399">ThunderKittens: Simple, Fast, and Adorable AI Kernels</a>. arXiv:2410.20399.</li>
 </ol>
 
 </article>

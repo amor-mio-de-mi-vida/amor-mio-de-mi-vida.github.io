@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -230,9 +230,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>Winograd 用变换域里的加法换掉一部分乘法，最常用的小块版本把乘法次数降到原来的一半以下；代价是额外的加法和数值误差放大，所以半精度下只用最小的块。GPU 实现把变换域的逐元素乘打包成 batched GEMM，可以用 Tensor Core。</li>
-<li>FFT 卷积在 kernel &ge; 7 时理论有优势（O(N log N) vs O(NK)），但实际在 GPU 上很少比 implicit GEMM 快——填充到 2 的幂、复数翻倍内存、cuFFT 开销等因素让 cuDNN 只在极大 kernel 时选它。</li>
-<li>转置卷积（deconv）用于上采样，实现上就是 dgrad（前一篇的反向 GEMM），或等价地对输入插零后做标准卷积。stride=2 + 3&times;3 filter 产生 checkerboard artifact。</li>
+<li>Winograd 用变换域里的加法换掉一部分乘法，最常用的小块版本把乘法次数降到原来的一半以下；代价是额外的加法、变换流量和随块增大的误差放大。GPU 实现把变换域的逐元素乘打包成 batched GEMM；cuDNN 在 Hopper 之后已不再支持其 WINOGRAD 前向算法。</li>
+<li>FFT 卷积把乘法数从与 kernel 面积成正比降到与 log 成正比，但在 CNN 的小 kernel 上，填充、复数、频域权重的巨大 workspace 和逐频率的小矩阵乘让它很少胜出；它的主场是长序列、长 kernel 的 1D 卷积。</li>
+<li>转置卷积（deconv）用于上采样，实现上就是 dgrad（前一篇的反向 GEMM），或等价地对输入插零后做标准卷积。kernel 尺寸不能被 stride 整除时（如 stride=2 + 3&times;3）容易产生 checkerboard artifact。</li>
 <li>可变形卷积（DCN）让采样位置可学习——前向需要双线性插值，反向的梯度散射用 atomicAdd，是非确定性的来源之一。因果 conv1d 是 Mamba/SSM 的关键组件，短 kernel 完全带宽受限。</li>
   </ul>
 </div>
@@ -285,7 +285,7 @@ __device__ void output_transform_1d(
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cv32-winograd-special-conv/winograd_f2x3.cu</code> 第 11–39 行（未在 GPU 上运行）</p>
 
-<p><code>input_transform_1d</code> 做 \(V = B^T d\)：4 个输入元素 &rarr; 4 个变换域元素，只有 4 次加减。<code>filter_transform_1d</code> 做 \(U = G g\)：3 个 filter 元素 &rarr; 4 个变换域元素，有 2 次乘法（&times;0.5f）但可以预计算。<code>output_transform_1d</code> 做 \(Y = A^T M\)：4 个变换域元素 &rarr; 2 个输出元素，3 次加减。核心的省乘法发生在变换域的逐元素乘：<code>M[i] = U[i] * V[i]</code>——4 次乘法代替原本的 6 次。</p>
+<p><code>input_transform_1d</code> 做 \(V = B^T d\)：4 个输入元素 &rarr; 4 个变换域元素，只有 4 次加减。<code>filter_transform_1d</code> 做 \(U = G g\)：3 个 filter 元素 &rarr; 4 个变换域元素，有 2 次乘法（&times;0.5f）但可以预计算。<code>output_transform_1d</code> 做 \(Y = A^T M\)：4 个变换域元素 &rarr; 2 个输出元素，4 次加减。核心的省乘法发生在变换域的逐元素乘：<code>M[i] = U[i] * V[i]</code>——4 次乘法代替原本的 6 次。</p>
 
 <p>把三个变换串起来，就是每个线程处理一个 2 元素输出 tile 的 1D kernel 主体：</p>
 
@@ -308,17 +308,17 @@ __device__ void output_transform_1d(
   output_transform_1d(M, Y);</code></pre>
 <p class="src-note">完整代码：<code>code/cv32-winograd-special-conv/winograd_f2x3.cu</code> 第 54&ndash;70 行（未在 GPU 上运行）</p>
 
-<p>这段代码把 Winograd 的全部成本摊开在眼前。每个线程读 4 个输入（其中 2 个与相邻 tile 重叠）、读 3 个权重、做 4 次加减的输入变换、2 次乘法 + 4 次加减的滤波器变换、4 次乘法、3 次加减的输出变换——总计 6 次乘法和 11 次加减，换来 2 个输出。直接做只需 6 次乘法、4 次加法。<b>在这个教学版本里 Winograd 反而更贵</b>，原因是滤波器变换在每个线程里都重算了一遍。所有处理同一通道的线程拿到的 U 完全相同，把它提到 kernel 之外预计算（推理时只做一次），每个 tile 的乘法才真正降到 4 次。这说明 Winograd 的收益有前提：滤波器变换必须被大量 tile 共享摊薄，否则省下的乘法会被变换开销吞掉。2D 情况下这个账更明显：每个 4&times;4 tile 的输入变换要 \(2 \times 4 \times 4 = 32\) 次加减，换来乘法从 36 降到 16；只有当乘法比加法贵（早期 CPU）或乘法被打包成 GEMM 跑在 Tensor Core 上时，这笔交易才划算。在 CUDA core 上 FMA 和加法吞吐相同，单纯&ldquo;少几个乘法&rdquo;几乎没有收益——GPU 上的 Winograd 必须走下面的 batched GEMM 路线。</p>
+<p>这段代码把 Winograd 的全部成本摊开在眼前。每个线程读 4 个输入（其中 2 个与相邻 tile 重叠）、读 3 个权重、做 4 次加减的输入变换、2 次乘法 + 4 次加减的滤波器变换、4 次乘法、4 次加减的输出变换——总计 6 次乘法和 12 次加减，换来 2 个输出。直接做只需 6 次乘法、4 次加法。<b>在这个教学版本里 Winograd 反而更贵</b>，原因是滤波器变换在每个线程里都重算了一遍。所有处理同一通道的线程拿到的 U 完全相同，把它提到 kernel 之外预计算（推理时只做一次），每个 tile 的乘法才真正降到 4 次。这说明 Winograd 的收益有前提：滤波器变换必须被大量 tile 共享摊薄，否则省下的乘法会被变换开销吞掉。2D 情况下这个账更明显：Lavin 与 Gray 统计 F(2&times;2, 3&times;3) 每个 tile 的输入变换要 32 次加法、输出变换 24 次加法，换来乘法从 36 降到 16<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>；只有当乘法比加法贵（早期 CPU）或乘法被打包成 GEMM 跑在 Tensor Core 上时，这笔交易才划算。在 CUDA core 上 FMA 和加法吞吐相同，单纯&ldquo;少几个乘法&rdquo;几乎没有收益——GPU 上的 Winograd 必须走下面的 batched GEMM 路线。</p>
 
 <p>推广到 2D：F(2&times;2, 3&times;3) 处理 4&times;4 的输入 patch 和 3&times;3 的 filter，产生 2&times;2 的输出。输入变换变成 \(V = B^T d B\)（两次矩阵乘），逐元素乘变成 4&times;4 = 16 次，输出变换是 \(Y = A^T M A\)。直接做需要 \(2^2 \times 3^2 = 36\) 次乘法，Winograd 只需 16 次——节省 2.25&times;。</p>
 
 <h3 id="sec-2">GPU 上的批量 Winograd</h3>
 
-<p>上面的 per-tile 代码只是教学版。实际的 cuDNN Winograd 实现把多个 tile 和通道打包成<b>大矩阵乘法</b>（<a href="#fig-winograd_batched_gemm">图 2</a>）：</p>
+<p>上面的 per-tile 代码只是教学版。Lavin 与 Gray 的 GPU 实现把多个 tile 和通道打包成<b>矩阵乘法</b>：变换域的每个位置对应一个独立的 GEMM，在通道维度上做归约<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>（<a href="#fig-winograd_batched_gemm">图 2</a>）：</p>
 
 <figure id="fig-winograd_batched_gemm" data-kind="diagram">
 <img aria-labelledby="fig-winograd_batched_gemm-cap" src="figs/winograd_batched_gemm.svg" alt="Winograd batched GEMM"/>
-<figcaption id="fig-winograd_batched_gemm-cap"><span class="fig-label">图 2</span><b>Winograd F(2&times;2, 3&times;3) 的 GPU 实现：</b>把所有 tile 的变换结果拼成矩阵，做 16 个 batched GEMM（可以用 Tensor Core），最后逆变换。核心计算从逐元素乘变成 GEMM。</figcaption>
+<figcaption id="fig-winograd_batched_gemm-cap"><span class="fig-label">图 2</span><b>Winograd F(2&times;2, 3&times;3) 的 GPU 实现：</b>把所有 tile 的变换结果拼成矩阵，做 16 个 batched GEMM（可以用 Tensor Core），最后逆变换。核心计算从逐元素乘变成 GEMM。图中 FLOP 数按公式算出，只计乘加，不计变换。</figcaption>
 </figure>
 
 <ol>
@@ -328,40 +328,40 @@ __device__ void output_transform_1d(
 <li>对每个 tile 做逆变换 \(Y = A^T M A\)，得到 2&times;2 的输出。</li>
 </ol>
 
-<p>这样 Winograd 的核心计算变成了 batched GEMM——可以用 Tensor Core 加速。以 ResNet layer3（C_in=C_out=128, 56&times;56 输出）为例，tiles = 28&times;28 = 784（每个 tile 覆盖 2&times;2 输出）。每个 GEMM 的维度是 [128, 128] &times; [128, 784]——矩阵够大，Tensor Core 利用率高。</p>
+<p>这样 Winograd 的核心计算变成了 batched GEMM——可以用 Tensor Core 加速。以 C_in=C_out=128、56&times;56 输出、batch=1 为例，tiles = 28&times;28 = 784（每个 tile 覆盖 2&times;2 输出）。每个 GEMM 的维度是 [128, 128] &times; [128, 784]；16 个 GEMM 共 \(16 \times 128^2 \times 784 \times 2 \approx 411\) MFLOP，直接卷积是 \(128^2 \times 9 \times 56^2 \times 2 \approx 925\) MFLOP，正好差 2.25 倍。</p>
 
-<p><b>变换步骤的带宽瓶颈</b>：虽然 16 个 GEMM 可以高效执行，但输入变换（步骤 1）和输出逆变换（步骤 4）是带宽密集的。输入变换需要从全局内存读取 4&times;4 patch 并写入变换结果——每个 patch 16 个 float，tiles &times; C_in 个 patch。而且相邻 tile 有重叠：2&times;2 输出的 4&times;4 patch 与相邻 patch 共享 2 行/列输入，重叠率 50%。这意味着同一输入元素被变换步骤读取多次——实际带宽消耗比&ldquo;读一次输入&rdquo;多 2&times; 左右。cuDNN 通过 shared memory 缓存重叠区域来减少冗余读取，但变换步骤仍然是整个 Winograd pipeline 的瓶颈——对 C=128 的层，变换步骤约占总时间的 30&ndash;40%。</p>
+<p><b>变换步骤的带宽代价</b>：16 个 GEMM 可以高效执行，但输入变换（步骤 1）和输出逆变换（步骤 4）是 memory-bound 的。F(2&times;2, 3&times;3) 中相邻 4&times;4 patch 以步长 2 滑动，每个输入元素（边缘除外）落在 4 个 patch 里；变换后的 V 共有 16 个元素/tile，而每个 tile 只对应 4 个输入像素，所以 V 的总大小约为输入的 4 倍，M 也是输出的 4 倍。如果 V、M 落地到全局内存再交给 GEMM（&ldquo;非融合&rdquo;做法），这部分额外流量相当可观；把变换与 GEMM 融合在一个 kernel 里、变换结果只留在片上，是 Winograd 实现的主要工程难点。cuDNN 也分别提供了 WINOGRAD 与 WINOGRAD_NONFUSED 两种前向算法<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code>（WINOGRAD 在 Hopper 及之后不受支持的注记）。">2</a>]</span>。</p>
 
 <h3 id="sec-3">数值稳定性：Winograd 的致命限制</h3>
 
-<p>F(m, r) 中 \(m\) 越大，变换矩阵的条件数越差——变换域的舍入误差会在逆变换时被放大。经验规则：</p>
+<p>F(m, r) 中 \(m\) 越大，变换矩阵的元素越大，变换域的舍入误差会在逆变换时被放大——Lavin 与 Gray 指出，对大 tile 变换本身就无法精确计算<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>。他们的测量（VGG 各层，随机数据，fp32 运算）给出了一个比&ldquo;经验规则&rdquo;更可靠的参照：</p>
 
 <ul>
-<li><b>FP32</b>：F(4,3) 或 F(6,3) 通常可以接受，cuDNN 确实使用 F(4,3)<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. Appendix J — Winograd Conv Algorithm Selection。">1</a>]</span>。F(6,3) 产生 8&times;8 的变换域，需要 64 个 GEMM——省的乘法更多（约 3.5&times;），但条件数恶化到 &sim;100，训练时 loss 可能波动。</li>
-<li><b>FP16 / BF16</b>：只能安全用到 F(2,3)。F(4,3) 在 FP16 下的最大相对误差可达 \(10^{-2}\) 级别——足以让训练发散。BF16 的指数位更多但尾数只有 7 位，情况更糟。</li>
-<li><b>INT8</b>：几乎不可用——定点数的精度太低，变换矩阵中的 1/2 在 INT8 下无法精确表示，累积误差无法接受。</li>
+<li><b>FP32 数据</b>：F(2&times;2, 3&times;3) 的最大逐元素误差甚至略低于直接卷积（变换简单，乘法阶段只在 C 个通道上归约，而直接卷积在 R&middot;S&middot;C 个元素上归约）；F(4&times;4, 3&times;3) 误差大约大一个数量级，但仍小于 fp16 数据下直接卷积的误差<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>。</li>
+<li><b>FP16 数据</b>（fp16 存储、fp32 运算）：直接卷积、F(2&times;2, 3&times;3)、F(4&times;4, 3&times;3) 的误差相同，精度受输入精度限制；作者据此认为 F(4&times;4, 3&times;3) 在低精度数据下同样够用<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>。</li>
+<li><b>注意适用范围</b>：这组实验的运算是 fp32。若变换域数据要以 FP16/BF16/FP8 送入 Tensor Core，变换结果本身多一次低精度舍入，误差会随 tile 增大被放大——本篇没有找到这方面的公开测量，tile 越大越需要实测。F(6&times;6, 3&times;3)（8&times;8 变换域、64 个 GEMM、乘法减少 \(324/64 \approx 5.1\) 倍）的讨论在原论文的补充材料里。</li>
 </ul>
 
-<p><b>误差为什么随 m 增大而恶化</b>：Winograd 变换本质上是多项式插值——在若干个插值点上对输入和滤波器多项式求值，逐点相乘，再插值回系数。F(2,3) 只需要 4 个点，可以选 0、1、&minus;1 和无穷远，变换矩阵的元素只有 0、&plusmn;1、&plusmn;1/2，数值上很&ldquo;干净&rdquo;。F(4,3) 需要 6 个点，除了上面几个还得加上 &plusmn;2 或 &plusmn;1/2，变换矩阵里出现 4、8、1/4 这样的系数；F(6,3) 需要 8 个点，系数进一步扩大到几十。逆变换时，这些大系数会把变换域里本来在最低有效位的舍入误差放大几十倍。FP32 有 23 位尾数，放大 100 倍后仍有约 5 位有效十进制数字，可以接受；FP16 只有 10 位尾数，放大 10 倍就只剩 2 位多一点的有效数字，训练会直接失去稳定性。这也解释了为什么不能靠&ldquo;选更好的插值点&rdquo;根本解决问题：点越多，插值的条件数必然越差，只能在精度和乘法节省之间折中。</p>
+<p><b>误差为什么随 m 增大而恶化</b>：Winograd 变换本质上是多项式插值——在若干个插值点上对输入和滤波器多项式求值，逐点相乘，再插值回系数。F(2,3) 只需要 4 个点，可以选 0、1、&minus;1 和无穷远，变换矩阵的元素只有 0、&plusmn;1、&plusmn;1/2，数值上很&ldquo;干净&rdquo;。F(4,3) 需要 6 个点，Lavin 与 Gray 用的是 0、&plusmn;1、&plusmn;2 和无穷远，变换矩阵里出现 4、&minus;5、1/4、1/6、1/24 这样的系数<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>；F(6,3) 需要 8 个点，系数更大。逆变换时，这些大系数会把变换域里的舍入误差成倍放大。粗略估算：FP32 有 24 位有效位（约 7 位十进制），放大 100 倍后仍有约 5 位；FP16 只有 11 位有效位（约 3.3 位十进制），放大 10 倍就只剩 2 位多。点越多，插值（Vandermonde）矩阵的条件数越差，只能在精度和乘法节省之间折中。</p>
 
-<p>这就是 Winograd 在深度学习中逐渐边缘化的根本原因：现代推理以 FP16/FP8 + Tensor Core 为主，而 Winograd 在低精度下不可用。只有 FP32 的 3&times;3 卷积（如科学计算或对精度敏感的场景）还值得用。cuDNN 的自动算法选择在检测到 FP16 数据类型时会跳过 Winograd。另一个实际问题是 Winograd 只适用于特定 kernel size：3&times;3 和 5&times;5 有意义，而 1&times;1（本身就是 GEMM，不需要优化）和非方形 kernel（如 1&times;7、7&times;1）无法使用 Winograd——变换矩阵需要按 kernel shape 专门推导。此外，Winograd 在训练中的 backward pass 也有问题：wgrad 对变换域中的误差更敏感（因为 wgrad 的 GEMM-K 维度等于 N&middot;P，累加路径更长），实践中常常只在 fprop 用 Winograd 而 backward 用 implicit GEMM——这增加了系统复杂度，且框架开发者需要为 fprop 和 backward 维护两套不同的 conv 实现——进一步降低了 Winograd 在工程上的吸引力。</p>
+<p>Winograd 在今天的 GPU 上已经边缘化：cuDNN 文档写明，<code>CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD</code> 在 Hopper 及之后的架构上不再支持<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code>（WINOGRAD 在 Hopper 及之后不受支持的注记）。">2</a>]</span>；CUTLASS 也没有提供 Winograd 卷积。原因是多方面的：Tensor Core 让 implicit GEMM 的乘法本身非常便宜，Winograd 省下的乘法换来的是额外的变换流量和低精度下更大的误差；它也只对小 kernel 有意义，1&times;1 本身就是 GEMM，非方形 kernel（如 1&times;7）需要按对应维度单独构造 F(m, r)（论文给出了 F(m&times;n, r&times;s) 的嵌套构造<span class="cite">[<a href="#ref-lavin" title="Lavin, A., Gray, S. (2015). Fast Algorithms for Convolutional Neural Networks. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。">1</a>]</span>）；反向传播也要各自推导对应的变换。</p>
 
 <h2 id="sec-fft">FFT 卷积</h2>
 
 <p>卷积定理：时域卷积 = 频域逐元素乘。流程是 FFT(input) &odot; FFT(filter) &rarr; IFFT(result)。复杂度从 \(O(N \cdot K)\) 降到 \(O(N \log N)\)——但这个&ldquo;降&rdquo;有很多附加条件。</p>
 
-<p>理论上对大 kernel（K &ge; 7）有优势，但在 GPU 上实际表现不佳：</p>
+<p>它对大 kernel 有理论优势，但在 CNN 的典型形状上，GPU 实现往往不划算：</p>
 
 <ul>
-<li><b>填充代价</b>：FFT 要求输入长度是 2 的幂次。对 56&times;56 的 feature map，需要填充到 64&times;64——浪费 \((64^2 - 56^2) / 64^2 \approx 23\%\) 的计算。更糟的是，filter 也要填充到和输入相同的大小——一个 3&times;3 filter 被填充到 64&times;64，浪费 99.8% 的空间。</li>
+<li><b>填充代价</b>：为了用频域乘法得到线性（而非循环）卷积，变换长度至少要 \(H + R - 1\)，实际再取 FFT 库擅长的尺寸（小素数因子的乘积，如 2 的幂）。对 56&times;56 的 feature map 与 3&times;3 filter，至少 58，取 64&times;64——多出 \((64^2 - 56^2) / 64^2 \approx 23\%\) 的点。更糟的是，filter 也要填充到和输入相同的大小——一个 3&times;3 filter 被填充到 64&times;64，浪费 99.8% 的空间。</li>
 <li><b>复数翻倍</b>：FFT 的结果是复数——每个元素占 8 B（FP32 复数）而非 4 B。在变换域中做逐元素乘是复数乘法（4 次实数乘 + 2 次加），比实数乘昂贵。</li>
-<li><b>cuFFT 开销</b>：cuFFT 的 plan 创建、workspace 分配、kernel launch 序列都有固定开销。对小 batch 或小 feature map，这些开销可能超过计算本身。cuFFT 内部通常需要 3&ndash;5 个 kernel launch 来完成一次 2D FFT——而 implicit GEMM 只有 1 个 kernel。</li>
-<li><b>cuDNN 的选择</b>：cuDNN 的 FFT conv 在 K &lt; 11 时几乎总是不如 implicit GEMM<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. Appendix J — Winograd Conv Algorithm Selection。">1</a>]</span>——只有在 kernel 极大（如 31&times;31+）且 feature map 也大时，FFT 的 \(O(N \log N)\) 复杂度才能抵消这些开销。</li>
+<li><b>流水线开销</b>：正变换、频域乘、逆变换至少是三个阶段，中间结果要落地；cuFFT 还有 plan 创建和 workspace 分配的固定开销。对小 batch 或小 feature map，这些开销占比更大。</li>
+<li><b>workspace</b>：cuDNN 文档对 FFT 与 FFT_TILING 两种算法都注明需要&ldquo;相当大的&rdquo; workspace 存放中间结果<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code>（WINOGRAD 在 Hopper 及之后不受支持的注记）。">2</a>]</span>。</li>
 </ul>
 
-<p>具体数字：对 3&times;3 conv（C=128, 56&times;56, FP32），直接 GEMM 需要约 587M FLOP。FFT 路线：两个 64&times;64 的 2D FFT（正向 + 逆向）&times; 128 通道 = \(128 \times 2 \times 64^2 \times \log_2(64^2) \times 5 \approx\) 600M FLOP（5 是蝶形运算的系数），加上变换域的逐元素乘 \(128 \times 128 \times 64^2 \times 8 \approx\) 536M FLOP——总计超过 1G FLOP，远超直接 GEMM。只有当 kernel 大到让直接 GEMM 的 \(O(NK)\) 项主导时，FFT 才有优势。</p>
+<p>具体算一笔（C_in=C_out=128、56&times;56、3&times;3、batch=1、FP32）：直接卷积约 925 MFLOP。FFT 路线用 \(5N\log_2 N\) 估算一次复数 FFT（\(N = 64^2\)），输入 128 个通道的正变换加输出 128 个通道的逆变换约 \(256 \times 5 \times 4096 \times 12 \approx 63\) MFLOP；频域里每个频率点是一个 \([C_\text{out}, C_\text{in}] \times [C_\text{in}, 1]\) 的复数矩阵&ndash;向量乘，共 \(128 \times 128 \times 4096 \times 8 \approx 537\) MFLOP（复数乘加算 8 FLOP；利用实数输入的共轭对称可再减近一半）。合计约 600 MFLOP，<b>FLOP 并不比直接卷积多</b>。真正的问题在别处：batch=1 时频域乘法是 4096 个矩阵&ndash;向量乘，完全 memory-bound；预先变换好的频域滤波器有 \(128 \times 128 \times 4096\) 个复数，FP32 下约 537 MB，比原始的 0.6 MB 权重大近千倍，每次前向都要读一遍。kernel 越大、batch 越大，FFT 越有机会赢。</p>
 
-<p>在大 kernel 场景（如 RepLKNet 的 31&times;31 depthwise conv），FFT 理论有优势，但大多数实践者选择分解（31&times;31 &rarr; 31&times;1 + 1&times;31）或直接的 depthwise conv——因为这些方法的 CUDA 实现更成熟，且与 Tensor Core、混合精度等现代技术栈兼容，而 FFT conv 不兼容 Tensor Core（FFT 的蝶形运算是固定模式的加减乘序列，无法映射为矩阵乘指令）。在信号处理领域（如音频生成、无线通信），FFT conv 仍然是主流——因为 kernel 动辄几百到几千个采样点，直接卷积的 \(O(NK)\) 完全不可接受。但在 CNN 中，kernel 通常不超过 7&times;7（甚至以 3&times;3 和 1&times;1 为主），FFT 的优势无从发挥。</p>
+<p>在大 kernel 的 2D 视觉模型里，FFT 卷积也没有成为主流：RepLKNet 的作者为 31&times;31 depthwise conv 比较过多种实现，最后选择了 block-wise (inverse) implicit GEMM，认为 FFT 方案不够实用<span class="cite">[<a href="#ref-replknet" title="Ding, X., Zhang, X., Zhou, Y., Han, J., Ding, G., Sun, J. (2022). Scaling Up Your Kernels to 31x31: Revisiting Large Kernel Design in CNNs. CVPR 2022。§3 Guideline 1 / Remark 1、Guideline 3。">3</a>]</span>。FFT 卷积的主场是长序列、长 kernel 的 1D 卷积（音频、长序列模型），那里直接卷积的 \(O(NK)\) 不可接受。至于 Tensor Core：cuFFT 的蝶形计算不走 MMA 指令，但 DFT 本身就是矩阵乘，FlashFFTConv 用 Monarch 分解把 FFT 卷积改写成一串矩阵乘，从而用上了 Tensor Core<span class="cite">[<a href="#ref-flashfftconv" title="Fu, D. Y., Kumbong, H., Nguyen, E., Ré, C. (2023). FlashFFTConv: Efficient Convolutions for Long Sequences with Tensor Cores. arXiv:2311.05908。">4</a>]</span>。</p>
 
 <h2 id="sec-deconv">转置卷积（Deconvolution）</h2>
 
@@ -371,17 +371,17 @@ __device__ void output_transform_1d(
 
 <figure id="fig-transpose_conv" data-kind="diagram">
 <img aria-labelledby="fig-transpose_conv-cap" src="figs/transpose_conv.svg" alt="转置卷积的两种实现"/>
-<figcaption id="fig-transpose_conv-cap"><span class="fig-label">图 3</span><b>转置卷积的两种等价实现：</b>方式一在输入像素间插零后做标准卷积（75% 乘法浪费在零上）；方式二直接用 dgrad GEMM（每个输入像素散射到 R&times;S 区域），CUTLASS 复用 dgrad kernel。</figcaption>
+<figcaption id="fig-transpose_conv-cap"><span class="fig-label">图 3</span><b>转置卷积的两种等价实现：</b>方式一在输入像素间插零后做标准卷积（75% 乘法浪费在零上）；方式二直接用 dgrad GEMM（每个输入像素散射到 R&times;S 区域），CUTLASS 的 deconv 与 dgrad 共用同一个 GEMM 映射。</figcaption>
 </figure>
 
 <ol>
 <li><b>输入插零</b>：在输入的每个像素之间插入 stride-1 个零行/列，然后做 stride=1 的标准卷积。概念清晰但浪费带宽——对 stride=2 的情况，插零后的输入有 75% 是零，所有与零的乘法都是浪费。更糟糕的是，这些零还占用了全局内存带宽和 shared memory 空间。</li>
-<li><b>直接 GEMM</b>：就是上一篇（<a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>）的 dgrad GEMM——每个输入像素&ldquo;散射&rdquo;出一个 R&times;S 的区域。CUTLASS 的转置卷积就是复用 dgrad 的 implicit GEMM kernel，不浪费任何计算。</li>
+<li><b>直接 GEMM</b>：就是上一篇（<a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>）的 dgrad GEMM——每个输入像素&ldquo;散射&rdquo;出一个 R&times;S 的区域。CUTLASS 中 <code>Operator::kDeconv</code> 与 <code>kDgrad</code> 的 GEMM 尺寸映射完全相同<span class="cite">[<a href="#ref-cutlass2ps" title="NVIDIA. cutlass/conv/conv2d_problem_size.h. <code>implicit_gemm_problem_size()</code>：kDeconv 与 kDgrad 同一映射。">5</a>]</span>。stride&gt;1 时同样需要按相位拆分才能避免乘零（见上一篇）。</li>
 </ol>
 
-<p><b>Checkerboard artifact</b>：stride=2 + 3&times;3 filter 会产生棋盘格伪影。根本原因是 filter 的感受野无法均匀覆盖所有输出位置：对 stride=2 的 3&times;3 转置卷积，输出位置 (0,0) 被 4 个输入像素的 filter 覆盖，但位置 (0,1) 只被 2 个覆盖——覆盖不均匀导致输出值不均匀。</p>
+<p><b>Checkerboard artifact</b>：kernel 尺寸不能被 stride 整除时（如 stride=2 + 3&times;3），转置卷积容易产生棋盘格伪影<span class="cite">[<a href="#ref-odena" title="Odena, A., Dumoulin, V., Olah, C. (2016). Deconvolution and Checkerboard Artifacts. Distill。">6</a>]</span>。直接原因是 filter 的感受野无法均匀覆盖所有输出位置：对 stride=2 的 3&times;3 转置卷积，输出位置 (0,0) 被 4 个输入像素的 filter 覆盖，但位置 (0,1) 只被 2 个覆盖——覆盖不均匀导致输出值不均匀。</p>
 
-<p>解决方案有两种主流做法：(1) 先用最近邻或双线性插值上采样到目标分辨率，再做 stride=1 的标准卷积——<code>nn.Upsample + nn.Conv2d</code>，避免了覆盖不均匀的问题。(2) 用 stride=1 的卷积 + PixelShuffle（sub-pixel convolution）——卷积输出 \(C \times r^2\) 个通道，然后 rearrange 成 \(C \times Hr \times Wr\)——ESPCN 提出的方法，在超分辨率中广泛使用。PixelShuffle 在 GPU 上只是一次内存重排（permute + reshape），几乎零计算开销。尽管有这些替代方案，转置卷积在某些场景中仍然不可替代：GAN（如 StyleGAN）的生成器传统上使用转置卷积，因为它天然保持了梯度流的对称性——前向是卷积、反向是转置卷积，数学上最自然。此外，转置卷积可以学习上采样的方式（而非固定的双线性插值），在需要&ldquo;学出&rdquo;上采样策略的任务中仍然有价值。</p>
+<p>解决方案有两种主流做法：(1) 先用最近邻或双线性插值上采样到目标分辨率，再做 stride=1 的标准卷积——<code>nn.Upsample + nn.Conv2d</code>，避免了覆盖不均匀的问题。(2) 用 stride=1 的卷积 + PixelShuffle（sub-pixel convolution）——卷积输出 \(C \times r^2\) 个通道，然后 rearrange 成 \(C \times Hr \times Wr\)——ESPCN 提出的方法，在超分辨率中广泛使用。PixelShuffle 在 GPU 上只是一次内存重排（permute + reshape），几乎零计算开销。尽管有这些替代方案，转置卷积仍在使用：DCGAN 等早期 GAN 的生成器用的就是它（论文称 fractionally-strided convolution），它也是 U-Net 类网络解码器的常见选择。它的优点是上采样方式可以学习，而不是固定的插值。</p>
 
 <h2 id="sec-special">特殊卷积形式</h2>
 
@@ -389,12 +389,12 @@ __device__ void output_transform_1d(
 
 <figure id="fig-conv3d_tiling" data-kind="diagram">
 <img aria-labelledby="fig-conv3d_tiling-cap" src="figs/conv3d_tiling.svg" alt="特殊卷积形式"/>
-<figcaption id="fig-conv3d_tiling-cap"><span class="fig-label">图 4</span><b>六种特殊卷积及其 GPU 实现要点。</b>每种都可以映射成 GEMM，但各自的瓶颈不同：3D conv 是内存、因果 conv1d 是带宽、deformable conv 是地址计算。</figcaption>
+<figcaption id="fig-conv3d_tiling-cap"><span class="fig-label">图 4</span><b>六种特殊卷积及其 GPU 实现要点（示意）。</b>各自的瓶颈不同：3D conv 是工作集、因果 conv1d 是带宽、deformable conv 是不规则采样。</figcaption>
 </figure>
 
 <h3 id="sec-4">因果 Conv1D</h3>
 
-<p>Mamba 和状态空间模型（SSM）中的关键组件：短 kernel（k=4 是 Mamba 的默认值）、长序列（L=128K+）、depthwise（每个通道独立卷积）。左 padding = k-1 保证因果性——output[t] 只依赖 input[&le;t]。</p>
+<p>Mamba 和状态空间模型（SSM）中的关键组件：短 kernel（Mamba 的 <code>d_conv</code> 默认 4）、长序列、depthwise（每个通道独立卷积）<span class="cite">[<a href="#ref-mamba" title="Gu, A., Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. arXiv:2312.00752；参考实现 <code>mamba_ssm/modules/mamba_simple.py</code>（<code>d_conv=4</code>、SiLU）。">7</a>]</span>。左 padding = k-1 保证因果性——output[t] 只依赖 input[&le;t]。</p>
 
 <pre data-code="code/cv32-winograd-special-conv/causal_conv1d.cu#L7-L30"><code>__global__ void causal_conv1d(
     const float* __restrict__ input,   // [B, L, C]
@@ -422,9 +422,9 @@ __device__ void output_transform_1d(
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cv32-winograd-special-conv/causal_conv1d.cu</code> 第 7–30 行（未在 GPU 上运行）</p>
 
-<p>K=4 时算术强度极低（每个输出元素 4 次 FMA = 8 FLOP，读 4 个 input + 4 个 weight = 32 B，算术强度 0.25 FLOP/B），完全带宽受限。上面的 naive 实现每个线程处理一个输出元素，对长序列来说线程足够多（L=128K, C=2048 时总线程 = 2.6 亿），但每个线程的工作量太少——warp 调度和指令发射的开销可能比计算本身还大。</p>
+<p>K=4 时算术强度极低（每个输出元素 4 次 FMA = 8 FLOP；不做复用时读 4 个 input + 4 个 weight = 32 B，算术强度 0.25 FLOP/B；权重进寄存器、输入只读一次时也只有 8 FLOP / 8 B = 1 FLOP/B），完全带宽受限。上面的 naive 实现每个线程处理一个输出元素，对长序列来说线程足够多（L=131072、C=2048 时约 2.7 亿个），但每个线程的工作量太少，地址计算和访存指令占了大头。</p>
 
-<p><b>优化关键</b>：(1) <b>weight 存寄存器</b>：K=4 意味着每个通道只有 4 个 weight 值——直接存在寄存器中，避免重复读全局内存。(2) <b>warp 级向量化</b>：每个 warp 处理 32 个连续时间步（利用 L 维度的局部性），input 通过 shared memory 做 sliding window——相邻时间步共享 K-1=3 个 input 值。(3) <b>SiLU 融合</b>：Mamba 的 causal conv1d 后面紧跟 SiLU 激活，可以融合在同一 kernel 中——省掉一次全局内存的写+读。Mamba 的官方 CUDA 实现<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x / 4.x。Conv2d 的参考实现。Mamba <code>causal_conv1d</code> 参考。">2</a>]</span>把这些优化全部应用，在 A100 上对 L=2048, C=2560 的典型配置达到了约 1.8 TB/s 的有效带宽——接近 HBM 峰值的 90%。值得注意的是，causal conv1d 的反向传播也很特殊：由于因果性约束，反向时梯度从右向左传播——input[t] 的梯度只来自 output[t..t+K-1]。这种反向因果结构意味着反向 kernel 的 weight 访问模式和前向一样，优化策略完全复用——前向和反向的 kernel 可以共享同一份代码，只需交换输入输出的方向。</p>
+<p><b>优化关键</b>：(1) <b>weight 存寄存器</b>：K=4 意味着每个通道只有 4 个 weight 值——直接存在寄存器中，避免重复读全局内存。(2) <b>沿序列复用输入</b>：每个线程或 warp 处理一段连续时间步，相邻时间步共享 K-1=3 个 input 值，可以在寄存器或 shared memory 里滑动窗口。(3) <b>SiLU 融合</b>：Mamba 的 causal conv1d 后面紧跟 SiLU 激活<span class="cite">[<a href="#ref-mamba" title="Gu, A., Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. arXiv:2312.00752；参考实现 <code>mamba_ssm/modules/mamba_simple.py</code>（<code>d_conv=4</code>、SiLU）。">7</a>]</span>，可以融合在同一 kernel 中——省掉一次全局内存的写+读。Tri Dao 维护的 <code>causal-conv1d</code> 库就是这样一个专用实现：支持 fp32/fp16/bf16、kernel 宽度 2&ndash;4，并可选融合 SiLU<span class="cite">[<a href="#ref-causalconv1d" title="Dao-AILab. causal-conv1d: Causal depthwise conv1d in CUDA with a PyTorch interface. GitHub（README 与 <code>causal_conv1d_interface.py</code>）。">8</a>]</span>。反向传播时，input[t] 的梯度只来自 output[t..t+K-1]，是一个&ldquo;反因果&rdquo;的卷积，另外还要对 weight 做归约求梯度，所以反向需要单独的 kernel。</p>
 
 <h3 id="sec-5">可变形卷积（Deformable Convolution）</h3>
 
@@ -483,29 +483,29 @@ __device__ void output_transform_1d(
 
 <p>注意 offset 和 mask 在 <code>ci</code> 循环内被反复读取，但它们与 <code>ci</code> 无关——同一输出位置的 9 组偏移对所有输入通道都一样。对 \(C_\text{in}=256\)，每组偏移被重复读 256 次，插值坐标（<code>ih</code>、<code>iw</code>、四个权重）也被重复计算 256 次。<b>更合理的循环顺序是把 <code>ci</code> 放到最内层</b>：先对 9 个采样点各算一次坐标和插值系数，存在寄存器里，再沿通道维度累加。这样偏移读取量降到 1/256，NHWC 布局下最内层沿 <code>ci</code> 的读取还是连续地址，可以合并。再进一步，一个线程只算一个输出通道 <code>co</code> 也很浪费：插值后的采样值对所有 <code>co</code> 共享，主流实现（如 DCNv2 官方代码）先把插值结果写成一个 \([C_\text{in} \cdot 9, P]\) 的&ldquo;可变形 col 矩阵&rdquo;，再调一次 GEMM——相当于 im2col 路线，只不过 im2col 的拷贝换成了双线性插值。代价是 col 矩阵的显存，好处是乘加部分又能用上 Tensor Core。DCNv3/v4 则进一步把采样分组、减少通道维的冗余，正是在这个取舍上继续压榨。</p>
 
-<p><b>DCNv1 vs DCNv2</b>：DCNv1 只学习偏移 \(\Delta p\)，所有采样点等权重参与卷积。DCNv2 额外学习一个 modulation mask \(m_k \in [0, 1]\)——每个采样点乘以一个可学习权重，相当于对采样点施加注意力。DCNv2 的计算量几乎没有增加（多了 9 次乘法），但效果显著提升——尤其在目标检测中，可学习的 mask 让网络自适应地忽略背景区域的采样点。</p>
+<p><b>DCNv1 vs DCNv2</b>：DCNv1 只学习偏移 \(\Delta p\)，所有采样点等权重参与卷积。DCNv2 额外学习一个 modulation mask \(m_k \in [0, 1]\)——每个采样点乘以一个可学习权重，相当于对采样点施加注意力。对每个输出位置，mask 只多了 9 次乘法（与通道数无关），却给了网络调节每个采样点贡献的自由度。</p>
 
-<p><b>反向传播的挑战</b>：反向时，梯度要&ldquo;散射&rdquo;回四个整数邻居——不同输出位置的采样可能散射到同一个输入像素，需要 <code>atomicAdd</code> 来累加梯度。浮点 <code>atomicAdd</code> 的非结合性导致结果不确定——同一模型两次反向传播得到的梯度可能逐 bit 不同。确定性方案把散射改成排序后的 gather-reduce：先收集所有散射目标，排序后合并，用确定的加法顺序累加——但性能比 atomic 版本慢 2&ndash;3 倍。DCN 的这个特性使它成为训练中非确定性的主要来源之一。</p>
+<p><b>反向传播的挑战</b>：反向时，梯度要&ldquo;散射&rdquo;回四个整数邻居——不同输出位置的采样可能散射到同一个输入像素，需要 <code>atomicAdd</code> 来累加梯度。浮点 <code>atomicAdd</code> 的非结合性导致结果不确定——同一模型两次反向传播得到的梯度可能逐 bit 不同。确定性方案把散射改成排序后的 gather-reduce：先收集所有散射目标，排序后合并，用确定的加法顺序累加——代价是额外的排序和内存。DCN 因此也是训练中非确定性的来源之一。</p>
 
-<p><b>DCN 的 GPU 实现</b>：由于每个采样点的位置不固定，DCN 无法使用 implicit GEMM——地址计算不再是规则的 (ci,r,s) &rarr; (ih,iw) 映射，而是依赖于可学习的 offset tensor。实际实现通常是&ldquo;显式&rdquo;的：每个线程计算一个输出元素，遍历 R&times;S 个采样点，每个点做一次 bilinear_sample。这和 naive conv 的并行策略类似——没有 Tensor Core 加速，完全靠 CUDA core。这也是为什么 DCN 的吞吐量通常只有标准卷积的 1/3&ndash;1/5。在实际的目标检测网络（如 DETR、Deformable-DETR）中，DCN 层虽然只占总参数量的很小比例，但可能贡献了 20&ndash;40% 的推理时间——这使得 DCN 的优化成为检测模型部署的关键瓶颈。一种折中方案是只在网络的最后几层使用 DCN（感受野最需要自适应的位置），浅层仍然用标准卷积——这样在保持精度的同时，将 DCN 的性能开销控制在可接受的范围内，是工程效率与检测精度的实用平衡。</p>
+<p><b>DCN 的 GPU 实现</b>：由于每个采样点的位置不固定，DCN 无法像普通卷积那样用规则的 (ci,r,s) &rarr; (ih,iw) 映射做 implicit GEMM——地址依赖于可学习的 offset tensor。常见实现是上面说的&ldquo;可变形 im2col + GEMM&rdquo;：插值这一步在 CUDA core 上做、结果显式落地，乘加那一步交给 GEMM（可以用 Tensor Core）。前一步是不规则访存的 memory-bound 操作，也是 DCN 比同尺寸普通卷积慢的主要原因。DCNv1 的论文只在 ResNet 最后一个 stage 的几层用可变形卷积，DCNv2 扩展到更多 stage——在哪些层用 DCN 是精度与速度的取舍。</p>
 
 <h3 id="sec-6">3D 卷积</h3>
 
-<p>视频处理（C3D、SlowFast）和医学影像（nnU-Net 处理 CT/MRI）使用 3D conv，filter 形状 [C_out, C_in, T, R, S]，其中 T 是时间/深度维度。映射到 GEMM：K = C_in&middot;T&middot;R&middot;S，N = N&middot;D&middot;P&middot;Q（D 是时间/深度维度的输出大小，P = H_out, Q = W_out）。</p>
+<p>视频处理（C3D、SlowFast 的部分路径）和医学影像（nnU-Net 处理 CT/MRI）使用 3D conv，filter 形状 [C_out, C_in, T, R, S]，其中 T 是时间/深度维度。映射到 GEMM：K = C_in&middot;T&middot;R&middot;S，N = N&middot;D&middot;P&middot;Q（D 是时间/深度维度的输出大小，P = H_out, Q = W_out）。</p>
 
 <p>实现上和 2D implicit GEMM 完全相同，只是地址计算多了一个维度：从线性 k 反推 (ci, t, r, s) 需要 3 次除法取模（比 2D 多一次），从 np 反推 (n, d, oh, ow) 也多一次。增量迭代器同样适用——步进逻辑多一层&ldquo;进位&rdquo;。</p>
 
-<p><b>内存挑战</b>：3D conv 的工作集远大于 2D——以 nnU-Net 的典型配置（C=320, T=D=R=S=3, 输入 128&times;128&times;128）为例，B 矩阵的虚拟 col 大小是 \(320 \times 27 \times 128^3 \approx\) 36 GB（FP16）——当然不会物化，但 implicit GEMM 的 tile 加载仍然需要频繁访问这么大的地址空间，L2 cache 命中率会严重下降。优化策略是在 T 维度做 blocking：每次只处理 T 维度的一个 slice，减小活跃的工作集。Hopper 的 TMA 支持 3D tile load<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA 指令族）。">3</a>]</span>——可以直接加载 \(T \times R \times S\) 的 3D patch，进一步减轻软件地址计算的负担。CUTLASS 3.x 对 3D conv 的支持还处于早期阶段，目前只支持 NDHWC 布局（D 在 batch 后、通道前）。3D conv 在推理中的一个重要优化是时间维度的流式处理（streaming）——当视频逐帧到达时，不需要等全部 T 帧就绑，可以用 sliding window 的方式在时间维度上流式计算，减少延迟和显存占用。这种优化在自动驾驶的实时感知系统中非常关键。</p>
+<p><b>内存挑战</b>：3D conv 的工作集远大于 2D——以一个 32 通道、128&times;128&times;128 体数据上的 3&times;3&times;3 层为例（nnU-Net 3D 全分辨率网络第一级的量级），B 矩阵的虚拟 col 大小是 \(32 \times 27 \times 128^3 \times 2\) B &asymp; 3.6 GB（FP16）——当然不会物化，但 tile 之间的 halo 复用跨三个维度，局部性比 2D 差。优化策略是在 D 维度做 blocking：每次只处理一段 slice，减小活跃的工作集。Hopper 的 TMA im2col 模式支持 5D 的 NDHWC 张量<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”。">9</a>]</span>，可以直接按 3D 滤波器偏移取数，减轻软件地址计算的负担；CUTLASS 3.x 也有 NDHWC 的 conv3d implicit GEMM（单元测试里有 sm100 的 conv3d fprop/dgrad）。推理时还可以在时间维度上流式处理：视频逐帧到达时，用缓存的前 T&minus;1 帧做滑动窗口，不必等全部帧。</p>
 
 <h3 id="sec-7">大 Kernel Depthwise Conv</h3>
 
-<p>RepLKNet、ConvNeXt V2、InternImage 等架构使用 31&times;31 甚至 51&times;51 的 depthwise conv 来获得大感受野。直接 conv 每个输出像素需要 961 次乘法（31&times;31）——对 depthwise 来说这已经很大了。优化策略：</p>
+<p>RepLKNet 使用 31&times;31<span class="cite">[<a href="#ref-replknet" title="Ding, X., Zhang, X., Zhou, Y., Han, J., Ding, G., Sun, J. (2022). Scaling Up Your Kernels to 31x31: Revisiting Large Kernel Design in CNNs. CVPR 2022。§3 Guideline 1 / Remark 1、Guideline 3。">3</a>]</span>、SLaK 使用 51&times;51 的 depthwise conv 来获得大感受野（ConvNeXt 用的是 7&times;7）。直接 conv 每个输出像素需要 961 次乘法（31&times;31）——对 depthwise 来说这已经很大了。优化策略：</p>
 
 <ul>
-<li><b>可分离分解</b>：31&times;31 &rarr; 31&times;1 + 1&times;31。如果网络支持（如 RepLKNet 在训练时用 31&times;31，推理时分解），可以把乘法数从 961 降到 62——节省 15.5&times;。但不是所有网络都允许这种分解。</li>
-<li><b>Tiling 挑战</b>：对 31&times;31 filter，halo 区域 = 30 像素——比典型的 16&times;16 tile 还大！这意味着 shared memory 中 halo 占的空间远超 tile 本身，利用率极低（有效数据 &lt; 25%）。解决方案是用更大的 tile（如 64&times;64），但这需要更多 shared memory——可能限制 occupancy。</li>
-<li><b>depthwise 的特殊性</b>：im2col 在 depthwise 下退化——col 矩阵的每一行只乘一个 filter（因为 groups = C），GEMM 退化成一堆独立的 dot product，完全失去 Tensor Core 的矩阵乘优势。所以大 kernel depthwise conv 通常用直接卷积的优化实现，而非 implicit GEMM。cuDNN 对 depthwise conv 有专门的优化路径，但对 kernel &gt; 7 的支持有限。</li>
-<li><b>FlashConv</b>：一种新兴的优化思路——类比 FlashAttention 的 tiling 策略，把大 kernel depthwise conv 的输入按 block 加载到 shared memory，在 shared memory 中做完所有需要的卷积计算后再写回。这可以把全局内存访问量从 \(O(K^2)\) 降到 \(O(1)\)（每个输入元素只读一次），但实现复杂度较高。</li>
+<li><b>可分离分解</b>：只有秩为 1 的核才能精确拆成 31&times;1 + 1&times;31（乘法数从 961 降到 62，节省 15.5&times;），学到的一般 31&times;31 核并不满足。RepLKNet 的重参数化方向相反：训练时并联一个 5&times;5 小核，推理时把小核和 BN 合并<b>进</b>大核<span class="cite">[<a href="#ref-replknet" title="Ding, X., Zhang, X., Zhou, Y., Han, J., Ding, G., Sun, J. (2022). Scaling Up Your Kernels to 31x31: Revisiting Large Kernel Design in CNNs. CVPR 2022。§3 Guideline 1 / Remark 1、Guideline 3。">3</a>]</span>；SLaK 则在设计上就用两个长条核（如 51&times;5 与 5&times;51）并联代替方形大核。</li>
+<li><b>Tiling 挑战</b>：对 31&times;31 filter，halo 区域 = 30 像素——比典型的 16&times;16 tile 还大！16&times;16 的输出 tile 要加载 46&times;46 的输入，有效部分只占 \((16/46)^2 \approx 12\%\)。用 64&times;64 的 tile 可以提到 \((64/94)^2 \approx 46\%\)，但需要更多 shared memory，可能限制 occupancy。</li>
+<li><b>depthwise 的特殊性</b>：im2col 在 depthwise 下退化——col 矩阵的每一行只乘一个 filter（因为 groups = C），GEMM 退化成一堆独立的 dot product，完全失去 Tensor Core 的矩阵乘优势。RepLKNet 的作者发现现成框架（PyTorch + cuDNN）对大 depthwise 卷积支持很差，比较多种 CUDA 实现后选用了 block-wise (inverse) implicit GEMM，集成进 MegEngine；他们报告这让 RepLKNet 中 depthwise 卷积的延迟占比从 49.5% 降到 12.3%<span class="cite">[<a href="#ref-replknet" title="Ding, X., Zhang, X., Zhou, Y., Han, J., Ding, G., Sun, J. (2022). Scaling Up Your Kernels to 31x31: Revisiting Large Kernel Design in CNNs. CVPR 2022。§3 Guideline 1 / Remark 1、Guideline 3。">3</a>]</span>。</li>
+<li><b>片上复用</b>：把一块输入（含 halo）一次加载到 shared memory，在片上完成这块输出需要的全部 \(K^2\) 次乘加再写回。这样每个输出对全局内存的读取量从 \(O(K^2)\) 降到接近 \(O(1)\)（只多出 halo 的那一部分）。</li>
 </ul>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
@@ -513,11 +513,11 @@ __device__ void output_transform_1d(
 <table>
 <thead><tr><th>特性</th><th>对特殊卷积的影响</th></tr></thead>
 <tbody>
-<tr><td>FP8 Tensor Core<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA 指令族）。">3</a>]</span></td><td>进一步压缩 Winograd 的适用范围——FP8 的精度完全不够做 Winograd 变换。im2col/implicit GEMM + FP8 成为默认路线。</td></tr>
-<tr><td>TMA 2D/3D load</td><td>对 3D conv 特别有用——可以直接加载 3D patch，部分取代软件的 5D 地址计算。</td></tr>
+<tr><td>Winograd 退场</td><td>cuDNN 的 WINOGRAD 前向算法在 Hopper 及之后不再支持<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code>（WINOGRAD 在 Hopper 及之后不受支持的注记）。">2</a>]</span>；FP8 精度更低，变换误差放大更难接受。implicit GEMM 是这些架构上卷积的主路线。</td></tr>
+<tr><td>TMA im2col 模式<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”。">9</a>]</span></td><td>支持 3D/4D/5D（NWC/NHWC/NDHWC）张量，对 3D conv 尤其有用——按滤波器偏移直接取数，越界自动填零，部分取代软件的 5D 地址计算。</td></tr>
 <tr><td>WGMMA 大 tile</td><td>批量 Winograd 的 batched GEMM 可以用更大的 tile，但变换步骤仍是瓶颈。对标准 conv 帮助更大。</td></tr>
-<tr><td>更大 L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2、B200 288 MB L2 等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span></td><td>H100 50 MB / B200 288 MB L2：大 kernel depthwise conv 的 halo 数据更可能留在 L2，3D conv 的 tile 复用率也提高。</td></tr>
-<tr><td>集群 multicast</td><td>Winograd tile 间的重叠区域可以通过 multicast 共享——但 CUTLASS 4.x 尚未实现 Winograd conv。</td></tr>
+<tr><td>更大 L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB、H100 50 MB、GB200 126 MB L2 等规格。各项均标有 NVIDIA 官方出处。">10</a>]</span></td><td>A100 40 MB、H100 50 MB、GB200 126 MB：大 kernel depthwise conv 的 halo 数据更可能留在 L2，3D conv 的 tile 间复用也更容易命中。</td></tr>
+<tr><td>集群 multicast</td><td>相邻 tile 的 halo 重叠区域原则上可以用 TMA multicast 在 cluster 内共享；CUTLASS 的 Hopper conv 有 <code>SM90_TMA_LOAD_IM2COL_MULTICAST</code>。CUTLASS 没有 Winograd conv。</td></tr>
 </tbody>
 </table>
 
@@ -525,24 +525,24 @@ __device__ void output_transform_1d(
 
 <dl>
 <dt id="sec-q1">Q1：Winograd 卷积为什么能省乘法？缺点是什么？</dt>
-<dd>Winograd 利用 \(m+r-1 < m \times r\) 的代数恒等式，在变换域用更少的乘法完成卷积。代价：(1) 变换步骤引入额外的加法和带宽消耗（相邻 tile 重叠 50%）；(2) 变换矩阵的条件数随 tile 增大而恶化，FP16 下只安全到 F(2,3)；(3) 只适用于特定 kernel size（3&times;3、5&times;5），不能用于 1&times;1 或非方 kernel。<br>
+<dd>Winograd 利用 \(m+r-1 < m \times r\) 的代数恒等式，在变换域用更少的乘法完成卷积。代价：(1) 变换步骤引入额外的加法和带宽消耗（F(2&times;2, 3&times;3) 中每个输入元素出现在 4 个 tile 里，变换域数据是输入的 4 倍）；(2) 变换矩阵的系数随 tile 增大而变大，误差被放大；(3) 只对小 kernel 有意义，每种 kernel 形状要单独构造变换。cuDNN 在 Hopper 及之后已不再支持 WINOGRAD 前向算法。<br>
 <b>追问</b>：GPU 上的 Winograd 为什么变成 batched GEMM？答：把所有 tile 的变换域结果拼成 [C_in, tiles] 矩阵，做 16 个 GEMM——这样可以用 Tensor Core 加速，比逐 tile 逐元素乘高效得多。</dd>
 
 <dt id="sec-q2">Q2：什么时候考虑 FFT 卷积？</dt>
-<dd>理论上 kernel size &ge; 7 时 O(N log N) 比 O(NK) 更优。实际上 cuDNN 的 FFT conv 在 K &lt; 11 时几乎总不如 implicit GEMM，因为 FFT 有填充到 2 的幂（浪费 20%+）、复数翻倍内存、多次 kernel launch 等开销。只有极大 kernel（31&times;31+）且 feature map 也大时才考虑——但即使如此，分解（H&times;1 + 1&times;W）通常更实用。<br>
-<b>追问</b>：FFT conv 能用 Tensor Core 吗？答：不能。FFT 的蝶形运算是 butterfly pattern 的加减乘序列，不是矩阵乘，无法映射到 MMA 指令。这是 FFT conv 在 Tensor Core 时代进一步边缘化的原因。</dd>
+<dd>kernel 很大、序列或特征图很长时。对 CNN 常见的 3&times;3，FFT 的 FLOP 未必更多，但有填充、复数存储、频域滤波器的巨大 workspace、逐频率的小矩阵乘（batch 小时是矩阵&ndash;向量乘，memory-bound）和多阶段落地等开销。即便是 31&times;31 的大 depthwise 核，RepLKNet 的作者也选了 implicit GEMM 而不是 FFT。FFT 卷积的主场是长 kernel 的 1D 卷积。<br>
+<b>追问</b>：FFT conv 能用 Tensor Core 吗？答：cuFFT 式的蝶形计算不走 MMA 指令；但 DFT 本身是矩阵乘，把大 FFT 分解成若干小 DFT 矩阵乘（Monarch 分解）就能用 Tensor Core，FlashFFTConv 就是这么做的。</dd>
 
 <dt id="sec-q3">Q3：可变形卷积的反向为什么需要 atomicAdd？</dt>
 <dd>前向时每个输出位置的采样点是浮点坐标——通过双线性插值从 4 个整数邻居加权得到。反向时，梯度要&ldquo;散射&rdquo;回这 4 个邻居——不同输出位置可能散射到同一个输入像素，需要原子加来累加梯度。浮点原子加的非结合性导致结果不确定。<br>
-<b>追问</b>：DCNv2 的 modulation mask 有什么作用？答：每个采样点乘以 [0,1] 的权重——等价于可学习的注意力，让网络自适应地关闭或加强某些采样点，尤其在目标检测中对遮挡和变形有明显帮助。</dd>
+<b>追问</b>：DCNv2 的 modulation mask 有什么作用？答：每个采样点乘以 [0,1] 的权重——等价于可学习的注意力，让网络自适应地削弱或保留某些采样点的贡献。</dd>
 
 <dt id="sec-q4">Q4：转置卷积有哪两种实现方式？checkerboard artifact 怎么解？</dt>
-<dd>方式一：对输入在像素间插入 stride-1 个零行/列，再做 stride=1 的标准卷积——概念清晰但 75% 计算浪费在零上。方式二：直接用 dgrad 形式的 GEMM——每个输入像素散射到 R&times;S 区域——CUTLASS 复用 dgrad kernel，零浪费。两者数学等价。<br>
+<dd>方式一：对输入在像素间插入 stride-1 个零行/列，再做 stride=1 的标准卷积——概念清晰但 75% 计算浪费在零上。方式二：直接用 dgrad 形式的 GEMM——每个输入像素散射到 R&times;S 区域——CUTLASS 中 deconv 与 dgrad 共用同一个 GEMM 映射；stride&gt;1 时按相位拆分即可避免乘零。两者数学等价。<br>
 <b>追问</b>：checkerboard artifact 来源？答：stride&gt;1 时 filter 的感受野无法均匀覆盖输出——相邻输出像素被不同数量的输入像素覆盖。解决方案：resize + conv 或 PixelShuffle（sub-pixel convolution）。</dd>
 
 <dt id="sec-q5">Q5：Mamba 的 causal conv1d 为什么值得单独写 kernel？</dt>
-<dd>K=4、depthwise、长序列，算术强度只有约 0.25 FLOP/B，完全受带宽限制；通用卷积库会把它当成普通 conv 走 implicit GEMM，大部分 Tensor Core 都在空转。专用 kernel 把 4 个权重放进寄存器、在 smem 里做滑动窗口、顺手融合 SiLU，把有效带宽推到峰值的 90% 左右。<br>
-<b>追问</b>：推理解码时（每步只来一个 token）怎么做？答：维护一个长度 K&minus;1 的状态缓冲，每步把新 token 推入、做一次长度 K 的点积——这已经不是卷积 kernel，而是一个逐通道的小向量运算，通常融合进相邻的投影层 kernel。</dd>
+<dd>K=4、depthwise、长序列，算术强度只有约 0.25&ndash;1 FLOP/B，完全受带宽限制；通用的 depthwise conv1d 路径不知道因果 padding 和后面的 SiLU，会多出 padding 拷贝、截断和单独的激活 kernel。专用 kernel 把 4 个权重放进寄存器、沿序列滑动窗口复用输入、顺手融合 SiLU，目标是只读一遍输入、写一遍输出。<br>
+<b>追问</b>：推理解码时（每步只来一个 token）怎么做？答：维护一个长度至少 K&minus;1 的状态缓冲，每步把新 token 推入、做一次长度 K 的点积——这已经是一个逐通道的小向量运算。<code>causal-conv1d</code> 为此提供了单独的 <code>causal_conv1d_update</code>（conv_state 的长度要求 &ge; width&minus;1）<span class="cite">[<a href="#ref-causalconv1d" title="Dao-AILab. causal-conv1d: Causal depthwise conv1d in CUDA with a PyTorch interface. GitHub（README 与 <code>causal_conv1d_interface.py</code>）。">8</a>]</span>。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
@@ -550,17 +550,17 @@ __device__ void output_transform_1d(
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。Winograd 和 deformable conv 的正确性未经数值验证。</li>
 <li>1D Winograd 教学 kernel 在入口处用 <code>out_pos + 1 &gt;= L</code> 提前返回，序列长度 L 为奇数时最后一个输出不会被计算；完整实现应只在 <code>out_pos &gt;= L</code> 时返回，并保留末尾对第二个输出的边界判断。</li>
-<li>Winograd 只展示了 F(2,3) 1D——2D 版本（16 个 4&times;4 变换域矩阵的 GEMM）的完整实现更复杂，涉及 tile 重叠处理和 shared memory 缓存，未给出代码。cuDNN 的 Winograd 实现还包含自动选择 F(2,3) 和 F(4,3) 的 heuristic。</li>
+<li>Winograd 只展示了 F(2,3) 1D——2D 版本（16 个 4&times;4 变换域矩阵的 GEMM）的完整实现更复杂，涉及 tile 重叠处理和变换与 GEMM 的融合，未给出代码。</li>
 <li>FFT 卷积只做了原理和复杂度对比，没有实现代码——cuFFT 的使用涉及 plan 管理和 workspace 分配，工程细节较多。</li>
 <li>Deformable conv 只给了前向的 bilinear_sample——反向的梯度散射（atomicAdd 或 gather-reduce）没有代码。DCNv3/v4 等后续变体也未覆盖。</li>
 <li>3D 卷积只做了概念描述——CUTLASS 的 3D implicit GEMM 使用和 2D 相同的框架，多了一维地址计算和 T 维度的 blocking 策略。</li>
-<li>大 kernel depthwise conv 的 FlashConv 等新优化只做了概念提及——这是一个活跃的研究方向，实现尚未标准化。一些开源实现（如 MegEngine 的 large-kernel depthwise）使用 CUDA warp shuffle 在寄存器间共享 halo 数据，避免了 shared memory 的容量限制。</li>
+<li>大 kernel depthwise conv 的高效实现只做了概念提及——RepLKNet 采用的 block-wise (inverse) implicit GEMM 实现在 MegEngine 中，本篇未展开其细节。</li>
 <li>未覆盖 group conv（介于 standard conv 和 depthwise conv 之间）和可分离卷积（depthwise + pointwise）的融合优化。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>本篇覆盖了 Winograd、FFT 和几种特殊卷积形式。Winograd 是经典的算法优化——用变换域的逐元素乘替代直接乘法，在 GPU 上实现为 16 个 batched GEMM——但受限于数值精度，在 FP16/FP8 时代逐渐边缘化。FFT 卷积的 \(O(N \log N)\) 复杂度在理论上有吸引力，但填充浪费、复数开销和不兼容 Tensor Core 使它在 GPU 上很少胜出。转置卷积在实现上复用 dgrad 的 implicit GEMM kernel，checkerboard artifact 可以用 resize+conv 或 PixelShuffle 避免。可变形卷积引入可学习的采样位置，增加了实现复杂度（双线性插值 + atomicAdd），且无法使用 Tensor Core。因果 conv1d 是 Mamba/SSM 的关键组件，短 kernel + 长序列、完全带宽受限，优化重点是寄存器复用和 SiLU 融合。至此，Part 8 卷积三篇结束——从 direct conv 和 im2col 的基础，到 implicit GEMM 的核心实现，再到 Winograd 和特殊卷积形式。下一部分将进入 Attention kernel。</p>
+<p>本篇覆盖了 Winograd、FFT 和几种特殊卷积形式。Winograd 是经典的算法优化——用变换域的逐元素乘替代直接乘法，在 GPU 上实现为 16 个 batched GEMM——但变换流量和低精度下的误差放大让它在 Tensor Core 时代边缘化，cuDNN 在 Hopper 之后已不再支持其 WINOGRAD 前向算法。FFT 卷积的 \(O(N \log N)\) 复杂度在理论上有吸引力，但在 CNN 的小 kernel 上，填充、复数、巨大的频域权重和 memory-bound 的频域乘法使它很少胜出。转置卷积在实现上复用 dgrad 的 implicit GEMM kernel，checkerboard artifact 可以用 resize+conv 或 PixelShuffle 避免。可变形卷积引入可学习的采样位置，增加了实现复杂度（双线性插值 + atomicAdd），插值部分用不上 Tensor Core。因果 conv1d 是 Mamba/SSM 的关键组件，短 kernel + 长序列、完全带宽受限，优化重点是寄存器复用和 SiLU 融合。至此，Part 8 卷积三篇结束——从 direct conv 和 im2col 的基础，到 implicit GEMM 的核心实现，再到 Winograd 和特殊卷积形式。下一部分将进入 Attention kernel。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -574,16 +574,22 @@ __device__ void output_transform_1d(
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. Appendix J — Winograd Conv Algorithm Selection。</li>
-  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass">CUTLASS 3.x / 4.x</a>。Conv2d 的参考实现。Mamba <code>causal_conv1d</code> 参考。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（MMA 指令族）。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2、B200 288 MB L2 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-lavin">Lavin, A., Gray, S. (2015). <a href="https://arxiv.org/abs/1509.09308">Fast Algorithms for Convolutional Neural Networks</a>. arXiv:1509.09308（CVPR 2016）。§4 变换与运算量，§8 Table 4 数值误差。</li>
+  <li id="ref-cudnn">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/cudnn/backend/latest/api/cudnn-ops-library.html">cuDNN Backend API: cudnn_ops library</a>. <code>cudnnConvolutionFwdAlgo_t</code>（WINOGRAD 在 Hopper 及之后不受支持的注记）。</li>
+  <li id="ref-replknet">Ding, X., Zhang, X., Zhou, Y., Han, J., Ding, G., Sun, J. (2022). <a href="https://arxiv.org/abs/2203.06717">Scaling Up Your Kernels to 31x31: Revisiting Large Kernel Design in CNNs</a>. CVPR 2022。§3 Guideline 1 / Remark 1、Guideline 3。</li>
+  <li id="ref-flashfftconv">Fu, D. Y., Kumbong, H., Nguyen, E., R&eacute;, C. (2023). <a href="https://arxiv.org/abs/2311.05908">FlashFFTConv: Efficient Convolutions for Long Sequences with Tensor Cores</a>. arXiv:2311.05908。</li>
+  <li id="ref-cutlass2ps">NVIDIA. <a href="https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/conv2d_problem_size.h">cutlass/conv/conv2d_problem_size.h</a>. <code>implicit_gemm_problem_size()</code>：kDeconv 与 kDgrad 同一映射。</li>
+  <li id="ref-odena">Odena, A., Dumoulin, V., Olah, C. (2016). <a href="https://distill.pub/2016/deconv-checkerboard/">Deconvolution and Checkerboard Artifacts</a>. Distill。</li>
+  <li id="ref-mamba">Gu, A., Dao, T. (2023). <a href="https://arxiv.org/abs/2312.00752">Mamba: Linear-Time Sequence Modeling with Selective State Spaces</a>. arXiv:2312.00752；参考实现 <code>mamba_ssm/modules/mamba_simple.py</code>（<code>d_conv=4</code>、SiLU）。</li>
+  <li id="ref-causalconv1d">Dao-AILab. <a href="https://github.com/Dao-AILab/causal-conv1d">causal-conv1d: Causal depthwise conv1d in CUDA with a PyTorch interface</a>. GitHub（README 与 <code>causal_conv1d_interface.py</code>）。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.5</a>. §5.5.4 &ldquo;im2col mode&rdquo;。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 40 MB、H100 50 MB、GB200 126 MB L2 等规格。各项均标有 NVIDIA 官方出处。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 32 篇。文中代码完整版在系列目录的 <code>code/cv32-winograd-special-conv/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–3 为手绘示意图；硬件数据来自 NVIDIA 官方文档，出处见参考文献。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 32 篇。文中代码完整版在系列目录的 <code>code/cv32-winograd-special-conv/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1、3–5 为手绘示意图，图 2 的 FLOP 数由公式算出；硬件数据来自 NVIDIA 官方文档，出处见参考文献。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

@@ -232,8 +232,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <ul>
 <li>Implicit GEMM 不物化 im2col 的 col 矩阵——在 GEMM 主循环加载 tile 时，从线性索引 k 反推 (ci, r, s)，再算出输入地址。省掉 col 矩阵的额外显存。</li>
 <li>地址计算有两种思路：绝对计算（每次除法取模）和增量迭代器（预计算偏移表，每步只加一个 delta）。CUTLASS 用后者，把除法换成加法。</li>
-<li>卷积反向有两个 GEMM：dgrad（输入梯度）是一个&ldquo;转置卷积&rdquo;式的 GEMM，stride &gt; 1 时较难优化；wgrad（权重梯度）的 GEMM-K 维度很大（= N&middot;P），几乎必须用 Split-K。</li>
-<li>在 Hopper/Blackwell 上，TMA 支持带 stride 的 2D tile 加载——这让 implicit GEMM 的地址计算可以部分卸载给硬件。CUTLASS 3.x/4.x 的 conv kernel 全走 implicit GEMM + NHWC。</li>
+<li>卷积反向有两个 GEMM：dgrad（输入梯度）是一个&ldquo;转置卷积&rdquo;式的 GEMM，stride &gt; 1 时要按相位拆分以免乘零；wgrad（权重梯度）的 GEMM-K 维度很大（= N&middot;P），M、N 小时常用 Split-K 补并行度。</li>
+<li>在 Hopper/Blackwell 上，TMA 有专门的 im2col 模式（只支持 channels-last），padding 由越界填零处理——implicit GEMM 的地址展开可以交给硬件。CUTLASS 的 Hopper conv kernel 就用它加载激活。</li>
   </ul>
 </div>
 
@@ -246,8 +246,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>上一篇（<a href="../cv30-conv-basics/cv30-conv-basics.html">第 30 篇</a>）展示了 im2col + GEMM 路线：先把输入展开成 \([K, P]\) 的 col 矩阵，再调用 GEMM。这条路线有两个代价：</p>
 
 <ul>
-<li><b>显存</b>：col 矩阵对 3&times;3 conv 是输入的 9 倍。对 1024&times;1024 分辨率、128 通道的 feature map，col 需要 \(128 \times 9 \times 1024^2 \times 2\) B &asymp; 2.4 GB（FP16）——这比输入本身（256 MB）大一个数量级，对 H100 的 80 GB HBM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span> 也不小。</li>
-<li><b>带宽</b>：im2col kernel 写出 col 矩阵，GEMM kernel 再读入——这一写一读完全是多余的全局内存流量。对 3&times;3 conv，多出的全局内存流量是 \(2 \times 9 \times\) 输入大小。以 ResNet 第三阶段（C=128, H=W=56, FP16, batch=32）为例，im2col 的额外读写流量约 2.3 GB——而 A100 的 HBM 带宽是 2.0 TB/s，这些额外流量就需要超过 1 ms，可能占卷积计算时间的 30% 以上。</li>
+<li><b>显存</b>：col 矩阵对 3&times;3 conv 是输入的 9 倍。对 1024&times;1024 分辨率、128 通道的 feature map，col 需要 \(128 \times 9 \times 1024^2 \times 2\) B &asymp; 2.4 GB（FP16）——这比输入本身（256 MB）大一个数量级，对 H100 的 80 GB HBM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span> 也不小。</li>
+<li><b>带宽</b>：im2col kernel 写出 col 矩阵，GEMM kernel 再读入——这一写一读完全是多余的全局内存流量。对 stride=1 的 3&times;3 conv，多出的全局内存流量是 \(2 \times 9 \times\) 输入大小。以一个 C_in=C_out=128、56&times;56、FP16、batch=32 的 3&times;3 层为例：输入约 25.7 MB，额外读写约 \(2 \times 9 \times 25.7 \approx 462\) MB，按 A100 80GB 的 2.04 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span> 至少要 0.23 ms；而这一层的计算量 \(2 \times 128^2 \times 9 \times 3136 \times 32 \approx 29.6\) GFLOP，按 312 TFLOPS 的 FP16 稠密峰值只需约 0.095 ms——多出来的搬运时间比理想计算时间还长。</li>
 </ul>
 
 <p><b>Implicit GEMM</b> 的核心思想是：把 im2col 的地址计算融入 GEMM 的 tile 加载阶段（<a href="#fig-dim_mapping">图 1</a>）。在 GEMM 主循环的每一步，需要加载 B 矩阵的一个 tile——此时不是从 col 矩阵读，而是根据 (k, n_p) 坐标实时计算输入张量的地址，直接读取原始输入。这样 col 矩阵就&ldquo;隐式&rdquo;地存在于地址计算逻辑中，从不真正物化到全局内存。</p>
@@ -266,7 +266,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>从 GEMM 的角度看，implicit GEMM conv 和标准 GEMM 几乎一样——唯一的区别是 B 矩阵的&ldquo;虚拟&rdquo;加载器。这意味着 GEMM 的所有优化技术（Tensor Core、多级流水线、persistent kernel、warp specialization）可以直接复用。这就是为什么 CUTLASS 能把 GEMM 和 conv 统一到同一个 Collective 架构中。</p>
 
-<p><b>Implicit GEMM 的实际性能</b>：在 A100 上，CUTLASS 的 implicit GEMM conv 对 ResNet-50 的 3&times;3 卷积层（C=128, H=W=56, FP16）可以达到理论 Tensor Core 算力的 70&ndash;85%。与显式 im2col + cuBLAS GEMM 相比，implicit GEMM 通常快 10&ndash;30%——节省主要来自减少的全局内存流量。但对 1&times;1 卷积（本身就是 GEMM，不需要 im2col），implicit GEMM 没有优势——直接调 cuBLAS 即可。cuDNN 内部会根据 filter 大小自动选择：1&times;1 走 GEMM，3&times;3 以上走 implicit GEMM。</p>
+<p><b>什么时候 implicit GEMM 没有优势</b>：对 stride=1、pad=0 的 1&times;1 卷积，NHWC 输入本身就是 GEMM 的操作数矩阵，不存在 col 矩阵，implicit 与 explicit 没有区别，直接当 GEMM 处理即可。NVIDIA 的卷积性能指南也把 implicit GEMM 描述为&ldquo;不在内存中构造对应矩阵&rdquo;的直接卷积变体<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §1 Quick Start Checklist、§3、§4.4.3。">2</a>]</span>。</p>
 
 <h2 id="sec-address">地址计算：从线性 k 到 (ci, r, s)</h2>
 
@@ -306,34 +306,34 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     return 0.0f;</code></pre>
 <p class="src-note">完整代码：<code>code/cv31-implicit-gemm/implicit_gemm_conv.cu</code> 第 33&ndash;46 行（未在 GPU 上运行）</p>
 
-<p>这个函数是整个 implicit GEMM 的&ldquo;虚拟 col 矩阵&rdquo;：调用方只给出 GEMM 坐标 (n, p, k)，函数内部把它翻译成输入张量坐标。<b>为什么 K 维度的分解顺序是 ci 最外、s 最内</b>？因为 NHWC 下内存的最内维是 ci，而 GEMM 的一个 BK tile 沿 k 连续。如果反过来让 ci 最内（k = ((r&middot;S)+s)&middot;C_in + ci），连续的 BK 个 k 就对应同一像素的连续 BK 个通道——在内存里连续，可以一次 128B 合并读取；本代码的顺序（ci 最外）则让连续的 k 对应同一通道的 9 个空间位置，每个线程读的地址相隔 \(C_\text{in}\) 个元素，合并效率极差。这正是 CUTLASS 把 K 维度定义为 (r, s, ci) 且 ci 最内的原因——教学代码为了和 im2col 的公式对齐保留了 NCHW 风格的顺序，代价是 B 侧的合并访存。对 \(C_\text{in}=128\) 的层，两种顺序的 B 侧有效带宽差距可达 4&ndash;8 倍。另外，<code>return 0.0f</code> 走的是普通分支：同一 warp 中如果一半线程落在 padding 区，另一半在有效区，就会发生分支发散——这正是下一节谓词加载要消除的开销。</p>
+<p>这个函数是整个 implicit GEMM 的&ldquo;虚拟 col 矩阵&rdquo;：调用方只给出 GEMM 坐标 (n, p, k)，函数内部把它翻译成输入张量坐标。<b>为什么 K 维度的分解顺序是 ci 最外、s 最内</b>？因为 NHWC 下内存的最内维是 ci，而 GEMM 的一个 BK tile 沿 k 连续。如果反过来让 ci 最内（k = ((r&middot;S)+s)&middot;C_in + ci），连续的 BK 个 k 就对应同一像素的连续 BK 个通道——在内存里连续，可以用 128-bit 向量合并读取；本代码的顺序（ci 最外）则让连续的 k 对应同一通道的 9 个空间位置，每次读的地址相隔 \(C_\text{in}\) 个元素，无法合并。CUTLASS 的做法是：每个 K 方向的 threadblock tile 对应一个滤波器位置 (r, s) 加一段连续通道，遍历完所有 (r, s) 后再前进到下一段通道<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>——tile 内通道连续，正是为了这一点。教学代码为了和 im2col 的公式对齐保留了 NCHW 风格的顺序，代价是 B 侧的合并访存。另外，<code>return 0.0f</code> 走的是普通分支：同一 warp 中如果一半线程落在 padding 区，另一半在有效区，就会发生分支发散——这正是下一节谓词加载要消除的开销。</p>
 
-<p><b>整数除法的代价</b>：GPU 上的整数除法通常需要 20&ndash;30 个时钟周期（编译器会用乘法+移位来模拟，但对于运行时不确定的除数——如 S 和 R——无法在编译期优化）。取模需要一次除法加一次乘法加一次减法。对 3&times;3 filter（R=S=3），<code>decompose_k</code> 需要两次除法和两次取模——每个 BK tile 的加载阶段，CTA 内所有线程都要做这些运算。虽然单次不贵，但累积起来——对 K=1152（C_in=128, R=S=3）、BK=8 的主循环，需要 144 步，每步做 4 次整数除法/取模——总共约 576 次除法。这些指令占用的时钟周期可能达到上千个，而同等数量的 FMA 只需要几十个时钟周期。这就是增量迭代器要解决的问题。</p>
+<p><b>整数除法的代价</b>：GPU 没有单条的 32 位整数除法指令，除数在编译期未知时（如运行时的 S、R），编译器只能生成一段由乘法、移位、比较组成的软件序列；取模再多一次乘减。对 3&times;3 filter，<code>decompose_k</code> 每次调用有两次除法和两次取模。对 K=1152（C_in=128, R=S=3）、BK=8 的主循环，共 144 步，每步每个线程要为自己负责的 B 元素各做一遍——这些整数指令与 FMA 争抢发射槽。CUTLASS 的文档直言，这种取模运算的开销会限制面向 Tensor Core 的 GEMM kernel 的性能<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。这就是增量迭代器要解决的问题。</p>
 
-<p>一个更微妙的代价是<b>寄存器压力</b>：<code>decompose_k</code> 需要中间变量保存除法结果，加上 (ih, iw) 的计算还需要 stride、pad、dil 等参数——这些都要占寄存器。B 侧每个线程的地址计算大约需要 10&ndash;15 个额外寄存器，而标准 GEMM 的 B 侧加载只需要 2&ndash;3 个。这会降低 occupancy（每个 SM 能同时运行的 warp 数），但在 Hopper 架构上，warp specialization 让 producer warp 的寄存器需求和 consumer warp 分开——producer 用更多寄存器做地址计算，consumer 用更多寄存器做 MMA 累加——互不影响。</p>
+<p>一个更微妙的代价是<b>寄存器压力</b>：<code>decompose_k</code> 需要中间变量保存除法结果，(ih, iw) 的计算还需要 stride、pad、dil 等参数——标准 GEMM 的 B 侧加载只需要一个指针加步长，这里要多出若干寄存器，可能降低 occupancy。在 Hopper 上，warp specialization 加 <code>setmaxnreg</code> 可以让 producer warp 和 consumer warp 使用不同的寄存器预算，缓解这个矛盾。</p>
 
 <p><b>N 维度的分解</b>也面临类似问题：GEMM 的 N 维度对应 \(N_\text{batch} \times P\)（P = \(H_\text{out} \times W_\text{out}\)），需要从线性 np 索引反推 (n, oh, ow)：</p>
 
 <p>\(\text{n} = \text{np} / P, \quad \text{oh} = (\text{np} \% P) / W_\text{out}, \quad \text{ow} = \text{np} \% W_\text{out}\)</p>
 
-<p>又是三次除法取模。但 N 维度的分解对同一 CTA 的不同 K 步进不会变化（一个 CTA 负责固定的 N 范围），所以可以在 CTA 初始化时预计算一次，存在寄存器中。CUTLASS 就是这样做的——每个 CTA 在开始 K 维度循环前，先计算出它负责的所有 (n, oh, ow) 值，然后在 K 循环中只需从预计算的数组中索引即可。</p>
+<p>又是三次除法取模。但 N 维度的分解对同一 CTA 的不同 K 步进不会变化（一个 CTA 负责固定的 N 范围），所以可以在 CTA 初始化时预计算一次，存在寄存器中。CUTLASS 的 analytic 迭代器就是在构造函数里把 GEMM 坐标映射到 (n, p, q)，optimized 迭代器则用 fast divmod 做这一步<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。</p>
 
 <h2 id="sec-iterator">增量迭代器：用加法替代除法</h2>
 
-<p>CUTLASS 的做法是预计算一个<b>偏移表</b>（<a href="#fig-offset_table">图 3</a>）：对 K 维度的每个 BK 步进，存下 (delta_ci, delta_r, delta_s) 以及对应的输入指针增量。这样主循环中不需要除法——每步只需把当前指针加上预计算的 delta。</p>
+<p>CUTLASS 的 optimized 迭代器把&ldquo;从一个滤波器位置走到下一个&rdquo;的指针增量在 host 端预先算好，放进 kernel 的 <code>Params</code> 结构里（<a href="#fig-offset_table">图 3</a> 是这个思路的示意）<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。这样主循环中不需要除法——每步只需把当前指针加上预计算的 delta。</p>
 
 <figure id="fig-offset_table" data-kind="diagram">
 <img aria-labelledby="fig-offset_table-cap" src="figs/offset_table.svg" alt="偏移表"/>
-<figcaption id="fig-offset_table-cap"><span class="fig-label">图 3</span><b>偏移表把 k &rarr; (ci, r, s) 的除法取模预计算成增量。</b>同一 CTA 内所有线程步进相同的 K 间隔，delta 可以存入 constant memory。每步的地址计算从除法变成加法。</figcaption>
+<figcaption id="fig-offset_table-cap"><span class="fig-label">图 3</span><b>偏移表把 k &rarr; (ci, r, s) 的除法取模预计算成增量（示意，按本篇教学代码的 ci 最外顺序）。</b>同一 CTA 内所有线程步进相同的 K 间隔，delta 可以在 host 端算好、作为 kernel 参数传入。每步的地址计算从除法变成加法。</figcaption>
 </figure>
 
-<p>增量迭代器的工作原理：假设当前位于 (ci, r, s)，步进 BK 后到达 (ci', r', s')。delta_s = (s + BK) - s'&times;... 实际上是一个&ldquo;进位&rdquo;逻辑——类似十进制的加法进位。当 s + delta 溢出 S 时，r 加一；当 r 溢出 R 时，ci 加一。CUTLASS 预计算了一个长度为 \(\lceil K / BK \rceil\) 的数组，每个元素存储当步的输入指针增量（在 NHWC 布局下，就是 \(\Delta_\text{ci} \times 1 + \Delta_\text{r} \times W \times C_\text{in} + \Delta_\text{s} \times C_\text{in}\)）。这个数组只需计算一次，存在常量内存或寄存器中。</p>
+<p>增量迭代器的工作原理：假设当前位于 (ci, r, s)，步进 BK 后到达 (ci', r', s')。delta_s = (s + BK) - s'&times;... 实际上是一个&ldquo;进位&rdquo;逻辑——类似十进制的加法进位。当 s 溢出 S 时，r 加一；当 r 溢出 R 时，进到下一段通道。因为这种进位只有少数几种情况，增量也只有少数几种取值：CUTLASS 的 NHWC fprop 激活迭代器在 <code>Params</code> 构造函数里只预算了 <code>inc_next[0..2]</code> 三个增量——走到下一个 s、下一个 r、下一段通道（都已乘上 dilation 和元素字节数）<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。在 NHWC 布局下，一般形式是 \(\Delta_\text{ci} + \Delta_\text{s} \cdot \text{dil}_w \cdot C_\text{in} + \Delta_\text{r} \cdot \text{dil}_h \cdot W \cdot C_\text{in}\) 个元素。</p>
 
-<p>用一个具体例子把进位逻辑走一遍：取 K 维度顺序为 (r, s, ci) 且 ci 最内，\(C_\text{in}=64\)、3&times;3 filter、BK=32、NHWC、输入宽 W=56。从 (r, s, ci) = (0, 0, 0) 出发，第一步加 32 到达 (0, 0, 32)，指针增量就是 32 个元素；第二步 ci 溢出 64，进位到 (0, 1, 0)，增量变成 \(C_\text{in} - 32 = 32\) 个元素（相邻像素的通道块正好紧挨着）；当 s 从 2 进位到下一行时，增量变成 \(W \times C_\text{in} - 2 \times C_\text{in} - 32 = 3424\) 个元素。整张 delta 表只有 \(9 \times 64 / 32 = 18\) 项，而且呈周期性：大部分是 32，每行末尾出现一个大跳跃。主循环里每步只做一次指针加法和一次谓词更新，原本 4 次除法的 100+ 周期降到 2&ndash;3 个周期。如果不用偏移表而坚持实时除法，地址计算会吃掉 B 侧加载 30%&ndash;50% 的发射槽，Tensor Core 版本的 implicit GEMM 根本喂不饱 MMA。代价是迭代器只支持&ldquo;按固定 BK 顺序前进&rdquo;，一旦需要跳跃访问（比如 split-K 让每个 CTA 从 K 的中间开始），就要额外初始化起点状态。</p>
+<p>用一个具体例子把进位逻辑走一遍：取 K 维度顺序为 (r, s, ci) 且 ci 最内，\(C_\text{in}=64\)、3&times;3 filter、BK=32、NHWC、输入宽 W=56。从 (r, s, ci) = (0, 0, 0) 出发，第一步加 32 到达 (0, 0, 32)，指针增量就是 32 个元素；第二步 ci 溢出 64，进位到 (0, 1, 0)，增量变成 \(C_\text{in} - 32 = 32\) 个元素（相邻像素的通道块正好紧挨着）；当 s 从 2 进位到下一行时，增量变成 \(W \times C_\text{in} - 2 \times C_\text{in} - 32 = 3424\) 个元素。整个 K 循环只有 \(9 \times 64 / 32 = 18\) 步，增量呈周期性：大部分是 32，每行末尾出现一个大跳跃。主循环里每步只做一次指针加法和一次谓词更新，不再有除法。代价是迭代器只支持&ldquo;按固定 BK 顺序前进&rdquo;，一旦需要跳跃访问（比如 split-K 让每个 CTA 从 K 的中间开始），就要额外初始化起点状态。</p>
 
-<p>另一个关键优化是 <b>谓词（predicate）</b>处理：padding 区域的输入值为 0，不需要实际加载。偏移表中为每个 k 步预存一个谓词掩码，指示哪些线程的 (ih, iw) 落在有效范围内。越界线程直接写 0 到 shared memory，省去一次全局内存读——这在高 padding 比例的场景下（如 padding=1 的 3&times;3 conv 中，边缘像素约 1/4 的窗口在 padding 区域）显著减少无效访存。</p>
+<p>另一个关键优化是 <b>谓词（predicate）</b>处理：padding 区域的输入值为 0，不需要实际加载。CUTLASS 的 optimized 迭代器在构造时为每个线程算好与 CTA 位置相关的谓词掩码（对每个滤波器位置，这次访问是否越界）<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。越界的访问不读全局内存、在 shared memory 里写 0。以 padding=1 的 3&times;3 conv 为例，图像边上（非角）的输出像素有 3/9 的抽头落在 padding 区，角上有 5/9。</p>
 
-<p><b>谓词的实现细节</b>：为了避免每次都做条件判断（分支发散），CUTLASS 使用 PTX 的 <code>setp</code> 指令生成谓词寄存器，然后用带谓词的 <code>@p ld.global</code> 指令——如果谓词为假，直接跳过加载并写零，不产生全局内存事务。这比 <code>if-else</code> 分支更高效，因为不需要 warp 分裂——warp 内所有线程都执行同一条指令，只是部分线程的加载被谓词屏蔽（硬件直接忽略，没有事务发出）。在 Hopper 上，cp.async 也支持谓词——如果谓词为假，异步拷贝不发出，目标 smem 位置直接填零。这让 padding 处理的开销几乎为零。</p>
+<p><b>谓词的实现细节</b>：为了避免分支，常见做法是先把寄存器片段清零，再用带谓词的加载（PTX 的 <code>setp</code> 生成谓词、<code>@p ld.global</code> 执行）——谓词为假的线程不发出访存，寄存器保持 0。warp 内所有线程执行同一条指令，没有分支发散。从 Ampere 起还可以用 <code>cp.async</code> 的 <code>src-size</code> 操作数：PTX 规定拷贝 src-size 字节、目标中剩余字节填零<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”；<code>cp.async</code> 的 src-size 填零语义；WGMMA / tcgen05 指令形状。">4</a>]</span>，src-size 取 0 就是&ldquo;不读全局内存、直接写零&rdquo;（CUTLASS 称为 zfill）。在 Hopper 上，TMA 的 im2col 模式把这件事交给硬件：越界元素按 fill mode 填零。</p>
 
 <h2 id="sec-mainloop">Implicit GEMM 的主循环</h2>
 
@@ -352,7 +352,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float acc[4][4] = {};  // 4x4 per thread</code></pre>
 <p class="src-note">完整代码：<code>code/cv31-implicit-gemm/implicit_gemm_conv.cu</code> 第 58&ndash;68 行（未在 GPU 上运行）</p>
 
-<p>smem 只有 \((64 \times 8 + 8 \times 64) \times 4 = 4\) KB，每线程 16 个累加器——这是第 24 篇 SGEMM 阶梯里&ldquo;2D register tiling&rdquo;那一级的配置。<b>为什么 BK 只取 8</b>？B 侧每个元素都要经过一次 <code>load_input</code>，地址计算是标量整数运算，BK 越大每轮要算的地址越多；BK=8 让每轮 B 侧只有 512 个元素、16&times;16 个线程每人 2 个，地址计算的延迟还能被 16 次 FMA 掩盖。如果把 BK 提到 32，smem 只增加到 16 KB，看似划算，但每线程每轮要算 8 个地址（约 8 &times; 30 = 240 周期的整数除法），而 FMA 只有 \(32 \times 16 = 512\) 次——地址计算占比接近一半，SM 的整数流水线成为瓶颈。这就是教学版 implicit GEMM 只能跑到 SGEMM 一半左右性能的原因，也说明增量迭代器不是锦上添花，而是 implicit GEMM 能否达到 GEMM 级性能的分水岭。</p>
+<p>smem 只有 \((64 \times 8 + 8 \times 64) \times 4 = 4\) KB，每线程 16 个累加器——这是第 24 篇 SGEMM 阶梯里&ldquo;2D register tiling&rdquo;那一级的配置。<b>为什么 BK 只取 8</b>？B 侧每个元素都要经过一次 <code>load_input</code>，地址计算是标量整数运算，BK 越大每轮要算的地址越多；BK=8 让每轮 B 侧只有 512 个元素、16&times;16 个线程每人 2 个，每轮配 \(8 \times 16 = 128\) 次 FMA。把 BK 提到 32，smem 只增加到 16 KB，但每线程每轮要做 8 次 <code>load_input</code>（每次都有除法取模），整数指令与 FMA 的比例并没有改善——BK 只是重新分配了同样的地址计算量。真正降低这部分开销的办法是下一节的增量迭代器：增量迭代器不是锦上添花，而是 implicit GEMM 接近 GEMM 性能的前提。本篇没有在 GPU 上测过这个教学 kernel 的速度。</p>
 
 <pre data-code="code/cv31-implicit-gemm/implicit_gemm_conv.cu#L70-L108"><code>  for (int k0 = 0; k0 &lt; prob.K; k0 += BK) {
     // Load weight tile sA[ty][tx],
@@ -397,15 +397,15 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>这段代码是教学性质的 FP32 版本。注意 B 侧加载中的 <code>load_input</code> 函数——它做了 <code>decompose_k</code>（k &rarr; ci, r, s）和地址计算（oh, ow &rarr; ih, iw），然后用 NHWC 布局公式读取输入。在实际的 CUTLASS implicit GEMM 中，这个 <code>load_input</code> 被增量迭代器替代，除法变成加法。</p>
 
-<p><b>A 侧（weight）的加载</b>没有变化——weight 矩阵是 \([C_\text{out}, K]\)（K = \(C_\text{in} \cdot R \cdot S\)），线性存储在全局内存中。A 侧的 TiledCopy 和标准 GEMM 完全一样，可以用 cp.async（Ampere）或 TMA（Hopper）加载。这意味着 A 侧始终能达到理论带宽利用率——implicit GEMM 的性能瓶颈全在 B 侧的地址计算。实际中，weight 矩阵通常很小（如 128&times;1152 &times; 2B = 288 KB），可以完全放入 L2 cache（A100 40 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），所以 weight 的访问几乎总是命中 L2——这使得 B 侧的全局内存带宽成为唯一的带宽瓶颈。</p>
+<p><b>A 侧（weight）的加载</b>没有变化——weight 矩阵是 \([C_\text{out}, K]\)（K = \(C_\text{in} \cdot R \cdot S\)），线性存储在全局内存中。A 侧的加载和标准 GEMM 完全一样，可以用 cp.async（Ampere）或 TMA（Hopper）加载，额外开销集中在 B 侧的地址计算。实际中，weight 矩阵通常很小（如 128&times;1152 &times; 2B = 288 KiB），远小于 L2 容量（A100 40 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），被各个 CTA 反复读取时多半命中 L2。</p>
 
-<p>实际的 CUTLASS implicit GEMM 使用 Tensor Core（mma.sync / WGMMA）、多级流水线（cp.async / TMA）和 persistent kernel——技术上和 <a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>的 GEMM 完全相同，只是 B 矩阵的加载从线性地址变成了卷积地址计算。</p>
+<p>实际的 CUTLASS implicit GEMM 使用 Tensor Core（mma.sync / WGMMA / tcgen05）和多级流水线（cp.async / TMA）——技术上和 <a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>的 GEMM 相同，只是激活矩阵的加载从线性地址变成了卷积地址计算。注意 CUTLASS 的映射和本篇教学代码是转置的：fprop 中 GEMM M = N&middot;P&middot;Q（输出像素）、N = C_out、K = C&middot;R&middot;S，激活是 A 矩阵<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>。</p>
 
-<p><b>Persistent implicit GEMM conv</b>：对于 tile 数少（小 HW 或大 stride）的卷积，persistent kernel（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）特别有价值——一个 CTA 依次处理多个 output tile，避免重复 launch 的开销。CUTLASS 3.x 的 Hopper conv 默认是 persistent 的。在这种模式下，增量迭代器的初始化开销被摊薄——只需在第一个 tile 开始前初始化一次偏移表。</p>
+<p><b>Persistent implicit GEMM conv</b>：对于 tile 数少（小 HW 或大 stride）的卷积，persistent kernel（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）特别有价值——一个 CTA 依次处理多个 output tile，避免重复 launch 的开销。CUTLASS 3.x 的 Hopper conv kernel（<code>ConvUniversal</code>）直接继承 GEMM 的 <code>GemmUniversal</code>，tile 调度器作为模板参数传入，可以复用 GEMM 的 persistent 调度器。</p>
 
-<p><b>多级流水线与 B 侧延迟隐藏</b>：Implicit GEMM 的 B 侧加载比标准 GEMM 慢——地址计算引入了额外延迟。多级流水线（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）通过增加 stage 数来隐藏这个延迟：当 MMA 在执行第 i 步的计算时，producer 已经开始计算第 i+2 步的 B 侧地址并发出异步加载。CUTLASS 3.x 的 Hopper conv 通常使用 3&ndash;4 个 stage——比标准 GEMM 多一个 stage，正好覆盖地址计算的额外延迟。每多一个 stage 需要多 \(BK \times BN \times \text{sizeof(T)}\) 字节的 smem，但 Hopper 的 228 KB smem 容量足够承受。</p>
+<p><b>多级流水线与 B 侧延迟隐藏</b>：Implicit GEMM 的 B 侧加载比标准 GEMM 多了地址计算的延迟。多级流水线（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）通过多个 stage 来隐藏它：当 MMA 在执行第 i 步的计算时，producer 已经在准备后面几步的地址并发出异步加载。每多一个 stage 需要多一份 A、B tile 的 smem，stage 数由 smem 预算决定。</p>
 
-<p><b>Tile 调度策略</b>：标准 GEMM 的 tile 按行优先或列优先调度就行，但 conv 的 N 维度（= \(N_\text{batch} \times P\)）有特殊结构——相邻的 N tile 对应相邻的空间位置，它们在输入张量中的读取区域高度重叠（相邻输出像素共享大部分输入窗口）。如果 tile 调度让这些 tile 被相邻的 SM 处理，L2 cache 命中率会大幅提高。CUTLASS 的 swizzle 调度（和 GEMM 一样的 tile rasterization）正好做了这件事：把 output tile 按 L2 cache 的局部性分组调度。</p>
+<p><b>Tile 调度策略</b>：标准 GEMM 的 tile 按行优先或列优先调度就行，但 conv 的 N 维度（= \(N_\text{batch} \times P\)）有特殊结构——相邻的 N tile 对应相邻的空间位置，它们在输入张量中的读取区域高度重叠（相邻输出像素共享大部分输入窗口）。如果 tile 调度让这些 tile 在时间上相近地被处理，重叠部分更可能命中 L2。CUTLASS 的 threadblock swizzle（和 GEMM 一样的 tile rasterization）就是用来调整 tile 的发射顺序以改善 L2 局部性的。</p>
 
 <h2 id="sec-backward">卷积反向：dgrad 与 wgrad</h2>
 
@@ -413,17 +413,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-three_passes" data-kind="diagram">
 <img aria-labelledby="fig-three_passes-cap" src="figs/three_passes.svg" alt="三个 pass 的 GEMM"/>
-<figcaption id="fig-three_passes-cap"><span class="fig-label">图 4</span><b>fprop / dgrad / wgrad 三者的 GEMM 维度对比。</b>dgrad 的 K 维度是 C_out（通常几百），wgrad 的 K 维度是 N&middot;P（可达数万），几乎必须用 Split-K。</figcaption>
+<figcaption id="fig-three_passes-cap"><span class="fig-label">图 4</span><b>fprop / dgrad / wgrad 三者的 GEMM 维度对比（按本篇 M = 通道 的写法；CUTLASS 中 fprop/dgrad 的 M、N 对调）。</b>dgrad 的 K 维度是 C_out&middot;R&middot;S，和 fprop 的 C_in&middot;R&middot;S 同一量级；wgrad 的 K 维度是 N&middot;P（可达数万），M、N 小时常用 Split-K。</figcaption>
 </figure>
 
 <h3 id="sec-1">dgrad（输入梯度）</h3>
 
-<p>数学上，dgrad 等价于用翻转（旋转 180&deg;）的 filter 对 dOutput 做卷积，并加 (R-1, S-1) 的 padding。GEMM 维度：M = \(C_\text{in}\)，N = \(N \cdot H \cdot W\)，K = \(C_\text{out}\)。</p>
+<p>数学上（stride=1），dgrad 等价于用翻转（旋转 180&deg;）、并交换输入输出通道的 filter 对 dOutput 做卷积，padding 为 \((R-1-\text{pad}_h, S-1-\text{pad}_w)\)。GEMM 维度：M = \(C_\text{in}\)，N = \(N \cdot H \cdot W\)，K = \(C_\text{out} \cdot R \cdot S\)——CUTLASS 的 <code>implicit_gemm_problem_size</code> 对 dgrad 给出的正是 (N&middot;H&middot;W, C, K&middot;R&middot;S)（它用 K 表示输出通道）<span class="cite">[<a href="#ref-cutlass2ps" title="NVIDIA. cutlass/conv/conv2d_problem_size.h. <code>implicit_gemm_problem_size()</code>：fprop / dgrad / wgrad 的 GEMM 尺寸。">5</a>]</span>。</p>
 
 <p>stride &gt; 1 时情况复杂：前向中一个输出像素对应多个输入位置（按 stride 间隔），反向时梯度要&ldquo;散射&rdquo;到这些位置。有两种处理方式：</p>
 <ul>
-<li>把 dOutput 上采样（插入 stride-1 个零行/列），再做 stride=1 的卷积——概念简单但浪费带宽（大部分是读零）；</li>
-<li>直接用 stride 做地址映射——CUTLASS 的 strided dgrad 就是这样实现的，每个输出位置只读取它实际需要的 dOutput 值。</li>
+<li>把 dOutput 上采样（插入 stride-1 个零行/列），再做 stride=1 的卷积——概念简单，但 stride=2 时约 3/4 的乘加是在乘零；</li>
+<li>按相位拆分：输入位置 (ih, iw) 按 (ih mod stride, iw mod stride) 分成 stride&sup2; 组，每组只与相位对齐的那部分滤波器抽头相乘，没有乘零。CUTLASS 的 strided dgrad kernel（<code>ImplicitGemmConvolutionStridedDgrad</code>）按这个思路为每个 tile 计算起始滤波器位置 (start_r, start_s)，并配有专门的 threadblock swizzle。</li>
 </ul>
 
 <pre data-code="code/cv31-implicit-gemm/conv_backward.cu#L22-L56"><code>__global__ void conv2d_dgrad_naive(
@@ -447,8 +447,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   for (int co = 0; co &lt; C_out; ++co) {
     for (int r = 0; r &lt; R; ++r) {
       for (int s = 0; s &lt; S; ++s) {
-        int oh = ih + pad_h - r;
-        int ow = iw + pad_w - s;
+        int oh = ih + pad_h - (R - 1 - r);
+        int ow = iw + pad_w - (S - 1 - s);
         if (oh &gt;= 0 &amp;&amp; oh &lt; H_out &amp;&amp; ow &gt;= 0 &amp;&amp; ow &lt; W_out) {
           float dy = dOutput[((n * H_out + oh) * W_out + ow)
                              * C_out + co];
@@ -463,9 +463,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cv31-implicit-gemm/conv_backward.cu</code> 第 22–56 行（未在 GPU 上运行）</p>
 
-<p>注意 weight 的索引是 <code>(R-1-r, S-1-s)</code>——这就是&ldquo;翻转 filter&rdquo;的含义。在 NHWC implicit GEMM 中，dgrad 的 A 矩阵变成 weight 的转置（\(W^T\)，维度 \([C_\text{in}, C_\text{out}]\)），B 矩阵是 dOutput 经过地址翻转后的&ldquo;虚拟&rdquo;tensor。地址翻转的处理方式和 fprop 类似——在 B 侧的 TiledCopy 中修改地址计算逻辑。</p>
+<p>注意 weight 的索引是 <code>(R-1-r, S-1-s)</code>，同时 dOutput 的窗口从 <code>ih + pad_h - (R-1)</code> 开始——这就是&ldquo;翻转 filter、padding 变成 R-1-pad&rdquo;的含义（两处必须配套，只翻转其中一处结果就错了）。在 implicit GEMM 中，dgrad 的权重矩阵变成 \([C_\text{in}, C_\text{out} \cdot R \cdot S]\)，另一侧是 dOutput 经过地址翻转后的&ldquo;虚拟&rdquo; col 矩阵，地址计算的处理方式和 fprop 类似。</p>
 
-<p><b>dgrad 的性能特征</b>：dgrad 的 K 维度（= \(C_\text{out}\)）通常只有几百，比 fprop 的 K 维度（= \(C_\text{in} \times R \times S\)）小得多——以 3&times;3 conv 为例，fprop 的 K = \(C_\text{in} \times 9\)，而 dgrad 的 K 只有 \(C_\text{out}\)，在通道数相同的常见情况下 dgrad 的 K 只有 fprop 的 1/9。这意味着 GEMM 主循环的迭代次数少，每次迭代的 MMA 计算量也少——更容易变成 memory-bound。对 stride&gt;1 的情况，dgrad 还面临一个特殊问题：输出（dInput）的空间分辨率是输入（dOutput）的 stride 倍，但只有 \(1/\text{stride}^2\) 的输出位置有非零梯度——这导致大量无效计算。CUTLASS 的优化是只对有效输出位置分配 tile，跳过全零区域。具体来说，对 stride=2 的 dgrad（如 ResNet 的下采样层），有效输出位置只占总输出的 1/4——如果对所有位置都分配 tile，75% 的 CTA 输出全零。CUTLASS 的 strided dgrad iterator 通过位图跟踪有效位置，只为非零位置生成 tile——这让 stride=2 dgrad 的有效算力提升约 3 倍。此外，dgrad 的 weight 需要翻转（读取 weight[R-1-r][S-1-s]），但翻转只影响访存模式而非计算量，weight 通常驻留在 L2 cache 中，翻转的额外 cache miss 可忽略——实测中翻转的开销不到 dgrad 总执行时间的百分之一，完全可以忽略不计。</p>
+<p><b>dgrad 的性能特征</b>：dgrad 的 K 维度（= \(C_\text{out} \cdot R \cdot S\)）和 fprop 的 K（= \(C_\text{in} \cdot R \cdot S\)）在通道数相近时是同一量级，stride=1 时 dgrad 本身就是一个普通卷积，难度和 fprop 相当。真正的麻烦是 stride&gt;1：若用插零的办法，dOutput 的上采样版本里只有 \(1/\text{stride}^2\) 的位置非零，大部分乘加在乘零；按相位拆分后，每个相位只用到 \(\lceil R/\text{stride} \rceil \times \lceil S/\text{stride} \rceil\) 量级的滤波器抽头，K 变短、问题被切成 stride&sup2; 个更小的 GEMM，这正是 CUTLASS 为 strided dgrad 单独写 kernel 和 swizzle 的原因。filter 的翻转只改变访存顺序，不改变计算量。</p>
 
 <h3 id="sec-2">wgrad（权重梯度）</h3>
 
@@ -484,44 +484,44 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-wgrad_splitk" data-kind="diagram">
 <img aria-labelledby="fig-wgrad_splitk-cap" src="figs/wgrad_splitk.svg" alt="wgrad Split-K"/>
-<figcaption id="fig-wgrad_splitk-cap"><span class="fig-label">图 5</span><b>wgrad 的 GEMM 需要 Split-K。</b>以 ResNet layer3（C=128, 56&times;56, batch=32）为例，K = 32 &times; 3136 = 100,352——远大于 M=128, N=1152。Split-K 把 K 切成多个 slice，各 CTA 独立累加，最后 reduce。</figcaption>
+<figcaption id="fig-wgrad_splitk-cap"><span class="fig-label">图 5</span><b>wgrad 的 GEMM 需要 Split-K。</b>以一个 C_in=C_out=128、56&times;56、batch=32 的 3&times;3 层为例，K = 32 &times; 3136 = 100,352——远大于 M=128, N=1152。Split-K 把 K 切成多个 slice，各 CTA 独立累加，最后 reduce。</figcaption>
 </figure>
 
-<p>具体数字：对 ResNet-50 的 layer3（C_out=128, C_in=128, R=S=3, H_out=W_out=56, batch=32），wgrad GEMM 的维度是 M=128, N=1152, K=100352。如果不用 Split-K，tile 数只有 \(\lceil 128/64 \rceil \times \lceil 1152/64 \rceil = 2 \times 18 = 36\) 个——A100 有 108 个 SM，大部分空闲（利用率 33%）。Split-K=4 后，tile 数变为 \(36 \times 4 = 144\)，每个 SM 至少分到一个 tile，利用率提高到 100%。</p>
+<p>具体数字：对一个 C_out=C_in=128、R=S=3、H_out=W_out=56、batch=32 的层，wgrad GEMM 的维度是 M=128, N=1152, K=100352。如果用 64&times;64 的 tile 且不用 Split-K，tile 数只有 \(\lceil 128/64 \rceil \times \lceil 1152/64 \rceil = 2 \times 18 = 36\) 个——A100 有 108 个 SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，同时只有三分之一在干活。Split-K=3 后 tile 数变为 108，正好一波；Split-K=4 得到 144 个 tile，需要两波，第二波只有 36 个，反而有波次量化损失——split 数要结合 SM 数选。</p>
 
-<p>对于更深层的卷积（如 ResNet 的 layer4，C=512, H=W=7），wgrad 的 K 更大（\(32 \times 49 = 1568\)）但 M&times;N 也更大（\(512 \times 512 \times 9 = 2359296\)）——tile 数足够多，不需要 Split-K。所以 Split-K 主要对&ldquo;中间层&rdquo;（C 不大但空间分辨率大）的 wgrad 有价值。CUTLASS 提供了自动选择 split_count 的 heuristic：当 tile 数 &lt; SM 数的 80% 时启用 Split-K，split_count = min(4, K/BK)。</p>
+<p>对于更深层的卷积（如 ResNet-50 最后一个 stage 的 3&times;3 层，C=512, H=W=7），wgrad 的 K 反而小得多（\(32 \times 49 = 1568\)），M&times;N 却大得多（\(512 \times 512 \times 9 = 2359296\)，64&times;64 tile 下 576 个）——tile 数足够多，不需要 Split-K。所以 Split-K 主要对 C 不大但空间分辨率大的层的 wgrad 有价值。CUTLASS 的 conv 问题描述里有 <code>split_k_slices</code> 字段<span class="cite">[<a href="#ref-cutlass2ps" title="NVIDIA. cutlass/conv/conv2d_problem_size.h. <code>implicit_gemm_problem_size()</code>：fprop / dgrad / wgrad 的 GEMM 尺寸。">5</a>]</span>，由调用方指定。</p>
 
-<p><b>wgrad 与确定性训练</b>：Split-K 的 reduce 阶段通常用 <code>atomicAdd</code> 把各 slice 的部分结果累加到同一输出位置。但浮点 <code>atomicAdd</code> 是非结合的——不同 slice 的完成顺序不确定，导致加法顺序不同，最终结果存在 ULP 级别的差异（虽然数值误差极小，但逐 bit 不同）。这在需要可复现训练结果的场景（如对比实验、安全审计）中是不可接受的。确定性方案用 workspace + 第二 kernel 求和代替 atomic——代价是额外的 workspace 内存（= split_count &times; M &times; N &times; sizeof(T)）和一次额外的 kernel launch。PyTorch 中 <code>torch.backends.cudnn.deterministic = True</code> 就会启用这种方案。</p>
+<p><b>wgrad 与确定性训练</b>：Split-K 的 reduce 阶段通常用 <code>atomicAdd</code> 把各 slice 的部分结果累加到同一输出位置。但浮点 <code>atomicAdd</code> 是非结合的——不同 slice 的完成顺序不确定，导致加法顺序不同，最终结果存在 ULP 级别的差异（虽然数值误差极小，但逐 bit 不同）。这在需要可复现训练结果的场景（如对比实验、调试）中是不可接受的。确定性方案用 workspace + 第二 kernel 求和代替 atomic——代价是额外的 workspace 内存（= split_count &times; M &times; N &times; sizeof(T)）和一次额外的 kernel launch。PyTorch 的 <code>torch.backends.cudnn.deterministic = True</code> 让 cuDNN 只选确定性的算法（具体是哪种实现由 cuDNN 决定）。</p>
 
 <h2 id="sec-cutlass">CUTLASS 中的 Implicit GEMM Conv</h2>
 
-<p>CUTLASS 3.x/4.x 把卷积组织成和 GEMM 完全相同的 Collective 架构<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x / 4.x。Implicit GEMM Conv2d 的参考实现，Collective 架构。">2</a>]</span>：</p>
+<p>CUTLASS 3.x/4.x 把卷积组织进和 GEMM 相同的 Collective 架构（以 Hopper 的 <code>sm90_implicit_gemm_gmma_ss_warpspecialized.hpp</code> 为例）<span class="cite">[<a href="#ref-cutlasssm90" title="NVIDIA. cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp 与 kernel/sm90_implicit_gemm_tma_warpspecialized.hpp。Hopper conv mainloop（TMA im2col）与 <code>ConvUniversal</code>。">6</a>]</span>：</p>
 
 <ul>
-<li><b>ConvProblemShape</b>：描述卷积的所有参数（layout、stride、padding、dilation）——它是 GEMM ProblemShape 的扩展，多了空间维度的信息。</li>
-<li><b>TiledCopy</b>：负责 tile 加载——fprop 的 B 侧 TiledCopy 实现了 implicit im2col 的地址计算。A 侧（weight）的 TiledCopy 和标准 GEMM 完全一样——线性读取。</li>
+<li><b>ConvProblemShape</b>：描述卷积的所有参数（stride、padding、dilation 等）——相当于 GEMM ProblemShape 加上空间维度的信息。</li>
+<li><b>GmemTiledCopy</b>：负责 tile 加载。Hopper 版本中，激活一侧用 <code>SM90_TMA_LOAD_IM2COL</code>（TMA 的 im2col 模式），另一侧用普通 tiled TMA：源码注释写明 fprop 和 dgrad 是 A 用 im2col、B 用 tiled，wgrad 反过来<span class="cite">[<a href="#ref-cutlasssm90" title="NVIDIA. cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp 与 kernel/sm90_implicit_gemm_tma_warpspecialized.hpp。Hopper conv mainloop（TMA im2col）与 <code>ConvUniversal</code>。">6</a>]</span>。</li>
 <li><b>TiledMMA</b>：和 GEMM 完全相同（mma.sync / WGMMA / tcgen05）——对 MMA 引擎来说，数据已经在 smem/寄存器里了，来源是线性地址还是卷积地址计算完全透明。</li>
 <li><b>Epilogue</b>：支持 bias + activation 融合——conv + bias + ReLU 在一个 kernel 里完成，省掉 bias add 和 ReLU 的额外全局内存读写。</li>
 </ul>
 
-<p>CUTLASS 只支持 NHWC 布局——channels-last 是 implicit GEMM 的前提，因为 GEMM 的 K 维度需要通道连续。在 NHWC 下，B 侧一次加载的连续内存区域覆盖了多个通道的值——即使地址计算有开销，加载本身的合并效率仍然很高。具体来说，对于 BK=16 的 tile 加载，NHWC 下连续的 16 个 K 维度元素就是同一像素的 16 个通道值——在内存中完全连续，一次 128B 事务即可读取。而在 NCHW 下，这 16 个值分散在 16 个不同的通道平面上，需要 16 次独立的全局内存读——合并效率降低一个数量级。</p>
+<p>CUTLASS 的 implicit GEMM 卷积以 NHWC 为标准布局，文档建议张量 128-bit 对齐、C 和 K 都是 32 的倍数以启用 128-bit 向量访存<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。">3</a>]</span>；TMA 的 im2col 模式本身也只支持 NWC/NHWC/NDHWC<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”；<code>cp.async</code> 的 src-size 填零语义；WGMMA / tcgen05 指令形状。">4</a>]</span>。原因是 GEMM 的 K 维度需要通道连续：NHWC 下一段连续的 K 就是同一像素的连续通道，可以向量化读取；在 NCHW 下，这些值分散在不同的通道平面上，相邻两个相隔 \(H \cdot W\) 个元素，只能逐个读取。</p>
 
-<p><b>CUTLASS conv 的分层结构</b>：在 CUTLASS 3.x 中，conv 的代码分为三层——(1) <code>ConvCollective</code> 处理 tile 调度和 GEMM 主循环，(2) <code>ConvTiledCopy</code> 封装 B 侧的 implicit im2col 地址计算，(3) <code>ConvProblemShape</code> 保存卷积参数。这种分层让 conv 和 GEMM 共享超过 90% 的代码——只有 TiledCopy 层不同。对框架开发者来说，这意味着每次 GEMM 的优化（更大的 tile、更好的流水线、新的 MMA 指令）都能自动应用到 conv——无需单独适配。</p>
+<p><b>CUTLASS conv 的分层结构</b>：在 CUTLASS 3.x 中，conv 有自己的 collective mainloop（<code>cutlass/conv/collective/</code>，如 sm90 的 GMMA 版本和 sm100 的 UMMA 版本），kernel 层的 <code>ConvUniversal</code> 则直接继承 GEMM 的 <code>GemmUniversal</code><span class="cite">[<a href="#ref-cutlasssm90" title="NVIDIA. cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp 与 kernel/sm90_implicit_gemm_tma_warpspecialized.hpp。Hopper conv mainloop（TMA im2col）与 <code>ConvUniversal</code>。">6</a>]</span>。也就是说，kernel 骨架、tile 调度、epilogue 都与 GEMM 共用，conv 特有的部分集中在 mainloop 的数据加载上。GEMM 侧的改进（新的 MMA 指令、调度器）因此很容易带到 conv。</p>
 
-<p><b>fprop / dgrad / wgrad 三种 pass 的 B 侧差异</b>：这三种 pass 的 GEMM 维度不同（<a href="#fig-three_passes">图 4</a> 对比），它们各自的 B 侧地址计算逻辑也不同：fprop 的 B 侧做正向地址映射（k &rarr; ci,r,s &rarr; ih,iw）；dgrad 的 B 侧做翻转地址映射（filter 旋转 180&deg;）；wgrad 的 A 矩阵是 dOutput、B 矩阵是输入——B 侧的地址计算和 fprop 类似，但 K 维度现在是空间维度而不是通道维度。CUTLASS 通过 template 参数（<code>ConvKind::kFprop</code>、<code>kDgrad</code>、<code>kWgrad</code>）来选择不同的 TiledCopy 实现——其余代码完全共享。</p>
+<p><b>fprop / dgrad / wgrad 三种 pass 的 B 侧差异</b>：这三种 pass 的 GEMM 维度不同（<a href="#fig-three_passes">图 4</a> 对比），它们各自的 B 侧地址计算逻辑也不同：fprop 的 B 侧做正向地址映射（k &rarr; ci,r,s &rarr; ih,iw）；dgrad 的 B 侧做翻转地址映射（filter 旋转 180&deg;）；wgrad 的 A 矩阵是 dOutput、B 矩阵是输入——B 侧的地址计算和 fprop 类似，但 K 维度现在是空间维度而不是通道维度。CUTLASS 用 <code>conv::Operator::kFprop</code> / <code>kDgrad</code> / <code>kWgrad</code> 区分这三种 pass，GEMM 问题尺寸也由它决定<span class="cite">[<a href="#ref-cutlass2ps" title="NVIDIA. cutlass/conv/conv2d_problem_size.h. <code>implicit_gemm_problem_size()</code>：fprop / dgrad / wgrad 的 GEMM 尺寸。">5</a>]</span>。</p>
 
-<p><b>Epilogue 融合</b>：conv kernel 的 epilogue 和 GEMM 完全一样——支持 alpha &times; AB + beta &times; C + bias + activation 的融合。在 CNN 训练中，常见的融合组合包括：conv + bias + ReLU（前向），conv + add residual + ReLU（ResNet 的跳跃连接），conv + batch norm（推理时 BN 折叠成 scale+bias 后）。每一次融合都省掉了一次全局内存的写→读往返——对 memory-bound 的小卷积来说，融合带来的加速可以超过 30%。</p>
+<p><b>Epilogue 融合</b>：conv kernel 的 epilogue 和 GEMM 完全一样——支持 alpha &times; AB + beta &times; C + bias + activation 的融合。在 CNN 训练中，常见的融合组合包括：conv + bias + ReLU（前向），conv + add residual + ReLU（ResNet 的跳跃连接），conv + batch norm（推理时 BN 折叠成 scale+bias 后）。每一次融合都省掉了一次全局内存的写→读往返——对 memory-bound 的小卷积来说，收益相对更明显。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
 <table>
 <thead><tr><th>特性</th><th>对 Implicit GEMM Conv 的影响</th></tr></thead>
 <tbody>
-<tr><td>TMA 2D/3D tile load<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA 指令族）、§9.7.16.19（TMA 指令）。">3</a>]</span></td><td>TMA 支持带 stride 的多维 tile 加载，可以直接加载卷积的输入 patch——部分取代软件的地址计算。对 stride=1, dilation=1 的常见 3&times;3 conv，TMA 可以直接发出 2D tile load，B 侧的加载效率接近标准 GEMM。但 dilation&gt;1 和 padding 仍需软件处理。</td></tr>
-<tr><td>WGMMA / tcgen05<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA、§16.7 L2 Access Management。">4</a>]</span></td><td>更大的 MMA tile（m64n256k16 / m256n256k32）进一步提高 implicit GEMM conv 的算力利用率。对小 HW 的卷积（如 7&times;7），可能需要把多个 batch 的 output tile 合并到同一个 CTA 中来填满 MMA tile。</td></tr>
-<tr><td>Persistent kernel</td><td>卷积的 tile 数通常比 GEMM 少（因为输出空间有限），persistent kernel 减少 launch 开销更有价值。CUTLASS 3.x 的 Hopper conv 默认是 persistent 的。</td></tr>
-<tr><td>Warp specialization</td><td>B 侧（implicit col）的地址计算由 producer warp 完成，不占 consumer 的计算时间——自然适合 producer/consumer 分工。producer warp 做地址计算 + 发 TMA，consumer warp 做 MMA——两者完全并行。</td></tr>
-<tr><td>FP8 conv</td><td>CUTLASS 4.x 支持 FP8 implicit GEMM conv，结合 block scaling（见 <a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>）。FP8 conv 对 Blackwell 的 tcgen05 MMA 尤其重要——B200 在 FP8 下的算力是 FP16 的 2 倍。</td></tr>
+<tr><td>TMA im2col 模式<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”；<code>cp.async</code> 的 src-size 填零语义；WGMMA / tcgen05 指令形状。">4</a>]</span></td><td>PTX 的 im2col 模式支持 3D/4D/5D 的 NWC/NHWC/NDHWC 张量：bounding box 定义在 DHW 空间（下角可以为负，对应 padding），指令给出滤波器基准坐标和 im2col offsets（即当前的 (r, s) 偏移），traversal stride 对应卷积 stride，越界元素按 fill mode 填零。地址展开和 padding 处理都交给硬件，软件只需按 (r, s) 和通道块推进坐标。CUTLASS 的 Hopper conv 就用它加载激活<span class="cite">[<a href="#ref-cutlasssm90" title="NVIDIA. cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp 与 kernel/sm90_implicit_gemm_tma_warpspecialized.hpp。Hopper conv mainloop（TMA im2col）与 <code>ConvUniversal</code>。">6</a>]</span>。</td></tr>
+<tr><td>WGMMA / tcgen05<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”；<code>cp.async</code> 的 src-size 填零语义；WGMMA / tcgen05 指令形状。">4</a>]</span></td><td>更大的 MMA tile（FP16 下 WGMMA 最大 m64n256k16，tcgen05 双 CTA 最大 m256n256k16）进一步提高 implicit GEMM conv 的算力利用率。对小 HW 的卷积（如 7&times;7），可能需要把多个 batch 的 output tile 合并到同一个 CTA 中来填满 MMA tile。</td></tr>
+<tr><td>Persistent kernel</td><td>小特征图卷积的 tile 数可能很少，persistent 调度可以减少 launch 和尾部开销。CUTLASS 3.x 的 <code>ConvUniversal</code> 继承 <code>GemmUniversal</code>，调度器是模板参数。</td></tr>
+<tr><td>Warp specialization</td><td>激活一侧（implicit col）的坐标推进由 producer warp 完成，consumer warp 只做 MMA——Hopper conv mainloop 本身就是 warp-specialized 的（文件名即 <code>..._warpspecialized.hpp</code>）。</td></tr>
+<tr><td>FP8 conv</td><td>CUTLASS 的单元测试里有 sm100 的 FP8 implicit GEMM conv（如 <code>test/unit/conv/device_3x/dgrad/sm100_conv2d_dgrad_implicit_gemm_f8_f8_*</code>）。低精度的 scaling 思路见 <a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>。HGX B200 的 FP8 稠密算力是 BF16 的 2 倍（4.5 vs 2.25 PFLOPS）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</td></tr>
 </tbody>
 </table>
 
@@ -529,24 +529,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <dl>
 <dt id="sec-q1">Q1：Implicit GEMM 相比 im2col + GEMM 有什么优劣？</dt>
-<dd>优势：不需要物化 col 矩阵，省 \(C_\text{in} \times R \times S\) 倍的额外显存，省去 im2col 的全局内存写→读。劣势：B 侧的 tile 加载需要做地址计算（除法/取模或迭代器），比线性访问慢；CUTLASS 用增量迭代器把除法换成加法来缓解。实际性能与显式 im2col 接近或更快（因为省了带宽）。<br>
-<b>追问</b>：TMA 能消除地址计算的开销吗？答：TMA 支持 2D tile load with stride，可以直接加载卷积的一块输入——对 stride=1 dilation=1 的 3&times;3 conv，TMA 几乎能完全取代软件地址计算。但 dilation&gt;1 和 padding 仍需软件处理。</dd>
+<dd>优势：不需要物化 col 矩阵（stride=1 时约为输入的 \(R \times S\) 倍），省去 im2col 的全局内存写→读。劣势：B 侧的 tile 加载需要做地址计算（除法/取模或迭代器），比线性访问慢；CUTLASS 用增量迭代器把除法换成加法来缓解。实际性能与显式 im2col 接近或更快（因为省了带宽）。<br>
+<b>追问</b>：TMA 能消除地址计算的开销吗？答：Hopper 起 TMA 有 im2col 模式：给出滤波器基准坐标和 (r, s) 偏移，硬件按卷积 stride 取出一列像素的若干通道，越界（padding）元素自动填零。软件只需推进 (r, s) 和通道块坐标，大部分地址计算交给了硬件。</dd>
 
 <dt id="sec-q2">Q2：卷积反向的两个 GEMM 各有什么特点？</dt>
-<dd>dgrad：K = \(C_\text{out}\)，通常几百；输出是 \(C_\text{in} \times N \cdot H \cdot W\)，问题在于 stride &gt; 1 时的散射写（或等价地，对 dOutput 插零后做 stride=1 卷积）。wgrad：K = \(N \cdot P\)（可达数万），M 和 N 都不大——是 large-K small-MN 的 GEMM，必须用 Split-K。<br>
+<dd>dgrad：K = \(C_\text{out} \cdot R \cdot S\)；输出是 \(C_\text{in} \times N \cdot H \cdot W\)，难点在 stride &gt; 1：插零做法有大量乘零，需要按相位拆分。wgrad：K = \(N \cdot P\)（可达数万），M 和 N 不大时是 large-K small-MN 的 GEMM，tile 数不足以填满 GPU，常用 Split-K。<br>
 <b>追问</b>：为什么 wgrad 对确定性训练有影响？答：Split-K 的 reduce 阶段用原子加——浮点原子加的非结合性导致 wgrad 结果不确定。确定性方案用 workspace + 第二 kernel 求和代替原子，代价是额外内存和一次 kernel launch。</dd>
 
-<dt id="sec-q3">Q3：为什么 CUTLASS 的卷积只支持 NHWC？</dt>
-<dd>Implicit GEMM 的 K 维度是 \(C_\text{in} \cdot R \cdot S\)，GEMM 要求 K 维度在内存中连续（或至少可以高效加载）。NHWC 让通道连续，直接匹配。NCHW 的通道在最外层，同一像素的通道相隔 H&times;W 个元素，无法合并访存。而且 TMA 的 2D tile load 要求内存中的 tile 是连续块，NHWC 满足而 NCHW 不满足。<br>
+<dt id="sec-q3">Q3：为什么 CUTLASS 的卷积以 NHWC 为标准布局？</dt>
+<dd>Implicit GEMM 的 K 维度是 \(C_\text{in} \cdot R \cdot S\)，GEMM 要求 K 维度在内存中连续（或至少可以高效加载）。NHWC 让通道连续，直接匹配。NCHW 的通道在最外层，同一像素的通道相隔 H&times;W 个元素，无法合并访存。而且 Hopper 起用于卷积的 TMA im2col 模式只支持 NWC/NHWC/NDHWC。<br>
 <b>追问</b>：把 NCHW 转成 NHWC 的代价？答：一次全局内存的读+写，带宽代价是 \(2 \times N \times C \times H \times W \times \text{sizeof(T)}\)。对于要多次做卷积的网络，一次转换的代价摊薄后几乎可以忽略。</dd>
 
 <dt id="sec-q4">Q4：CUTLASS 的 implicit GEMM conv 和 GEMM 在代码结构上有什么区别？</dt>
-<dd>几乎相同——TiledMMA 和 epilogue 完全一样，区别只在 B 侧的 TiledCopy：GEMM 直接线性读取，conv 需要一个 ConvProblemShape 来做地址映射。两者共享超过 90% 的代码——这意味着 GEMM 的每次优化都自动适用于 conv。<br>
-<b>追问</b>：warp specialization 在 conv 中怎么用？答：producer warp 做 B 侧的地址计算 + 发 TMA/cp.async，consumer warp 做 MMA 累加——地址计算的延迟被 MMA 计算完全隐藏。这是 Hopper conv 性能优秀的关键之一。</dd>
+<dd>kernel 层几乎相同——CUTLASS 3.x 的 <code>ConvUniversal</code> 直接继承 <code>GemmUniversal</code>，MMA、epilogue、调度器共用；区别集中在 mainloop 的加载：conv 用 ConvProblemShape 描述问题，激活一侧走 TMA im2col（Hopper）。<br>
+<b>追问</b>：warp specialization 在 conv 中怎么用？答：producer warp 推进 im2col 坐标并发 TMA，consumer warp 做 MMA 累加——地址计算与 MMA 重叠执行，不占 consumer 的发射槽。</dd>
 
 <dt id="sec-q5">Q5：implicit GEMM 的 K 维度应该按什么顺序展开？</dt>
-<dd>在 NHWC 下应让 ci 最内，即 k 对应 (r, s, ci)。这样一个 BK tile 内连续的 k 落在同一像素的连续通道上，B 侧加载可以合并成 128B 事务；若 ci 在最外，连续的 k 跨越不同空间位置，地址相隔整整 \(C_\text{in}\) 个元素，合并效率下降数倍。<br>
-<b>追问</b>：\(C_\text{in}\) 不是 BK 的整数倍怎么办？答：最后一个通道块用谓词屏蔽多余的通道，或在框架层把通道 padding 到 8/16 的倍数——cuDNN 对 \(C_\text{in}=3\) 的首层卷积就是这样处理的。</dd>
+<dd>在 NHWC 下应让 ci 最内，即 k 对应 (r, s, ci)。这样一个 BK tile 内连续的 k 落在同一像素的连续通道上，B 侧加载可以合并成 128B 事务；若 ci 在最外，连续的 k 跨越不同空间位置，地址相隔整整 \(C_\text{in}\) 个元素，无法合并。CUTLASS 的做法是每个 K tile 对应一个 (r, s) 加一段连续通道。<br>
+<b>追问</b>：\(C_\text{in}\) 不是 BK 的整数倍怎么办？答：最后一个通道块用谓词屏蔽多余的通道，或把通道 padding 到对齐的倍数。NVIDIA 的卷积性能指南说，cuDNN 7.6.3 起会在必要时自动 padding 以使用 Tensor Core；对 3 通道输入的首层，stride=2 时 pad 到 4 通道即可，且有专门针对 C=4、stride=2 的 kernel<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §1 Quick Start Checklist、§3、§4.4.3。">2</a>]</span>。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
@@ -554,16 +554,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。implicit GEMM 的正确性未经数值验证。</li>
 <li>教学代码的 <code>ConvProblem</code> 没有 <code>C_out</code> 字段：A 侧加载和输出写回的边界检查借用了 <code>prob.K</code>，输出的通道步长写成了 <code>prob.C_in</code>。只有在 \(C_\text{in} = C_\text{out}\) 且 \(C_\text{out} \le K\) 时结果才正确；实际使用前需补上 <code>C_out</code> 并替换这几处。</li>
-<li>示例代码是 FP32 + CUDA core 的教学版本——实际的 CUTLASS implicit GEMM 使用 Tensor Core（WMMA/WGMMA/tcgen05）、多级流水线、persistent kernel 等全套优化。</li>
-<li>增量迭代器只做了概念描述——CUTLASS 的实现涉及 <code>Conv2dFpropFilterTileAccessIteratorOptimized</code> 等模板类，包含常量内存预计算、谓词掩码生成、多维步进逻辑等大量工程细节。理解原理后直接阅读 CUTLASS 源码是深入学习的最佳路径。</li>
-<li>dgrad 代码是 naive 的逐像素版本，不是 implicit GEMM——实际的 CUTLASS dgrad 同样用 implicit GEMM + Tensor Core，地址计算包含 filter 翻转逻辑。对 stride&gt;1 的 strided dgrad，CUTLASS 有专门优化的迭代器来跳过无效的输出位置。</li>
-<li>wgrad 只给了公式描述和 GEMM 维度映射，没有代码。Split-K 的 reduce kernel 和确定性方案的 workspace 管理也未展示。确定性训练在工业界越来越重要（如大模型训练的可复现性要求），但引入了额外的显存和时间开销。</li>
+<li>示例代码是 FP32 + CUDA core 的教学版本——实际的 CUTLASS implicit GEMM 使用 Tensor Core（mma.sync/WGMMA/tcgen05）、多级流水线、TMA im2col 等全套优化。</li>
+<li>增量迭代器只做了概念描述——CUTLASS 2.x 的实现在 <code>Conv2dFpropActivationTileAccessIteratorOptimized</code> 等模板类中，包含 host 端 <code>Params</code> 预计算、谓词掩码生成、多维步进逻辑等大量工程细节。理解原理后直接阅读 CUTLASS 源码是深入学习的最佳路径。</li>
+<li>dgrad 代码是 naive 的逐像素版本，不是 implicit GEMM——实际的 CUTLASS dgrad 同样用 implicit GEMM + Tensor Core，地址计算包含 filter 翻转逻辑。对 stride&gt;1 的 strided dgrad，CUTLASS 有专门的 kernel 按相位拆分。</li>
+<li>wgrad 只给了公式描述和 GEMM 维度映射，没有代码。Split-K 的 reduce kernel 和确定性方案的 workspace 管理也未展示。确定性方案会引入额外的显存和时间开销。</li>
 <li>未覆盖 Winograd 和 FFT 卷积——下一篇（<a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>）会详细讲解 Winograd 变换如何在算法层面减少乘法次数，以及转置卷积、可变形卷积等特殊形式在 GPU 上的实现。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>Implicit GEMM 是现代 GPU 卷积库（cuDNN、CUTLASS）的核心实现方案：它把 im2col 的地址计算融入 GEMM 主循环的 tile 加载阶段，完全消除了 col 矩阵的显存和带宽开销。核心技术是增量迭代器（用预计算的偏移表代替除法，把每步地址计算从多次除法变成一次加法）和谓词掩码（用 PTX 的带谓词加载跳过 padding 区域，避免无效的全局内存事务）。卷积的三个 pass（fprop/dgrad/wgrad）各自映射成不同维度的 GEMM：fprop 是最常见的形状；dgrad 面临 stride&gt;1 时的散射写问题和较短的 K 维度；wgrad 的 K 维度极大（= N&middot;P），必须用 Split-K 来提高 SM 利用率——这又引入了浮点原子加的非确定性问题。CUTLASS 的分层架构让 conv 和 GEMM 共享超过 90% 的代码——TiledMMA、epilogue、流水线、persistent kernel 等模块完全复用，只有 B 侧的 TiledCopy 层因地址计算逻辑不同。在 Hopper/Blackwell 上，TMA 的 2D tile load 可以为 stride=1 的常规卷积直接硬件加载输入 patch，warp specialization 让地址计算和 MMA 完全并行——这使得 implicit GEMM conv 的性能越来越接近纯 GEMM。下一篇将从算法层面出发，讲 Winograd 如何用变换域减少乘法数，以及转置卷积、causal conv1d、3D 卷积等特殊形式在 GPU 上的实现。</p>
+<p>Implicit GEMM 是现代 GPU 卷积库（cuDNN、CUTLASS）的核心实现方案：它把 im2col 的地址计算融入 GEMM 主循环的 tile 加载阶段，完全消除了 col 矩阵的显存和带宽开销。核心技术是增量迭代器（host 端预算好少数几种指针增量，把每步地址计算从多次除法变成一次加法）和谓词掩码（带谓词加载或 cp.async zfill 跳过 padding 区域，避免无效的全局内存事务）。卷积的三个 pass（fprop/dgrad/wgrad）各自映射成不同维度的 GEMM：fprop 是最常见的形状；dgrad 的 K = C_out&middot;R&middot;S，难点在 stride&gt;1 时要按相位拆分；wgrad 的 K 维度极大（= N&middot;P），常用 Split-K 来提高 SM 利用率——这又引入了浮点原子加的非确定性问题。CUTLASS 3.x 的 conv kernel 直接继承 GEMM 的 kernel 骨架，conv 特有的部分集中在 mainloop 的加载上。在 Hopper/Blackwell 上，TMA 的 im2col 模式把地址展开和 padding 交给硬件，warp specialization 让坐标推进和 MMA 重叠执行。下一篇将从算法层面出发，讲 Winograd 如何用变换域减少乘法数，以及转置卷积、causal conv1d、3D 卷积等特殊形式在 GPU 上的实现。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -577,16 +577,18 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass">CUTLASS 3.x / 4.x</a>。Implicit GEMM Conv2d 的参考实现，Collective 架构。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（MMA 指令族）、§9.7.16.19（TMA 指令）。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA、§16.7 L2 Access Management。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 108 SM、40 MB L2、HBM 带宽，B200 FP8/BF16 算力等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-dlperf">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-convolutional/index.html">Convolutional Layers User&#39;s Guide</a>. NVIDIA Deep Learning Performance Documentation, §1 Quick Start Checklist、§3、§4.4.3。</li>
+  <li id="ref-cutlass">NVIDIA. <a href="https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md">CUTLASS: Implicit GEMM Convolution</a>. CUTLASS 文档（GEMM 映射、analytic / optimized 迭代器、<code>Params</code> 预计算增量）。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.5</a>. §5.5.4 &ldquo;im2col mode&rdquo;；<code>cp.async</code> 的 src-size 填零语义；WGMMA / tcgen05 指令形状。</li>
+  <li id="ref-cutlass2ps">NVIDIA. <a href="https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/conv2d_problem_size.h">cutlass/conv/conv2d_problem_size.h</a>. <code>implicit_gemm_problem_size()</code>：fprop / dgrad / wgrad 的 GEMM 尺寸。</li>
+  <li id="ref-cutlasssm90">NVIDIA. <a href="https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp">cutlass/conv/collective/sm90_implicit_gemm_gmma_ss_warpspecialized.hpp</a> 与 <a href="https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/kernel/sm90_implicit_gemm_tma_warpspecialized.hpp">kernel/sm90_implicit_gemm_tma_warpspecialized.hpp</a>。Hopper conv mainloop（TMA im2col）与 <code>ConvUniversal</code>。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 31 篇。文中代码完整版在系列目录的 <code>code/cv31-implicit-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–3 为手绘示意图；硬件数据来自 NVIDIA 官方文档，出处见参考文献。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 31 篇。文中代码完整版在系列目录的 <code>code/cv31-implicit-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图，图 5 的数字由问题尺寸算出；硬件数据来自 NVIDIA 官方文档，出处见参考文献。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

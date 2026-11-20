@@ -35,7 +35,7 @@
 <text x="380" y="55" text-anchor="middle" class="title" fill="#dc2626">torch.compile Path</text>
 <text x="295" y="75" class="code" font-size="9.5">@torch.compile</text>
 <text x="295" y="93" class="label" font-size="9">Traces graph with fake kernel</text>
-<text x="295" y="106" class="label" font-size="9">(meta tensor, no CUDA)</text>
+<text x="295" y="106" class="label" font-size="9">(FakeTensor, no CUDA)</text>
 
 <line x1="380" y1="115" x2="380" y2="140" stroke="#888" stroke-width="1.2" marker-end="url(#arr12)"/>
 
@@ -54,7 +54,7 @@
 <text x="610" y="55" text-anchor="middle" class="title">Autograd</text>
 <text x="555" y="80" class="label" font-size="9.5">register_autograd:</text>
 <text x="555" y="100" class="code" font-size="9">setup_context</text>
-<text x="555" y="118" class="label" font-size="9">saves (x, w, y)</text>
+<text x="555" y="118" class="label" font-size="9">saves (x, w)</text>
 <text x="555" y="140" class="label" font-size="9.5">backward:</text>
 <text x="555" y="158" class="code" font-size="9">grad_fn(ctx, dout)</text>
 <text x="555" y="178" class="label" font-size="9">&#x2192; dx, dw</text>

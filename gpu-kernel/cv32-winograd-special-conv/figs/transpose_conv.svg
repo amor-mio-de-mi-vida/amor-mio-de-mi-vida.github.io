@@ -21,7 +21,7 @@
 
 <!-- Upsampled 5x5 with zeros -->
 <rect x="120" y="60" width="70" height="70" rx="3" fill="#fee2e2" stroke="#ef4444"/>
-<text x="155" y="90" text-anchor="middle" class="code" font-size="9">5&#xd7;5</text>
+<text x="155" y="90" text-anchor="middle" class="code" font-size="9">6&#xd7;6</text>
 <text x="155" y="103" text-anchor="middle" class="label" font-size="9">zeros inserted</text>
 <text x="155" y="142" text-anchor="middle" class="label">upsample</text>
 
@@ -37,7 +37,7 @@
 <rect x="290" y="70" width="40" height="50" rx="3" fill="#dcfce7" stroke="#22c55e"/>
 <text x="310" y="100" text-anchor="middle" class="code" font-size="9">4&#xd7;4</text>
 
-<text x="40" y="165" class="label" fill="#dc2626">75% of multiplies are with zeros</text>
+<text x="40" y="165" class="label" fill="#dc2626">~3/4 of the upsampled input is zero</text>
 <text x="40" y="180" class="label" fill="#dc2626">Wastes bandwidth reading zeros</text>
 <text x="40" y="195" class="label">Simple concept, inefficient GPU use</text>
 
@@ -64,9 +64,9 @@
 <rect x="600" y="70" width="40" height="50" rx="3" fill="#dcfce7" stroke="#22c55e"/>
 <text x="620" y="100" text-anchor="middle" class="code" font-size="9">4&#xd7;4</text>
 
-<text x="390" y="165" class="label" fill="#16a34a">No wasted computation on zeros</text>
+<text x="390" y="165" class="label" fill="#16a34a">No multiplies by inserted zeros</text>
 <text x="390" y="180" class="label" fill="#16a34a">Reuses implicit GEMM conv (dgrad)</text>
-<text x="390" y="195" class="label">CUTLASS deconv = dgrad kernel</text>
+<text x="390" y="195" class="label">CUTLASS: deconv uses the dgrad mapping</text>
 
-<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (stride=2, 3&#xd7;3 filter, 2&#xd7;2&#x2192;4&#xd7;4)</text>
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative (stride=2, 3&#xd7;3, pad=1, output_padding=1: 2&#xd7;2&#x2192;4&#xd7;4)</text>
 </svg>

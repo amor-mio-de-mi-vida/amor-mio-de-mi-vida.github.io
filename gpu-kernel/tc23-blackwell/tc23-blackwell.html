@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 18 分钟阅读</span>
+    <span data-reading-time>约 19 分钟阅读</span>
   </div>
 </header>
 
@@ -243,7 +243,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="callout note"><p class="callout-title">主线定位：① 字节账 · ③ 算力账 · ⑤ 整卡账</p><p>Blackwell：2-CTA 提高 tile 强度（①），tcgen05 与 TMEM（③），CLC 动态调度（⑤）。全系列的分析主线是&ldquo;一个下界 + 五笔账&rdquo;，见<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>。</p></div>
 <!-- /mainline -->
 
-<p>上一篇我们在 Hopper 上把 kernel 拆成了生产者和消费者：少数 warp 用 TMA 搬数据，一个 warpgroup 用 <code>wgmma</code> 算矩阵乘。那套结构里还剩一个没解决的负担——累加器。<code>wgmma</code> 的结果留在参与线程的寄存器里：一个 128×128 的 FP32 累加器摊到一个 warpgroup 的 128 个线程上，每个线程就要 128 个寄存器，正好是每线程上限 255 的一半（<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>算过这笔账）。消费者 warpgroup 几乎没有余量再做别的事，收尾阶段（epilogue）也很难和下一个 tile 的计算重叠。</p>
+<p>上一篇我们在 Hopper 上把 kernel 拆成了生产者和消费者：少数 warp 用 TMA 搬数据，一个 warpgroup 用 <code>wgmma</code> 算矩阵乘。那套结构里还剩一个没解决的负担——累加器。<code>wgmma</code> 的结果留在参与线程的寄存器里：一个 128×128 的 FP32 累加器摊到一个 warpgroup 的 128 个线程上，每个线程就要 128 个寄存器，大约是每线程上限 255 的一半（<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>算过这笔账）。消费者 warpgroup 几乎没有余量再做别的事，收尾阶段（epilogue）也很难和下一个 tile 的计算重叠。</p>
 
 <p>Blackwell 的回答是给 Tensor Core 配一块专用存储，并把发射这件事收缩到一个线程。这一篇回答三个问题：<b>这条指令用了谁的资源，数据被映射到哪里，下一个阶段什么时候可以安全地读它。</b>MLC 教程说，读懂 tcgen05 的关键就是对每条指令都问这三句 <span class="cite">[<a href="#ref-mlctc" title="MLC Community (2026). Modern GPU Programming For MLSys: Blackwell Tensor Core — tcgen05.mma.">1</a>]</span>。完整的 GEMM 优化阶梯留到<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>，本篇只给能跑通逻辑的最小骨架。</p>
 
@@ -339,7 +339,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/tc23-blackwell/tmem_epilogue.cu</code> 第 14–21 行（未在 GPU 上运行）</p>
 
-<p>这条指令有几个容易踩的地方，都写在 PTX 手册里 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。第一，分配结果不是返回值，而是被写进共享内存：参数 <code>[%0]</code> 是一个共享内存地址，硬件把分配到的 TMEM 基址存进去，别的 warp 要读它之前得先同步。第二，它是<b>阻塞</b>指令，TMEM 不够时会一直等到够为止。第三，分配单位是 32 列，不带 <code>.exclusive</code> 时列数必须是 2 的幂且落在 [32, 512] 区间。第四，<b>同一个 CTA 后一次分配不能比前一次更大</b>，所以 kernel 必须在设计阶段就想清楚自己最多要多少列。最后，kernel 退出前必须把分配出去的 TMEM 全部释放，先 <code>relinquish_alloc_permit</code> 声明不再申请，再 <code>dealloc</code> 还回去。</p>
+<p>这条指令有几个容易踩的地方，都写在 PTX 手册里 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。第一，分配结果不是返回值，而是被写进共享内存：参数 <code>[%0]</code> 是一个共享内存地址，硬件把分配到的 TMEM 基址存进去，别的 warp 要读它之前得先过一道 fence 和一次 CTA 同步 <span class="cite">[<a href="#ref-mlctmem" title="MLC Community (2026). Modern GPU Programming For MLSys: Tensor Memory (TMEM).">3</a>]</span>。第二，它是<b>阻塞</b>指令，TMEM 不够时会一直等到够为止。第三，分配单位是 32 列，不带 <code>.exclusive</code> 时列数必须是 2 的幂且落在 [32, 512] 区间。第四，<b>同一个 CTA 后一次分配不能比前一次更大</b>，所以 kernel 必须在设计阶段就想清楚自己最多要多少列。最后，kernel 退出前必须用 <code>dealloc</code> 把分配出去的 TMEM 全部释放。MLC 的写法是先用 <code>relinquish_alloc_permit</code> 声明本 CTA 不再申请（之后再 alloc 就是非法的），再 <code>dealloc</code> 还回去 <span class="cite">[<a href="#ref-mlctmem" title="MLC Community (2026). Modern GPU Programming For MLSys: Tensor Memory (TMEM).">3</a>]</span>。</p>
 
 <h3 id="sec-1">一笔预算账</h3>
 
@@ -348,7 +348,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ul>
   <li>128 × 128 的 FP32 累加器：128 列，占 TMEM 的四分之一。双缓冲（一块算、一块写回）要 256 列，还剩一半可以放缩放因子或者第三块缓冲。</li>
   <li>128 × 256 的 FP32 累加器：256 列，占一半。双缓冲就要 512 列，<b>正好把整块 TMEM 用光</b>，再没有地方放别的东西。</li>
-  <li>想要 384 列这种不是 2 的幂的大小，普通分配做不到，只能申请 512 列或者用 PTX 9.4 新增的 <code>.exclusive</code> 分配（且该 CTA 独占 TMEM）。</li>
+  <li>想要 384 列这种不是 2 的幂的大小，单次普通分配做不到：可以分两次申请（先 256 列、再 128 列，后一次不比前一次大），可以干脆申请 512 列，也可以用 PTX 9.4 新增的 <code>.exclusive</code> 分配。后者要求它是 TMEM 上唯一的活跃分配，释放之前别的 CTA 都不能再分配 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。</li>
 </ul>
 
 <p>这笔账解释了 Blackwell 上 GEMM 的一个设计取向：tile 的 N 方向开得越大，双缓冲 epilogue 的余地越小。Hopper 上同样的权衡发生在寄存器预算里，Blackwell 把它挪到了一块独立的、容量固定的存储上——好处是寄存器不再被累加器挤占，坏处是多了一种需要手工管理的资源。</p>
@@ -641,7 +641,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   }</code></pre>
 <p class="src-note">完整代码：<code>code/tc23-blackwell/clc_loop.cu</code> 第 71–87 行（未在 GPU 上运行）</p>
 
-<div class="callout warn"><p class="callout-title">常见误解</p><p>“失败了就再试一次。”不行。PTX 写明：一旦本 CTA 观察到某次 <code>try_cancel</code> 失败，再发一次 <code>try_cancel</code> 是<b>未定义行为</b>；同样，失败之后去调用 <code>get_first_ctaid</code> 取坐标也是未定义行为 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。失败只有一个含义——没有待处理的工作了，退出循环。这也是为什么 CLC 不用“哨兵值”表示没活干，而是用一个单独的谓词查询。</p></div>
+<div class="callout warn"><p class="callout-title">常见误解</p><p>“失败了就再试一次。”不行。PTX 写明：一旦本 CTA 观察到某次 <code>try_cancel</code> 失败，再发一次 <code>try_cancel</code> 是<b>未定义行为</b>；同样，失败之后去调用 <code>get_first_ctaid</code> 取坐标也是未定义行为 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。失败只有一个含义——没有待处理的工作了，退出循环。</p></div>
 
 <p>上面的骨架省略了官方示例里的 proxy fence。CLC 的响应是通过异步代理（async proxy）写进共享内存的，而我们用普通的 load 去读，两种代理之间需要 <code>fence.proxy.async::generic</code> 来定序：读完响应、发下一次请求之前要 release，下一轮读之前要 acquire <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.18（tcgen05 指令族：Tensor Memory、发射粒度、矩阵形状 Table 48、描述符 Table 49/51、块缩放 Table 68–69、同步模式）与 §9.7.15.18–19（Cluster Launch Control）。">2</a>]</span>。真实实现还要管好屏障相位和 cluster 级同步。</p>
 
@@ -719,7 +719,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 <ul>
-  <li><b>代码没有在 GPU 上编译或运行过。</b>本篇的三个 <code>.cu</code> 文件在写作时也<b>没有跑过 <code>_tools/check_cuda.sh</code></b>（写作后期执行环境不允许运行命令），所以连语法检查都还欠着。更重要的是，内联 PTX 字符串无论如何都不在编译器前端的检查范围内：每条指令的拼写、操作数和架构要求都是我逐条对照 PTX ISA 9.4 核对的（记录在 <code>_notes/tc23-facts.md</code>），但<b>没有任何工具验证过它们能汇编通过</b>。</li>
+  <li><b>代码没有在 GPU 上编译或运行过。</b>本篇的三个 <code>.cu</code> 文件只通过了 <code>_tools/check_cuda.sh</code>（clang 的 host 端语法与类型检查，审校时补跑）。更重要的是，内联 PTX 字符串无论如何都不在编译器前端的检查范围内：每条指令的拼写、操作数和架构要求都是我逐条对照 PTX ISA 9.4 核对的（记录在 <code>_notes/tc23-facts.md</code>），但<b>没有任何工具验证过它们能汇编通过</b>。</li>
   <li><b>骨架不是实现。</b>两个描述符的构造（共享内存描述符的地址编码与 swizzle 位、指令描述符的类型与形状位）在代码里留成了 0，真实 kernel 必须按 PTX Table 49 和 Table 51 逐位拼出来。CLC 循环省略了 proxy fence 和 cluster 级同步。</li>
   <li><b>TMEM 的累加器布局只讲了最简单的一种。</b>PTX 定义了 A 到 G 七种数据通路布局，取决于 cta_group、M、是否稀疏、是否 <code>.ws</code>。本文只用了 cta_group::1 + M=128（行 m 直接映射到第 m 行）这一种，M=64 的 Layout F、M=128 + cta_group::2 的 Layout B 只在图注里提了一句。</li>
   <li><b>没有性能数字。</b>本篇不含任何实测；TMEM 的预算算术是按形状手算的，不代表任何实现的实际占用。MLC 教程在 B200 上的阶梯数据留到第 27 篇再引。</li>
@@ -729,7 +729,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 <p>Blackwell 的编程模型可以用三句话概括：<b>一个线程发射</b>整块 tile 的矩阵乘；<b>累加器住在 TMEM</b>，要显式分配、按 32 列为单位、每个 warp 只看得见四分之一；<b>完成靠 mbarrier 通知</b>，跨线程读取前还要一道 tcgen05 专用的 fence。在这之上，<code>cta_group::2</code> 把两个 SM 绑成一对合作算一个更大的 tile，块缩放把缩放因子也搬进 TMEM，Cluster Launch Control 则把 tile 的分配从静态公式换成了硬件发牌。</p>
-<p>这些部件单独看都只是指令，拼起来才是 Blackwell GEMM 的样子：一个线程发 TMA、一个线程发 MMA、一个 warpgroup 从 TMEM 的另一半读上一个 tile 的结果做 epilogue、两个 SM 组成 CTA pair、tile 号由 CLC 动态发放。第 27 篇会沿着 MLC 的九步阶梯把它一步步搭出来。在那之前，下一篇先回到最朴素的起点：用 CUDA core 把一个 SGEMM 从百分之一的峰值优化到九成。</p>
+<p>这些部件单独看都只是指令，拼起来才是 Blackwell GEMM 的样子：一个线程发 TMA、一个线程发 MMA、一个 warpgroup 从 TMEM 的另一半读上一个 tile 的结果做 epilogue、两个 SM 组成 CTA pair、tile 号由 CLC 动态发放。第 27 篇会沿着 MLC 的九步阶梯搭出其中的主干（TMA、单线程 MMA、warp 特化、2-CTA），TMEM 双缓冲的 epilogue 和 CLC 不在那条阶梯里，第 27 篇单独讨论。在那之前，下一篇先回到最朴素的起点：用 CUDA core 写 SGEMM，看公开的阶梯怎样从 cuBLAS 性能的约 1% 一步步走到九成以上。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">

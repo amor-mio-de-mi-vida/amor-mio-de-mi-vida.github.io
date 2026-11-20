@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPU 互联硬件与集合通信：从 NVLink 到 MNNVL</title>
-<meta name="description" content="从零精通 GPU Kernel 第 48 篇：GPU 互联硬件与集合通信——NVLink 1.0-5.0、NVSwitch、InfiniBand RDMA、DGX 拓扑、五大集合算子、Ring/Tree 算法、GPUDirect 技术族、EGM 与 MNNVL。">
+<meta name="description" content="从零精通 GPU Kernel 第 48 篇：GPU 互联硬件与集合通信——NVLink 1.0-5.0、NVSwitch、InfiniBand RDMA、DGX 拓扑、五大集合算子、Ring/Tree 算法、GPUDirect 技术族、P2P/EGM 与 MNNVL。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 48 篇</div>
   <h1>GPU 互联硬件与集合通信：<br><span class="nobr">从 NVLink 到 MNNVL</span></h1>
-  <p class="subtitle">从存储-通信层次金字塔出发，介绍 NVLink 五代演进、NVSwitch 全互联、InfiniBand RDMA、集合通信算子与 Ring/Tree 算法、GPUDirect 技术族、以及 Blackwell 的 EGM 和 MNNVL。</p>
+  <p class="subtitle">从存储-通信层次金字塔出发，介绍 NVLink 五代演进、NVSwitch 全互联、InfiniBand RDMA、集合通信算子与 Ring/Tree 算法、GPUDirect 技术族、以及 NVLink 域内的 P2P 访问、EGM 与 GB200 NVL72 的 MNNVL。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 21 分钟阅读</span>
+    <span data-reading-time>约 22 分钟阅读</span>
   </div>
 </header>
 
@@ -230,11 +230,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-    <li>GPU 的存储-通信层次从寄存器（~80 TB/s）到跨节点网络（~50 GB/s）跨越三个数量级；理解每一层的带宽和延迟是优化通信的前提。</li>
-    <li>NVLink 五代演进带宽增长超 10 倍（P100 到 B200）；NVSwitch 实现节点内全互联，MNNVL 将 NVLink 域扩展到跨节点 72 GPU。</li>
+    <li>节点内 NVLink 与节点间网卡的带宽差一个数量级以上：H100 的 NVLink 每卡 900 GB/s（双向），而单个 NDR 网卡每方向只有它的约九分之一。两者的优化策略因此完全不同。</li>
+    <li>NVLink 五代每卡带宽从 P100 到 B200 涨了约 11 倍；NVSwitch 实现节点内全互联，GB200 NVL72 把 NVLink 域扩展到 72 GPU。</li>
     <li>InfiniBand NDR 提供 400 Gb/s 带宽，RDMA 绕过 CPU 直接访问远端内存；GPUDirect RDMA 进一步消除 GPU↔CPU 拷贝，让 NIC 直读 GPU 显存。</li>
     <li>集合通信的五大算子——AllReduce、AllGather、ReduceScatter、All-to-All、Broadcast——是分布式训练的通信原语；Ring 算法带宽最优（总传输量 \(2 \cdot \frac{N-1}{N} \cdot D\)），Tree 算法延迟更低。</li>
-    <li>EGM（Extended GPU Memory）让 GPU 通过 load/store 指令直接访问 NVLink 连接的远端显存，是 Blackwell 上自定义通信的基础设施。</li>
+    <li>NVLink 域内 GPU 可以直接 load/store 对端显存（P2P / CUDA VMM 映射），这是自定义通信 kernel 的基础；EGM 则是另一回事——让 GPU 经 NVLink-C2C 访问 Grace CPU 一侧的系统内存。</li>
   </ul>
 </div>
 
@@ -244,77 +244,77 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-motivation" data-short="动机">为什么 GPU 通信是性能关键</h2>
 
-<p>当模型大到单卡放不下（GPT-4 级别需要数十张卡的显存），训练就必须分布式进行。此时 GPU 间的通信带宽和延迟直接决定了扩展效率：如果 8 卡并行只比 1 卡快 4 倍，那一半时间都浪费在了等待数据搬运上。这不是假设——实际的大模型训练中，通信开销常常占总时间的 30%–50%，尤其在张量并行和专家并行场景下更为严重，是性能优化的主战场。</p>
+<p>当模型大到单卡放不下，训练就必须分布式进行。此时 GPU 间的通信带宽和延迟直接决定了扩展效率：如果 8 卡并行只比 1 卡快 4 倍，那一半时间都浪费在了等待数据搬运上。张量并行和专家并行每层都要通信，通信占比尤其突出，是性能优化的主战场。</p>
 
-<p>理解通信，要从硬件层次开始。GPU 内部的数据搬运（寄存器→共享内存→L2→HBM）我们在前面的 kernel 优化中已经反复练习，但 GPU <b>之间</b>的数据搬运——NVLink、PCIe、InfiniBand——是一套完全不同的硬件和编程模型。前者的带宽以 TB/s 计，延迟以纳秒计；后者的带宽以百 GB/s 到十 GB/s 计，延迟以微秒计。本篇从金字塔的每一层讲起，一直讲到跨节点的集合通信算法，为后两篇（NCCL 内部和自定义通信）打下硬件基础。</p>
+<p>理解通信，要从硬件层次开始。GPU 内部的数据搬运（寄存器→共享内存→L2→HBM）我们在前面的 kernel 优化中已经反复练习，但 GPU <b>之间</b>的数据搬运——NVLink、PCIe、InfiniBand——是一套完全不同的硬件和编程模型。前者的带宽以 TB/s 计；后者的带宽以百 GB/s 到数十 GB/s 计，延迟也高得多。本篇从金字塔的每一层讲起，一直讲到跨节点的集合通信算法，为后两篇（NCCL 内部和自定义通信）打下硬件基础。</p>
 
 <h2 id="sec-hierarchy" data-short="存储层次">存储-通信层次金字塔</h2>
 
 <figure id="fig-memory_hierarchy" data-kind="diagram">
   <img aria-labelledby="fig-memory_hierarchy-cap" src="figs/memory_hierarchy.svg" alt="GPU 存储-通信层次金字塔：从寄存器到跨节点网络">
-  <figcaption id="fig-memory_hierarchy-cap"><span class="fig-label">图 1</span><b>GPU 存储-通信层次：带宽跨越三个数量级。</b>从寄存器到跨节点 InfiniBand，每下一层带宽约降 3–10 倍、延迟升 3–10 倍。H100 SXM 的 NVLink 4.0 带宽（900 GB/s）是 HBM 带宽（3.35 TB/s）的约 27%，但跨节点 IB NDR（~50 GB/s 有效）只有 HBM 的 1.5%——这就是为什么节点内通信和节点间通信需要完全不同的优化策略。数据来源：<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>。</figcaption>
+  <figcaption id="fig-memory_hierarchy-cap"><span class="fig-label">图 1</span><b>GPU 存储-通信层次：越往外带宽越低。</b>片上各层只示意相对位置，不标数值。H100 SXM 的 NVLink 4.0 带宽（900 GB/s 双向，即每方向 450 GB/s）是 HBM 带宽（3.35 TB/s）的约 27%（按单方向约 13%），而单个 NDR 网卡（400 Gb/s = 50 GB/s 每方向）只有 HBM 的 1.5%——这就是为什么节点内通信和节点间通信需要完全不同的优化策略。数据来源：<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>。</figcaption>
 </figure>
 
-<p>如<a href="#fig-memory_hierarchy">图 1</a>所示，关键观察：<b>NVLink 和 HBM 在同一数量级</b>（百 GB/s 到 TB/s），所以节点内的 GPU 间通信开销可以被计算掩盖；但 <b>InfiniBand 比 HBM 慢两个数量级</b>，节点间通信是真正的瓶颈。这解释了为什么大规模训练系统（如 DGX SuperPOD）要尽量把张量并行放在节点内、流水线并行放在节点间。</p>
+<p>如<a href="#fig-memory_hierarchy">图 1</a>所示，关键观察：<b>NVLink 和 HBM 在同一数量级</b>（百 GB/s 到 TB/s），所以节点内的 GPU 间通信开销可以被计算掩盖；但单个 IB 网卡比 HBM 慢约 67 倍（3350 / 50），节点间通信是真正的瓶颈。这解释了为什么大规模训练系统（如 DGX SuperPOD）要尽量把张量并行放在节点内、流水线并行放在节点间。</p>
 
-<p>用具体数字感受这个差距：H100 SXM 的一次 GEMM（4096×4096×4096，FP16）在 989 TFLOPS 的峰值下只需约 0.14 ms。同样大小的矩阵（32 MB）通过 NVLink 4.0（900 GB/s 双向，单向 450 GB/s）传输只需 0.07 ms——传输时间比计算时间还短，通信可以完全被计算掩盖。但如果走 IB NDR（有效吞吐约 50 GB/s），同一个矩阵需要 0.64 ms——是计算时间的 4.6 倍。这就是为什么节点间通信必须使用流水线和重叠技术来隐藏延迟。</p>
+<p>用具体数字感受这个差距（峰值口径的估算）：H100 SXM 的一次 GEMM（4096×4096×4096，FP16）是 \(2 \times 4096^3 \approx 1.37 \times 10^{11}\) FLOP，在 989 TFLOPS 稠密峰值下约 0.14 ms。一个同尺寸 FP16 矩阵是 32 MiB（≈ 33.6 MB），通过 NVLink 4.0 单方向 450 GB/s 传输约 0.075 ms——比计算时间还短，原则上可以被计算掩盖。但如果走单个 NDR 网卡（50 GB/s），同一个矩阵需要约 0.67 ms，是计算时间的约 4.8 倍。这就是为什么节点间通信必须使用流水线和重叠技术来隐藏延迟。</p>
 
 <h2 id="sec-nvlink" data-short="NVLink">NVLink 与 NVSwitch 五代演进</h2>
 
 <figure id="fig-nvlink_evolution" data-kind="diagram">
   <img aria-labelledby="fig-nvlink_evolution-cap" src="figs/nvlink_evolution.svg" alt="NVLink 1.0–5.0 带宽演进">
-  <figcaption id="fig-nvlink_evolution-cap"><span class="fig-label">图 2</span><b>NVLink 带宽从 P100 到 B200 增长 11 倍。</b>每一代 NVLink 的信号速率和链路数都在增加：NVLink 4.0（H100）有 18 条 link，每条 50 GB/s 双向，总计 900 GB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>；NVLink 5.0（B200）有 18 条 link，每条 100 GB/s 双向，总计 1800 GB/s。PCIe 5.0 的 64 GB/s 相比之下微不足道。</figcaption>
+  <figcaption id="fig-nvlink_evolution-cap"><span class="fig-label">图 2</span><b>NVLink 每卡带宽从 P100 到 B200 增长约 11 倍。</b>P100 为 4 条 link 共 160 GB/s，V100 为 6 条 link 共 300 GB/s<span class="cite">[<a href="#ref-volta_wp" title="NVIDIA (2017). NVIDIA Tesla V100 GPU Architecture. 白皮书：GV100 最多 6 条 NVLink、共 300 GB/s，GP100 为 4 条、共 160 GB/s。">2</a>]</span>；NVLink 4.0（H100）有 18 条 link，每条 50 GB/s 双向，总计 900 GB/s；NVLink 5.0（B200）每卡 1.8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>。PCIe 5.0 x16 是 128 GB/s 双向（每方向 64 GB/s）<span class="cite">[<a href="#ref-h100_blog" title="NVIDIA (2022). NVIDIA Hopper Architecture In-Depth. 第 3 代 NVSwitch：64 个 NVLink 4 端口、13.6 Tbit/s、multicast 与 SHARP 网内归约；PCIe Gen5 128 GB/s（每方向 64 GB/s）。">3</a>]</span>，同口径下只有 NVLink 4.0 的约 1/7。</figcaption>
 </figure>
 
-<p><a href="#fig-nvlink_evolution">图 2</a>展示了五代 NVLink 的带宽演进。<b>NVLink</b> 是 NVIDIA 的 GPU 间高速互联，绕过 PCIe 直接连接两个 GPU 的显存控制器<span class="cite">[<a href="#ref-nvlink_whitepaper" title="NVIDIA (2024). NVLink and NVSwitch. NVLink 各代带宽规格与 NVSwitch 架构说明。">2</a>]</span>。每条 NVLink（一个物理 link）提供双向带宽，多条 link 可以聚合。</p>
+<p><a href="#fig-nvlink_evolution">图 2</a>展示了五代 NVLink 的带宽演进。<b>NVLink</b> 是 NVIDIA 的 GPU 间高速互联，绕过 PCIe 直接连接两个 GPU 的显存控制器<span class="cite">[<a href="#ref-nvlink_whitepaper" title="NVIDIA (2024). NVLink and NVSwitch. NVLink 各代带宽规格与 NVSwitch 架构说明。">4</a>]</span>。每条 NVLink（一个物理 link）提供双向带宽，多条 link 可以聚合。</p>
 
-<p><b>NVSwitch</b> 解决了 NVLink 的拓扑限制。直连 NVLink 只能连有限的 GPU 对（V100 DGX-1 用 6 条 NVLink 连 8 GPU，某些 GPU 对只有间接路径）。没有 NVSwitch 的拓扑下，不相邻的 GPU 对必须通过中间 GPU 中转，多跳通信把延迟翻倍，而且中间 GPU 的 NVLink 带宽被占用。NVSwitch 是一个专用交换芯片，让所有 GPU 通过交换机实现全互联——任意 GPU 对之间都是一跳直连：</p>
+<p><b>NVSwitch</b> 解决了 NVLink 的拓扑限制。直连 NVLink 只能连有限的 GPU 对（V100 每卡只有 6 条 NVLink，DGX-1 的 8 卡拓扑里某些 GPU 对没有直连链路）。没有 NVSwitch 时，不相邻的 GPU 对必须经中间 GPU 中转，多一跳延迟，还占用中间 GPU 的 NVLink 带宽。NVSwitch 是一个专用交换芯片，让所有 GPU 通过交换机实现全互联——任意 GPU 对之间都是一跳直连：</p>
 
 <ul>
-  <li><b>NVSwitch 1.0</b>（V100 DGX-2, 2018）：18 端口，每端口 50 GB/s，总交换带宽 900 GB/s</li>
-  <li><b>NVSwitch 2.0</b>（A100 DGX A100, 2020）：每端口 50 GB/s，但链路数增加到 12 per GPU</li>
-  <li><b>NVSwitch 3.0</b>（H100 DGX H100, 2022）：64 端口，支持 in-network reduction（SHARP）</li>
-  <li><b>NVSwitch 4.0</b>（B200 NVL72, 2024）：跨机箱 NVLink 交换（MNNVL 的核心），支持跨节点的 NVLink SHARP 归约</li>
+  <li><b>第 1 代 NVSwitch</b>（DGX-2, 2018）：首次让 16 个 V100 全互联</li>
+  <li><b>第 2 代</b>（DGX A100, 2020）：配合 A100 每卡 12 条 NVLink（600 GB/s）</li>
+  <li><b>第 3 代</b>（DGX H100, 2022）：64 个 NVLink 4 端口，总交换吞吐 13.6 Tbit/s（上一代 7.2 Tbit/s），新增 multicast 与 SHARP 网内归约<span class="cite">[<a href="#ref-h100_blog" title="NVIDIA (2022). NVIDIA Hopper Architecture In-Depth. 第 3 代 NVSwitch：64 个 NVLink 4 端口、13.6 Tbit/s、multicast 与 SHARP 网内归约；PCIe Gen5 128 GB/s（每方向 64 GB/s）。">3</a>]</span></li>
+  <li><b>Blackwell 代 NVLink Switch</b>（GB200 NVL72, 2024）：9 个 switch tray、每个 144 个 NVLink 端口，把 72 个 GPU 的 18 条 link 全部接入同一个 NVLink 域<span class="cite">[<a href="#ref-gb200_blog" title="Goldwasser, I., Petty, H., Desale, P., Devleker, K. (2024). NVIDIA GB200 NVL72 Delivers Trillion-Parameter LLM Training and Real-Time Inference. NVIDIA Technical Blog：18 个 compute tray（各 2 Grace + 4 GPU）、9 个 NVLink switch tray。">5</a>]</span></li>
 </ul>
 
-<p>NVSwitch 的关键指标是<b>端口数和每端口带宽</b>。NVSwitch 3.0 有 64 个端口，每端口 50 GB/s 双向，内部使用全互联 crossbar——任意两个端口之间可以同时传输而不阻塞其他端口对。这意味着 NVSwitch 的聚合带宽 = 端口数 × 每端口带宽 / 2 = 1.6 TB/s，足以支撑 8 个 H100 的 NVLink 4.0 全速通信。DGX H100 使用 4 个 NVSwitch 芯片而非一个——每个 GPU 的 18 条 NVLink 被平均分配到这 4 个 switch（每 switch 接 4-5 条 link），这样即使一个 NVSwitch 故障，其他三个仍能提供降级后的连通性。多 NVSwitch 的另一个好处是散热和物理布线——把 64 个高速 SerDes 分散到 4 个芯片上，每个芯片的功耗和引脚密度都更可控。</p>
+<p>NVSwitch 的关键指标是<b>端口数和总交换吞吐</b>。第 3 代 NVSwitch 有 64 个 NVLink 4 端口，NVIDIA 给出的总吞吐是 13.6 Tbit/s（≈ 1.7 TB/s）<span class="cite">[<a href="#ref-h100_blog" title="NVIDIA (2022). NVIDIA Hopper Architecture In-Depth. 第 3 代 NVSwitch：64 个 NVLink 4 端口、13.6 Tbit/s、multicast 与 SHARP 网内归约；PCIe Gen5 128 GB/s（每方向 64 GB/s）。">3</a>]</span>。8 个 H100 每卡 18 条 link、共 144 条，一颗 64 端口的芯片接不下，所以 HGX/DGX H100 基板上用 4 颗 NVSwitch，每个 GPU 的 18 条 link 分接到这 4 颗芯片上，任意两卡之间都能以每卡 900 GB/s 的速率通信。</p>
 
 <h2 id="sec-ib" data-short="InfiniBand">InfiniBand 与 RDMA</h2>
 
-<p><b>InfiniBand（IB）</b>是高性能计算的标准网络<span class="cite">[<a href="#ref-ib_spec" title="InfiniBand Trade Association. InfiniBand Architecture Specification. HDR/NDR/XDR 速率定义与 RDMA 语义。">3</a>]</span>：</p>
+<p><b>InfiniBand（IB）</b>是高性能计算的标准网络<span class="cite">[<a href="#ref-ib_spec" title="InfiniBand Trade Association. InfiniBand Architecture Specification. HDR/NDR/XDR 速率定义与 RDMA 语义。">6</a>]</span>：</p>
 
 <ul>
   <li><b>HDR</b>（High Data Rate）：200 Gb/s per port，ConnectX-6</li>
-  <li><b>NDR</b>（Next Data Rate）：400 Gb/s per port，ConnectX-7（DGX H100 标配）</li>
-  <li><b>XDR</b>（eXtreme Data Rate）：800 Gb/s per port，ConnectX-8（DGX B200）</li>
+  <li><b>NDR</b>（Next Data Rate）：400 Gb/s per port，ConnectX-7（DGX H100 标配 8 个单口卡）<span class="cite">[<a href="#ref-dgx_specs" title="NVIDIA. DGX H100 User Guide: Introduction（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；DGX B200（8 × ConnectX-7 400 Gb/s）；DGX B300（8 × ConnectX-8 800 Gb/s）规格表。">7</a>]</span></li>
+  <li><b>XDR</b>（eXtreme Data Rate）：800 Gb/s per port，ConnectX-8（DGX B300；DGX B200 仍是 8 × ConnectX-7 400 Gb/s）<span class="cite">[<a href="#ref-dgx_specs" title="NVIDIA. DGX H100 User Guide: Introduction（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；DGX B200（8 × ConnectX-7 400 Gb/s）；DGX B300（8 × ConnectX-8 800 Gb/s）规格表。">7</a>]</span></li>
 </ul>
 
 <p><b>RDMA（Remote Direct Memory Access）</b>是 IB 的核心特性：NIC 直接读写远端机器的内存，完全绕过 CPU 和内核。RDMA 的编程模型基于三个概念：</p>
 
 <ul>
-  <li><b>Queue Pair（QP）</b>：每个连接由一对发送队列（SQ）和接收队列（RQ）组成。QP 有完整的状态机：RESET → INIT → RTR（Ready to Receive）→ RTS（Ready to Send）。从 INIT 转到 RTR 时必须设置远端 QP 号（dest_qp_num）和端口 LID/GID，从 RTR 转到 RTS 时设置超时和重传参数。状态转换通过 <code>ibv_modify_qp</code> 完成——如果状态机走错了顺序，QP 会进入 ERROR 状态，所有后续操作都会失败</li>
+  <li><b>Queue Pair（QP）</b>：每个连接由一对发送队列（SQ）和接收队列（RQ）组成。QP 有完整的状态机：RESET → INIT → RTR（Ready to Receive）→ RTS（Ready to Send）。从 INIT 转到 RTR 时必须设置远端 QP 号（dest_qp_num）和端口 LID/GID，从 RTR 转到 RTS 时设置超时和重传参数。状态转换通过 <code>ibv_modify_qp</code> 完成——非法的状态转换会直接让这次调用返回错误；运行中出现传输错误时 QP 会进入 ERROR 状态，之后的 WR 都以错误完成</li>
   <li><b>Work Request（WR）</b>：应用向 QP 提交的操作描述（SEND、RECV、RDMA WRITE、RDMA READ）。每个 WR 包含本地缓冲区地址（sge 数组）和远端地址（对 RDMA WRITE/READ），提交后 NIC 异步执行</li>
   <li><b>Completion Queue（CQ）</b>：完成通知队列，应用轮询 CQ 得知操作完成。每个 CQ 条目包含 WR 的 ID 和完成状态——IBV_WC_SUCCESS 表示成功，其他状态码如 IBV_WC_REM_ACCESS_ERR 表示远端内存访问失败（通常是 rkey 或地址不匹配）</li>
 </ul>
 
-<p>RDMA 有两种语义模型：<b>Channel 语义</b>（SEND/RECV）和 <b>Memory 语义</b>（RDMA WRITE/READ）。Channel 语义需要接收方预先 post RECV WR，发送方发 SEND，数据到达接收方预分配的缓冲区；Memory 语义则由发送方直接指定远端的虚拟地址和 rkey（remote key），接收方 CPU 完全不参与。NCCL 的 Simple 协议在跨节点通信时主要使用 RDMA WRITE（Memory 语义），通过 proxy 线程调用 <code>ibv_post_send</code> 发起——proxy 线程只负责控制面（提交 WR 和轮询 CQ），数据面完全由 NIC 硬件 DMA 完成。</p>
+<p>RDMA 有两种语义模型：<b>Channel 语义</b>（SEND/RECV）和 <b>Memory 语义</b>（RDMA WRITE/READ）。Channel 语义需要接收方预先 post RECV WR，发送方发 SEND，数据到达接收方预分配的缓冲区；Memory 语义则由发送方直接指定远端的虚拟地址和 rkey（remote key），接收方 CPU 完全不参与。NCCL 的 IB 传输层跨节点搬数据主要用 RDMA WRITE（Memory 语义），由 CPU 上的 proxy 线程调用 <code>ibv_post_send</code> 发起——proxy 线程只负责控制面（提交 WR 和轮询 CQ），数据面完全由 NIC 硬件 DMA 完成。</p>
 
-<p>RDMA 操作之前需要做 <b>memory registration</b>：调用 <code>ibv_reg_mr</code> 把一段内存区域注册到 NIC 的页表中，NIC 才能直接访问这段内存。注册后的内存区域被 pin 在物理页面上（不会被操作系统换出），NIC 用物理地址直接做 DMA。这个注册过程本身有开销（大约几百微秒，因为涉及内核调用和 TLB 刷新），所以 NCCL 在初始化时一次性注册大块缓冲区，运行时复用，避免频繁注册的开销。</p>
+<p>RDMA 操作之前需要做 <b>memory registration</b>：调用 <code>ibv_reg_mr</code> 把一段内存区域注册到 NIC 的页表中，NIC 才能直接访问这段内存。注册后的内存区域被 pin 在物理页面上（不会被操作系统换出），NIC 用物理地址直接做 DMA。这个注册过程要进内核、pin 页面并填写 NIC 的地址转换表，开销随区域大小增长，不适合放在关键路径上；所以 NCCL 在初始化时注册自己的通信缓冲区，运行时复用。</p>
 
-<p><b>RoCE v2</b>（RDMA over Converged Ethernet）是在以太网上实现 RDMA 的替代方案，使用 UDP 封装。带宽追上了 IB（400GbE），但延迟略高、需要无损以太网（PFC + ECN）配置。RoCE 的主要优势是可以复用现有的以太网基础设施（交换机、布线），不需要专用的 IB 交换机，这降低了集群的建设成本。但代价是配置复杂度更高——PFC（Priority Flow Control）防丢包和 ECN（Explicit Congestion Notification）拥塞通知都需要端到端正确配置，否则性能会严重退化。</p>
+<p><b>RoCE v2</b>（RDMA over Converged Ethernet）是在以太网上实现 RDMA 的替代方案，使用 UDP 封装。端口速率已与 IB 同档（400GbE），但通常需要配置无损以太网（PFC + ECN）。RoCE 的主要优势是可以复用现有的以太网基础设施（交换机、布线），不需要专用的 IB 交换机，这降低了集群的建设成本。但代价是配置复杂度更高——PFC（Priority Flow Control）防丢包和 ECN（Explicit Congestion Notification）拥塞通知都需要端到端正确配置，否则性能会严重退化。</p>
 
 <h2 id="sec-topology" data-short="DGX 拓扑">DGX H100 拓扑</h2>
 
 <figure id="fig-dgx_topology" data-kind="diagram">
   <img aria-labelledby="fig-dgx_topology-cap" src="figs/dgx_topology.svg" alt="DGX H100 拓扑：NVSwitch 全互联 + InfiniBand">
-  <figcaption id="fig-dgx_topology-cap"><span class="fig-label">图 3</span><b>DGX H100：8 GPU 通过 4 个 NVSwitch 全互联。</b>每个 GPU 的 18 条 NVLink 分配到 4 个 NVSwitch（每个 switch 接 4–5 条 link），任意 GPU 对之间的带宽相同（900 GB/s 全双向带宽被所有 GPU 共享）。8 个 ConnectX-7 NIC 提供 400 GB/s 双向 IB 带宽到其他节点<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>。</figcaption>
+  <figcaption id="fig-dgx_topology-cap"><span class="fig-label">图 3</span><b>DGX H100：8 GPU 通过 4 个 NVSwitch 全互联。</b>每个 GPU 的 18 条 NVLink 分接到 4 个 NVSwitch，任意 GPU 对之间都可以用每卡 900 GB/s（双向）的速率通信，整机聚合 7.2 TB/s<span class="cite">[<a href="#ref-nvlink_whitepaper" title="NVIDIA (2024). NVLink and NVSwitch. NVLink 各代带宽规格与 NVSwitch 架构说明。">4</a>]</span>。8 个单口 ConnectX-7 NIC 合计 3.2 Tb/s，即每方向 400 GB/s<span class="cite">[<a href="#ref-dgx_specs" title="NVIDIA. DGX H100 User Guide: Introduction（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；DGX B200（8 × ConnectX-7 400 Gb/s）；DGX B300（8 × ConnectX-8 800 Gb/s）规格表。">7</a>]</span>。</figcaption>
 </figure>
 
 <p><a href="#fig-dgx_topology">图 3</a>展示了 DGX H100 的内部互联拓扑。这种&ldquo;NVSwitch 全互联 + IB 出节点&rdquo;的双层设计是当前主流训练集群的标准架构。</p>
 
-<p>理解拓扑对性能调优至关重要。NVSwitch 全互联意味着 8 个 GPU 共享 900 GB/s 的总 NVLink 带宽——不是每对 GPU 之间有 900 GB/s，而是所有 GPU 通过 NVSwitch 的总交换带宽。当多对 GPU 同时通信时（比如 Ring AllReduce 的每一步），NVSwitch 的内部 crossbar 保证了非阻塞交换，每对 GPU 仍然能获得接近峰值的带宽。这与 PCIe 交换机不同——PCIe switch 有带宽瓶颈，多对 GPU 同时通信会相互竞争。</p>
+<p>理解拓扑对性能调优至关重要。900 GB/s 是<b>每个 GPU</b> 进出 NVSwitch 的带宽（每方向 450 GB/s），不是 8 卡共享的总量；8 卡聚合是 7.2 TB/s。一个 GPU 同时和多个对端通信时，分到每个对端的带宽之和受这 900 GB/s 限制；而多对 GPU 同时通信（比如 Ring AllReduce 的每一步）时，NVSwitch 不会成为额外瓶颈。这与 PCIe 交换机不同——PCIe switch 有带宽瓶颈，多对 GPU 同时通信会相互竞争。</p>
 
-<p>NIC 的放置也很讲究：8 个 ConnectX-7 NIC 被均匀分配到 8 个 GPU 的 PCIe 域中，每个 GPU 直连一个 NIC。这保证了任何 GPU 发起的 RDMA 操作都只需要走一跳 PCIe（GPU→NIC），不需要跨 NUMA 节点。如果 NIC 和 GPU 不在同一个 PCIe switch 下，GPU 的数据需要先穿过 CPU 的 UPI/CXL 互联到达另一个 NUMA 节点的 NIC，额外增加几微秒的延迟和数 GB/s 的带宽损失。</p>
+<p>NIC 的放置也很讲究：DGX H100 的 8 个集群网口与 8 个 GPU 一一对应<span class="cite">[<a href="#ref-dgx_specs" title="NVIDIA. DGX H100 User Guide: Introduction（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；DGX B200（8 × ConnectX-7 400 Gb/s）；DGX B300（8 × ConnectX-8 800 Gb/s）规格表。">7</a>]</span>，每个 GPU 都有一个就近的 NIC，GPU→NIC 的 RDMA 数据不必穿过 CPU。如果 NIC 和 GPU 分属不同的 CPU socket，数据就要经过 CPU 之间的 UPI 互联，延迟更高、带宽也受这条互联限制。</p>
 
 <h2 id="sec-numa" data-short="NUMA">NUMA 拓扑与 CPU-GPU 亲和性</h2>
 
@@ -323,14 +323,14 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-numa_topology-cap"><span class="fig-label">图 4</span><b>双路 CPU 的 NUMA 拓扑决定了 GPU 和 NIC 的性能边界。</b>每个 CPU socket 是一个 NUMA 节点，拥有自己的 DDR5 内存和 PCIe Root Complex。GPU 和 NIC 按 PCIe 物理连接归属到特定的 NUMA 节点。跨 NUMA 访问要经过 UPI/CXL 互联，延迟和带宽都有显著惩罚。</figcaption>
 </figure>
 
-<p><b>NUMA（Non-Uniform Memory Access）</b>是多路服务器的内存架构：每个 CPU socket 有自己的 DDR 控制器，访问本地内存快（约 50 ns），访问另一个 socket 的远端内存慢（约 100-140 ns，因为要跨 UPI 或 CXL 互联）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>。如<a href="#fig-numa_topology">图 4</a>所示，DGX H100 的两路 Xeon 8480+ 各管一半的 GPU 和 NIC：GPU 0-3 和 NIC 0-3 接在 Socket 0 的 PCIe Root Complex 下，GPU 4-7 和 NIC 4-7 接在 Socket 1 下。</p>
+<p><b>NUMA（Non-Uniform Memory Access）</b>是多路服务器的内存架构：每个 CPU socket 有自己的 DDR 控制器，访问本地内存快，访问另一个 socket 的远端内存要跨 UPI 互联，延迟更高、带宽更低。DGX H100 用两颗 Xeon 8480C（各 56 核）<span class="cite">[<a href="#ref-dgx_specs" title="NVIDIA. DGX H100 User Guide: Introduction（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；DGX B200（8 × ConnectX-7 400 Gb/s）；DGX B300（8 × ConnectX-8 800 Gb/s）规格表。">7</a>]</span>。<a href="#fig-numa_topology">图 4</a>是一个示意：每个 socket 下挂一半的 GPU 和 NIC（具体编号以 <code>nvidia-smi topo -m</code> 为准）。</p>
 
 <p>NUMA 对 GPU 通信的影响体现在三个层面：</p>
 
 <ul>
-  <li><b>GPU-NIC 亲和性</b>：如果 GPU 0 的 RDMA 数据需要从 NIC 4（属于 NUMA Node 1）发出，数据必须穿越 UPI 互联——从 Socket 0 的 PCIe 域到 Socket 1 的 PCIe 域。这不仅增加延迟（多约 3-6 μs），还把有效 PCIe 带宽从 64 GB/s 降到约 40 GB/s，因为 UPI 互联的带宽（~64 GB/s 双向总带宽）要被所有跨 NUMA 的流量共享。DGX H100 通过把每个 GPU 与一个 NIC 放在同一个 PCIe switch 下来避免这个问题——但自建集群如果 NIC 位置不对，性能会莫名其妙地低 30%–40%。</li>
+  <li><b>GPU-NIC 亲和性</b>：如果 GPU 0 的 RDMA 数据需要从 NIC 4（属于 NUMA Node 1）发出，数据必须穿越 UPI 互联——从 Socket 0 的 PCIe 域到 Socket 1 的 PCIe 域。这会增加延迟，而且 UPI 带宽要被所有跨 NUMA 的流量共享。DGX H100 给每个 GPU 配一个就近的 NIC 来避免这个问题；自建集群如果 NIC 位置不对，跨节点带宽会明显低于预期。</li>
   <li><b>Pinned Memory 分配</b>：<code>cudaHostAlloc</code> 分配的 pinned memory 被锁定在物理页面上。如果调用线程绑定在 NUMA Node 1 上，但 GPU 在 NUMA Node 0，分配出来的 pinned memory 物理页面在 Node 1——GPU 的 DMA 要跨 NUMA 读写这些页面，延迟和带宽都打折。正确做法是用 <code>numactl --cpunodebind=0 --membind=0</code> 启动进程，确保 pinned memory 分配在 GPU 所在的 NUMA 节点上。</li>
-  <li><b>CPU 端开销</b>：NCCL 的 proxy 线程、RDMA 的 CQ 轮询、内存注册（<code>ibv_reg_mr</code>）等 CPU 端操作如果跑在远端 NUMA 节点上，每次内存访问都要穿过 UPI，累积下来开销可观。在 DGX H100 的 256 个 proxy 任务场景下（8 GPU × 32 channel），proxy 线程的 NUMA 绑定直接影响跨节点通信的长尾延迟。</li>
+  <li><b>CPU 端开销</b>：NCCL 的 proxy 线程、RDMA 的 CQ 轮询、内存注册（<code>ibv_reg_mr</code>）等 CPU 端操作如果跑在远端 NUMA 节点上，每次内存访问都要穿过 UPI，累积下来开销可观，proxy 线程的 NUMA 绑定会影响跨节点通信的长尾延迟。</li>
 </ul>
 
 <h3 id="sec-1">NUMA 拓扑诊断工具</h3>
@@ -344,28 +344,30 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <li><code>lstopo</code>（hwloc 工具包）：可视化整个 NUMA/PCIe 拓扑树，一目了然地看到每个 GPU 和 NIC 在哪个 socket 的哪个 PCIe switch 下。</li>
 </ul>
 
-<p>对于训练集群的部署，一个通用的最佳实践是：<b>每个训练进程只管一张 GPU，并绑定到该 GPU 所在 NUMA 节点的 CPU 核心上</b>。PyTorch 的 <code>torch.distributed.launch</code> 不会自动做 NUMA 绑定——需要在启动命令中加上 <code>numactl --cpunodebind=&lt;node&gt; --membind=&lt;node&gt;</code> 或使用 <code>taskset</code> 绑定 CPU 核心。NCCL 自身在初始化时会读取 GPU 的 NUMA 信息来决定 proxy 线程的绑定策略和 GPUDirect RDMA 的启用条件——如果 NUMA 信息不正确（BIOS 中 NUMA interleaving 开启了），NCCL 的自动优化会全部失效，所有 GPU 被当作等距，proxy 随机绑定，GDR 可能被错误启用或禁用。</p>
+<p>对于训练集群的部署，一个通用的最佳实践是：<b>每个训练进程只管一张 GPU，并绑定到该 GPU 所在 NUMA 节点的 CPU 核心上</b>。可以在启动命令中加上 <code>numactl --cpunodebind=&lt;node&gt; --membind=&lt;node&gt;</code>，或用 <code>taskset</code> 绑定 CPU 核心。NCCL 初始化时会从 sysfs 探测 PCI/NUMA 拓扑，据此建图、选 NIC、决定是否启用 GPUDirect RDMA（见下文 Q3 的 <code>NCCL_NET_GDR_LEVEL</code>）；如果固件报告的拓扑信息不对，这些自动选择也会跟着出错。</p>
 
 <h2 id="sec-collectives" data-short="集合通信">集合通信五大算子</h2>
 
-<p>分布式训练的通信抽象为五种<b>集合操作</b>（collective operations）<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API 与性能调优指南。">4</a>]</span>：</p>
+<p>分布式训练的通信抽象为五种<b>集合操作</b>（collective operations）<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API 与性能调优指南。">8</a>]</span>：</p>
 
 <table>
   <thead>
-    <tr><th>算子</th><th>语义</th><th>典型用途</th><th>通信量（N GPU, D 数据）</th></tr>
+    <tr><th>算子</th><th>语义</th><th>典型用途</th><th>每卡发送量（N GPU）</th></tr>
   </thead>
   <tbody>
     <tr><td><b>AllReduce</b></td><td>所有 GPU 的数据求和，结果广播给所有人</td><td>数据并行梯度同步</td><td>\(2 \cdot \frac{N-1}{N} \cdot D\)</td></tr>
     <tr><td><b>AllGather</b></td><td>每 GPU 贡献一片，所有人得到完整拼接</td><td>FSDP 权重恢复</td><td>\(\frac{N-1}{N} \cdot D\)</td></tr>
     <tr><td><b>ReduceScatter</b></td><td>先 Reduce 再 Scatter：每 GPU 得到一片归约结果</td><td>FSDP 梯度归约</td><td>\(\frac{N-1}{N} \cdot D\)</td></tr>
     <tr><td><b>All-to-All</b></td><td>每 GPU 给每个其他 GPU 发一片不同数据</td><td>MoE 专家 dispatch</td><td>\(\frac{N-1}{N} \cdot D\)</td></tr>
-    <tr><td><b>Broadcast</b></td><td>一个 GPU 的数据发给所有人</td><td>参数初始化</td><td>\(D\)</td></tr>
+    <tr><td><b>Broadcast</b></td><td>一个 GPU 的数据发给所有人</td><td>参数初始化</td><td>root 至少发出 \(D\)</td></tr>
   </tbody>
 </table>
 
+<p>表中 \(D\) 是一次操作的完整数据量：AllReduce 为每卡缓冲区大小，AllGather 为拼接后的输出总大小，ReduceScatter 为归约前的输入总大小，All-to-All 为每卡发送缓冲区总大小。这些是基于点对点传输的下界，nccl-tests 的 busbw 就是按这些系数从 algbw 换算的<span class="cite">[<a href="#ref-nccl_tests_perf" title="NVIDIA. nccl-tests: Performance reported by NCCL tests. algbw 与 busbw 的定义及各集合操作的换算系数。">9</a>]</span>。</p>
+
 <figure id="fig-collective_ops" data-kind="diagram">
   <img aria-labelledby="fig-collective_ops-cap" src="figs/collective_ops.svg" alt="AllReduce = ReduceScatter + AllGather 分解">
-  <figcaption id="fig-collective_ops-cap"><span class="fig-label">图 5</span><b>AllReduce 的两步分解及通信量分析。</b>ReduceScatter 让每个 GPU 归约属于自己的 chunk；AllGather 广播归约结果。总通信量 2·(N-1)/N·D 是理论最优值——没有任何算法能用更少的传输量完成 AllReduce。</figcaption>
+  <figcaption id="fig-collective_ops-cap"><span class="fig-label">图 5</span><b>AllReduce 的两步分解及通信量分析。</b>ReduceScatter 让每个 GPU 归约属于自己的 chunk；AllGather 广播归约结果。每卡发送 2·(N-1)/N·D 是基于点对点传输的下界<span class="cite">[<a href="#ref-patarasuk2009" title="Patarasuk, P., Yuan, X. (2009). Bandwidth optimal all-reduce algorithms for clusters of workstations. Journal of Parallel and Distributed Computing 69(2): 117–124。">10</a>]</span>；NVSwitch 的网内归约（NVLS）不受这个下界约束。</figcaption>
 </figure>
 
 <p>如<a href="#fig-collective_ops">图 5</a>所示，<b>AllReduce = ReduceScatter + AllGather</b>，这个分解是 Ring AllReduce 算法的核心。理解这个分解很重要——因为在 FSDP（Fully Sharded Data Parallel）训练中，ReduceScatter 和 AllGather 是被单独调用的：ReduceScatter 归约梯度并分片存储（每 GPU 只保留 1/N 的完整梯度），AllGather 在前向传播时恢复完整权重。把 AllReduce 拆成两步用，比合在一起更灵活——FSDP 可以在前向的 AllGather 和反向的 ReduceScatter 之间插入计算，形成&ldquo;通信-计算重叠&rdquo;的流水线。</p>
@@ -383,19 +385,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <ul>
   <li>延迟 = \(2(N-1) \cdot \alpha + 2 \cdot \frac{N-1}{N} \cdot \frac{D}{B}\)，其中 \(\alpha\) 是启动延迟，\(B\) 是链路带宽</li>
-  <li>算法带宽 = \(\frac{D}{T - 2(N-1)\alpha} \cdot \frac{N}{2(N-1)}\)，接近单链路带宽 \(B\)</li>
+  <li>忽略 \(\alpha\) 时，算法带宽 algbw \(= D/T = \frac{N}{2(N-1)} B \approx B/2\)；nccl-tests 的总线带宽 busbw \(=\) algbw \(\cdot \frac{2(N-1)}{N} = B\)，即每卡链路被跑满<span class="cite">[<a href="#ref-nccl_tests_perf" title="NVIDIA. nccl-tests: Performance reported by NCCL tests. algbw 与 busbw 的定义及各集合操作的换算系数。">9</a>]</span></li>
   <li>优点：<b>带宽最优</b>——不随 GPU 数量增加而浪费带宽</li>
   <li>缺点：<b>延迟随 N 线性增长</b>——对小消息不利</li>
 </ul>
 
 <figure id="fig-tree_vs_ring" data-kind="diagram">
   <img aria-labelledby="fig-tree_vs_ring-cap" src="figs/tree_vs_ring.svg" alt="Ring vs Tree AllReduce 延迟与带宽权衡">
-  <figcaption id="fig-tree_vs_ring-cap"><span class="fig-label">图 7</span><b>Ring 和 Tree 的核心权衡。</b>Ring 的步数是 2(N-1)，延迟随 GPU 数线性增长，但每一步只传 D/N 数据，总带宽最优。Tree 只需 2·log(N) 步，但每步传完整 D 数据，链路利用率低。NCCL 的切换点约在 256 KB。</figcaption>
+  <figcaption id="fig-tree_vs_ring-cap"><span class="fig-label">图 7</span><b>Ring 和 Tree 的核心权衡。</b>Ring 的步数是 2(N-1)，延迟随 GPU 数线性增长，但每一步只传 D/N 数据，总带宽最优。朴素二叉树只需 2·log(N) 步，但若不分块流水，每步都传完整 D 数据。NCCL 实际用的是分块流水的双二叉树，带宽与 Ring 相当。</figcaption>
 </figure>
 
-<p><a href="#fig-tree_vs_ring">图 7</a>直观对比了两种算法的结构差异。<b>Tree 算法</b>（二叉树或多叉树）延迟只有 \(O(\log N)\)，但每条链路需要传完整数据量，带宽利用率较低。NCCL 会根据消息大小自动选择：小消息用 Tree，大消息用 Ring。</p>
+<p><a href="#fig-tree_vs_ring">图 7</a>直观对比了两种算法的结构差异。<b>Tree 算法</b>延迟只有 \(O(\log N)\)。朴素实现每层都传完整数据量，带宽差；NCCL 2.4 起用的<b>双二叉树</b>（两棵互补的树各承担一半数据，并分块流水）则既有对数延迟、又能达到与 Ring 相当的带宽<span class="cite">[<a href="#ref-nccl24_blog" title="Jeaugey, S. (2019). Massively Scale Your Deep Learning Training with NCCL 2.4. NVIDIA Technical Blog：双二叉树。">11</a>]</span>。NCCL 按消息大小、卡数和拓扑自动选择算法。</p>
 
-<p>更精确地说，Ring 和 Tree 的选择取决于 <b>alpha-beta 模型</b>中延迟项和带宽项的相对大小。设 \(\alpha\) 为每步的启动延迟（包括 kernel launch、NVLink 握手等），\(\beta\) 为传输 1 字节的时间（= 1/B，B 是链路带宽）。Ring 的总时间约为 \(2(N-1)\alpha + 2\frac{N-1}{N}D\beta\)，Tree 约为 \(2\log_2 N \cdot \alpha + 2\log_2 N \cdot D\beta\)。当 D 很小时 \(\alpha\) 项主导，Tree 的 \(\log N\) 比 Ring 的 \(N\) 好得多；当 D 很大时 \(\beta\) 项主导，Ring 的 \(\frac{N-1}{N}D\) 比 Tree 的 \(\log N \cdot D\) 好得多。NCCL 内部维护了一张查找表，根据 (N, D, 拓扑) 三元组选择最优算法。</p>
+<p>更精确地说，Ring 和 Tree 的选择取决于 <b>alpha-beta 模型</b>中延迟项和带宽项的相对大小。设 \(\alpha\) 为每步的启动延迟（包括 kernel launch、NVLink 握手等），\(\beta\) 为传输 1 字节的时间（= 1/B，B 是链路带宽）。Ring 的总时间约为 \(2(N-1)\alpha + 2\frac{N-1}{N}D\beta\)；不分块的朴素二叉树约为 \(2\log_2 N \cdot \alpha + 2\log_2 N \cdot D\beta\)。当 D 很小时 \(\alpha\) 项主导，Tree 的 \(\log N\) 比 Ring 的 \(N\) 好得多；当 D 很大时 \(\beta\) 项主导，朴素树的 \(\log N \cdot D\) 远不如 Ring——这正是 NCCL 要用分块流水的双二叉树的原因。NCCL 内部用一个 alpha-beta 式的代价模型，对每个 (算法, 协议) 组合估算时间并取最小者（细节见下一篇）。</p>
 
 <p>以下代码在单 GPU 上用多个 buffer 模拟 Ring AllReduce 的两阶段过程。每个&ldquo;虚拟 GPU&rdquo;用一个 block 表示，通过同一块全局内存的不同偏移来模拟独立的显存空间：</p>
 
@@ -459,16 +461,16 @@ __global__ void ring_allgather(
   <figcaption id="fig-gpudirect_rdma-cap"><span class="fig-label">图 8</span><b>GPUDirect RDMA 消除 CPU 中转。</b>传统路径：GPU 显存 → cudaMemcpy → CPU 内存 → RDMA send → 网络，需要两次 PCIe 拷贝加 CPU 参与。GPUDirect RDMA：NIC 通过 PCIe BAR 直接读写 GPU 显存，CPU 不参与数据路径。</figcaption>
 </figure>
 
-<p>如<a href="#fig-gpudirect_rdma">图 8</a>所示，NVIDIA 的 <b>GPUDirect</b> 技术族逐步消除了 GPU 通信中的中间拷贝<span class="cite">[<a href="#ref-gpudirect" title="NVIDIA. GPUDirect Technologies. GPUDirect P2P、RDMA、Storage、Async 的官方文档。">5</a>]</span>：</p>
+<p>如<a href="#fig-gpudirect_rdma">图 8</a>所示，NVIDIA 的 <b>GPUDirect</b> 技术族逐步消除了 GPU 通信中的中间拷贝<span class="cite">[<a href="#ref-gpudirect" title="NVIDIA. GPUDirect. GPUDirect Storage、RDMA、Peer to Peer、for Video 的官方概览页。">12</a>]</span>：</p>
 
 <ul>
   <li><b>GPUDirect P2P</b>（2011, CUDA 4.0）：同一 PCIe 域内的两个 GPU 通过 <code>cudaMemcpyPeer</code> 直接拷贝，不经 CPU 内存</li>
-  <li><b>GPUDirect RDMA（GDR）</b>（2013）：InfiniBand NIC 直接读写 GPU 显存，无需 CPU 中转</li>
-  <li><b>GPUDirect Storage</b>（2020）：NVMe SSD 直接读写 GPU 显存</li>
-  <li><b>GPUDirect Async</b>（2022, Hopper）：GPU 自己触发 DMA 和网络操作，无需 CPU 参与控制路径——这是消除 NCCL proxy 线程开销的硬件基础</li>
+  <li><b>GPUDirect RDMA（GDR）</b>（Kepler / CUDA 5.0 引入）：第三方 PCIe 设备（如 InfiniBand NIC）直接读写 GPU 显存，无需 CPU 中转<span class="cite">[<a href="#ref-gdr_doc" title="NVIDIA. Developing a Linux Kernel Module using GPUDirect RDMA. CUDA 文档，Overview：“introduced in Kepler-class GPUs and CUDA 5.0”。">13</a>]</span></li>
+  <li><b>GPUDirect Storage</b>：本地或远端存储（NVMe / NVMe-oF）与 GPU 显存之间的直接数据通路</li>
+  <li><b>GPUDirect Async</b>：让 GPU 自己触发网络操作，CPU 退出控制路径。NVSHMEM 在 2022 年基于它推出 IBGDA（InfiniBand GPUDirect Async），GPU 线程直接向 NIC 提交请求，不再经过 CPU proxy 线程<span class="cite">[<a href="#ref-ibgda_blog" title="Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async. NVIDIA Technical Blog（IBGDA）。">14</a>]</span></li>
 </ul>
 
-<p>GPUDirect 技术族的演进方向是<b>逐步消除数据路径上的 CPU 参与</b>。从最早的 P2P（消除 CPU 内存中转）到 GDR（消除 CPU 在网络路径上的中转），再到 Async（消除 CPU 在控制路径上的参与），每一步都减少了一次不必要的 CPU 交互带来的延迟和带宽开销。Hopper 的 GPUDirect Async 使得 GPU kernel 可以直接向 NIC 提交 DMA 请求——这为自定义通信 kernel 完全绕过 CPU 铺平了道路，我们在<a href="../cm50-custom-comm-overlap/cm50-custom-comm-overlap.html">第 50 篇</a>会看到这种模式。</p>
+<p>GPUDirect 技术族的演进方向是<b>逐步消除数据路径上的 CPU 参与</b>。从最早的 P2P（消除 CPU 内存中转）到 GDR（消除 CPU 在网络路径上的中转），再到 Async（消除 CPU 在控制路径上的参与），每一步都减少了一次不必要的 CPU 交互带来的延迟和带宽开销。IBGDA 这类 GPUDirect Async 技术让 GPU kernel 可以直接向 NIC 提交请求——这为自定义通信 kernel 完全绕过 CPU 铺平了道路，我们在<a href="../cm50-custom-comm-overlap/cm50-custom-comm-overlap.html">第 50 篇</a>会看到这种模式。</p>
 
 <h3 id="sec-2">P2P 通信的 enablement 与 fallback</h3>
 
@@ -526,14 +528,14 @@ __global__ void ring_allgather(
 
 <figure id="fig-mnnvl_topology" data-kind="diagram">
   <img aria-labelledby="fig-mnnvl_topology-cap" src="figs/mnnvl_topology.svg" alt="MNNVL 跨节点 NVLink 域">
-  <figcaption id="fig-mnnvl_topology-cap"><span class="fig-label">图 9</span><b>GB200 NVL72：72 个 B200 GPU 通过 MNNVL 形成单一 NVLink 域。</b>36 个 Compute Tray（每 tray 含 1 个 Grace CPU + 2 个 B200 GPU）通过 NVLink Switch System 全互联。每个 GPU 有 1800 GB/s 的 NVLink 5.0 带宽，任意 GPU 可通过 EGM 用 load/store 指令访问任意其他 GPU 的显存。总 GPU 显存 = 72 × 192 GB = 13.8 TB<span class="cite">[<a href="#ref-gb200" title="NVIDIA (2024). GB200 NVL72. MNNVL 跨节点 NVLink 域规格：72 GPU、13.8 TB 总显存。">6</a>]</span>。</figcaption>
+  <figcaption id="fig-mnnvl_topology-cap"><span class="fig-label">图 9</span><b>GB200 NVL72：72 个 Blackwell GPU 形成单一 NVLink 域。</b>18 个 compute tray（每 tray 含 2 个 Grace CPU + 4 个 Blackwell GPU）经 9 个 NVLink switch tray 全互联<span class="cite">[<a href="#ref-gb200_blog" title="Goldwasser, I., Petty, H., Desale, P., Devleker, K. (2024). NVIDIA GB200 NVL72 Delivers Trillion-Parameter LLM Training and Real-Time Inference. NVIDIA Technical Blog：18 个 compute tray（各 2 Grace + 4 GPU）、9 个 NVLink switch tray。">5</a>]</span>。每个 GPU 有 1.8 TB/s 的 NVLink 5.0 带宽，整柜聚合 130 TB/s，HBM3E 合计 13.4 TB<span class="cite">[<a href="#ref-gb200" title="NVIDIA (2024). GB200 NVL72. 规格表：36 Grace + 72 Blackwell GPU、每 GPU NVLink 1.8 TB/s、域内 130 TB/s、HBM3E 13.4 TB。">15</a>]</span>。</figcaption>
 </figure>
 
-<p><b>EGM（Extended GPU Memory）</b>是 Hopper 引入的地址空间扩展：GPU 可以把 NVLink 连接的远端 GPU 的显存映射到自己的地址空间，然后直接用 load/store 指令访问。与 P2P 的 <code>cudaMemcpyPeer</code> 不同，EGM 是<b>细粒度的</b>——一个 kernel 里的线程可以直接 load 远端地址，无需显式拷贝。这意味着通信粒度可以降到单个 warp 的一次 load 指令（32 或 128 字节），而不是整个 buffer 的 memcpy。</p>
+<p>先澄清一个常被混用的名字。NVLink 域内 GPU 之间的<b>细粒度 load/store</b>，靠的是 P2P 映射：同一进程里用 <code>cudaDeviceEnablePeerAccess</code>，跨进程用 CUDA IPC 或 CUDA VMM（<code>cuMemCreate</code> + <code>cuMemExportToShareableHandle</code> + <code>cuMemMap</code>）。映射之后，kernel 里的线程可以直接 load/store 对端显存，无需显式 memcpy，通信粒度可以细到一条访存指令。而 <b>EGM（Extended GPU Memory）</b>是另一件事：它在 Grace Hopper / Grace Blackwell 这类平台上，经 NVLink-C2C 让 GPU 高带宽地访问 <b>CPU 一侧的系统内存</b>（包括多节点 NVLink 系统中远端节点的系统内存），分配时用 <code>cuMemCreate</code> 的 <code>CU_MEM_LOCATION_TYPE_HOST_NUMA</code><span class="cite">[<a href="#ref-cuda_egm" title="NVIDIA. Extended GPU Memory. CUDA Programming Guide §4.20：EGM 经 NVLink-C2C 访问系统内存，<code>CU_MEM_LOCATION_TYPE_HOST_NUMA</code>，多节点用 <code>CU_MEM_HANDLE_TYPE_FABRIC</code>。">16</a>]</span>。</p>
 
-<p>EGM 的地址映射通过 <code>cuMemCreate</code> + <code>cuMemMap</code> 的虚拟内存 API 设置：在远端 GPU 上用 <code>cuMemCreate</code> 创建物理内存句柄，然后在本地 GPU 的虚拟地址空间里用 <code>cuMemMap</code> 映射这个句柄。映射完成后，kernel 代码可以像访问本地显存一样访问这个地址——NVLink 硬件自动处理远端访问的路由。但延迟比本地 HBM 高一个数量级（NVLink 单次 load 约 1-2 μs vs HBM 的 ~400 ns），所以 EGM 适合大块顺序访问（可以被预取隐藏延迟），不适合随机小量访问。EGM 的另一个重要特性是支持 NVLink 原子操作——多个 GPU 可以对同一个远端地址做 atomicAdd，硬件保证原子性。这使得分布式归约可以在不需要显式同步的情况下完成——每个 GPU 直接把自己的梯度原子累加到目标 GPU 的缓冲区，这正是 NVSwitch 的 SHARP（Scalable Hierarchical Aggregation and Reduction Protocol）和 <code>multimem</code> 指令的基础。</p>
+<p>跨节点（MNNVL）时，P2P 映射用的是 VMM 的 fabric handle（<code>CU_MEM_HANDLE_TYPE_FABRIC</code>），导出的句柄经带外通道发给其他节点再导入映射，并要求各节点组成 IMEX 域<span class="cite">[<a href="#ref-cuda_egm" title="NVIDIA. Extended GPU Memory. CUDA Programming Guide §4.20：EGM 经 NVLink-C2C 访问系统内存，<code>CU_MEM_LOCATION_TYPE_HOST_NUMA</code>，多节点用 <code>CU_MEM_HANDLE_TYPE_FABRIC</code>。">16</a>]</span><span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API 与性能调优指南。">8</a>]</span>。映射完成后，kernel 代码访问远端地址的写法和访问本地显存一样，由 NVLink 硬件路由；但远端访问的延迟明显高于本地 HBM，所以适合成批、可流水的访问，而不是零散的随机访问。NVLink 也支持对远端地址的原子操作。在此之上，第 3 代起的 NVSwitch 还支持 multicast 和 <b>NVLink SHARP</b> 网内归约<span class="cite">[<a href="#ref-h100_blog" title="NVIDIA (2022). NVIDIA Hopper Architecture In-Depth. 第 3 代 NVSwitch：64 个 NVLink 4 端口、13.6 Tbit/s、multicast 与 SHARP 网内归约；PCIe Gen5 128 GB/s（每方向 64 GB/s）。">3</a>]</span>：GPU 用 PTX 的 <code>multimem</code> 指令对一个 multicast 地址读归约或写广播，归约由交换芯片完成，NCCL 中对应 NVLS 算法<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API 与性能调优指南。">8</a>]</span>。</p>
 
-<p><b>MNNVL（Multi-Node NVLink）</b>将 NVLink 域从单节点扩展到多节点。如<a href="#fig-mnnvl_topology">图 9</a>所示，在 GB200 NVL72 中，72 个 GPU 跨 36 个物理节点形成一个统一的 NVLink 域，任意 GPU 对之间都可以通过 NVLink Switch 通信，延迟与节点内 NVLink 接近。这意味着张量并行可以扩展到 72 路而不需要走 InfiniBand。</p>
+<p><b>MNNVL（Multi-Node NVLink）</b>将 NVLink 域从单节点扩展到多节点。如<a href="#fig-mnnvl_topology">图 9</a>所示，在 GB200 NVL72 中，72 个 GPU 跨 36 个物理节点形成一个统一的 NVLink 域，任意 GPU 对之间都经 NVLink Switch 一跳通信，不需要走 InfiniBand。这让 8 卡以上的张量并行、专家并行也有机会留在 NVLink 域内。</p>
 
 <h2 id="sec-hb" data-short="H/B 对比">Hopper vs Blackwell 通信能力对比</h2>
 
@@ -543,48 +545,46 @@ __global__ void ring_allgather(
   </thead>
   <tbody>
     <tr><td>NVLink 版本</td><td>4.0, 900 GB/s 双向</td><td>5.0, 1800 GB/s 双向</td></tr>
-    <tr><td>NVSwitch</td><td>第 3 代, 节点内全互联</td><td>第 4 代, 支持 MNNVL 跨节点</td></tr>
-    <tr><td>GPUDirect Async</td><td>引入（TMA 可触发 DMA）</td><td>增强（与 EGM 配合）</td></tr>
-    <tr><td>EGM</td><td>引入（节点内 NVLink 显存）</td><td>扩展到跨节点（MNNVL）</td></tr>
-    <tr><td>In-network 归约</td><td>NVSwitch SHARP (multimem)</td><td>NVLink SHARP + IB SHARP</td></tr>
-    <tr><td>节点间网络</td><td>NDR 400 Gb/s × 8 NIC</td><td>XDR 800 Gb/s × 8 NIC</td></tr>
-    <tr><td>最大 NVLink 域</td><td>8 GPU（单节点）</td><td>72 GPU（NVL72, 跨 36 节点）</td></tr>
+    <tr><td>NVSwitch</td><td>第 3 代, 节点内全互联</td><td>NVLink 5 Switch, 支持 NVL72 跨 tray</td></tr>
+    <tr><td>NVLink 网内归约</td><td>NVLink SHARP（multimem / NVLS）</td><td>NVLink SHARP（NVL72 域内）</td></tr>
+    <tr><td>节点间网络（DGX）</td><td>DGX H100：8 × CX-7 400 Gb/s</td><td>DGX B200：8 × CX-7 400 Gb/s；DGX B300：8 × CX-8 800 Gb/s</td></tr>
+    <tr><td>常见 NVLink 域</td><td>8 GPU（HGX/DGX 节点）</td><td>8 GPU（HGX）或 72 GPU（NVL72, 18 个 compute tray）</td></tr>
   </tbody>
 </table>
 
-<p>Blackwell 最根本的变化是<b>通信不再有节点边界</b>：对于 NVL72 内的 72 个 GPU，任意 GPU 间通信都走 NVLink，带宽和延迟接近节点内水平。这使得张量并行可以扩展到远超 8 路，从根本上改变了并行策略的选择。</p>
+<p>NVL72 带来的最大变化是<b>NVLink 域不再止于一台 8 卡机器</b>：NVL72 内的 72 个 GPU 之间都走 NVLink。这让 8 路以上的张量并行和专家并行有机会留在 NVLink 域内，改变了并行策略的选择。</p>
 
-<p>具体来说，在 Hopper 时代的典型配置是 TP=8（节点内）+ PP（节点间）+ DP（跨节点组），因为节点间走 IB 的带宽比 NVLink 低一个数量级，不适合 AllReduce 密集的张量并行。但在 NVL72 上，72 个 GPU 之间都是 1800 GB/s 的 NVLink 5.0，张量并行可以直接扩展到 72 路——单个 All-to-All 或 AllReduce 操作可以覆盖所有 72 个 GPU，无需走 IB。这对 MoE 模型尤其有价值：专家并行的 All-to-All 通信在 72 路 NVLink 域内完成，延迟和带宽都远优于跨节点 IB。</p>
+<p>具体来说，在 Hopper 时代的典型配置是 TP=8（节点内）+ PP（节点间）+ DP（跨节点组），因为节点间走 IB 的带宽比 NVLink 低一个数量级，不适合 AllReduce 密集的张量并行。但在 NVL72 上，72 个 GPU 之间都是每卡 1.8 TB/s 的 NVLink 5.0，一个 All-to-All 或 AllReduce 可以覆盖全部 72 个 GPU 而无需走 IB（是否真把 TP 开到 72 路，还取决于每卡分到的计算量是否足以掩盖通信）。这对 MoE 尤其有价值：专家并行的 All-to-All 可以在 NVLink 域内完成。</p>
 
 <h2 id="sec-interview" data-short="面试 Q&amp;A">面试 Q&amp;A</h2>
 
 <p id="sec-q1" class="interview-q">Q1：NVLink 和 PCIe 的根本区别是什么？为什么不能用更多 PCIe lane 替代 NVLink？</p>
-<p>NVLink 是 GPU 显存控制器的直连协议，不走 CPU 的 PCIe root complex。根本区别有三：（一）延迟——NVLink 的单次事务延迟约 1-2 μs，PCIe 要经过 root complex 的仲裁和路由，延迟约 5-10 μs；（二）带宽——NVLink 5.0 的 1800 GB/s 是 PCIe 5.0 x16（64 GB/s）的 28 倍，而且 PCIe lane 数量受物理限制（CPU 总共只有 128 条 PCIe 5.0 lane，要分给 GPU、NIC、NVMe 等设备）；（三）语义——NVLink 支持对端显存的原子操作和 load/store 语义（EGM），GPU 线程可以像访问本地内存一样访问远端显存，PCIe 做不到这种细粒度的编程模型。</p>
+<p>NVLink 是 GPU 显存控制器的直连协议，不走 CPU 的 PCIe root complex。根本区别有三：（一）路径——GPU 间 NVLink 直连或经 NVSwitch，不经过 CPU 的 root complex；（二）带宽——同为双向口径，H100 的 NVLink 4.0（900 GB/s）约是 PCIe 5.0 x16（128 GB/s）的 7 倍，B200 的 NVLink 5.0（1.8 TB/s）约是其 PCIe 6.0（256 GB/s）的 7 倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。">1</a>]</span>，而且 CPU 能提供的 PCIe lane 有限，要分给 GPU、NIC、NVMe 等设备；（三）语义——NVLink 支持对端显存的 load/store 和原子操作，带宽足以让 GPU 线程以细粒度直接访问远端显存；PCIe P2P 虽然也能映射对端显存，但带宽低一个量级，且受平台对 P2P 的支持限制。</p>
 
 <p id="sec-q2" class="interview-q">Q2：Ring AllReduce 的带宽复杂度和延迟复杂度分别是多少？什么时候应该用 Tree？</p>
-<p>Ring AllReduce 的带宽复杂度是 \(2 \cdot \frac{N-1}{N} \cdot D\)，当 N 很大时接近 \(2D\)，是带宽最优的。延迟是 \(2(N-1) \cdot \alpha\)，随 GPU 数线性增长。Tree 的延迟是 \(O(\log N \cdot \alpha)\) 但带宽是 \(O(D \cdot \log N)\)。所以小消息（延迟主导）用 Tree，大消息（带宽主导）用 Ring。NCCL 默认在 256 KB 附近切换。</p>
+<p>Ring AllReduce 的带宽复杂度是 \(2 \cdot \frac{N-1}{N} \cdot D\)，当 N 很大时接近 \(2D\)，是带宽最优的。延迟是 \(2(N-1) \cdot \alpha\)，随 GPU 数线性增长。朴素 Tree 的延迟是 \(O(\log N \cdot \alpha)\) 但带宽项是 \(O(D \cdot \log N)\)；NCCL 的分块流水双二叉树把带宽项降到与 Ring 相当。所以 Tree 在小消息、多节点（延迟主导）时占优，Ring 在大消息时稳定。NCCL 没有固定的切换阈值，而是由代价模型按消息大小、卡数和拓扑估算后选择。</p>
 
 <p id="sec-q3" class="interview-q">Q3：GPUDirect RDMA 的前提条件是什么？什么时候会 fallback 到传统路径？</p>
-<p>GDR 需要：(1) GPU 和 NIC 在同一个 PCIe switch 下或同一 NUMA node——这保证 NIC 可以通过 PCIe BAR（Base Address Register）直接访问 GPU 显存的物理地址空间；(2) NVIDIA peer memory 内核模块（nvidia-peermem）加载——它向 IB 驱动注册 GPU 内存的 DMA 映射回调；(3) GPU 的 BAR 空间足够大（BAR1 至少要覆盖 GDR 注册的显存区域）。如果 GPU 和 NIC 跨 NUMA node，GDR 的性能可能比 CPU 中转更差——因为 NIC 的 DMA 要穿过两跳 UPI/CXL 互联才能到达 GPU 的显存，反而增加了延迟和带宽损耗。NCCL 用 <code>NCCL_NET_GDR_LEVEL</code> 控制 GDR 的使用条件：默认 auto 只在同 PCIe switch 下开启，设为 SYS 则强制跨 NUMA 也用 GDR。</p>
+<p>GDR 需要：(1) NIC 能通过 PCIe 访问 GPU 的 BAR（Base Address Register）——性能上最好是 GPU 和 NIC 在同一个 PCIe switch 下；(2) 内核侧的支持：传统做法是加载 nvidia-peermem 模块，向 IB 驱动注册 GPU 内存的 DMA 映射回调（新内核与驱动也可以走 dma-buf）；(3) GPU 的 BAR 空间足够大（BAR1 至少要覆盖 GDR 注册的显存区域）。如果 GPU 和 NIC 跨 NUMA node，NIC 的 DMA 要穿过 CPU 之间的互联才能到达 GPU 显存，GDR 可能反而不如经 CPU 内存中转，这正是 NCCL 默认对远距离路径保守的原因。NCCL 用 <code>NCCL_NET_GDR_LEVEL</code> 控制 GDR 的使用条件：它规定 NIC 与 GPU 之间允许的最大拓扑距离（LOC / PIX / PXB / PHB / SYS），不设置时由 NCCL 按架构和环境自动选择；设为 SYS 则跨 NUMA 也用 GDR<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API 与性能调优指南。">8</a>]</span>。</p>
 
 <p id="sec-q4" class="interview-q">Q4：DGX H100 的 8 张 GPU 如果做 AllReduce，理论带宽上限是多少？</p>
-<p>DGX H100 通过 NVSwitch 全互联，每 GPU 的 NVLink 双向总带宽是 900 GB/s。Ring AllReduce 在 8 GPU 上的传输量是 \(2 \times \frac{7}{8} \times D = 1.75D\)，所以对单 GPU 而言发送 \(\frac{7}{8}D\) 接收 \(\frac{7}{8}D\)。理论算法带宽 = \(\frac{D}{T}\) = 链路带宽 = 900 GB/s（单向 450 GB/s 的发送和接收同时进行）。NCCL 实测在 H100 上约 420–440 GB/s 算法带宽（约 93%–98% 效率）。</p>
+<p>DGX H100 通过 NVSwitch 全互联，每 GPU 的 NVLink 带宽是 900 GB/s 双向，即每方向 \(B = 450\) GB/s。基于点对点传输的 AllReduce，每卡至少要发送（同时接收）\(2 \times \frac{7}{8} \times D = 1.75D\)，所以 \(T \ge 1.75D / 450\text{ GB/s}\)，算法带宽上限 algbw \(= D/T = 450 / 1.75 \approx 257\) GB/s，对应 nccl-tests 的 busbw \(= 450\) GB/s<span class="cite">[<a href="#ref-nccl_tests_perf" title="NVIDIA. nccl-tests: Performance reported by NCCL tests. algbw 与 busbw 的定义及各集合操作的换算系数。">9</a>]</span>。NVLink SHARP（NVLS）把归约交给 NVSwitch，每卡的发送量和接收量都降到约 \(D\)，因此能突破这个点对点上限。实际能跑到多少，需要用 nccl-tests 在具体机器上测。</p>
 
 <p id="sec-q5" class="interview-q">Q5：为什么 MNNVL 对 MoE 模型特别重要？</p>
-<p>MoE 模型的 All-to-All 通信模式是每个 GPU 向每个其他 GPU 发送不同大小的数据（取决于 token 分配到哪个专家）。这种不规则通信在 IB 上延迟很高（每个 GPU 对之间需要独立的 RDMA 操作），但在 NVLink 域内可以用 EGM 的 load/store 实现极低延迟。MNNVL 把 NVLink 域从 8 GPU 扩展到 72 GPU，意味着 MoE 的 All-to-All 可以在 72 路内全部走 NVLink 完成，不需要走延迟高得多的 IB。DeepSeek-V3 就是 MNNVL 的重要用例——它的专家并行需要在大量 GPU 之间做快速的 All-to-All 交换。</p>
+<p>MoE 模型的 All-to-All 通信模式是每个 GPU 向每个其他 GPU 发送不同大小的数据（取决于 token 分配到哪个专家）。这种不规则通信在 IB 上延迟很高（每个 GPU 对之间需要独立的 RDMA 操作），但在 NVLink 域内可以直接用 P2P load/store 完成，延迟低得多。NVL72 把 NVLink 域从 8 GPU 扩展到 72 GPU，意味着专家并行度不超过 72 时，MoE 的 All-to-All 可以全部走 NVLink 完成，不需要走 IB。</p>
 
 <h2 id="sec-limits" data-short="局限">局限性</h2>
 
 <ul>
   <li>本篇所有延迟和带宽数据为典型值或峰值理论值，实际性能受 PCIe 拓扑、NUMA 亲和性、拥塞和协议开销影响。</li>
-  <li>NVLink 5.0 和 MNNVL 的数据基于 NVIDIA 公布的规格，尚无大规模独立基准测试验证；实际性能可能受散热、供电和拓扑配置影响。</li>
+  <li>NVLink 5.0 和 NVL72 的数据基于 NVIDIA 公布的规格；本篇没有给出任何实测数字。</li>
   <li>RDMA 编程模型的细节（如 QP 状态机、memory registration）超出本篇范围；需要 HPC 网络编程经验才能用好。</li>
   <li>代码示例在单 GPU 上模拟多 GPU 通信，实际 P2P 和 NCCL 代码需要多 GPU 或多节点环境。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>本篇从存储-通信层次金字塔开始，介绍了 NVLink 五代演进（从 P100 到 B200 带宽增长 11 倍）、NVSwitch 全互联的意义（消除多跳延迟和带宽争用）、InfiniBand RDMA 的编程模型（QP/WR/CQ 和 memory registration）、DGX H100 拓扑的设计考量（GPU-NIC 的 NUMA 亲和性）、五大集合通信算子及其 Ring/Tree 算法的 alpha-beta 模型分析、GPUDirect 技术族（从 P2P 到 Async 的演进）、以及 Blackwell 的 EGM（细粒度远端显存访问）和 MNNVL（跨节点 NVLink 域）。这些硬件知识是理解下一篇 NCCL 内部机制的前提——知道硬件能做什么，才能理解 NCCL 为什么做那些选择。</p>
+<p>本篇从存储-通信层次金字塔开始，介绍了 NVLink 五代演进（从 P100 到 B200 每卡带宽增长约 11 倍）、NVSwitch 全互联的意义（消除多跳延迟和带宽争用）、InfiniBand RDMA 的编程模型（QP/WR/CQ 和 memory registration）、DGX H100 拓扑的设计考量（GPU-NIC 的 NUMA 亲和性）、五大集合通信算子及其 Ring/Tree 算法的 alpha-beta 模型分析、GPUDirect 技术族（从 P2P 到 Async 的演进）、NVLink 域内的 P2P load/store 与 EGM 的区别，以及 GB200 NVL72 的跨节点 NVLink 域（MNNVL）。这些硬件知识是理解下一篇 NCCL 内部机制的前提——知道硬件能做什么，才能理解 NCCL 为什么做那些选择。</p>
 
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
@@ -603,17 +603,27 @@ __global__ void ring_allgather(
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM 的 NVLink 4.0 带宽 900 GB/s、HBM3 带宽 3.35 TB/s、SM 数 132 等；每项都标有 NVIDIA 官方出处。</li>
+  <li id="ref-volta_wp">NVIDIA (2017). <a href="https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf">NVIDIA Tesla V100 GPU Architecture</a>. 白皮书：GV100 最多 6 条 NVLink、共 300 GB/s，GP100 为 4 条、共 160 GB/s。</li>
+  <li id="ref-h100_blog">NVIDIA (2022). <a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/">NVIDIA Hopper Architecture In-Depth</a>. 第 3 代 NVSwitch：64 个 NVLink 4 端口、13.6 Tbit/s、multicast 与 SHARP 网内归约；PCIe Gen5 128 GB/s（每方向 64 GB/s）。</li>
   <li id="ref-nvlink_whitepaper">NVIDIA (2024). <a href="https://www.nvidia.com/en-us/data-center/nvlink/">NVLink and NVSwitch</a>. NVLink 各代带宽规格与 NVSwitch 架构说明。</li>
+  <li id="ref-gb200_blog">Goldwasser, I., Petty, H., Desale, P., Devleker, K. (2024). <a href="https://developer.nvidia.com/blog/nvidia-gb200-nvl72-delivers-trillion-parameter-llm-training-and-real-time-inference/">NVIDIA GB200 NVL72 Delivers Trillion-Parameter LLM Training and Real-Time Inference</a>. NVIDIA Technical Blog：18 个 compute tray（各 2 Grace + 4 GPU）、9 个 NVLink switch tray。</li>
   <li id="ref-ib_spec">InfiniBand Trade Association. <a href="https://www.infinibandta.org/">InfiniBand Architecture Specification</a>. HDR/NDR/XDR 速率定义与 RDMA 语义。</li>
+  <li id="ref-dgx_specs">NVIDIA. <a href="https://docs.nvidia.com/dgx/dgxh100-user-guide/introduction-to-dgxh100.html">DGX H100 User Guide: Introduction</a>（2 × Xeon 8480C；8 × 单口 ConnectX-7 400 Gb/s，网口与 GPU 一一对应）；<a href="https://www.nvidia.com/en-us/data-center/dgx-b200/">DGX B200</a>（8 × ConnectX-7 400 Gb/s）；<a href="https://www.nvidia.com/en-us/data-center/dgx-b300/">DGX B300</a>（8 × ConnectX-8 800 Gb/s）规格表。</li>
   <li id="ref-nccl_doc">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/">NCCL User Guide</a>. 集合操作 API 与性能调优指南。</li>
-  <li id="ref-gpudirect">NVIDIA. <a href="https://developer.nvidia.com/gpudirect">GPUDirect Technologies</a>. GPUDirect P2P、RDMA、Storage、Async 的官方文档。</li>
-  <li id="ref-gb200">NVIDIA (2024). <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/">GB200 NVL72</a>. MNNVL 跨节点 NVLink 域规格：72 GPU、13.8 TB 总显存。</li>
+  <li id="ref-nccl_tests_perf">NVIDIA. <a href="https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md">nccl-tests: Performance reported by NCCL tests</a>. algbw 与 busbw 的定义及各集合操作的换算系数。</li>
+  <li id="ref-patarasuk2009">Patarasuk, P., Yuan, X. (2009). <a href="https://doi.org/10.1016/j.jpdc.2008.09.002">Bandwidth optimal all-reduce algorithms for clusters of workstations</a>. Journal of Parallel and Distributed Computing 69(2): 117–124。</li>
+  <li id="ref-nccl24_blog">Jeaugey, S. (2019). <a href="https://developer.nvidia.com/blog/massively-scale-deep-learning-training-nccl-2-4/">Massively Scale Your Deep Learning Training with NCCL 2.4</a>. NVIDIA Technical Blog：双二叉树。</li>
+  <li id="ref-gpudirect">NVIDIA. <a href="https://developer.nvidia.com/gpudirect">GPUDirect</a>. GPUDirect Storage、RDMA、Peer to Peer、for Video 的官方概览页。</li>
+  <li id="ref-gdr_doc">NVIDIA. <a href="https://docs.nvidia.com/cuda/gpudirect-rdma/index.html">Developing a Linux Kernel Module using GPUDirect RDMA</a>. CUDA 文档，Overview：&ldquo;introduced in Kepler-class GPUs and CUDA 5.0&rdquo;。</li>
+  <li id="ref-ibgda_blog">Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). <a href="https://developer.nvidia.com/blog/improving-network-performance-of-hpc-systems-using-nvidia-magnum-io-nvshmem-and-gpudirect-async/">Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async</a>. NVIDIA Technical Blog（IBGDA）。</li>
+  <li id="ref-gb200">NVIDIA (2024). <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/">GB200 NVL72</a>. 规格表：36 Grace + 72 Blackwell GPU、每 GPU NVLink 1.8 TB/s、域内 130 TB/s、HBM3E 13.4 TB。</li>
+  <li id="ref-cuda_egm">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/extended-gpu-memory.html">Extended GPU Memory</a>. CUDA Programming Guide §4.20：EGM 经 NVLink-C2C 访问系统内存，<code>CU_MEM_LOCATION_TYPE_HOST_NUMA</code>，多节点用 <code>CU_MEM_HANDLE_TYPE_FABRIC</code>。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 48 篇。文中代码完整版在系列目录的 <code>code/cm48-interconnect-collectives/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。带宽和延迟数据来自 NVIDIA 官方 spec 和 hw-facts.md；NVLink 5.0 和 MNNVL 数据尚无大规模独立基准验证。
+  本文是「从零精通 GPU Kernel」系列第 48 篇。文中代码完整版在系列目录的 <code>code/cm48-interconnect-collectives/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。带宽数据来自 NVIDIA 官方规格和 hw-facts.md；本篇不含实测数字。
 </footer>
 
 </div>

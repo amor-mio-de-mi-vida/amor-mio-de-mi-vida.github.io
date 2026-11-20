@@ -62,12 +62,12 @@
 <text x="390" y="268" text-anchor="middle" class="code" font-size="9" fill="#2563eb">dL/dSH</text>
 
 <!-- Right side: contention note -->
-<rect x="510" y="148" width="170" height="100" class="box" fill="#fee2e2" stroke="#ef4444"/>
-<text x="595" y="168" text-anchor="middle" class="title" fill="#dc2626" font-size="11">Contention Hot Spot</text>
-<text x="525" y="188" class="label" font-size="10">Each pixel writes grads</text>
-<text x="525" y="204" class="label" font-size="10">to its contributing</text>
-<text x="525" y="220" class="label" font-size="10">Gaussians via atomicAdd</text>
-<text x="525" y="238" class="code" font-size="10" fill="#dc2626">~256 writers/Gaussian</text>
+<rect x="550" y="148" width="145" height="100" class="box" fill="#fee2e2" stroke="#ef4444"/>
+<text x="622" y="168" text-anchor="middle" class="title" fill="#dc2626" font-size="11">Contention Hot Spot</text>
+<text x="560" y="188" class="label" font-size="10">Each pixel writes grads</text>
+<text x="560" y="204" class="label" font-size="10">to its contributing</text>
+<text x="560" y="220" class="label" font-size="10">Gaussians via atomicAdd</text>
+<text x="560" y="238" class="code" font-size="9.5" fill="#dc2626">&#x2264;256 per tile</text>
 
 <defs><marker id="arr7" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
   <path d="M0,0 L8,3 L0,6" fill="#888"/>

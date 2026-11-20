@@ -83,5 +83,5 @@
   <text x="360" y="248" text-anchor="middle" class="d-note">平衡精度（细粒度 scale）与开销（scale 读取次数）</text>
 
   <text x="360" y="278" text-anchor="middle" class="d-note" style="fill:#D55E00">关键决策：缩放在 mainloop 的哪个位置应用？在 MMA 之前还是之后？</text>
-  <text x="360" y="294" text-anchor="middle" class="d-note">之前：精度更好但要转换 FP8→FP16；之后：直接用 FP8 MMA 但累加误差更大</text>
+  <text x="360" y="294" text-anchor="middle" class="d-note">之前：软件把 FP8 转成 FP16/FP32 再乘；之后：直接用 FP8 MMA，每 128 个 K 元素乘 scale 并提升到 FP32</text>
 </svg>

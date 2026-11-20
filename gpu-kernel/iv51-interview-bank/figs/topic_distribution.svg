@@ -46,7 +46,7 @@
 <text x="265" y="266" class="code">~10 questions</text>
 
 <!-- Total -->
-<text x="340" y="300" text-anchor="middle" class="title">Total: ~200 questions across 14 topics</text>
+<text x="340" y="300" text-anchor="middle" class="title">Hypothetical split of a ~200-question bank (counts are not a survey)</text>
 
 <text x="340" y="318" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

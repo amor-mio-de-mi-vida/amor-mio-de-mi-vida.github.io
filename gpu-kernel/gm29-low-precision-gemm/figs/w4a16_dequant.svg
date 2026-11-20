@@ -88,6 +88,6 @@
     <text x="100" y="38" text-anchor="middle" class="d-note" style="font-size:10px">离线重排权重布局</text>
     <text x="100" y="52" text-anchor="middle" class="d-note" style="font-size:10px">使得解包恰好对齐</text>
     <text x="100" y="66" text-anchor="middle" class="d-note" style="font-size:10px">寄存器中的 MMA 输入</text>
-    <text x="100" y="84" text-anchor="middle" class="d-note" style="font-size:10px;fill:#D55E00">0 额外 smem、0 额外 shuffle</text>
+    <text x="100" y="84" text-anchor="middle" class="d-note" style="font-size:10px;fill:#D55E00">解包后即为 mma 需要的顺序</text>
   </g>
 </svg>

@@ -22,7 +22,7 @@
 
 <text x="35" y="195" class="label">N=4096, d=128:</text>
 <text x="35" y="210" class="code">I = 4096/2 = 2048 FLOP/B</text>
-<text x="35" y="225" class="label">&#x226B; A100 ridge (309 FLOP/B)</text>
+<text x="35" y="225" class="label">&#x226B; A100 ridge (~153 FLOP/B)</text>
 
 <!-- Decode -->
 <rect x="370" y="35" width="310" height="200" class="box" fill="#fef2f2" stroke="#ef4444"/>
@@ -38,8 +38,8 @@
 
 <text x="385" y="195" class="label">N=4096, d=128:</text>
 <text x="385" y="210" class="code">I = 1 FLOP/B</text>
-<text x="385" y="225" class="label">&#x226A; A100 ridge (309 FLOP/B)</text>
+<text x="385" y="225" class="label">&#x226A; A100 ridge (~153 FLOP/B)</text>
 
-<text x="350" y="268" text-anchor="middle" class="label">Decode attention: &#x2248;300&#xd7; less compute-per-byte than prefill &#x2192; HBM bandwidth is the bottleneck</text>
+<text x="350" y="268" text-anchor="middle" class="label">Decode attention: ~2000&#xd7; less compute-per-byte than prefill (N=4096) &#x2192; HBM bandwidth is the bottleneck</text>
 <text x="350" y="280" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed</text>
 </svg>

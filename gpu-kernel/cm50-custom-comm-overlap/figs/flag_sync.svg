@@ -1,4 +1,4 @@
-<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+<svg viewBox="0 0 720 332" xmlns="http://www.w3.org/2000/svg" class="d-fig">
   <style>
     .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
     .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
@@ -68,8 +68,8 @@
   <!-- Memory ordering explanation -->
   <g transform="translate(50, 270)">
     <text x="0" y="0" class="d-label" style="font-size:11px">内存序保证</text>
-    <text x="0" y="18" class="d-note" style="font-size:10px">st.release.sys：确保 flag 写入前的所有 store 对其他 GPU 可见</text>
+    <text x="0" y="18" class="d-note" style="font-size:10px">st.release.sys：看到 flag 的线程也能看到它之前的 store</text>
     <text x="0" y="34" class="d-note" style="font-size:10px">ld.acquire.sys：确保 flag 读到 1 后，后续 load 看到最新数据</text>
-    <text x="0" y="50" class="d-note" style="font-size:10px;fill:#D55E00">⚠ 没有 release/acquire 语义，consumer 可能读到 stale data（NVLink 不保证 store 顺序）</text>
+    <text x="0" y="50" class="d-note" style="font-size:10px;fill:#D55E00">⚠ 没有 release/acquire 语义，consumer 可能读到旧数据（内存模型不保证跨设备的可见顺序）</text>
   </g>
 </svg>

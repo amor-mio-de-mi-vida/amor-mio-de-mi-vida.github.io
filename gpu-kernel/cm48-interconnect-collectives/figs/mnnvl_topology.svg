@@ -16,29 +16,29 @@
   <rect x="40" y="60" width="140" height="140" class="tray-box"/>
   <text x="110" y="80" text-anchor="middle" class="d-label" style="font-size:10px">Compute Tray 1</text>
   <rect x="55" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="80" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="80" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
   <rect x="115" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="140" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="140" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
   <line x1="105" y1="105" x2="115" y2="105" class="nvl-link"/>
 
   <!-- Tray 2 -->
   <rect x="200" y="60" width="140" height="140" class="tray-box"/>
   <text x="270" y="80" text-anchor="middle" class="d-label" style="font-size:10px">Compute Tray 2</text>
   <rect x="215" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="240" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="240" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
   <rect x="275" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="300" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="300" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
 
   <!-- ... -->
   <text x="385" y="110" text-anchor="middle" class="d-label" style="font-size:16px">···</text>
 
   <!-- Tray N -->
   <rect x="420" y="60" width="140" height="140" class="tray-box"/>
-  <text x="490" y="80" text-anchor="middle" class="d-label" style="font-size:10px">Compute Tray 36</text>
+  <text x="490" y="80" text-anchor="middle" class="d-label" style="font-size:10px">Compute Tray 18</text>
   <rect x="435" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="460" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="460" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
   <rect x="495" y="90" width="50" height="30" class="gpu-sm"/>
-  <text x="520" y="110" text-anchor="middle" class="d-note" style="font-size:9px">B200</text>
+  <text x="520" y="110" text-anchor="middle" class="d-note" style="font-size:9px">GPU</text>
 
   <!-- NVLink Switch layer -->
   <rect x="80" y="230" width="480" height="35" class="sw-box"/>
@@ -58,18 +58,18 @@
 
   <!-- EGM zone -->
   <rect x="30" y="48" width="545" height="230" class="egm-zone"/>
-  <text x="590" y="155" class="d-label" style="font-size:11px;fill:#56B4E9">EGM 域</text>
-  <text x="590" y="172" class="d-note" style="font-size:10px;fill:#56B4E9">任意 GPU 可</text>
-  <text x="590" y="186" class="d-note" style="font-size:10px;fill:#56B4E9">load/store</text>
-  <text x="590" y="200" class="d-note" style="font-size:10px;fill:#56B4E9">远端显存</text>
+  <text x="590" y="155" class="d-label" style="font-size:11px;fill:#56B4E9">单一 NVLink 域</text>
+  <text x="590" y="172" class="d-note" style="font-size:10px;fill:#56B4E9">任意 GPU 对</text>
+  <text x="590" y="186" class="d-note" style="font-size:10px;fill:#56B4E9">经 NVLink Switch</text>
+  <text x="590" y="200" class="d-note" style="font-size:10px;fill:#56B4E9">直接互访</text>
 
   <!-- Key specs -->
   <g transform="translate(50, 295)">
     <text x="0" y="0" class="d-label" style="font-size:11px">GB200 NVL72 关键参数</text>
-    <text x="0" y="20" class="d-note" style="font-size:10px">· 36 个 Grace CPU + 72 个 B200 GPU（36 Compute Trays）</text>
+    <text x="0" y="20" class="d-note" style="font-size:10px">· 36 个 Grace CPU + 72 个 Blackwell GPU；18 个 compute tray，每个 2 Grace + 4 GPU（图中每 tray 只画 2 个）</text>
     <text x="0" y="36" class="d-note" style="font-size:10px">· NVLink 5.0：每 GPU 1800 GB/s 双向</text>
-    <text x="0" y="52" class="d-note" style="font-size:10px">· 全部 72 GPU 通过 NVSwitch 全互联 → 单一 NVLink 域</text>
-    <text x="0" y="68" class="d-note" style="font-size:10px">· EGM：任意 GPU 可通过 load/store 指令访问任意 GPU 的显存</text>
-    <text x="0" y="84" class="d-note" style="font-size:10px">· 总 GPU 显存：72 × 192 GB = 13.8 TB（单一可寻址空间）</text>
+    <text x="0" y="52" class="d-note" style="font-size:10px">· 9 个 NVLink switch tray 全互联 72 GPU → 单一 NVLink 域，聚合 130 TB/s</text>
+    <text x="0" y="68" class="d-note" style="font-size:10px">· 跨 tray 的显存映射用 CUDA VMM fabric handle（需 IMEX 域）</text>
+    <text x="0" y="84" class="d-note" style="font-size:10px">· 整柜 HBM3E 13.4 TB（NVIDIA 规格表）</text>
   </g>
 </svg>

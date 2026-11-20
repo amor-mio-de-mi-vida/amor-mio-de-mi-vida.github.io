@@ -16,7 +16,7 @@
 <text x="175" y="83" text-anchor="middle" class="code">Reference: pure PyTorch impl</text>
 
 <rect x="35" y="100" width="280" height="28" class="box" fill="#fef9c3" stroke="#eab308"/>
-<text x="175" y="118" text-anchor="middle" class="code">Tolerance: FP32 1e-5, FP16 1e-2</text>
+<text x="175" y="118" text-anchor="middle" class="code">Tolerance (this post): FP32 1e-5, FP16 1e-2</text>
 
 <rect x="35" y="135" width="280" height="28" class="box" fill="#fef2f2" stroke="#ef4444"/>
 <text x="175" y="153" text-anchor="middle" class="code">Shapes: random + edge cases</text>

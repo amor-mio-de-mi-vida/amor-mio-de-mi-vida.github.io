@@ -230,9 +230,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>FP8 GEMM 的关键是 block scaling：权重和激活按小块各配一个缩放因子，在 K 方向每个 tile 的边界乘进累加器；DeepGEMM 再用两级累加守住精度。</li>
-<li>W4A16（Marlin 思路）在 kernel 内把 INT4 权重解量化为 FP16，再和 FP16 激活做标准 FMA——瓶颈是解量化的寄存器消耗和带宽。</li>
-<li>MXFP4（OCP MX 格式）给每 32 个 FP4 E2M1 值配一个 E8M0 microscale——Blackwell Tensor Core 原生支持 FP4 输入，TFLOPS 比 FP8 再翻一倍。</li>
+<li>FP8 GEMM 的关键是 block scaling：权重和激活按小块各配一个缩放因子，在 K 方向每 128 个元素乘进累加器；DeepSeek-V3 / DeepGEMM 再用两级累加弥补 Hopper FP8 Tensor Core 累加精度的不足。</li>
+<li>W4A16（Marlin 思路）在 kernel 内把 INT4 权重解量化为 FP16，再和 FP16 激活走 FP16 Tensor Core——难点是让解量化和异步加载藏在带宽瓶颈之下。</li>
+<li>MXFP4（OCP MX 格式）给每 32 个 FP4 E2M1 值配一个 E8M0 scale；NVIDIA 的 NVFP4 则是每 16 个值一个 FP8 E4M3 scale。Blackwell Tensor Core 原生支持两者，HGX B200 的 FP4 稠密峰值是 FP8 的两倍。</li>
 <li>低精度 GEMM 的共同模式：窄位宽存储 &rarr; 加载时解量化 &rarr; 高精度累加 &rarr; epilogue 再量化。位宽越低，scale 粒度越细（per-tensor &rarr; per-channel &rarr; per-block &rarr; per-32 microscale）。</li>
   </ul>
 </div>
@@ -243,28 +243,28 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-motivation">从 FP16 到 FP4：为什么要低精度</h2>
 
-<p>LLM 推理的核心瓶颈是内存带宽——权重矩阵动辄几十 GB，每个 token 的生成都要把所有层的权重完整读取一遍。这是因为 autoregressive decode 每次只生成一个 token（M=1），GEMM 退化为矩阵向量乘 GEMV，计算量 O(NK) 远小于访存量 O(NK)——算术强度不到 1 FLOPs/Byte，严重受限于 HBM 带宽。降低权重的位宽直接减少读取量：FP8 省一半带宽，INT4 省四分之三，FP4 省八分之七。同时，低精度也提升 Tensor Core 的 TFLOPS：H100 的 FP8 TFLOPS 是 FP16 的两倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 312 TFLOPS FP16、H100 1979 TFLOPS FP8 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>（<a href="#fig-precision_bandwidth">图 1</a>）。</p>
+<p>LLM 推理的核心瓶颈是内存带宽——权重矩阵动辄几十 GB，每个 token 的生成都要把所有层的权重完整读取一遍。这是因为 batch=1 的 autoregressive decode 每次只生成一个 token（M=1），GEMM 退化为矩阵向量乘 GEMV：每读一个 FP16 权重（2 字节）只做一次乘加（2 FLOP），算术强度约 1 FLOP/Byte，严重受限于 HBM 带宽。降低权重的位宽直接减少读取量：相对 FP16，FP8 省一半，INT4 和 FP4 省四分之三（不计 scale）。同时，低精度也提升 Tensor Core 的 TFLOPS：H100 的 FP8 TFLOPS 是 FP16 的两倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>（<a href="#fig-precision_bandwidth">图 1</a>）。</p>
 
 <figure id="fig-precision_bandwidth" data-kind="diagram">
 <img aria-labelledby="fig-precision_bandwidth-cap" src="figs/precision_bandwidth.svg" alt="精度 vs 带宽节省"/>
-<figcaption id="fig-precision_bandwidth-cap"><span class="fig-label">图 1</span><b>精度降低同时带来带宽节省和 Tensor Core 吞吐提升。</b>FP8 相比 FP16 带宽节省 2 倍、TC 吞吐提升 2 倍；FP4 带宽节省 4 倍（相比 FP8），Blackwell 上 TC 吞吐再翻倍。数据来自 NVIDIA 官方规格。</figcaption>
+<figcaption id="fig-precision_bandwidth-cap"><span class="fig-label">图 1</span><b>精度降低同时带来带宽节省和 Tensor Core 吞吐提升。</b>相对 FP16：FP8 的权重字节减半、H100 上稠密峰值翻倍；FP4 的权重字节减到四分之一（不计 scale），HGX B200 上稠密峰值是 FP16 的 4 倍。Hopper 没有 INT4 的 Tensor Core 指令。峰值数据来自 hw-facts<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</figcaption>
 </figure>
 
-<p>用数字说明带宽的重要性：LLaMA-70B 的权重约 140 GB（FP16），H100 HBM 带宽 3.35 TB/s，纯读一遍权重需要 42 ms——这就是解码一个 token 的时间下限（batch=1）。用 FP8 降到 70 GB / 3.35 TB/s = 21 ms，INT4 降到 35 GB / 3.35 TB/s = 10.4 ms，FP4 可以进一步降到约 18.5 GB / 3.35 TB/s = 5.5 ms。每一级精度降低都直接提升 tokens/s——从 FP16 的 24 tokens/s 到 FP8 的 48 tokens/s，再到 INT4 的 96 tokens/s。这就是低精度量化对推理延迟的直接影响。</p>
+<p>用数字说明带宽的重要性：LLaMA-70B 的权重约 140 GB（FP16），H100 HBM 带宽 3.35 TB/s，纯读一遍权重需要 42 ms——这就是解码一个 token 的时间下限（batch=1）。用 FP8 降到 70 GB / 3.35 TB/s = 21 ms，INT4 降到 35 GB / 3.35 TB/s = 10.4 ms，MXFP4 加上 scale 约 37 GB（见下文），在同样的带宽下约 11 ms。对应的 tokens/s 上限：FP16 约 24、FP8 约 48、INT4 约 96（只算读权重，batch=1）。这就是低精度量化对推理延迟的直接影响。</p>
 
-<p>但低精度的代价是精度损失。每种低精度格式的精度瓶颈不同：FP8 E4M3 只有 3 位有效精度（1 位尾数 + 隐含位），最大相对误差约 25%；INT8 有 7 位均匀精度但没有浮点的动态范围；INT4 只有 16 个可表示值（含零）；FP4 E2M1 只有 15 个非零值。如何在位宽大幅减少时守住模型质量？</p>
+<p>但低精度的代价是精度损失。每种低精度格式的精度瓶颈不同：FP8 E4M3 有 3 位尾数（加隐含位共 4 位有效位），舍入的相对误差最大 \(2^{-4} = 6.25\%\)；INT8 有 256 个均匀分布的值，但没有浮点的动态范围；INT4 只有 16 个可表示值；FP4 E2M1 只有 16 个编码（&plusmn;0 与 14 个非零值）。如何在位宽大幅减少时守住模型质量？</p>
 
 <p>答案是<b>分组缩放</b>（group/block scaling）——把权重分成小块，每块用一个高精度 scale 因子记录该块的动态范围。量化值 = round(原始值 / scale)，解量化 = 量化值 &times; scale。块越小，同一块内的值量级越接近，量化误差越小——但 scale 的额外存储开销越大。这就是精度和存储的核心权衡。</p>
 
-<p>本篇从粗到细看四种主流方案。FP8 block scaling 用 128 元素粒度的 scale（DeepSeek-V3 的方案），适合训练和推理。W4A16 用 128-group 的 scale/zero 把权重压到 4 bit，激活保持 FP16（Marlin 的方案），适合推理 decode。W8A8 用 per-channel scale 把权重和激活都量化为 INT8（SmoothQuant 的方案），适合推理 prefill。MXFP4 用 32 元素的 microscale 把权重压到 4 bit 浮点（OCP MX 格式），Blackwell 原生支持。四种方案的位宽越来越低，scale 粒度越来越细——这也对应着量化技术从简单到精密的演进路线。</p>
+<p>本篇从粗到细看四种主流方案。FP8 block scaling 用 128 元素粒度的 scale（DeepSeek-V3 的方案<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>），可用于训练和推理。W4A16 用每 128 个元素一组的 scale 把权重压到 4 bit，激活保持 FP16（Marlin 的方案<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>），面向推理。W8A8 把权重和激活都量化为 INT8（权重 per-channel、激活 per-token 等），常见于推理。MXFP4 用 32 元素的 microscale 把权重压到 4 bit 浮点（OCP MX 格式），Blackwell 原生支持。四种方案的位宽越来越低，scale 粒度越来越细——这也对应着量化技术从简单到精密的演进路线。</p>
 
 <h2 id="sec-fp8">FP8 Block Scaling（DeepSeek-V3 风格）</h2>
 
-<p>FP8 E4M3 有 4 位指数、1 位尾数（加隐含位共 2），动态范围 &plusmn;448，精度约 1/8<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA 指令族）、§5.4.6（FP8/FP4 数据类型）。">2</a>]</span>。直接做 per-tensor 量化（整个矩阵只有一个 scale）时，outlier 会吃掉整个动态范围——例如某个权重值是 100，而大多数值在 0.01&ndash;1 之间，per-tensor scale 必须设得很大，小值量化后全变成 0。DeepSeek-V3 的方案是 <b>block scaling</b>：权重按 128&times;128 块量化，每个块有自己的 scale，outlier 只影响它所在的块；激活按 1&times;128 per-token 行量化，每个 token 的 scale 独立（<a href="#fig-block_scaling">图 2</a>）。</p>
+<p>FP8 E4M3 有 4 位指数、3 位尾数，最大值 &plusmn;448，相邻可表示值的相对间距约 1/8。直接做 per-tensor 量化（整个矩阵只有一个 scale）时，scale 由全矩阵的最大值决定——一个 outlier 会把其余的值都挤到 FP8 可表示范围的低端，甚至落进 subnormal 或下溢为 0，精度变差。DeepSeek-V3 的方案是 <b>block scaling</b>：权重按 128&times;128 块量化，每个块有自己的 scale，outlier 只影响它所在的块；激活按 1&times;128（每个 token 每 128 个通道）量化（<a href="#fig-block_scaling">图 2</a>）<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。</p>
 
 <figure id="fig-block_scaling" data-kind="diagram">
 <img aria-labelledby="fig-block_scaling-cap" src="figs/block_scaling.svg" alt="FP8 block scaling"/>
-<figcaption id="fig-block_scaling-cap"><span class="fig-label">图 2</span><b>FP8 block scaling：权重 B 按 128&times;128 块各有一个 scale；激活 A 按每行 128 列有一个 scale。</b>K-tile 加载时，FP8 值乘以对应 scale 还原为 FP32，累加器始终保持 FP32 精度。</figcaption>
+<figcaption id="fig-block_scaling-cap"><span class="fig-label">图 2</span><b>FP8 block scaling：权重 B 按 128&times;128 块各有一个 scale；激活 A 按每行 128 列有一个 scale。</b>本篇的软件版本在 K-tile 加载时就把 FP8 值乘 scale 还原为 FP32；用 FP8 Tensor Core 时，则是每 128 个 K 元素把部分和乘上两边的 scale 再累加到 FP32。</figcaption>
 </figure>
 
 <pre data-code="code/gm29-low-precision-gemm/fp8_block_gemm.cu#L14-L29"><code>__global__ void fp8_block_scaled_gemm(
@@ -285,7 +285,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float acc = 0.0f;</code></pre>
 <p class="src-note">完整代码：<code>code/gm29-low-precision-gemm/fp8_block_gemm.cu</code> 第 14–29 行（未在 GPU 上运行）</p>
 
-<p>加载 tile 时，FP8 值先用 <code>static_cast&lt;float&gt;</code> 转为 FP32（这一步是位模式重新解释，不涉及乘法），再乘以对应的 scale——per-token scale 用于激活行，per-block scale 用于权重块。注意 scale 的索引方式：激活的 scale_A 按 <code>[row][col/128]</code> 索引，权重的 scale_B 按 <code>[row/128][col/128]</code> 索引——这和量化时的分块方式对应：</p>
+<p>加载 tile 时，FP8 值先用 <code>static_cast&lt;float&gt;</code> 转为 FP32（这是一次格式转换，不是简单的位重解释），再乘以对应的 scale——per-token scale 用于激活行，per-block scale 用于权重块。注意 scale 的索引方式：激活的 scale_A 按 <code>[row][col/128]</code> 索引，权重的 scale_B 按 <code>[row/128][col/128]</code> 索引——这和量化时的分块方式对应：</p>
 
 <pre data-code="code/gm29-low-precision-gemm/fp8_block_gemm.cu#L41-L49"><code>      if (gr &lt; M &amp;&amp; gc &lt; K) {
         float val = static_cast&lt;float&gt;(A[gr * K + gc]);
@@ -298,30 +298,30 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }</code></pre>
 <p class="src-note">完整代码：<code>code/gm29-low-precision-gemm/fp8_block_gemm.cu</code> 第 41–49 行（未在 GPU 上运行）</p>
 
-<p>上一段代码在加载时一次性把 scale 乘进去（软件解量化）——对应 Ampere 或不支持 FP8 的 GPU 上的做法。但在 Hopper 的 WGMMA 和 Blackwell 的 tcgen05.mma 上，Tensor Core 直接接受 FP8 输入并在内部做 FP32 累加——不需要软件解量化这一步。此时 scale 不在加载时应用，而是在每个 K-tile 结束后再乘到 FP32 累加器上——这就是所谓的&ldquo;延迟 scale 应用&rdquo;。延迟应用的好处是显著减少了共享内存中完全不必要的数据膨胀：软件解量化后数据变成 FP32（4 字节），而 FP8 只占 1 字节，同样的共享内存可以装 4 倍的 tile 数据。</p>
+<p>上一段代码在加载时一次性把 scale 乘进去（软件解量化）——对应没有 FP8 Tensor Core 的 GPU（如 Ampere）上的做法。在 Hopper 的 WGMMA 和 Blackwell 的 <code>tcgen05.mma</code> 上，Tensor Core 直接接受 FP8 输入<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>，不需要软件解量化。此时 scale 不在加载时应用，而是在 K 方向每 128 个元素（一个 scale 组）结束后乘到部分和上——这就是&ldquo;延迟 scale 应用&rdquo;。它的另一个好处是共享内存里存的是 1 字节的 FP8，而不是解量化后 4 字节的 FP32，同样的共享内存可以装 4 倍的 tile 数据。</p>
 
-<p>这就是 DeepGEMM 精读中的<b>两级累加</b><span class="cite">[<a href="#ref-deepgemm" title="姊妹系列 DeepEP 与 DeepGEMM 精读 dg01：SM90 FP8 GEMM 的两级累加。">3</a>]</span>策略：内层 K-tile 循环让 Tensor Core 在 FP8 精度下做乘累加（FP32 累加器），每隔若干个 K-tile（通常 2&ndash;4 个，即 256&ndash;512 个 K 元素），把 partial sum 乘以对应的 block scale 并归到外层的 FP32 最终累加器中。为什么需要两级？因为 FP8 乘法产生的中间值最大约 448&times;448 &asymp; 200704，而 FP32 累加器虽然范围够大，但连续累加大量这样的乘积会导致精度下降——小值在大累加器面前会被舍入吞掉。两级累加通过定期把 partial sum 缩放到实际量级，减少了浮点舍入误差的累积，保证最终结果的精度接近 FP32 基准。这个技巧在 DeepGEMM 的实现中被验证对 LLM 训练的收敛质量至关重要——不用两级累加的 FP8 GEMM 在大模型训练中会出现精度退化，加上两级累加后精度和 FP16 baseline 几乎没有可观测的差异。</p>
+<p>这就是<b>两级累加</b><span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span><span class="cite">[<a href="#ref-deepgemm" title="姊妹系列 DeepEP 与 DeepGEMM 精读 dg01：SM90 FP8 GEMM 的两级累加。">5</a>]</span>：Tensor Core 在 FP8 输入上做乘累加，但只连续累加 128 个 K 元素（Hopper 上是 4 条 k32 的 WGMMA）；然后把部分和拷到 CUDA core 的 FP32 寄存器，乘上这一段的激活 scale 和权重 scale，再加进 FP32 总累加器。为什么需要两级？不是因为 FP8 乘积太大，而是因为 Hopper 的 FP8 Tensor Core 累加精度不到 FP32：PTX ISA 注明 FP8 输入、<code>.f32</code> 输出的 WGMMA 累加精度&ldquo;高于半精度、低于单精度&rdquo;<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>，DeepSeek-V3 在 H800 上测得约保留 14 位，K=4096 的随机矩阵最大相对误差接近 2%<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。用上细粒度量化和这种提升到 FP32 的累加后，DeepSeek-V3 报告其 FP8 训练相对 BF16 基线的 loss 相对误差始终低于 0.25%<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。更详细的推导见<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html#sec-fp8">第 26 篇</a>。</p>
 
 <p>Block scale 的存储开销很小。以 K=4096 为例：激活的 per-token scale 每 128 列一个 FP32 值，每个 token 需要 4096/128 &times; 4 = 128 字节——相比 token 数据本身的 4096 字节（FP8），scale 开销仅 3.1%。权重的 per-block scale 每 128&times;128 = 16384 个 FP8 值共享一个 FP32 scale——开销仅 4/16384 = 0.024%。scale 存储的额外开销几乎可以忽略。</p>
 
-<p>FP8 GEMM 在不同硬件上的实现策略差异很大。在 Ampere 上，没有 FP8 Tensor Core，只能做软件解量化——FP8 数据加载后在寄存器中转为 FP16/FP32 再送入 FP16 MMA。这种方案的收益纯粹来自带宽节省（数据量减半），但解量化指令占用了 warp scheduler 的发射槽，实际 Tensor Core 利用率会下降 10&ndash;15%。在 Hopper 上，WGMMA 原生支持 FP8 输入并在内部做 FP32 累加——硬件解量化完全消除了指令开销，Tensor Core 利用率和 FP16 一致，同时带宽只需一半。Blackwell 进一步支持了 FP8 的 block scale 在 Tensor Core 内部应用——连 epilogue 中的 scale 乘法都可以省掉，让两级累加中的 promote 步骤（partial sum 乘以 scale 后归并到全局累加器）更加高效。</p>
+<p>FP8 GEMM 在不同硬件上的实现策略差异很大。在 Ampere 上没有 FP8 Tensor Core，只能做软件解量化——FP8 数据加载后在寄存器中转为 FP16 再送入 FP16 MMA，收益只来自带宽节省（数据量减半），而且解量化指令要占发射槽。在 Hopper 上，WGMMA 原生支持 FP8 输入，稠密峰值是 FP16 的两倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>，但需要上面的两级累加来补累加精度。Blackwell 的 <code>tcgen05.mma</code> 还支持在 Tensor Core 内部应用块缩放（<code>.kind::mxf8f6f4</code> 等，scale 矩阵放在 TMEM 中）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>——不过它对应的是 MX 风格的 32 元素块、E8M0 scale，和 DeepSeek-V3 的 128 元素块、FP32 scale 不是一回事。</p>
 
 <h2 id="sec-w4a16">W4A16：权重 INT4，激活 FP16</h2>
 
-<p>FP8 省一半带宽，但对 7B+ 模型的推理解码（M=1）来说还不够——权重读取仍然是瓶颈。以 LLaMA-7B 为例，FP8 权重约 7 GB，H100 读一遍需要 2.1 ms——但 decode 阶段的 GEMM 是 M=1 的矩阵向量乘，计算量极小（只有 2NK FLOPs），纯计算时间不到 0.1 ms。这说明 FP8 下 decode 仍然是严重的带宽瓶颈（计算利用率不到 5%）。W4A16 把权重压到 4 bit，进一步减半带宽——但代价是 Tensor Core 不能直接做 INT4&times;FP16 的乘法（类型不匹配），必须在 kernel 内部先把 INT4 解量化为 FP16。Marlin<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743。">4</a>]</span> 的核心思路是在 kernel 内部把 INT4 权重&ldquo;即时解量化&rdquo;为 FP16，再和 FP16 激活做标准 FMA——解量化发生在寄存器中，没有额外的 HBM 读写（<a href="#fig-w4a16_pipeline">图 3</a>）。</p>
+<p>FP8 省一半带宽，但对 7B+ 模型的推理解码（M=1）来说还不够——权重读取仍然是瓶颈。以 LLaMA-7B 为例，FP8 权重约 7 GB，H100 读一遍需要 2.1 ms——但 decode 阶段的 GEMM 是 M=1 的矩阵向量乘，计算量极小（只有 2NK FLOPs），纯计算时间不到 0.1 ms。这说明 FP8 下 decode 仍然是严重的带宽瓶颈（计算时间不到读权重时间的 1%）。W4A16 把权重压到 4 bit，进一步减半带宽——但 Tensor Core 没有 INT4&times;FP16 的指令，必须在 kernel 内部先把 INT4 解量化为 FP16。Marlin<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span> 的核心思路是在 kernel 内部把 INT4 权重&ldquo;即时解量化&rdquo;为 FP16，再和 FP16 激活走 FP16 Tensor Core——解量化发生在寄存器中，没有额外的 HBM 读写（<a href="#fig-w4a16_pipeline">图 3</a>）。</p>
 
 <figure id="fig-w4a16_pipeline" data-kind="diagram">
 <img aria-labelledby="fig-w4a16_pipeline-cap" src="figs/w4a16_pipeline.svg" alt="W4A16 pipeline"/>
-<figcaption id="fig-w4a16_pipeline-cap"><span class="fig-label">图 3</span><b>W4A16 流水线：INT4 权重从全局内存读取后，在寄存器中解量化为 FP16（乘 scale、减 zero），再和 FP16 激活做 FMA。</b>per-group scale/zero 每 128 个 K 元素共享一组。</figcaption>
+<figcaption id="fig-w4a16_pipeline-cap"><span class="fig-label">图 3</span><b>W4A16 流水线：INT4 权重经 <code>cp.async</code> 进入共享内存，在寄存器中解量化为 FP16，再和 FP16 激活送入 Tensor Core。</b>本篇代码用 per-group scale/zero，每 128 个 K 元素共享一组；Marlin 本身用对称量化（无 zero point）<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。</figcaption>
 </figure>
 
-<p>W4A16 的带宽优势很明显：LLaMA-70B 的 INT4 权重只有 35 GB（vs FP16 的 140 GB），H100 上读一遍只需 10.4 ms——比 FP16 快 4 倍。代价是解量化需要额外的计算和寄存器：每个 INT4 值解量化为 FP16 需要一次位移提取 nibble、一次乘法（乘 scale）和一次减法（减 zero_point），还需要从内存加载对应 group 的 scale 和 zero_point。对于一个 128 元素的 group，scale 和 zero 各占 2 字节（FP16），额外存储为 4/64 = 6.25%（64 字节是 128 个 INT4 值的大小）。</p>
+<p>W4A16 的带宽优势很明显：LLaMA-70B 的 INT4 权重只有 35 GB（vs FP16 的 140 GB），H100 上读一遍只需 10.4 ms——读权重的时间下界是 FP16 的四分之一。代价是解量化需要额外的计算和寄存器：本篇代码里每个 INT4 值解量化为 FP16 需要一次移位提取 nibble、一次乘法（乘 scale）和一次减法（减 zero_point），还需要从内存加载对应 group 的 scale 和 zero_point。对于一个 128 元素的 group，scale 和 zero 各占 2 字节（FP16），额外存储为 4/64 = 6.25%（64 字节是 128 个 INT4 值的大小）。</p>
 
 <p>INT4 量化的格式（<a href="#fig-w4a16_dequant">图 4</a>）：两个 4-bit 值打包在一个字节中（nibble packing），每 GROUP_SIZE=128 个 K 元素共享一组 (scale, zero_point)。解量化公式是 <code>half_val = scale * (float)nibble - zero</code>：</p>
 
 <figure id="fig-w4a16_dequant" data-kind="diagram">
 <img aria-labelledby="fig-w4a16_dequant-cap" src="figs/w4a16_dequant.svg" alt="W4A16 解量化"/>
-<figcaption id="fig-w4a16_dequant-cap"><span class="fig-label">图 4</span><b>W4A16 的寄存器内反量化流水线：从全局内存读取 packed INT4，在寄存器中解包并乘 scale、减 zero，输出 FP16 值送入 Tensor Core MMA。</b>Marlin 的核心优化是让权重的内存布局直接对齐 MMA 的 fragment layout，避免额外的 register shuffle。</figcaption>
+<figcaption id="fig-w4a16_dequant-cap"><span class="fig-label">图 4</span><b>W4A16 的寄存器内反量化流水线：读取 packed INT4，在寄存器中解包并乘 scale、减 zero，输出 FP16 值送入 Tensor Core MMA。</b>Marlin 离线重排权重，让解包后的值直接落在 MMA 需要的位置<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。</figcaption>
 </figure>
 
 <pre data-code="code/gm29-low-precision-gemm/w4a16_gemm.cu#L13-L18"><code>__device__ half dequant_int4(
@@ -353,39 +353,39 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   const int groups_per_col = K / GROUP_SIZE;</code></pre>
 <p class="src-note">完整代码：<code>code/gm29-low-precision-gemm/w4a16_gemm.cu</code> 第 20–36 行（未在 GPU 上运行）</p>
 
-<p>注意 <code>groups_per_col</code> 的计算——它决定了 K 维度上 scale/zero 的分组方式。每 GROUP_SIZE（通常 128）个连续 K 元素共享一组量化参数。在 tile 循环内部，加载权重 tile 时需要根据当前 K 的位置算出对应的 group 索引，取出正确的 scale 和 zero_point。这个间接寻址增加了地址计算的复杂度，但 scale 数组的访问模式非常规律——同一 group 内的 128 个 K 元素用同一组参数——L1 cache 命中率几乎 100%。</p>
+<p>注意 <code>groups_per_col</code> 的计算——它决定了 K 维度上 scale/zero 的分组方式。每 GROUP_SIZE（通常 128）个连续 K 元素共享一组量化参数。在 tile 循环内部，加载权重 tile 时需要根据当前 K 的位置算出对应的 group 索引，取出正确的 scale 和 zero_point。这个间接寻址增加了地址计算的复杂度，但 scale 数组的访问模式非常规律——同一 group 内的 128 个 K 元素用同一组参数，很容易被缓存命中。</p>
 
-<p>Marlin 的关键优化不在量化格式，而在 kernel 设计。Naive 的 W4A16 做法是先把 INT4 全部解量化到 FP16 写回全局内存，再调用标准 FP16 GEMM——等于多了一次完整的 HBM 读写（35 GB 写出 + 70 GB 读入），吞吐还不如直接用 FP16 权重。Marlin 避免了这次额外读写：</p>
+<p>Marlin 的关键优化不在量化格式，而在 kernel 设计。Naive 的 W4A16 做法是先把 INT4 全部解量化到 FP16 写回全局内存，再调用标准 FP16 GEMM——以 LLaMA-70B 为例，等于在读 35 GB INT4 之外又写出 140 GB、再读入 140 GB 的 FP16，还不如直接用 FP16 权重。Marlin 在一个 kernel 里完成，并做了这些设计<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>：</p>
 <ol>
-<li><b>Fragment-aligned 内存布局</b>：INT4 权重在离线时重排，按 16&times;64 的块存储，直接匹配 Tensor Core MMA 指令的 fragment layout。加载后寄存器中的 nibble 位置恰好对应 MMA 操作数的位置，省去了 register shuffle（在标准布局下需要 8&ndash;16 条 <code>prmt</code>/<code>shfl</code> 指令）。这个重排只做一次（模型加载时），推理期间零开销，但模型部署时需要一次离线重排处理（通常只需要几秒钟即可完成）。</li>
-<li><b>异步加载 + 解量化流水线</b>：Marlin 把 K 维度分成多个 stage，每个 stage 异步加载下一批 INT4 数据到共享内存（<code>cp.async</code> 或 TMA），同时在寄存器中对当前 stage 的数据做解量化和 MMA。典型配置是 4 个 stage 的 pipeline：stage 0 做 MMA 时，stage 1 在解量化，stage 2 在从 smem 搬到寄存器，stage 3 在从 HBM 加载到 smem——四级流水让计算和访存完全重叠。</li>
-<li><b>Group scale 预取</b>：每 GROUP_SIZE=128 个 K 元素共享一组 (scale, zero)，scale 向量比权重小 128 倍。Marlin 在每个 K-tile 循环开始前，把下一批 scale/zero 加载到寄存器——scale 数据量极小（每 128 个 INT4 值 8 字节），预取的代价可以忽略，但确保解量化时 scale 已在寄存器中就绪，不会 stall。</li>
+<li><b>离线重排权重</b>：权重在推理时是静态的，所以 Marlin 离线把 16&times;64 的 tile 重排成内存中连续的块，让每个线程都能用 16 字节的宽加载、每次读满整条 cache line；重排后的布局也让解量化后的值直接对应 Tensor Core MMA 的操作数位置<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。</li>
+<li><b>异步加载流水线</b>：权重和激活都用 Ampere 的 <code>cp.async</code> 从全局内存（或 L2）异步搬进共享内存，每次迭代预取 P&minus;1 步之后要用的块（P 为流水线深度）；权重每个元素只读一次，用 <code>evict_first</code> 缓存提示避免它把仍需复用的激活挤出 L2<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。</li>
+<li><b>位运算解量化</b>：INT4 到 FP16 不做普通类型转换，而是用一条 <code>lop3</code> 把 4 个比特拼进一个特定指数的 FP16 位模式，再减去一个常数得到数值（有符号的偏移 8 也合并进这次减法）<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。</li>
 </ol>
 
-<p>性能结果：Marlin 在 H100 上对 LLaMA-7B 的 W4A16 推理（batch=1）达到 FP16 Tensor Core 性能的 85%&ndash;90%——考虑到只读了四分之一的权重数据，实际的 tokens/s 是 FP16 的 3.4&ndash;3.6 倍。瓶颈从内存带宽转向了 FP16 Tensor Core 的计算吞吐。值得注意的是，当 batch size 增大到 32&ndash;64 以上，W4A16 的优势逐渐消失——因为计算量增长为 O(M)，而权重读取量不变，GEMM 变成计算密集型，INT4 权重节省的带宽不再是瓶颈。这也是 W4A16 主要用于 decode（小 batch）而非 prefill（大 batch）的原因。在 Blackwell 上，Tensor Core 原生支持 INT4&times;FP16 的混合精度 MMA 指令——这意味着不再需要在寄存器中做软件解量化，Marlin 的 fragment-aligned 布局优化可以被硬件接管。这让 W4A16 在 Blackwell 上的性能更接近理论带宽上限：B200 的 HBM 带宽 8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 312 TFLOPS FP16、H100 1979 TFLOPS FP8 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，LLaMA-70B 的 INT4 权重 35 GB 只需 4.4 ms 读完——相比 H100 的 10.4 ms 快了 2.4 倍。</p>
+<p>性能结果：Marlin 论文报告，对 4 bit 权重、大矩阵，在推理优化的 A10 GPU 上相对 FP16 的加速约 3.9 倍，并能在 batch 16&ndash;32 以内保持接近 4 倍的理想加速；batch 增大后逐渐下降，到 128 时约 1.5 倍——问题变成计算密集型，INT4 省下的带宽不再是瓶颈；集成进 vLLM 后端到端最高约 2.8 倍<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。这也是 W4A16 主要用于 decode（小 batch）而非 prefill（大 batch）的原因。在 Blackwell 上，<code>tcgen05.mma</code> 同样没有 INT4&times;FP16 的指令（它支持的低精度类型是 FP8/FP6/FP4、INT8 以及 MX/NVFP4 的块缩放格式）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>，W4A16 仍然要软件解量化；但它受益于更高的带宽——按 B200 每 GPU 8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>，LLaMA-70B 的 35 GB INT4 权重读一遍的下界约 4.4 ms，H100 上约 10.4 ms。</p>
 
 <h2 id="sec-w8a8">W8A8：权重和激活都是 INT8</h2>
 
-<p>W8A8 是另一种常见的量化方案——权重和激活都量化为 INT8，用 INT8 Tensor Core 做矩阵乘（H100 上 3958 TOPS INT8<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 312 TFLOPS FP16、H100 1979 TFLOPS FP8 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），累加器是 INT32。和 W4A16 不同，W8A8 的权重和激活用相同位宽，Tensor Core 可以直接做 INT8&times;INT8 的乘累加（<code>mma.sync.aligned.m16n8k32.s32.s8.s8.s32</code>），无需在 kernel 内做数据类型转换或解量化。这意味着 W8A8 GEMM 的 kernel 结构和标准 FP16 GEMM 几乎完全一样——只是数据类型变了，加上 epilogue 里多了一步 scale 应用。</p>
+<p>W8A8 是另一种常见的量化方案——权重和激活都量化为 INT8，用 INT8 Tensor Core 做矩阵乘（H100 SXM 上稠密 1,979 TOPS，带稀疏 3,958 TOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>），累加器是 INT32。和 W4A16 不同，W8A8 的权重和激活用相同位宽，Tensor Core 可以直接做 INT8&times;INT8 的乘累加（<code>mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32</code>），无需在 kernel 内做数据类型转换或解量化。这意味着 W8A8 GEMM 的 kernel 结构和标准 FP16 GEMM 几乎完全一样——只是数据类型变了，加上 epilogue 里多了一步 scale 应用。</p>
 
-<p>W8A8 的量化粒度通常是 <b>per-channel</b><span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.27 FP8 Conversions。">5</a>]</span>：权重矩阵 W[N,K] 的每一行（输出通道）有一个 FP32 scale_w[n]，激活矩阵 A[M,K] 的每一行（token）有一个 FP32 scale_a[m]。量化过程是 <code>int8_val = round(fp16_val / scale)</code>。GEMM 的累加器 C_int32[m,n] = &sum;(A_int8[m,k] &times; W_int8[n,k])，epilogue 中还原为浮点：<code>C_fp16[m,n] = C_int32[m,n] * scale_a[m] * scale_w[n]</code>。</p>
+<p>W8A8 常见的量化粒度是：权重 <b>per-channel</b>、激活 per-token：权重矩阵 W[N,K] 的每一行（输出通道）有一个 FP32 scale_w[n]，激活矩阵 A[M,K] 的每一行（token）有一个 FP32 scale_a[m]。量化过程是 <code>int8_val = round(fp16_val / scale)</code>。GEMM 的累加器 C_int32[m,n] = &sum;(A_int8[m,k] &times; W_int8[n,k])，epilogue 中还原为浮点：<code>C_fp16[m,n] = C_int32[m,n] * scale_a[m] * scale_w[n]</code>。</p>
 
-<p>Per-channel 量化有一个微妙的问题：如果激活中某些通道有 outlier（例如 LLM 中常见的&ldquo;大值通道&rdquo;），per-token 的单一 scale 会被 outlier 拉大，导致非 outlier 通道的量化精度很差。<b>SmoothQuant</b> 的解决方案是在量化前做一次通道级的平滑：把 activation 的 outlier 通道除以一个大因子 s[k]，同时把 weight 对应通道乘以 s[k]——数学等价性不变（<code>A &times; W = (A/s) &times; (s&times;W)</code>），但平滑后的 activation 各通道量级更均匀，per-token INT8 量化的精度大幅提升。因子 s[k] 通常取 activation 和 weight 绝对值最大值的几何平均：<code>s[k] = max(|X[:,k]|)^alpha / max(|W[k,:]|)^(1-alpha)</code>，alpha 通常取 0.5。平滑后 activation 的各通道 max 更均匀，INT8 量化的有效位数从 4&ndash;5 位提升到接近满额的 7 位。SmoothQuant 的平滑操作本身是逐通道的 element-wise 乘除法，可以融合到前一层的 LayerNorm 或 bias 加法中——运行时零开销。</p>
+<p>Per-channel 量化有一个微妙的问题：如果激活中某些通道有 outlier（例如 LLM 中常见的&ldquo;大值通道&rdquo;），per-token 的单一 scale 会被 outlier 拉大，导致非 outlier 通道的量化精度很差。<b>SmoothQuant</b><span class="cite">[<a href="#ref-smoothquant" title="Xiao et al. (2023). SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. ICML 2023, arXiv:2211.10438。">6</a>]</span> 的解决方案是在量化前做一次通道级的平滑：把 activation 的 outlier 通道除以一个大因子 s[k]，同时把 weight 对应通道乘以 s[k]——数学等价性不变（<code>A &times; W = (A/s) &times; (s&times;W)</code>），但平滑后的 activation 各通道量级更均匀，per-token INT8 量化的精度大幅提升。因子取 <code>s[k] = max(|X[:,k]|)^&alpha; / max(|W[k,:]|)^(1&minus;&alpha;)</code>，迁移强度 &alpha; 是超参数，0.5 是常用的折中<span class="cite">[<a href="#ref-smoothquant" title="Xiao et al. (2023). SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. ICML 2023, arXiv:2211.10438。">6</a>]</span>。平滑后 activation 各通道的最大值更均匀，量化误差更小。缩放因子可以离线折进前一层的参数（如 LayerNorm 的权重）里，运行时不需要额外的 kernel<span class="cite">[<a href="#ref-smoothquant" title="Xiao et al. (2023). SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models. ICML 2023, arXiv:2211.10438。">6</a>]</span>。</p>
 
-<p>和 FP8 per-block 相比，W8A8 per-channel 的 scale 粒度更粗（整个通道 vs 128 元素的块），但 INT8 有 7 位有效精度（vs FP8 E4M3 的约 3 位），绝对精度更高——对于数值分布均匀的层，INT8 的量化误差可以比 FP8 更小。两者在 H100 上的 Tensor Core 吞吐也不同：INT8 是 3958 TOPS，FP8 是 3958 TFLOPS——数值相同但含义不同（整数 vs 浮点运算），在 GEMM 中性能相当。</p>
+<p>和 FP8 per-block 相比，W8A8 per-channel 的 scale 粒度更粗（整个通道 vs 128 元素的块），但 INT8 在其范围内有 256 个均匀分布的值（FP8 E4M3 每个 2 的幂区间内只有 8 个），对于数值分布均匀的层，INT8 的量化误差可以比 FP8 更小。两者在 H100 上的 Tensor Core 峰值相同：INT8 稠密 1,979 TOPS，FP8 稠密 1,979 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</p>
 
-<p>选择 W8A8 还是 FP8 取决于几个因素：(1) 量化工具链——INT8 的量化工具（TensorRT、ONNX Runtime）更成熟；(2) 模型的 outlier 分布——outlier 严重的模型更适合 FP8 的细粒度 block scaling；(3) 训练还是推理——FP8 支持 QAT（量化感知训练），INT8 通常只做 PTQ（训练后量化）。对于推理 prefill（大 batch），W8A8 和 FP8 性能接近；对于推理 decode（小 batch），两者都不如 W4A16——因为 decode 是纯带宽瓶颈，INT8 和 FP8 的压缩率相同（都是 1 字节/元素），而 INT4 更进一步减半。一个有趣的趋势是：随着模型规模增大和 KV cache 占用增加，INT8/FP8 在 prefill 阶段的优势越来越明显——不是因为计算更快（INT8 和 FP16 的 Tensor Core 吞吐相当），而是因为内存占用减半使得更大的 batch 能放进 GPU 内存，从而提升系统层面的吞吐量。本篇不提供 W8A8 代码——它本质上是标准 GEMM 把数据类型换成 int8_t，scale 在 epilogue 中应用。</p>
+<p>选择 W8A8 还是 FP8 取决于几个因素：(1) 硬件——Ampere 没有 FP8 Tensor Core，而 Blackwell Ultra（B300）大幅削减了 INT8 吞吐（HGX B300 每 GPU 稠密 INT8 只有约 0.19 POPS，而 FP8 是 4.5 PF）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>；(2) 模型的 outlier 分布——FP8 的指数位让它对大动态范围更宽容；(3) 训练还是推理——DeepSeek-V3 已经用细粒度量化的 FP8 做大规模训练<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。对于推理 decode（小 batch），两者都不如 W4A16——因为 decode 是纯带宽瓶颈，INT8 和 FP8 都是 1 字节/元素，而 INT4 再减半。本篇不提供 W8A8 代码——它本质上是标准 GEMM 把数据类型换成 int8_t，scale 在 epilogue 中应用。</p>
 
 <h2 id="sec-fp4">MXFP4 / NVFP4：Microscale 格式</h2>
 
-<p>FP4 E2M1 只有 2 位指数、1 位尾数——能表示的值只有 {0, 0.5, 1, 1.5, 2, 3, 4, 6}（加负数共 15 个非零值）。这意味着 FP4 自身的动态范围极窄（最大值 6，最小非零值 0.5，动态范围仅 12:1），单靠 FP4 编码完全无法表示实际权重的分布。OCP 的 MX 规范<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. 定义 MXFP4 E2M1 和 microscale 格式。">6</a>]</span> 给每 32 个 FP4 值配一个 E8M0 的 <b>microscale</b>（8 位纯指数，无尾数，值为 2 的幂），把动态范围从 &plusmn;6 扩展到 2<sup>-127</sup>&times;6 到 2<sup>127</sup>&times;6 的范围——覆盖了 FP8 甚至 FP16 的大部分动态范围（<a href="#fig-fp4_microscale">图 5</a>）。</p>
+<p>FP4 E2M1 只有 2 位指数、1 位尾数——能表示的绝对值只有 {0, 0.5, 1, 1.5, 2, 3, 4, 6}（带符号共 14 个非零值，没有 Inf/NaN 编码）<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span>。这意味着 FP4 自身的动态范围极窄（最大值 6，最小非零值 0.5，动态范围仅 12:1），单靠 FP4 编码完全无法表示实际权重的分布。OCP 的 MX 规范<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span> 给每 32 个 FP4 值配一个 E8M0 的共享 scale（8 位纯指数，无符号、无尾数，偏置 127，表示 2<sup>&minus;127</sup> 到 2<sup>127</sup> 的 2 的幂，全 1 编码为 NaN），这就是 MXFP4（<a href="#fig-fp4_microscale">图 5</a>）。同一规范还定义了 MXFP8、MXFP6、MXINT8，块大小都是 32、scale 都是 E8M0<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span>。</p>
 
 <figure id="fig-fp4_microscale" data-kind="diagram">
 <img aria-labelledby="fig-fp4_microscale-cap" src="figs/fp4_microscale.svg" alt="MXFP4 microscale"/>
-<figcaption id="fig-fp4_microscale-cap"><span class="fig-label">图 5</span><b>MXFP4 格式：每 32 个 FP4 E2M1 值共享一个 E8M0 microscale。</b>解量化时，FP4 值乘以 microscale（2 的幂）。相比 FP8 的 128-element block scale，FP4 的 32-element microscale 粒度更细（4 倍），弥补了 FP4 自身动态范围的不足。</figcaption>
+<figcaption id="fig-fp4_microscale-cap"><span class="fig-label">图 5</span><b>MXFP4 格式：每 32 个 FP4 E2M1 值共享一个 E8M0 scale。</b>解量化时，FP4 值乘以 scale（2 的幂）<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span>。相比 DeepSeek-V3 FP8 的 128 元素块，32 元素的块更细（4 倍），弥补了 FP4 自身动态范围的不足。</figcaption>
 </figure>
 
-<p>FP4 E2M1 的解量化逻辑比 FP8 复杂：需要手动提取符号位、指数和尾数，处理 subnormal（指数为零）的情况，再用公式 <code>(1 + mant*0.5) * 2^(exp-1)</code> 重建浮点值。下面的代码展示了单个 FP4 nibble 的解量化——实际 kernel 中会对一个字节（两个 nibble）一起处理：</p>
+<p>软件解量化 FP4 E2M1 时，需要手动提取符号位、指数和尾数，处理 subnormal（指数为零）的情况，再用公式 <code>(1 + mant*0.5) * 2^(exp-1)</code> 重建浮点值。下面的代码展示了单个 FP4 nibble 的解量化——实际 kernel 中会对一个字节（两个 nibble）一起处理：</p>
 
 <pre data-code="code/gm29-low-precision-gemm/fp4_gemm.cu#L19-L32"><code>__device__ float dequant_fp4(uint8_t packed, int idx) {
   // FP4 E2M1: 1 sign + 2 exp + 1 mantissa
@@ -423,19 +423,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float acc = 0.0f;</code></pre>
 <p class="src-note">完整代码：<code>code/gm29-low-precision-gemm/fp4_gemm.cu</code> 第 34–49 行（未在 GPU 上运行）</p>
 
-<p>kernel 的输入是打包的 <code>FP4x2</code>（每字节两个 FP4 值）和 FP16 的 microscale 数组。解量化在加载到共享内存时完成——先调用 <code>dequant_fp4</code> 把 nibble 还原为浮点值，再乘以对应的 microscale（每 32 个元素一个）。注意 microscale 的索引计算：<code>gc / MICROSCALE_GROUP</code>（MICROSCALE_GROUP=32），粒度比 FP8 的 128-element block scale 细 4 倍——这是 FP4 以更细的量化参数来弥补自身极其有限的动态范围的核心机制——这种&ldquo;粗值加细 scale&rdquo;的设计是低比特量化的通用范式，从 INT4 的 per-group scale 到 FP4 的 per-32 microscale 一脉相承。</p>
+<p>kernel 的输入是打包的 <code>FP4x2</code>（每字节两个 FP4 值）和 scale 数组（为了简单，代码里用 FP16 存 scale；MX 规范规定的是 E8M0）。解量化在加载到共享内存时完成——先调用 <code>dequant_fp4</code> 把 nibble 还原为浮点值，再乘以对应的 microscale（每 32 个元素一个）。注意 scale 的索引：A 和 B 的 32 元素块都沿 K（归约维）划分，A 用 <code>gc / MICROSCALE_GROUP</code>，B 用 <code>gk / MICROSCALE_GROUP</code>——只有沿 K 分块，一个块内的乘积才能共用 \(s_A \cdot s_B\)，硬件才能在点积里一次性乘上 scale。这种&ldquo;粗值加细 scale&rdquo;的设计是低比特量化的通用范式，从 INT4 的 per-group scale 到 FP4 的 per-32 scale 一脉相承。</p>
 
-<p>Blackwell 的第五代 Tensor Core 原生支持 FP4 输入<span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra. NVFP4 和 5th-gen Tensor Core 的 FP4 支持。">7</a>]</span>——<code>tcgen05.mma</code> 可以直接接受 FP4 操作数和 E8M0 microscale，在 Tensor Core 内部完成解量化和乘累加。硬件解量化的好处有三个：(1) 省去了软件解量化所需的寄存器（每个线程少用 8&ndash;16 个寄存器），提高 occupancy；(2) 解量化和乘法融合为一步，没有中间精度损失；(3) 数据吞吐量翻倍——Blackwell B200 的 FP4 标称 TFLOPS 是 FP8 的两倍（因为相同带宽下能喂入两倍数量的操作数）。NVIDIA 把这个格式称为 NVFP4，与 OCP 的 MXFP4 格式完全兼容。</p>
+<p>Blackwell 的第五代 Tensor Core 原生支持 FP4 输入<span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra. NVFP4（每 16 值一个 FP8 E4M3 scale + 张量级 FP32 scale）与第五代 Tensor Core 的 FP4 支持。">8</a>]</span>——<code>tcgen05.mma</code> 的 <code>.kind::mxf4</code> / <code>.kind::mxf4nvf4</code> / <code>.kind::mxf8f6f4</code> 可以直接接受 FP4 操作数和块 scale，计算 \((A \cdot s_A)(B \cdot s_B) + D\)，scale 矩阵放在 TMEM 里<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>。好处是省掉软件解量化的指令和寄存器，并且吞吐更高：HGX B200 每 GPU 的 FP4 稠密峰值 9 PFLOPS，是 FP8（4.5 PFLOPS）的两倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>。NVIDIA 另外定义了 <b>NVFP4</b>：同样是 FP4 E2M1 元素，但每 16 个值一个 FP8 E4M3 scale，再加一个张量级的 FP32 scale<span class="cite">[<a href="#ref-bwu" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra. NVFP4（每 16 值一个 FP8 E4M3 scale + 张量级 FP32 scale）与第五代 Tensor Core 的 FP4 支持。">8</a>]</span>——块更小、scale 不限于 2 的幂，所以它和 OCP 的 MXFP4 <b>不是</b>同一个格式。</p>
 
-<p>从量化精度的角度看，MXFP4 的每 32 元素 microscale 策略在实测中能保持和 FP8 per-128 block scale 相当的模型精度——这看起来违反直觉（FP4 只有 1 位尾数 vs FP8 的 3 位），但 microscale 的更细粒度（32 vs 128）弥补了单个值精度的不足。直观理解：FP4 虽然每个值只能表示 8 个正量级，但 microscale 让每 32 个值可以被独立缩放到任意量级——相当于把&ldquo;低精度乘高分辨率缩放&rdquo;的策略推到了极致。对于权重分布平滑的层（如大多数 Transformer 的 FFN），这种策略效果很好；对于权重分布高度不均匀的层（如嵌入层），FP4 的精度损失会更明显，可能需要混合精度策略——关键层用 FP8 或 FP16，其余用 FP4。</p>
+<p>从量化精度的角度看，32 元素的块 scale 能部分弥补 FP4 单个值精度的不足：每 32 个值可以被独立缩放到合适的量级。但 FP4 只有 1 位尾数，最终精度损失多少取决于模型和量化方法，本篇没有做精度实验；对权重分布高度不均匀的层，常见做法是混合精度——关键层保留 FP8 或 FP16。</p>
 
-<p>FP4 的 microscale 存储开销比 FP8 block scaling 更大：每 32 个 FP4 值（16 字节）需要一个 E8M0 scale（1 字节），开销约 6.25%。但考虑到 FP4 本身只有 4 bit，即使加上 microscale，总存储仍然只有 FP8 的约 53%（4.25 bit vs 8 bit 等效）。对 LLaMA-70B，FP4+microscale 的权重约 37 GB——比 FP8 的 70 GB 少了近一半，H100 上读一遍只需 11 ms。</p>
+<p>MXFP4 的 scale 存储开销比 FP8 block scaling 更大：每 32 个 FP4 值（16 字节）需要一个 E8M0 scale（1 字节），开销 6.25%，平均每元素 4.25 bit，约为 FP8 的 53%。对 LLaMA-70B，MXFP4 加 scale 的权重约 \(70 \times 10^9 \times 4.25 / 8 \approx 37\) GB——比 FP8 的 70 GB 少了近一半，按 H100 的 3.35 TB/s 读一遍约 11 ms，按 B200 的 8 TB/s 约 4.6 ms<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>。（NVFP4 每 16 个值 1 字节 scale，平均 4.5 bit。）</p>
 
-<p>MXFP4 在 Hopper 上也可以使用，但只能走软件解量化路径：先在寄存器中用上面的 <code>dequant_fp4</code> 把 FP4 转为 FP16/FP32，再送入 FP16 WGMMA。这种方式的性能受限于解量化的寄存器消耗和指令开销——在 Hopper 上，软件 FP4 的实际吞吐通常只有原生 FP8 的 60%&ndash;70%（因为解量化指令和 MMA 指令竞争发射槽）。Blackwell 的原生 FP4 支持彻底消除了这个瓶颈。</p>
+<p>MXFP4 在 Hopper 上也可以使用，但只能走软件解量化路径：先在寄存器中把 FP4 转为 FP8 或 FP16，再送入对应的 WGMMA。这样省下的是带宽和显存，算力仍是 FP8/FP16 的；解量化指令也要和 MMA 竞争发射槽，实际吞吐需要实测。Blackwell 的原生 FP4 支持去掉了这一步。</p>
 
 <h2 id="sec-pattern">共同模式：量化 GEMM 的四层结构</h2>
 
-<p>回顾本篇的四种方案，低精度 GEMM 有一个共同的四层结构——存储位宽、scale 粒度、累加精度、Tensor Core 原生支持。每一层的设计选择互相约束：位宽越低，必须用越细粒度的 scale 来补偿精度；scale 越细，累加前的乘法越多，对 FP32 累加器的依赖越强。下表总结了四种方案在各层的选择：</p>
+<p>回顾本篇的四种方案，低精度 GEMM 有一个共同的四层结构——存储位宽、scale 粒度、累加精度、Tensor Core 原生支持。每一层的设计选择互相约束：位宽越低，通常要用越细粒度的 scale 来补偿精度；scale 越细，scale 元数据越多，在 K 方向应用 scale 的次数也越多。下表总结了四种方案在各层的选择：</p>
 
 <table data-source="paper">
 <caption><b>低精度 GEMM 的四层结构。</b></caption>
@@ -444,73 +444,73 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 </thead>
 <tbody>
 <tr><td>存储位宽</td><td>8 bit</td><td>4 bit (W) / 16 bit (A)</td><td>8 bit</td><td>4 bit</td></tr>
-<tr><td>Scale 粒度</td><td>128&times;128 block</td><td>128-group</td><td>per-channel</td><td>32-element microscale</td></tr>
-<tr><td>累加精度</td><td>FP32</td><td>FP32</td><td>INT32</td><td>FP32</td></tr>
-<tr><td>TC 原生</td><td>Hopper/Blackwell</td><td>否（解量化后 FP16 TC）</td><td>Ampere+</td><td>Blackwell</td></tr>
+<tr><td>Scale 粒度</td><td>W 128&times;128 块，A 1&times;128</td><td>每列每 128 个 K 一组（或 per-channel）</td><td>W per-channel，A per-token</td><td>沿 K 每 32 个元素（E8M0）</td></tr>
+<tr><td>累加精度</td><td>FP32（Hopper 需两级累加）</td><td>FP32</td><td>INT32</td><td>FP32</td></tr>
+<tr><td>TC 原生</td><td>Hopper/Blackwell（FP8 输入；128 块 scale 在 CUDA core 上乘）</td><td>否（解量化后 FP16 TC）</td><td>Ampere+（B300 大幅削减）</td><td>Blackwell</td></tr>
 </tbody>
 </table>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的低精度</h2>
 
 <table data-source="paper">
-<caption><b>低精度格式的架构支持。</b>数据来自 PTX ISA 9.4 和 Blackwell Ultra 博客。</caption>
+<caption><b>低精度格式的 Tensor Core 指令支持。</b>依据 PTX ISA 9.4（mma.sync、wgmma、tcgen05 各节）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span> 与 hw-facts<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。">1</a>]</span>。</caption>
 <thead>
 <tr><th>格式</th><th>Ampere</th><th>Hopper</th><th>Blackwell</th></tr>
 </thead>
 <tbody>
-<tr><td>FP8 E4M3</td><td>不支持</td><td>WGMMA 原生，FP32 累加</td><td>tcgen05 原生，FP32 累加</td></tr>
-<tr><td>INT8</td><td>IMMA 原生，INT32 累加</td><td>同左</td><td>同左</td></tr>
-<tr><td>INT4 / W4A16</td><td>IMMA 部分支持</td><td>软件解量化 + FP16 WGMMA</td><td>软件解量化 + FP16 tcgen05</td></tr>
-<tr><td>FP4 E2M1</td><td>不支持</td><td>不支持</td><td>tcgen05 原生（NVFP4）</td></tr>
+<tr><td>FP8 E4M3/E5M2</td><td>不支持</td><td>WGMMA 原生（<code>.f32</code> 累加的内部精度低于 FP32）</td><td>tcgen05 原生（<code>.kind::f8f6f4</code>，MX 块缩放用 <code>.kind::mxf8f6f4</code>）</td></tr>
+<tr><td>INT8</td><td>mma.sync 原生，INT32 累加</td><td>WGMMA 原生（s8/u8）</td><td>tcgen05 <code>.kind::i8</code> 只列 sm_100a/sm_110a，B300（sm_103）没有</td></tr>
+<tr><td>INT4</td><td>mma.sync 有 s4/u4（INT4&times;INT4，即 W4A4）</td><td>无 INT4 MMA；W4A16 靠软件解量化 + FP16 WGMMA</td><td>无 INT4 MMA；W4A16 靠软件解量化 + FP16 tcgen05</td></tr>
+<tr><td>FP4 E2M1</td><td>不支持</td><td>不支持</td><td>tcgen05 原生（<code>.kind::mxf4</code> / <code>mxf4nvf4</code>：MXFP4 与 NVFP4）</td></tr>
 </tbody>
 </table>
 
-<p>从表中可以看到架构演进的趋势：每一代新架构都在 Tensor Core 中加入更低精度的原生支持。Ampere 只有 INT8；Hopper 加了 FP8，让浮点低精度 GEMM 不再需要软件转换；Blackwell 进一步加了 FP4，直接在硬件中完成 microscale 解量化。这意味着什么？以前 W4A16 要在 kernel 内花大量寄存器和指令做解量化（bandwidth bound），现在 Blackwell 的 FP4 Tensor Core 直接吃 4-bit 输入——从纯带宽约束变成了计算和带宽的混合约束。</p>
+<p>从表中可以看到架构演进的趋势：每一代新架构都在 Tensor Core 中加入更低精度的浮点格式。Ampere 的低精度只有整数（INT8、INT4）；Hopper 加了 FP8，让浮点低精度 GEMM 不再需要软件转换；Blackwell 进一步加了 FP6/FP4 和块缩放，直接在硬件中应用块 scale。这意味着什么？以前 4 bit 权重只能走 W4A16——在 kernel 内花寄存器和指令做解量化；现在如果激活也量化到 FP4（W4A4 的 MXFP4/NVFP4），Blackwell 的 Tensor Core 可以直接吃 4 bit 输入。</p>
 
-<p>另一个趋势是 scale 的应用位置从 epilogue 逐渐前移到 Tensor Core 内部。W8A8 per-channel 的 scale 在 epilogue 中一次性应用（乘到 INT32 累加器上）——这是最简单的实现，但整个 K 维度的累加都没有 scale 修正，对精度有一定影响。FP8 block scaling 的 scale 需要在每个 K-tile 边界应用（乘到 FP32 部分累加器上）——精度更好，但需要两级累加的 kernel 结构。MXFP4 的 microscale 在 Blackwell Tensor Core 内部和乘法融合——scale 应用最早、精度最好，完全由硬件处理，kernel 无需额外指令。scale 应用越早，精度越好，但对硬件的要求也越高。</p>
+<p>另一个趋势是 scale 的应用位置从 epilogue 逐渐前移到 Tensor Core 内部。W8A8 的 per-channel / per-token scale 不随 K 变化，所以可以在 epilogue 中一次性乘到 INT32 累加器上——这是最简单的实现。FP8 block scaling 的 scale 随 K 方向的 128 元素组变化，必须在每组边界乘到部分和上，于是需要两级累加的 kernel 结构。MX 格式的 32 元素块 scale 在 Blackwell Tensor Core 内部随乘法一起应用，kernel 不需要额外的乘 scale 指令。scale 沿 K 变化得越频繁，就越需要硬件在 MMA 内部支持。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：FP8 block scaling 的 block size 怎么选？</dt>
-<dd>权衡精度和 scale 存储开销。Block 越小精度越好，但 scale 数量越多（128&times;128 block 的 scale 占权重的 1/16384，32&times;32 block 占 1/1024）。DeepSeek-V3 选 128&times;128 block + 1&times;128 per-token，是精度和开销的平衡点。
-<br><b>追问</b>：为什么 activation 用 per-token 而不是 per-block？&rarr; Activation 的分布逐 token 变化很大（不同 token 的 outlier 位置不同），per-block 会在块内混合不同分布。</dd>
+<dd>权衡精度和 scale 开销。Block 越小精度越好，但 scale 数量越多（128&times;128 block 的 scale 个数是权重的 1/16384，32&times;32 block 是 1/1024），K 方向应用 scale 的次数也越多。DeepSeek-V3 选 128&times;128 block + 1&times;128 per-token，128 正好等于它两级累加的提升间隔 N<sub>C</sub><span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。
+<br><b>追问</b>：为什么 activation 用 1&times;128 而不是 128&times;128？&rarr; 激活的 outlier 随 token 变化，每个 token 单独一组 scale 更能适应；DeepSeek-V3 附录也讨论了对激活用块量化时出现的训练不稳定<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。</dd>
 
 <dt id="sec-q2">Q2：W4A16 的 Marlin kernel 为什么比 naive 解量化快？</dt>
-<dd>三个原因：(1) INT4 数据按 Tensor Core 的 fragment layout 存储，加载后不需要 register shuffle；(2) 解量化和 TMA 加载在流水线中重叠；(3) group scale 可以预取到寄存器。Naive 做法是先解量化到全局内存再做 GEMM——多了一次 HBM 读写。
-<br><b>追问</b>：W4A16 能用 Tensor Core 吗？&rarr; 不能直接用——解量化后是 FP16，走 FP16 Tensor Core。INT4 Tensor Core 需要激活也是 INT4（W4A4），但 INT4 activation 的精度损失通常不可接受。</dd>
+<dd>主要因为：(1) 权重离线重排，宽加载读满 cache line，解包后直接是 MMA 需要的布局；(2) <code>cp.async</code> 多级流水线让加载和计算重叠，并用 <code>evict_first</code> 保护 L2 里的激活；(3) 用 <code>lop3</code> 位运算做 INT4&rarr;FP16 转换<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。Naive 做法是先解量化到全局内存再做 GEMM——多了一次完整的 FP16 写和读。
+<br><b>追问</b>：W4A16 能用 Tensor Core 吗？&rarr; 解量化后是 FP16，走 FP16 Tensor Core。Ampere 的 INT4 MMA 要求激活也是 INT4（W4A4），激活量化到 4 bit 的精度损失通常更难控制；Hopper 和 Blackwell 都没有 INT4 MMA。</dd>
 
 <dt id="sec-q3">Q3：MXFP4 的 microscale 为什么是 E8M0？</dt>
-<dd>E8M0 只有指数没有尾数，代表 2 的幂——乘 microscale 等价于移位，硬件实现极低开销。8 位指数覆盖 2<sup>-127</sup> 到 2<sup>127</sup> 的范围，足以应对 FP4 的动态范围不足。OCP 规范选 32-element 粒度是因为这和 Blackwell Tensor Core 的内部 warp-level 分区对齐。
-<br><b>追问</b>：FP4 只有 15 个非零值，精度够用吗？&rarr; 靠 microscale 补偿。每 32 个值有独立的 scale，等价于把 FP4 的 3-bit 动态范围扩展到 8-bit——组合起来的有效精度接近 FP8。训练时需要 FP4-aware 量化（QAT）或仔细的 PTQ 校准。</dd>
+<dd>E8M0 只有指数没有尾数，代表 2 的幂——乘 scale 等价于给指数加一个偏移，硬件实现开销很低。8 位指数覆盖 2<sup>&minus;127</sup> 到 2<sup>127</sup>，足以弥补 FP4 自身动态范围的不足<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span>。块大小 32 是 MX 规范对所有具体格式（MXFP8/6/4、MXINT8）统一规定的<span class="cite">[<a href="#ref-mxfp" title="OCP (2023). OCP Microscaling Formats (MX) Specification, v1.0. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2−127–2127，NaN = 0xFF）。">7</a>]</span>。
+<br><b>追问</b>：FP4 只有 14 个非零值，精度够用吗？&rarr; scale 扩展的是动态范围，不是每个值的精度——每个值仍然只有 1 位尾数。够不够用取决于模型和量化方法，通常需要仔细的校准，关键层保留更高精度。</dd>
 
 <dt id="sec-q4">Q4：低精度 GEMM 的 epilogue 和标准 GEMM 有什么不同？</dt>
-<dd>低精度 GEMM 的 epilogue 通常需要额外的 scale 应用步骤：FP8 block scaling 在 epilogue 中乘 (scale_A &times; scale_B)；W8A8 在 epilogue 中把 INT32 累加器乘 (scale_w &times; scale_a) 转为 FP16。如果下一层也是低精度，epilogue 还要做再量化（requant）：FP32 &rarr; 找 scale &rarr; 量化到 FP8/INT8。这些步骤都应该融合在 GEMM kernel 的写回阶段。</dd>
+<dd>低精度 GEMM 的 epilogue 通常需要额外的 scale 应用步骤：per-tensor 或 per-channel/per-token 的 scale 不随 K 变化，可以在 epilogue 中一次乘上（例如 W8A8 把 INT32 累加器乘 scale_w &times; scale_a 转为 FP16）；而 DeepSeek 式的 FP8 block scaling，scale 随 K 方向的 128 元素组变化，只能在主循环里每组乘一次，epilogue 只负责输出。如果下一层也是低精度，epilogue 还要做再量化（requant）：FP32 &rarr; 找 scale &rarr; 量化到 FP8/INT8。这些步骤都应该融合在 GEMM kernel 的写回阶段。</dd>
 
 <dt id="sec-q5">Q5：实际部署中如何选择 FP8、W4A16、W8A8、MXFP4？</dt>
-<dd>取决于硬件和场景。(1) 训练/微调：FP8 block scaling 是目前主流（Hopper+），因为 FP8 对梯度的精度损失可控，且有 FP32 累加器兜底。(2) 推理 prefill（大 batch，计算密集）：FP8 或 W8A8 最合适——权重和激活都是低精度，Tensor Core 吞吐翻倍。(3) 推理 decode（batch=1，带宽密集）：W4A16 收益最大——权重只有四分之一带宽，Marlin 实测 3.5 倍加速。(4) 超大模型在单卡上部署：MXFP4（Blackwell）或 W4A16——把模型塞进有限的 HBM。
-<br><b>追问</b>：能混合使用吗？&rarr; 可以。例如 attention 的 QKV projection 用 W4A16（decode 阶段访存密集），MLP 的 up/gate/down 用 FP8（prefill 阶段计算密集）。但混合方案增加了工程复杂度，需要 per-layer 的量化配置和 calibration。</dd>
+<dd>取决于硬件和场景。(1) 训练/微调：FP8（Hopper+）已被用于大规模训练（DeepSeek-V3），前提是细粒度 scale 和提升到 FP32 的累加<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3（FP8 训练：1×128 / 128×128 细粒度量化；H800 上 FP8 累加约 14 位、NC = 128；相对 BF16 的 loss 相对误差低于 0.25%）。">2</a>]</span>。(2) 推理 prefill（大 batch，计算密集）：FP8 或 W8A8——权重和激活都是低精度，H100 上 Tensor Core 峰值是 FP16 的两倍。(3) 推理 decode（小 batch，带宽密集）：W4A16 收益最大——权重只有四分之一的字节，Marlin 论文在 A10 上 batch 16&ndash;32 以内测到约 3.9 倍<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。(4) 超大模型在单卡上部署：MXFP4/NVFP4（Blackwell）或 W4A16——把模型塞进有限的 HBM。
+<br><b>追问</b>：能混合使用吗？&rarr; 可以，例如对敏感的层保留更高精度、其余层用更低位宽。但混合方案增加了工程复杂度，需要逐层的量化配置和校准。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。FP8 和 FP4 的解量化逻辑未经实际数值验证。</li>
-<li>FP8 block scaling 的示例在加载时乘 scale（软件解量化），未展示 Hopper WGMMA 或 Blackwell tcgen05 的原生 FP8 路径——后者直接在 Tensor Core 中做 FP8 乘累加，scale 在累加器上应用。完整实现见 DeepGEMM 精读<span class="cite">[<a href="#ref-deepgemm" title="姊妹系列 DeepEP 与 DeepGEMM 精读 dg01：SM90 FP8 GEMM 的两级累加。">3</a>]</span>。</li>
-<li>W4A16 的 Marlin 优化（fragment-aligned layout、流水线解量化）只做了概念描述——实际的 Marlin kernel 有约 1000 行 PTX inline assembly<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743。">4</a>]</span>，包括复杂的 warp-level 数据重排和多 stage pipeline 管理。</li>
+<li>FP8 block scaling 的示例在加载时乘 scale（软件解量化），未展示 Hopper WGMMA 或 Blackwell tcgen05 的原生 FP8 路径——后者直接在 Tensor Core 中做 FP8 乘累加，scale 在累加器上应用。完整实现见 DeepGEMM 精读<span class="cite">[<a href="#ref-deepgemm" title="姊妹系列 DeepEP 与 DeepGEMM 精读 dg01：SM90 FP8 GEMM 的两级累加。">5</a>]</span>。</li>
+<li>W4A16 的 Marlin 优化（离线重排、<code>cp.async</code> 流水线、位运算解量化、条带划分等）只做了概念描述，细节见论文<span class="cite">[<a href="#ref-marlin" title="Frantar et al. (2024). Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16×64 重排，lop3 解量化，对称 INT4；A10 上 batch ≤16–32 约 3.9×，vLLM 端到端最高 2.8×）。">3</a>]</span>。本篇代码用的是非对称量化（scale + zero），Marlin 本身是对称量化。</li>
 <li>W8A8 没有代码示例——它本质上是标准 GEMM 换成 INT8 数据类型，scale 在 epilogue 中应用。SmoothQuant 的通道平滑也是预处理步骤，不涉及 kernel 修改。</li>
-<li>MXFP4 的代码示例是纯软件解量化，未展示 Blackwell Tensor Core 的原生 FP4 路径——后者通过 <code>tcgen05.mma</code> 的 FP4 input mode 直接接受 packed FP4 数据和 E8M0 microscale。</li>
+<li>MXFP4 的代码示例是纯软件解量化（scale 用 FP16 存储以简化），未展示 Blackwell Tensor Core 的原生 FP4 路径——后者通过 <code>tcgen05.mma .kind::mxf4</code> 等直接接受 packed FP4 数据和放在 TMEM 中的块 scale<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。">4</a>]</span>。</li>
 <li>量化对模型精度的影响（perplexity、task accuracy）不在本篇范围——这属于模型侧的量化算法（GPTQ、AWQ、SmoothQuant、QuIP# 等），而非 kernel 实现。不同量化算法选择 scale 的方式不同（min-max、percentile、学习型），但 kernel 层面的解量化逻辑是相同的。</li>
 <li>混合精度策略（不同层用不同精度）在实际部署中很常见，但本篇为简化只讨论了全模型统一精度的情况。混合精度需要 per-layer 的量化配置、calibration 数据集和自动搜索工具（如 NVIDIA 的 TensorRT Model Optimizer），复杂度远超本篇范围。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>低精度 GEMM 的核心模式是&ldquo;窄存储 + 宽累加 + 分组 scale&rdquo;：FP8 block scaling 用 128-element 粒度，W4A16 用 128-group scale/zero，W8A8 用 per-channel scale，MXFP4 用 32-element microscale。位宽越低，scale 粒度越细——这是精度损失和存储开销之间的根本权衡。</p>
+<p>低精度 GEMM 的核心模式是&ldquo;窄存储 + 宽累加 + 分组 scale&rdquo;：FP8 block scaling 用 128 元素粒度，W4A16 用每 128 个元素一组的 scale，W8A8 用 per-channel / per-token scale，MXFP4 用 32 元素的 E8M0 scale。位宽越低，scale 粒度往往越细——这是精度损失和存储开销之间的权衡。</p>
 
-<p>从 kernel 实现的角度，低精度 GEMM 比标准 FP16 GEMM 多了三个环节：(1) 加载时的解量化——把 FP8/INT4/FP4 从窄位宽转为计算精度（FP32 或 FP16），需要额外的类型转换和乘法指令；(2) K-tile 边界的 scale 应用——把 block scale 或 microscale 乘到累加器上，需要在内层循环中插入乘法，破坏纯 MMA 的流水线节奏；(3) epilogue 的再量化——如果下一层也是低精度，需要在写回前做 FP32 到 FP8/INT8 的量化（找 scale、round、clip），增加 epilogue 的指令数。每个环节都消耗额外的寄存器和发射槽——这是低精度 GEMM 的实现复杂度和性能开销所在。Tensor Core 的原生低精度支持（Hopper FP8、Blackwell FP4）把解量化和 scale 应用搬到硬件中，大幅简化了 kernel 设计，也释放了寄存器给其他用途（如更大的 tile 或更深的流水线）。</p>
+<p>从 kernel 实现的角度，低精度 GEMM 比标准 FP16 GEMM 多了三个环节：(1) 加载时的解量化——把 FP8/INT4/FP4 从窄位宽转为计算精度（FP32 或 FP16），需要额外的类型转换和乘法指令；(2) K-tile 边界的 scale 应用——把 block scale 或 microscale 乘到累加器上，需要在内层循环中插入乘法，破坏纯 MMA 的流水线节奏；(3) epilogue 的再量化——如果下一层也是低精度，需要在写回前做 FP32 到 FP8/INT8 的量化（找 scale、round、clip），增加 epilogue 的指令数。每个环节都消耗额外的寄存器和发射槽——这是低精度 GEMM 的实现复杂度和性能开销所在。Tensor Core 的原生低精度支持（Hopper FP8、Blackwell FP4 与块缩放）把类型转换和一部分 scale 应用搬到硬件中，简化了 kernel 设计，也省下了寄存器。</p>
 
-<p>Blackwell 的 FP4 Tensor Core 支持标志着低精度 GEMM 从&ldquo;带宽优化技巧&rdquo;变成了硬件一等公民——不再需要 kernel 开发者手动写解量化代码。展望未来，更低精度的格式（如 2-bit 三值量化和 1-bit 二值网络）和更细粒度的 scale（per-element 级别或者学习型非均匀量化）可能成为下一代 Tensor Core 的方向。但无论格式怎么变，&ldquo;窄存储、宽累加、分组 scale&rdquo;这个核心架构模式不会改变——它是精度、带宽和计算吞吐三方权衡的必然结果。至此，Part 7 GEMM 的四篇（Hopper、Blackwell、变种、低精度）全部完成——从最基础的矩阵分块到最前沿的 FP4 量化，我们完整梳理了现代 GPU 上 GEMM 的全貌。系列的下一站是通信算子。</p>
+<p>Blackwell 的 FP4 Tensor Core 支持标志着低精度 GEMM 从&ldquo;带宽优化技巧&rdquo;变成了硬件一等公民——不再需要 kernel 开发者手动写解量化代码。&ldquo;窄存储、宽累加、分组 scale&rdquo;这个模式贯穿本篇的所有格式——它是精度、带宽和计算吞吐三方权衡的结果。至此，GEMM 部分（第 24&ndash;29 篇）全部完成——从最基础的矩阵分块到最前沿的 FP4 量化，我们完整梳理了现代 GPU 上 GEMM 的全貌。系列的下一站是通信算子。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -524,19 +524,20 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 312 TFLOPS FP16、H100 1979 TFLOPS FP8 等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（MMA 指令族）、§5.4.6（FP8/FP4 数据类型）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM 稠密 FP16 989.5 / FP8 1,979 TFLOPS、INT8 1,979 TOPS（稀疏 3,958）、3.35 TB/s；HGX B200 每 GPU FP16 2.25 / FP8 4.5 / FP4 9 PFLOPS、8 TB/s；HGX B300 INT8 0.1875 POPS；NVFP4 定义。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-dsv3">DeepSeek-AI (2024). <a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3 Technical Report</a>. arXiv:2412.19437, §3.3（FP8 训练：1&times;128 / 128&times;128 细粒度量化；H800 上 FP8 累加约 14 位、N<sub>C</sub> = 128；相对 BF16 的 loss 相对误差低于 0.25%）。</li>
+  <li id="ref-marlin">Frantar et al. (2024). <a href="https://arxiv.org/abs/2408.11743">Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models</a>. arXiv:2408.11743（Ampere，cp.async 流水线，离线 16&times;64 重排，lop3 解量化，对称 INT4；A10 上 batch &le;16&ndash;32 约 3.9&times;，vLLM 端到端最高 2.8&times;）。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16（mma.sync：s8/s4 等类型）、§9.7.17（wgmma：FP8 输入与累加精度注记）、§9.7.18（tcgen05：.kind::f8f6f4 / mxf8f6f4 / mxf4 / mxf4nvf4 / i8，§9.7.18.10.7 Block Scaling）。</li>
   <li id="ref-deepgemm">姊妹系列 <a href="https://blog.hesenyang-ethan.com/deepep-deepgemm/dg01-sm90-fp8/dg01-sm90-fp8.html">DeepEP 与 DeepGEMM 精读 dg01</a>：SM90 FP8 GEMM 的两级累加。</li>
-  <li id="ref-marlin">Frantar et al. (2024). <a href="https://arxiv.org/abs/2408.11743">Marlin: Mixed-Precision Auto-Regressive Parallel INference on Large Language Models</a>. arXiv:2408.11743。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.27 FP8 Conversions。</li>
-  <li id="ref-mxfp">OCP (2023). <a href="https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf">OCP Microscaling Formats (MX) Specification, v1.0</a>. 定义 MXFP4 E2M1 和 microscale 格式。</li>
-  <li id="ref-bwu">NVIDIA (2025). <a href="https://developer.nvidia.com/blog/inside-nvidia-blackwell-ultra-the-chip-powering-the-ai-factory-era/">Inside NVIDIA Blackwell Ultra</a>. NVFP4 和 5th-gen Tensor Core 的 FP4 支持。</li>
+  <li id="ref-smoothquant">Xiao et al. (2023). <a href="https://arxiv.org/abs/2211.10438">SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models</a>. ICML 2023, arXiv:2211.10438。</li>
+  <li id="ref-mxfp">OCP (2023). <a href="https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf">OCP Microscaling Formats (MX) Specification, v1.0</a>. Table 1（MXFP8/6/4、MXINT8，块大小 32，E8M0 scale）、§5.3.3 FP4、§5.4.1 E8M0（偏置 127，范围 2<sup>−127</sup>–2<sup>127</sup>，NaN = 0xFF）。</li>
+  <li id="ref-bwu">NVIDIA (2025). <a href="https://developer.nvidia.com/blog/inside-nvidia-blackwell-ultra-the-chip-powering-the-ai-factory-era/">Inside NVIDIA Blackwell Ultra</a>. NVFP4（每 16 值一个 FP8 E4M3 scale + 张量级 FP32 scale）与第五代 Tensor Core 的 FP4 支持。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 29 篇。文中代码完整版在系列目录的 <code>code/gm29-low-precision-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图；FP4 解量化公式依据 OCP MX Spec v1.0；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
+  本文是「从零精通 GPU Kernel」系列第 29 篇。文中代码完整版在系列目录的 <code>code/gm29-low-precision-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1 的峰值数据来自 hw-facts；图 2–5 为示意图；FP4 格式依据 OCP MX Spec v1.0；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
 </footer>
 
 </div>

@@ -6,41 +6,28 @@
     .pct { font-size: 13px; font-weight: 600; fill: white; }
   </style>
 
-  <text x="360" y="22" text-anchor="middle" class="title">Diffusion 去噪步 kernel 时间构成（示意）</text>
+    <text x="360" y="22" text-anchor="middle" class="title">Diffusion 去噪步的算子分类（示意，不表示时间比例）</text>
 
-  <!-- Stacked horizontal bar -->
-  <!-- Conv ~40% -->
-  <rect x="40" y="45" width="256" height="50" rx="4" fill="#1976D2" opacity="0.85"/>
-  <text x="168" y="75" text-anchor="middle" class="pct">Conv ~40%</text>
+  <rect x="40" y="45" width="145" height="50" rx="4" fill="#1976D2" opacity="0.85"/>
+  <text x="112.5" y="75" text-anchor="middle" class="pct">卷积</text>
+  <rect x="205" y="45" width="145" height="50" rx="4" fill="#388E3C" opacity="0.85"/>
+  <text x="277.5" y="75" text-anchor="middle" class="pct">Attention</text>
+  <rect x="370" y="45" width="145" height="50" rx="4" fill="#D55E00" opacity="0.85"/>
+  <text x="442.5" y="75" text-anchor="middle" class="pct">GN + 激活</text>
+  <rect x="535" y="45" width="145" height="50" rx="4" fill="#7B1FA2" opacity="0.6"/>
+  <text x="607.5" y="75" text-anchor="middle" class="pct">其他</text>
+  <text x="112.5" y="113" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">compute-bound</text>
+  <text x="112.5" y="130" text-anchor="middle" class="sublabel">3&times;3 conv（Tensor Core</text>
+  <text x="112.5" y="143" text-anchor="middle" class="sublabel">implicit GEMM）</text>
+  <text x="277.5" y="113" text-anchor="middle" class="sublabel" fill="#388E3C" font-weight="600">compute/memory</text>
+  <text x="277.5" y="130" text-anchor="middle" class="sublabel">self/cross-attention</text>
+  <text x="277.5" y="143" text-anchor="middle" class="sublabel">（KV 很短时偏 memory）</text>
+  <text x="442.5" y="113" text-anchor="middle" class="sublabel" fill="#D55E00" font-weight="600">memory-bound</text>
+  <text x="442.5" y="130" text-anchor="middle" class="sublabel">GroupNorm、SiLU、</text>
+  <text x="442.5" y="143" text-anchor="middle" class="sublabel">residual add</text>
+  <text x="607.5" y="113" text-anchor="middle" class="sublabel" fill="#7B1FA2" font-weight="600">多为 memory-bound</text>
+  <text x="607.5" y="130" text-anchor="middle" class="sublabel">upsample、elementwise、</text>
+  <text x="607.5" y="143" text-anchor="middle" class="sublabel">timestep embed</text>
 
-  <!-- Attention ~25% -->
-  <rect x="296" y="45" width="160" height="50" rx="0" fill="#388E3C" opacity="0.85"/>
-  <text x="376" y="75" text-anchor="middle" class="pct">Attention ~25%</text>
-
-  <!-- GroupNorm+Act ~20% -->
-  <rect x="456" y="45" width="128" height="50" rx="0" fill="#D55E00" opacity="0.85"/>
-  <text x="520" y="75" text-anchor="middle" class="pct">GN+Act ~20%</text>
-
-  <!-- Others ~15% -->
-  <rect x="584" y="45" width="96" height="50" rx="4" fill="#7B1FA2" opacity="0.6"/>
-  <text x="632" y="75" text-anchor="middle" class="pct">其他 ~15%</text>
-
-  <!-- Bound type labels -->
-  <text x="168" y="113" text-anchor="middle" class="sublabel" fill="#1976D2" font-weight="600">compute-bound</text>
-  <text x="376" y="113" text-anchor="middle" class="sublabel" fill="#388E3C" font-weight="600">compute/memory</text>
-  <text x="520" y="113" text-anchor="middle" class="sublabel" fill="#D55E00" font-weight="600">memory-bound</text>
-  <text x="632" y="113" text-anchor="middle" class="sublabel" fill="#7B1FA2" font-weight="600">memory-bound</text>
-
-  <!-- Details under each -->
-  <text x="168" y="130" text-anchor="middle" class="sublabel">3&times;3 conv（Tensor Core</text>
-  <text x="168" y="143" text-anchor="middle" class="sublabel">implicit GEMM）</text>
-  <text x="376" y="130" text-anchor="middle" class="sublabel">self/cross-attention</text>
-  <text x="376" y="143" text-anchor="middle" class="sublabel">（序列较短时 mem-bound）</text>
-  <text x="520" y="130" text-anchor="middle" class="sublabel">GroupNorm、SiLU、</text>
-  <text x="520" y="143" text-anchor="middle" class="sublabel">residual add</text>
-  <text x="632" y="130" text-anchor="middle" class="sublabel">upsample、linear、</text>
-  <text x="632" y="143" text-anchor="middle" class="sublabel">timestep embed</text>
-
-  <!-- Illustrative note -->
-  <text x="360" y="170" text-anchor="middle" class="sublabel" fill="#999" font-style="italic">*比例为示意值，实际随分辨率、模型大小和 batch size 变化</text>
+  <text x="360" y="170" text-anchor="middle" class="sublabel" fill="#999" font-style="italic">*各类的时间占比随模型、分辨率、batch size 和硬件变化，需用 profiler 实测</text>
 </svg>

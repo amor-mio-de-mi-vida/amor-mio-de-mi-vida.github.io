@@ -30,7 +30,7 @@
   <rect x="485" y="40" width="215" height="120" class="box" fill="#F3E5F5" stroke="#7B1FA2"/>
   <text x="592" y="62" text-anchor="middle" class="label" fill="#7B1FA2" font-weight="600">因果 Conv1D</text>
   <text x="495" y="82" class="sublabel">Mamba / 状态空间模型的组件</text>
-  <text x="495" y="96" class="sublabel">短 kernel（k=4）、长序列（L=128K）</text>
+  <text x="495" y="96" class="sublabel">短 kernel（k=4）、长序列</text>
   <text x="495" y="116" class="sublabel" fill="#7B1FA2">Depthwise: 每通道独立卷积</text>
   <text x="495" y="130" class="sublabel" fill="#7B1FA2">左 padding = k-1 → 因果</text>
   <text x="495" y="148" class="sublabel" fill="#D55E00">带宽受限：全序列扫一遍</text>
@@ -38,19 +38,19 @@
   <!-- Large kernel depthwise -->
   <rect x="20" y="175" width="220" height="105" class="box" fill="#FFF3E0" stroke="#D55E00"/>
   <text x="130" y="197" text-anchor="middle" class="label" fill="#D55E00" font-weight="600">大 Kernel Depthwise Conv</text>
-  <text x="30" y="217" class="sublabel">RepLKNet / ConvNeXt V2: 31&times;31</text>
+  <text x="30" y="217" class="sublabel">RepLKNet 31&times;31 / SLaK 51&times;51</text>
   <text x="30" y="231" class="sublabel">直接 conv 需 961 次乘/像素</text>
   <text x="30" y="251" class="sublabel" fill="#D55E00">优化 1：tile 的 halo 很大</text>
-  <text x="30" y="265" class="sublabel" fill="#D55E00">优化 2：im2col 仍可行（depthwise）</text>
+  <text x="30" y="265" class="sublabel" fill="#D55E00">优化 2：block-wise implicit GEMM</text>
 
   <!-- FFT conv -->
   <rect x="255" y="175" width="215" height="105" class="box" fill="#FFFDE7" stroke="#F0E442"/>
   <text x="362" y="197" text-anchor="middle" class="label" fill="#333" font-weight="600">FFT 卷积</text>
-  <text x="265" y="217" class="sublabel">大 kernel (&ge;7) 时有优势</text>
+  <text x="265" y="217" class="sublabel">大 kernel 时乘法数更少</text>
   <text x="265" y="231" class="sublabel">O(N log N) vs O(N&middot;K)</text>
   <text x="265" y="251" class="sublabel" fill="#333">流程：FFT(x) &odot; FFT(w) → IFFT</text>
-  <text x="265" y="265" class="sublabel" fill="#D55E00">实际很少用：cuDNN 的 FFT</text>
-  <text x="265" y="278" class="sublabel" fill="#D55E00">conv 在 K&lt;11 时不如 implicit GEMM</text>
+  <text x="265" y="265" class="sublabel" fill="#D55E00">CNN 小 kernel 上很少胜出：</text>
+  <text x="265" y="278" class="sublabel" fill="#D55E00">频域权重巨大、频域乘 memory-bound</text>
 
   <!-- Deformable conv summary -->
   <rect x="485" y="175" width="215" height="105" class="box" fill="#FCE4EC" stroke="#C62828"/>

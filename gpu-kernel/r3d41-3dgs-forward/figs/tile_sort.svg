@@ -59,7 +59,7 @@
 <rect x="458" y="130" width="204" height="24" rx="2" fill="#f0fdf4" stroke="#86efac"/>
 <text x="465" y="147" class="code">tile_ranges[t] = (start, end)</text>
 <!-- Bottom annotation -->
-<text x="340" y="200" text-anchor="middle" class="label">Total pairs = &Sigma; tiles_touched[i] &asymp; 5&ndash;20&times; P</text>
+<text x="340" y="200" text-anchor="middle" class="label">Total pairs = &Sigma; tiles_touched[i]</text>
 <text x="340" y="220" text-anchor="middle" class="label">Sort cost: O(K &middot; N) for K-bit radix sort</text>
 <text x="340" y="265" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

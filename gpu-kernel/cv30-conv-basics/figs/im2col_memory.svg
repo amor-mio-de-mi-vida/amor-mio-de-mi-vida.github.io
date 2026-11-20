@@ -11,7 +11,7 @@
 <rect x="30" y="38" width="140" height="70" rx="5" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
 <text x="100" y="58" text-anchor="middle" class="title" fill="#2563eb">Input [C,H,W]</text>
 <text x="100" y="78" text-anchor="middle" class="code">64&#xd7;224&#xd7;224</text>
-<text x="100" y="95" text-anchor="middle" class="label">= 12.25 MB (FP16)</text>
+<text x="100" y="95" text-anchor="middle" class="label">= 12.25 MB (FP32)</text>
 
 <!-- Arrow -->
 <text x="195" y="77" class="title" fill="#888">&#x2192; im2col</text>
@@ -20,7 +20,7 @@
 <rect x="260" y="38" width="180" height="70" rx="5" fill="#fef2f2" stroke="#ef4444" stroke-width="1.2"/>
 <text x="350" y="58" text-anchor="middle" class="title" fill="#dc2626">col [K, P]</text>
 <text x="350" y="78" text-anchor="middle" class="code">576 &#xd7; 50176</text>
-<text x="350" y="95" text-anchor="middle" class="label">= 110.25 MB (FP16)</text>
+<text x="350" y="95" text-anchor="middle" class="label">= 110.25 MB (FP32)</text>
 
 <!-- Multiplier -->
 <rect x="470" y="45" width="60" height="30" rx="15" fill="#fde68a" stroke="#f59e0b"/>
@@ -30,7 +30,7 @@
 <rect x="550" y="38" width="130" height="70" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>
 <text x="615" y="58" text-anchor="middle" class="title" fill="#16a34a">Weight [M, K]</text>
 <text x="615" y="78" text-anchor="middle" class="code">128 &#xd7; 576</text>
-<text x="615" y="95" text-anchor="middle" class="label">= 0.14 MB (FP16)</text>
+<text x="615" y="95" text-anchor="middle" class="label">= 0.28 MB (FP32)</text>
 
 <!-- Table below -->
 <rect x="30" y="125" width="650" height="120" rx="5" fill="#f9fafb" stroke="#e5e7eb"/>
@@ -62,5 +62,5 @@
 <text x="420" y="226" class="label">9&#xd7;</text>
 <text x="530" y="226" class="label" fill="#dc2626">12,800 MB</text>
 
-<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (K = C_in &#xb7; R &#xb7; S; P = H_out &#xb7; W_out; FP16 = 2 B/element)</text>
+<text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (K = C_in &#xb7; R &#xb7; S; P = H_out &#xb7; W_out; FP32 = 4 B/element; MB = 2^20 B)</text>
 </svg>

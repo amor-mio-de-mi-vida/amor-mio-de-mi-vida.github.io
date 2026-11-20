@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-28</span>
-    <span data-reading-time>约 26 分钟阅读</span>
+    <span data-reading-time>约 27 分钟阅读</span>
   </div>
 </header>
 
@@ -242,7 +242,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="callout note"><p class="callout-title">主线定位：① 字节账 · ⑤ 整卡账</p><p>排序与 Top-K：减少遍数（①），按数据规模选择并行策略（⑤）。全系列的分析主线是&ldquo;一个下界 + 五笔账&rdquo;，见<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>。</p></div>
 <!-- /mainline -->
 
-<p>排序在 GPU 程序里出现的地方比想象中多。3D Gaussian Splatting（3DGS）每渲染一帧，都要把几十万到上百万个“高斯—tile”对按 tile 和深度排序 <span class="cite">[<a href="#ref-kerbl2023" title="Kerbl, B., Kopanas, G., Leimkühler, T., Drettakis, G. (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Transactions on Graphics 42(4)（§6 tile 光栅化与排序，Appendix C 的 64 位 key 布局）。">1</a>]</span>；MoE 模型的路由器要为每个 token 从几百个专家里挑出 top-k；大语言模型每生成一个 token，采样器都要在十几万个 logit 上做 top-k、top-p 或 min-p 截断。这三件事的规模、精度要求和延迟预算都不一样，但都绕不开“排序”或“找出最大的几个”。</p>
+<p>排序在 GPU 程序里出现的地方比想象中多。3D Gaussian Splatting（3DGS）每渲染一帧，都要把每个高斯按它覆盖的屏幕 tile 复制成若干个“高斯—tile”对，再把这些对按 tile 和深度排序 <span class="cite">[<a href="#ref-kerbl2023" title="Kerbl, B., Kopanas, G., Leimkühler, T., Drettakis, G. (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Transactions on Graphics 42(4)（§6 tile 光栅化与排序，Appendix C 的 64 位 key 布局）。">1</a>]</span>；MoE 模型的路由器要为每个 token 从几百个专家里挑出 top-k；大语言模型每生成一个 token，采样器都要在十几万个 logit 上做 top-k、top-p 或 min-p 截断。这三件事的规模、精度要求和延迟预算都不一样，但都绕不开“排序”或“找出最大的几个”。</p>
 
 <p>本篇回答三个问题：GPU 为什么用基数排序而不是快排；排序的几种基本 kernel（bitonic 网络、一轮基数排序、单遍的 Onesweep）各自怎么写；以及什么时候根本不需要完整排序，用 Top-K 或拒绝采样就够了。本篇大量用到前几篇的原语：归约（<a href="../pp10-reduction/pp10-reduction.html">第 10 篇</a>）、warp 投票与 shuffle（<a href="../pp11-warp-primitives/pp11-warp-primitives.html">第 11 篇</a>）、扫描与单遍 decoupled look-back（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>），这里只在用到时一句话回顾。</p>
 
@@ -250,7 +250,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>CPU 上最常用的快速排序（quicksort）在 GPU 上并不好用，原因有三。第一，划分（partition）的每一步都依赖前一步选出的枢轴，递归深度和每层的工作量由数据决定，很难均匀地分给上万个线程。第二，“和枢轴比较、决定往左还是往右”是数据相关的分支，同一个 warp 里的线程会走不同方向，产生分支发散（<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>）。第三，也是最重要的：排序大数组时瓶颈是显存带宽，衡量算法好坏的标准是<b>数据要在显存里来回搬几遍</b>，而基于比较的排序在这一点上吃亏。</p>
 
-<p>Onesweep 论文给过一个具体对比：基于二路归并的 GPU 归并排序排 1,600 万个 32 位 key，大约要扫全局内存 10 遍（一遍生成 32K 个有序小段，再做 9 轮二路归并）；而 Onesweep 的基数排序只要 5 遍（一遍直方图加 4 轮分桶）<span class="cite">[<a href="#ref-onesweep" title="Adinets, A., Merrill, D. (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">2</a>, §2]</span>。基于比较的排序总工作量是 \(O(n\log n)\)，且很难一次合并很多路来减少遍数；基数排序的工作量是 \(O(n\cdot w/d)\)，其中 \(w\) 是 key 的位宽、\(d\) 是每轮处理的位数，轮数 \(w/d\) 与 \(n\) 和数据分布都无关。</p>
+<p>Onesweep 论文给过一个具体对比：基于二路归并的 GPU 归并排序排 1,600 万个 32 位 key，大约要扫全局内存 10 遍（一遍先排出有序子列表，再做 9 轮二路归并；按 \(2^{24}/2^9\) 倒推，每个子列表约 32K 个 key）；而 Onesweep 的基数排序只要 5 遍（一遍直方图加 4 轮分桶）<span class="cite">[<a href="#ref-onesweep" title="Adinets, A., Merrill, D. (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">2</a>, §2]</span>。基于比较的排序总工作量是 \(O(n\log n)\)，且很难一次合并很多路来减少遍数；基数排序的工作量是 \(O(n\cdot w/d)\)，其中 \(w\) 是 key 的位宽、\(d\) 是每轮处理的位数，轮数 \(w/d\) 与 \(n\) 和数据分布都无关。</p>
 
 <p>基数排序的另一个优点是每一轮的结构完全固定：统计每个“数字”（digit，key 中连续 \(d\) 位组成的值）出现几次，做一次前缀和得到每个数字的起始位置，再把每个 key 写到它的位置上。这三步正好是 GPU 最擅长的直方图、扫描和分散写出（scatter）。代价是 key 必须能映射成无符号整数，而且映射要保持大小顺序；浮点数怎么做到这一点，见<a href="#sec-keys">key 的设计</a>。</p>
 
@@ -667,7 +667,7 @@ __device__ __forceinline__ float key_to_float(unsigned k) {
 }</code></pre>
 <p class="src-note">完整代码：<code>code/pp13-sort-topk/keys.cuh</code> 第 5–17 行（未在 GPU 上运行）</p>
 
-<p>边界情况要心里有数：\(-0.0\) 和 \(+0.0\) 变换后是相邻的两个不同值（\(-0.0\) 在前）；NaN 根据符号位会落在 \(+\infty\) 之上或 \(-\infty\) 之下。如果业务上要求 \(\pm0\) 相等或 NaN 有固定位置，需要在变换前先规范化。降序排序不用另写：把变换后的 key 按位取反即可。CUB 的文档也提到，它在排序前会对 key 做这类位变换 <span class="cite">[<a href="#ref-cubradix" title="NVIDIA. CUB: cub::DeviceRadixSort. CCCL 文档。">6</a>]</span>。</p>
+<p>边界情况要心里有数：\(-0.0\) 和 \(+0.0\) 变换后是相邻的两个不同值（\(-0.0\) 在前）；NaN 根据符号位会落在 \(+\infty\) 之上或 \(-\infty\) 之下。如果业务上要求 \(\pm0\) 相等或 NaN 有固定位置，需要在变换前先规范化。降序排序不用另写：把变换后的 key 按位取反即可。CUB 的文档写明它在排序前做的正是这两条变换（正浮点数翻转符号位、负浮点数翻转全部位），降序时再整体取反；不同的是 CUB 把 \(\pm0\) 当作相等的 key，NaN 则按变换后的位模式排 <span class="cite">[<a href="#ref-cubradix" title="NVIDIA. CUB: cub::DeviceRadixSort. CCCL 文档。">6</a>]</span>。</p>
 
 <h3 id="sec-2">key-value 排序与 3DGS 的 64 位 key</h3>
 
@@ -3593,7 +3593,7 @@ __global__ void moe_route(const float* logits, float* top_v,
   <li><b>min-p</b>：保留概率不小于 \(p_{\text{base}}\cdot p_{\max}\) 的 token，其中 \(p_{\max}\) 是最大概率，常用 \(p_{\text{base}}=0.05\)–\(0.1\) <span class="cite">[<a href="#ref-minp2025" title="Nguyen, M. N., Baker, A., Neo, C., Roush, A., Kirsch, A., Shwartz-Ziv, R. (2025). Turning Up the Heat: Min-p Sampling for Creative and Coherent LLM Outputs. ICLR 2025（Eq. 6–7）。">10</a>]</span>。</li>
 </ul>
 
-<p>截断之后，在保留的集合上按原概率重新归一化再采样。<a href="#fig-sampling">图 4</a> 用两个合成分布比较了三种规则保留的 token 数：top-k 不论分布形状都保留 50 个；top-p 在平坦分布上保留了三万多个，在尖锐分布上只保留 6 个；min-p 只看最大概率的倍数，两种情况下都只保留几个。</p>
+<p>截断之后，在保留的集合上按原概率重新归一化再采样。<a href="#fig-sampling">图 4</a> 用两个合成分布比较了三种规则保留的 token 数：top-k 不论分布形状都保留 50 个；top-p 在平坦分布上保留了三万多个，在尖锐分布上只保留 6 个；min-p 只看最大概率的倍数，两种情况下分别只保留 10 个和 3 个。</p>
 
 <figure id="fig-sampling" data-kind="data" data-source="illustrative" data-script="plots/sampling.py">
   <div class="fig-body"><svg aria-labelledby="fig-sampling-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 436.52 449.39952" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s4-root" style="max-width:582px;">
@@ -8223,7 +8223,7 @@ z
 
 <h3 id="sec-8">朴素做法：softmax、全排序、前缀和</h3>
 
-<p>最直接的实现照着定义写：对每行做 softmax，按概率降序做 key-value 全排序，对排好序的概率做前缀和，找到截断位置，把截断外的概率置零，再归一化、采样。PyTorch 的参考实现就是这样，FlashInfer 团队指出这种做法在大词表下被排序的开销拖慢 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>。我们可以按<a href="#sec-onesweep">Onesweep</a> 的公式估算它的显存读写量：一行 \(V\) 个 FP32 logit，key 和下标各 4 字节，按 Onesweep 式的 4 轮基数排序，一遍直方图读 \(4V\) 字节，每轮读写 key 和下标共 \(16V\) 字节，4 轮 \(64V\)，加上前缀和再读一遍 \(4V\)，共 \(72V\) 字节；两遍式排序则是 \(84V\)。这还没算 softmax 和后续掩码、归一化的几遍。</p>
+<p>最直接的实现照着定义写：对每行做 softmax，按概率降序做 key-value 全排序，对排好序的概率做前缀和，找到截断位置，把截断外的概率置零，再归一化、采样。FlashInfer 的博客引用的 PyTorch 实现（取自 vLLM 的 sampler）就是这样，并指出这种做法在大词表下被排序的开销拖慢 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>。我们可以按<a href="#sec-onesweep">Onesweep</a> 的公式估算它的显存读写量：一行 \(V\) 个 FP32 logit，key 和下标各 4 字节，按 Onesweep 式的 4 轮基数排序，一遍直方图读 \(4V\) 字节，每轮读写 key 和下标共 \(16V\) 字节，4 轮 \(64V\)，加上前缀和再读一遍 \(4V\)，共 \(72V\) 字节；两遍式排序则是 \(84V\)。这还没算 softmax 和后续掩码、归一化的几遍。</p>
 
 <figure id="fig-cost" data-kind="data" data-source="computed" data-script="plots/cost.py">
   <div class="fig-body"><svg aria-labelledby="fig-cost-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 428.39952 243.59952" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s5-root" style="max-width:571px;">
@@ -11053,7 +11053,7 @@ z
   </clipPath>
  </defs>
 </svg></div>
-  <figcaption id="fig-cost-cap"><span class="fig-label">图 5</span><b>采样前做完整排序要读写约 70–80 倍词表大小的字节，单遍或少数几遍扫描只要 4–8 倍。</b>横轴是 H100 SXM 显存带宽（3.35 TB/s）下的时间下限（对数轴），假设一个 decode 步有 64 行 logit；点旁的数字是每行的读写字节数，\(V\) 是词表大小，灰点 \(V=131{,}072\)、橙点 \(V=155{,}648\)。各行的字节数按正文的访存模型计算（<code>plots/cost.py</code>），只算 HBM 读写的下限，不含 softmax、kernel 启动和同步；一个 decode 步的数据量很小，真实耗时通常被延迟和启动开销主导，远高于这条下限。拒绝采样的轮数取决于分布，图中给出 2 遍和 8 遍扫描两种情况。</figcaption>
+  <figcaption id="fig-cost-cap"><span class="fig-label">图 5</span><b>采样前做完整排序要读写约 70–80 倍词表大小的字节，一两遍扫描只要 4–8 倍，8 遍扫描也只有 32 倍。</b>横轴是 H100 SXM 显存带宽（3.35 TB/s）下的时间下限（对数轴），假设一个 decode 步有 64 行 logit；点旁的数字是每行的读写字节数，\(V\) 是词表大小，灰点 \(V=131{,}072\)、橙点 \(V=155{,}648\)。各行的字节数按正文的访存模型计算（<code>plots/cost.py</code>），只算 HBM 读写的下限，不含 softmax、kernel 启动和同步；一个 decode 步的数据量很小，真实耗时通常被延迟和启动开销主导，远高于这条下限。拒绝采样的轮数取决于分布，图中给出 2 遍和 8 遍扫描两种情况。</figcaption>
 </figure>
 
 <p><a href="#fig-cost">图 5</a> 把几种做法的读写量换算成了时间下限。以 \(V=131{,}072\)、64 行为例，完整排序的下限约 180 μs，单遍 top-k 约 10 μs。这个数值只是带宽下限，但它说明了方向：采样算子的优化目标是减少扫描整行的遍数，而排序恰恰是遍数最多的那一种。</p>
@@ -11079,7 +11079,7 @@ loop:
         return t
     lo = z_t       # t 及更小的都不在 nucleus 里，抬高门槛</code></pre>
 
-<p>为什么结果是精确的？nucleus 是“概率最大的若干 token”组成的集合，所以门槛 \(lo\) 之上的候选集合始终包含整个 nucleus：被排除的只是比某个已确认不在 nucleus 里的 token 更小的那些。在一个包含目标集合的大集合上按原权重采样，再拒绝目标集合以外的样本，被接受的样本恰好服从目标集合上重新归一化的分布，这是拒绝采样的基本性质。博客的作者也证明了输出分布是精确的 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>。</p>
+<p>为什么结果是精确的？nucleus 是“概率最大的若干 token”组成的集合，所以门槛 \(lo\) 之上的候选集合始终包含整个 nucleus：被排除的只是比某个已确认不在 nucleus 里的 token 更小的那些。在一个包含目标集合的大集合上按原权重采样，再拒绝目标集合以外的样本，被接受的样本恰好服从目标集合上重新归一化的分布，这是拒绝采样的基本性质。博客作者以 top-k 为例证明了输出分布是精确的，并说其他截断规则可以类似地证明 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>。</p>
 
 <p>代价是轮数不确定。博客说，单一门槛的版本没有轮数的理论上界，但实际轮数通常很少；后来的双门槛版本每次失败至少把候选区间缩小一半，最坏情况是 \(O(\log(1/\varepsilon))\) 轮，\(\varepsilon\) 是最小的可表示浮点数 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>。每一轮需要扫描一到两遍候选（一遍采样、一遍算 mass），但全程可以融合在一个 kernel 里，不用排序，也省掉了多次 kernel 启动。博客报告，在 vLLM 的单卡 H100 配置下，这些 kernel 让采样总时间降低了一半以上 <span class="cite">[<a href="#ref-flashinfer2025" title="Xing, S., Ye, Z., Hou, B., Ceze, L., Chen, T. (2025). Sorting-Free GPU Kernels for LLM Sampling. FlashInfer Blog, 2025-03-10.">11</a>]</span>，这是作者的实测结果。</p>
 

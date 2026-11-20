@@ -220,11 +220,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 22 分钟阅读</span>
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 CUDA core 到 Tensor Core</a><li><a href="#sec-wmma">WMMA：最简单的 Tensor Core 接口</a><li><a href="#sec-mma">mma.sync 与 ldmatrix：直接控制寄存器映射</a><ol><li><a href="#sec-1">为什么需要 swizzle</a></li></ol><li><a href="#sec-pipeline">cp.async 三级流水线</a><li><a href="#sec-2">寄存器双缓冲</a><li><a href="#sec-raster">Threadblock swizzle 与 L2 复用</a><li><a href="#sec-epilogue">Epilogue：从累加器到全局内存</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 CUDA core 到 Tensor Core</a><li><a href="#sec-wmma">WMMA：最简单的 Tensor Core 接口</a><li><a href="#sec-mma">mma.sync 与 ldmatrix：直接控制寄存器映射</a><ol><li><a href="#sec-1">为什么需要 swizzle</a></li></ol><li><a href="#sec-pipeline">cp.async 三级流水线</a><li><a href="#sec-regdbuf">寄存器双缓冲</a><li><a href="#sec-raster">Threadblock swizzle 与 L2 复用</a><li><a href="#sec-epilogue">Epilogue：从累加器到全局内存</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
@@ -232,9 +232,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <ul>
 <li>A100 上 Tensor Core 的半精度峰值是 CUDA core 单精度的 16 倍，但要真正吃到这个算力需要配合正确的共享内存布局（swizzle 消除 bank 冲突）、异步搬运（cp.async 绕过寄存器）和多级流水线（三级缓冲让搬运和计算重叠）。</li>
 <li>WMMA API 最简单但隐藏了寄存器映射——换用 PTX <code>mma.sync.aligned.m16n8k16</code> + <code>ldmatrix</code> 后才能控制布局，消除 bank 冲突。</li>
-<li>三级流水线（triple buffering）让 <code>cp.async</code> 的异步搬运与 Tensor Core 的矩阵乘计算完全重叠：总有两个 tile 在搬运路上，一个正在被 Tensor Core 消费。</li>
+<li>三级流水线（triple buffering）让 <code>cp.async</code> 的异步搬运与 Tensor Core 的矩阵乘计算重叠：总有两个 tile 在搬运路上，一个正在被 Tensor Core 消费。</li>
 <li>寄存器双缓冲进一步隐藏 <code>ldmatrix</code> 延迟：一组 fragment 在做 MMA，另一组在从共享内存加载。</li>
-<li>Threadblock swizzle 重排 CTA 发射顺序使相邻 CTA 共享 B 的列块，L2 命中率从接近零提升到约 75%，对大矩阵乘可提速约 20%。</li>
+<li>Threadblock swizzle 重排 CTA 发射顺序，让连续发射的 CTA 读同一个 B 列块，提高 L2 复用；实际收益取决于并发 CTA 数和 L2 容量，需要实测。</li>
   </ul>
 </div>
 
@@ -244,24 +244,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-motivation">从 CUDA core 到 Tensor Core</h2>
 
-<p>上一篇用 CUDA core 把 SGEMM 从 1% 优化到了接近 90%<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance. 博客文章（A100 上 9 步 SGEMM 优化的测量数据）。">1</a>]</span>，但 A100 FP32 的峰值也只有 19.5 TFLOPS（<a href="../hw01-gpu-architecture/hw01-gpu-architecture.html">第 01 篇</a>）。切换到 Tensor Core FP16，A100 SXM5 稠密峰值一跃到 312 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM5 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、L2 40 MB、每 SM 共享内存上限 164 KB。各项均标有 NVIDIA 官方出处。">2</a>]</span>——同一个芯片上 16 倍的差距。Tensor Core 用一条指令完成 16&times;8&times;16 的矩阵乘累加（MMA），一个 warp 在一个周期内完成 4096 次 FP16 乘加，而 CUDA core 每个线程每周期只能做一次标量 FMA——32 个线程一共 32 次。从 32 到 4096，就是 128 倍的指令级吞吐差距（算上精度差异后约 16 倍峰值差）。</p>
+<p>上一篇的 CUDA core SGEMM 阶梯在 Boehm 的实测里最终到了 cuBLAS 的九成以上<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance. 博客文章，2022 年 12 月（RTX A6000 上 FP32 SGEMM 各优化步骤的 GFLOPS，相对 cuBLAS）。">1</a>]</span>，但 A100 FP32 的峰值也只有 19.5 TFLOPS（<a href="../hw01-gpu-architecture/hw01-gpu-architecture.html">第 01 篇</a>）。切换到 Tensor Core FP16，A100 SXM4 稠密峰值一跃到 312 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>——同一个芯片上 16 倍的差距。按每 SM 每时钟算：A100 的 4 个 Tensor Core 合计每时钟 1024 次 FP16 FMA，而 CUDA core 每时钟 64 次 FP32 FMA<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，正好 16 倍。一条 <code>mma.sync.m16n8k16</code> 由一个 warp 发射，做 \(16 \times 8 \times 16 = 2048\) 次乘加（4096 FLOP）；同样的工作量在 CUDA core 上是每个线程 64 条 FMA。</p>
 
-<p>但从&ldquo;能发 MMA 指令&rdquo;到&ldquo;吃满 312 TFLOPS&rdquo;之间的 gap 比 CUDA core GEMM 更大。原因很简单：Tensor Core 每周期能做的运算量是 CUDA core 的 16 倍，但 SMEM 和 HBM 的带宽并没有同步翻 16 倍——A100 的 SMEM 带宽约 19 TB/s/SM，HBM 带宽 2.0 TB/s，与 V100 相比都只翻了约 2 倍。这意味着在 Ampere 上，Tensor Core GEMM 的 roofline 临界点从 V100 的 ~40 FLOP/B 飙升到 ~156 FLOP/B——搬运必须极其高效才能喂饱计算单元。这一篇逐步解决四个问题：</p>
+<p>但从&ldquo;能发 MMA 指令&rdquo;到&ldquo;吃满 312 TFLOPS&rdquo;之间的 gap 比 CUDA core GEMM 更大。原因很简单：Tensor Core 每周期能做的运算量是 CUDA core 的 16 倍，但 SMEM 和 HBM 的带宽并不会因为换了计算单元而变大——A100 的 HBM 带宽约 2.0 TB/s，FP16 Tensor Core 的 roofline 临界点是 \(312 / 2.039 \approx 153\) FLOP/B<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，而 FP32 CUDA core 只有约 10 FLOP/B——搬运必须高效得多才能喂饱计算单元。这一篇逐步解决四个问题：</p>
 
 <ol>
-<li><b>数据布局</b>：<code>ldmatrix</code> 一次从共享内存加载一个 8&times;8 矩阵到寄存器，如果共享内存布局不做 swizzle，相邻行的起始地址落在同一个 bank 上——产生四路冲突，SMEM 吞吐降为理论值的四分之一。</li>
-<li><b>搬运流水线</b>：<code>cp.async</code> 绕过寄存器直接搬 GMEM&rarr;SMEM，配三级缓冲让搬运和计算完全重叠——两个 tile 在搬运路上，一个在被 Tensor Core 消费。</li>
-<li><b>寄存器预取</b>：MMA 执行期间提前加载下一组 fragment 到寄存器，隐藏 <code>ldmatrix</code> 的 20–30 周期延迟。</li>
-<li><b>CTA 遍历顺序</b>：threadblock swizzle 重排 CTA 发射顺序，让相邻 CTA 共享 B 的 L2 缓存行，命中率从接近零提升到 75%。</li>
+<li><b>数据布局</b>：<code>ldmatrix</code> 一次从共享内存加载一个 8&times;8 矩阵到寄存器，如果共享内存布局不做 swizzle，8 行的起始地址会落在少数几组 bank 上（本篇 64 B 行宽时是四路冲突），读取被拆成多次。</li>
+<li><b>搬运流水线</b>：<code>cp.async</code> 绕过寄存器直接搬 GMEM&rarr;SMEM，配三级缓冲让搬运和计算重叠——两个 tile 在搬运路上，一个在被 Tensor Core 消费。</li>
+<li><b>寄存器预取</b>：MMA 执行期间提前加载下一组 fragment 到寄存器，隐藏 <code>ldmatrix</code> 的延迟。</li>
+<li><b>CTA 遍历顺序</b>：threadblock swizzle 重排 CTA 发射顺序，让相邻 CTA 共享 B 的 L2 缓存行，提高 L2 复用。</li>
 </ol>
 
 <h2 id="sec-wmma">WMMA：最简单的 Tensor Core 接口</h2>
 
-<p>CUDA 从 Volta（sm_70）起提供 <code>nvcuda::wmma</code> API<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.24 Warp Matrix Functions (WMMA)、§7.27 Asynchronous Data Copies using cuda::pipeline。">3</a>]</span>：声明 <code>fragment</code>（一个包含矩阵子块数据的不透明类型）、用 <code>load_matrix_sync</code> 加载、用 <code>mma_sync</code> 计算、用 <code>store_matrix_sync</code> 存回。写法和 CPU 上调用 cblas_sgemm 类似——几行代码就能跑起来，对原型验证和教学很方便。但 WMMA 的&ldquo;不透明&rdquo;是双刃剑：fragment 内部的寄存器映射由编译器决定，程序员完全无法控制；这意味着你无法做 SMEM 的 swizzle 来消除 bank 冲突，也无法在 fragment 的加载和使用之间插入其他 fragment 的加载来做寄存器双缓冲。</p>
+<p>CUDA 从 Volta（sm_70）起提供 <code>nvcuda::wmma</code> API<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.24 Warp Matrix Functions（WMMA；fragment 内部映射未指定）、§7.27 Asynchronous Data Copies using cuda::pipeline。">3</a>]</span>：声明 <code>fragment</code>（一个包含矩阵子块数据的不透明类型）、用 <code>load_matrix_sync</code> 加载、用 <code>mma_sync</code> 计算、用 <code>store_matrix_sync</code> 存回。写法和 CPU 上调用 cblas_sgemm 类似——几行代码就能跑起来，对原型验证和教学很方便。但 WMMA 的&ldquo;不透明&rdquo;是双刃剑：fragment 内部的寄存器映射由编译器决定，程序员完全无法控制；这意味着你无法做 SMEM 的 swizzle 来消除 bank 冲突，也无法在 fragment 的加载和使用之间插入其他 fragment 的加载来做寄存器双缓冲。</p>
 
-<p>WMMA 的 kernel 开头展示了这种 warp 级抽象：每个 warp 通过 <code>warpId</code> 算出自己负责的 (wy, wx) 二维坐标，再映射到 C 矩阵中 16&times;16 的输出子块。整个 block 用 <code>(BM/WM) * (BN/WN)</code> = 64 个 warp（共计 2048 线程），每个 warp 独立持有自己的 <code>a_frag</code>、<code>b_frag</code> 和 FP32 累加器 <code>acc</code>：</p>
+<p>WMMA 的 kernel 开头展示了这种 warp 级抽象：每个 warp 通过 <code>warpId</code> 算出自己负责的 (wy, wx) 二维坐标，再映射到 C 矩阵中 16&times;16 的输出子块。整个 block 用 <code>(BM/WM) * (BN/WN)</code> = 16 个 warp（共 512 线程，BM=BN=64），每个 warp 独立持有自己的 <code>a_frag</code>、<code>b_frag</code> 和 FP32 累加器 <code>acc</code>（代码假定 M、N 是 64 的倍数，K 是 16 的倍数）：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_wmma.cu#L12-L22"><code>__global__ void hgemm_wmma_basic(
+<pre data-code="code/gm25-ampere-hgemm/hgemm_wmma.cu#L15-L25"><code>__global__ void hgemm_wmma_basic(
     const __half* __restrict__ A,
     const __half* __restrict__ B,
     __half* __restrict__ C,
@@ -269,113 +269,121 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 {
     const int bx = blockIdx.x, by = blockIdx.y;
     const int warpId = threadIdx.x / 32;
+    const int lane = threadIdx.x % 32;
     const int wy = warpId / (BN / WN);
-    const int wx = warpId % (BN / WN);
-</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_wmma.cu</code> 第 12–22 行（未在 GPU 上运行）</p>
+    const int wx = warpId % (BN / WN);</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_wmma.cu</code> 第 15–25 行（未在 GPU 上运行）</p>
 
-<p>注意这里 2048 线程远超实践中常用的 256 线程配置——实际 WMMA 版本常用更小 tile 来保持 occupancy。但无论怎么调参，WMMA 的 fragment 都是不透明的：编译器怎么安排 <code>a_frag</code> 的 32 个 FP16 值到哪些寄存器里，程序员无从干预。这直接限制了两件事：一是无法根据 <code>ldmatrix</code> 的数据分发规则来安排 SMEM 的 swizzle 地址，二是无法在两组 fragment 之间做 ping-pong 预取。从 WMMA 切换到 PTX <code>mma.sync</code> 正是为了夺回对寄存器到矩阵元素映射关系的完全控制权。</p>
+<p>（block 最多 1024 个线程<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，所以 BM=BN=128 配 16&times;16 的 warp tile 会需要 64 个 warp、2048 个线程，无法启动。）但无论怎么调参，WMMA 的 fragment 都是不透明的——CUDA 编程指南明说 fragment 内部元素到寄存器的映射未指定、未来架构上可能改变<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.24 Warp Matrix Functions（WMMA；fragment 内部映射未指定）、§7.27 Asynchronous Data Copies using cuda::pipeline。">3</a>]</span>：编译器怎么安排 <code>a_frag</code> 的 32 个 FP16 值到哪些寄存器里，程序员无从干预。这直接限制了两件事：一是无法根据 <code>ldmatrix</code> 的数据分发规则来安排 SMEM 的 swizzle 地址，二是无法在两组 fragment 之间做 ping-pong 预取。从 WMMA 切换到 PTX <code>mma.sync</code> 正是为了夺回对寄存器到矩阵元素映射关系的完全控制权。</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_wmma.cu#L25-L43"><code>wmma::fragment&lt;wmma::accumulator, WM, WN, WK, float&gt; acc;
-wmma::fill_fragment(acc, 0.0f);
+<pre data-code="code/gm25-ampere-hgemm/hgemm_wmma.cu#L28-L54"><code>    wmma::fragment&lt;wmma::matrix_a, WM, WN, WK, __half,
+                   wmma::row_major&gt; a_frag;
+    wmma::fragment&lt;wmma::matrix_b, WM, WN, WK, __half,
+                   wmma::row_major&gt; b_frag;
+    wmma::fragment&lt;wmma::accumulator, WM, WN, WK,
+                   float&gt; acc;
+    wmma::fill_fragment(acc, 0.0f);
 
-const int row0 = by * BM + wy * WM;
-const int col0 = bx * BN + wx * WN;
+    const size_t row0 = by * BM + wy * WM;
+    const int col0 = bx * BN + wx * WN;
+    for (int k = 0; k &lt; K; k += WK) {
+        const __half* a_ptr = A + row0 * K + k;
+        const __half* b_ptr = B + (size_t)k * N + col0;
+        wmma::load_matrix_sync(a_frag, a_ptr, K);
+        wmma::load_matrix_sync(b_frag, b_ptr, N);
+        wmma::mma_sync(acc, a_frag, b_frag, acc);
+    }
 
-for (int k = 0; k &lt; K; k += WK) {
-    const __half* a_ptr = A + row0 * K + k;
-    const __half* b_ptr = B + k * N + col0;
-    wmma::load_matrix_sync(a_frag, a_ptr, K);
-    wmma::load_matrix_sync(b_frag, b_ptr, N);
-    wmma::mma_sync(acc, a_frag, b_frag, acc);
-}
+    // The element order inside a fragment is opaque,
+    // so go through memory to convert FP32 -&gt; FP16.
+    wmma::store_matrix_sync(stage[warpId], acc, WN,
+                            wmma::mem_row_major);
+    __syncwarp();
+    for (int i = lane; i &lt; WM * WN; i += 32) {
+        int r = i / WN, c = i % WN;
+        C[(row0 + r) * N + col0 + c] =
+            __float2half(stage[warpId][i]);</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_wmma.cu</code> 第 28–54 行（未在 GPU 上运行）</p>
 
-wmma::fragment&lt;wmma::accumulator, WM, WN, WK, __half&gt; out;
-for (int i = 0; i &lt; out.num_elements; ++i)
-    out.x[i] = __float2half(acc.x[i]);
-wmma::store_matrix_sync(C + row0 * N + col0, out, N,
-                        wmma::mem_row_major);</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_wmma.cu</code> 第 25–43 行（未在 GPU 上运行）</p>
+<p>每个 warp 持有一个 16&times;16 的累加器 <code>acc</code>，在 K 维度上循环：每次从全局内存加载 16&times;16 的 A 和 B 子块，调用 <code>mma_sync</code> 做一次 16&times;16&times;16 的乘累加——\(16^3 = 4096\) 次乘加（8192 FLOP），在 CUDA core 上相当于每个线程 128 条 FMA。最后一步也体现了 fragment 的不透明：FP32 累加器 fragment 和 FP16 fragment 的元素顺序没有保证一致，所以不能逐元素把 <code>acc.x[i]</code> 拷进一个 half 型 fragment，而是先用 <code>store_matrix_sync</code> 写到共享内存，再逐个转换成 FP16 写回。</p>
 
-<p>每个 warp 持有一个 16&times;16 的累加器 <code>acc</code>，在 K 维度上循环：每次从全局内存加载 16&times;16 的 A 和 B 子块，调用 <code>mma_sync</code> 做一次 16&times;16&times;16 的乘累加。一条 <code>mma_sync</code> 指令做 \(2 \times 16 \times 16 \times 16 = 8192\) 次 FP16 乘加——这在 CUDA core 上需要 256 条 FMA 指令（每线程 8 条），算力差距就是从这里来的。</p>
+<p>代码简洁，但有两个问题。第一，<code>load_matrix_sync</code> 直接读全局内存（没有用共享内存分块），每次 K 步读取 \((16 \times 16 + 16 \times 16) \times 2 = 1024\) 字节做 8192 FLOP，不计缓存时算术强度只有 8 FLOP/B——远低于 A100 FP16 Tensor Core 的 roofline 临界点约 153 FLOP/B，瓶颈在带宽上。第二，WMMA 在编译器内部选择寄存器映射——我们无法控制共享内存的存取布局来消除 bank 冲突，也无法精确安排 fragment 的预取顺序。（WMMA 也可以先把数据搬进共享内存再从那里 <code>load_matrix_sync</code>，这能解决第一个问题，但解决不了第二个。）</p>
 
-<p>代码简洁，但有两个问题。第一，<code>load_matrix_sync</code> 直接读全局内存（没有用共享内存分块），每次 K 步读取 \((16 \times 16 + 16 \times 16) \times 2 = 1024\) 字节做 8192 FLOP，算术强度只有 8 FLOP/B——低于 A100 FP16 Tensor Core 的 roofline 临界点 \(312 / 2.0 = 156\) FLOP/B，瓶颈完全在带宽上。第二，WMMA 在编译器内部选择寄存器映射——我们无法控制共享内存的存取布局来消除 bank 冲突，也无法做寄存器双缓冲来隐藏 <code>ldmatrix</code> 延迟。因此 WMMA 在实践中只能达到 30–40% 峰值，远不如手动控制布局的 <code>mma.sync</code> 路径。</p>
-
-<p>从 30–40% 到 90–96% 的差距并不只来自 bank conflict。WMMA 还有两个隐性开销：其一，<code>load_matrix_sync</code> 内部可能插入冗余的数据重排 <code>shfl</code> 指令（因为编译器不确定调用者的布局意图），每次 K 步多出 4–8 条 warp shuffle 指令，占掉 Tensor Core 的发射窗口；其二，WMMA 的 <code>mma_sync</code> 底层也是翻译成 PTX mma 指令，但编译器会把操作数从 WMMA 的内部布局转换为 mma 指令要求的布局——这个转换在每条 MMA 前都要做，累积起来可观。直接用 PTX <code>mma.sync</code> 完全跳过了这些中间层和中间转换步骤，有效指令数减少 30–50%，执行延迟也相应降低。这也是为什么 NVIDIA 的推荐路径从 CUDA 11 开始就是 CUTLASS + PTX，而非 WMMA。</p>
+<p>CUTLASS 的 warp 级矩阵乘直接建立在 PTX <code>mma.sync</code> 之上<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。">4</a>]</span>，下面也走这条路。</p>
 
 <h2 id="sec-mma">mma.sync 与 ldmatrix：直接控制寄存器映射</h2>
 
-<p>Ampere 架构引入了 PTX 指令 <code>mma.sync.aligned.m16n8k16</code><span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（mma.sync：形状、数据类型、寄存器映射）、§9.7.14.6（ldmatrix）、§9.7.5.6（cp.async）。">4</a>]</span>：比 WMMA 更底层，程序员自己决定哪些寄存器装哪些矩阵元素（<a href="#fig-mma_register_layout">图 1</a>）。一条 m16n8k16 指令做一个 16&times;8&times;16 的矩阵乘累加——A 是 16&times;16 的 FP16 矩阵（4 个 32 位寄存器，每个寄存器打包 2 个 FP16）、B 是 16&times;8 的 FP16 矩阵（2 个寄存器）、C 是 16&times;8 的 FP32 累加器（4 个寄存器）。如果需要 16&times;16 的 C 输出，就发两条 m16n8k16——第二条用 B 的另一半列。</p>
+<p>FP16 的 <code>mma.sync.aligned.m16n8k16</code> 需要 sm_80（Ampere）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。">5</a>]</span>：比 WMMA 更底层，程序员自己决定哪些寄存器装哪些矩阵元素（<a href="#fig-mma_register_layout">图 1</a>）。一条 m16n8k16 指令做一个 16&times;8&times;16 的矩阵乘累加——A 是 16&times;16 的 FP16 矩阵（4 个 32 位寄存器，每个寄存器打包 2 个 FP16）、B 是 16&times;8 的 FP16 矩阵（2 个寄存器）、C 是 16&times;8 的 FP32 累加器（4 个寄存器）。本篇的 CTA tile 是 128&times;128&times;32，8 个 warp 排成 2&times;4，每个 warp 负责 64&times;32 的子块——也就是 4&times;4 个 m16n8 的输出块，每个 k16 步发 16 条 m16n8k16，每线程持有 \(4 \times 4 \times 4 = 64\) 个 FP32 累加器。代码假定 M、N 是 128 的倍数、K 是 32 的倍数，A、B、C 16 字节对齐（host 端检查）。</p>
 
 <figure id="fig-mma_register_layout" data-kind="diagram">
 <img aria-labelledby="fig-mma_register_layout-cap" src="figs/mma_register_layout.svg" alt="mma.sync.m16n8k16 的寄存器映射"/>
-<figcaption id="fig-mma_register_layout-cap"><span class="fig-label">图 1</span><b>mma.sync.m16n8k16 的操作数寄存器分布。</b>A 用 4 个寄存器、B 用 2 个、C 用 4 个累加器。注意 C 矩阵中线程 0 持有 (0,0)、(0,1)、(8,0)、(8,1) 四个不连续的位置——这决定了 epilogue 必须经过 SMEM 重排。</figcaption>
+<figcaption id="fig-mma_register_layout-cap"><span class="fig-label">图 1</span><b>mma.sync.m16n8k16 的操作数寄存器分布。</b>A 用 4 个寄存器、B 用 2 个、C 用 4 个累加器。注意 C 矩阵中线程 0 持有 (0,0)、(0,1)、(8,0)、(8,1) 四个不连续的位置——直接写回全局内存时难以合并，所以优化版的 epilogue 先经过 SMEM 重排。图中布局依据 PTX ISA §9.7.16，CPU 仿真（见局限一节）按同一布局验证了代码。</figcaption>
 </figure>
 
-<p>配合 <code>ldmatrix.sync.aligned.m8n8.x4</code>，8 个线程协作从共享内存加载一个 8&times;8 的 FP16 矩阵块到寄存器，正好是 <code>mma.sync</code> 要求的布局——每线程提供一个共享内存地址，硬件在一个周期内完成 8 次 16B 读取并把数据分发到正确的寄存器中。这比手动用 <code>__shfl_sync</code> 做寄存器重排高效得多。</p>
+<p>配合 <code>ldmatrix.sync.aligned.m8n8</code><span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。">5</a>]</span>：每个 8&times;8 的 FP16 矩阵由 8 个线程各提供一行（16 字节）的共享内存地址，<code>.x1/.x2/.x4</code> 一次加载 1/2/4 个这样的矩阵（地址分别来自线程 0–7、0–15、0–31）。第 i 个矩阵进每个线程的第 i 个寄存器：线程 t 拿到第 t/4 行的第 2(t%4)、2(t%4)+1 两个元素——这正好是 <code>mma.sync</code> 要的 fragment 排列。加 <code>.trans</code> 时矩阵按列主序读取，线程 t 拿到第 t/4 列的第 2(t%4)、2(t%4)+1 两行。这比手动用 <code>__shfl_sync</code> 做寄存器重排高效得多。</p>
 
 <h3 id="sec-1">为什么需要 swizzle</h3>
 
-<p><code>ldmatrix</code> 一次读 4 行（或 8 行，取决于 <code>.x2</code> 还是 <code>.x4</code>），每行 16 字节。如果共享内存按朴素的行主序排列，相邻 4 行的起始地址间隔恰好是 BK&times;2 = 64 字节——正好落在同一个 bank 上，产生四路冲突。XOR swizzle 把行号的低 3 位异或到列地址的 bank 选择位，使相邻行访问不同的 bank（<a href="#fig-swizzle">图 2</a>）。</p>
+<p><code>ldmatrix</code> 的每个 8&times;8 矩阵读 8 行、每行 16 字节，共 128 字节——如果 8 行落在 8 组不同的 bank（每组 4 个 bank）上，就能一次读完。如果共享内存按朴素的行主序排列、行宽 BK&times;2 = 64 字节，8 行的起始地址只落在两组 bank 上（见下文），产生四路冲突。XOR swizzle 用地址的高位去扰动 16 字节块的编号，使这 8 行访问不同的 bank（<a href="#fig-swizzle">图 2</a>）。</p>
 
 <figure id="fig-swizzle" data-kind="diagram">
 <img aria-labelledby="fig-swizzle-cap" src="figs/swizzle_pattern.svg" alt="XOR swizzle 消除 ldmatrix bank 冲突"/>
-<figcaption id="fig-swizzle-cap"><span class="fig-label">图 2</span><b>无 swizzle 时 ldmatrix 的 4 行读同一个 bank（四路冲突）；XOR swizzle 把每行错开到不同 bank。</b>公式：<code>addr' = addr ^ ((addr &gt;&gt; 4) &amp; 0x7) &lt;&lt; 9</code>。行号低 3 位作为 XOR key，异或到地址的 bit[11:9]（bank 选择域）。</figcaption>
+<figcaption id="fig-swizzle-cap"><span class="fig-label">图 2</span><b>无 swizzle 时多行落在同一组 bank（冲突）；XOR swizzle 把每行错开到不同 bank。</b>示意图把每行画成 128 字节。本篇代码的行宽是 64 字节，对应公式 <code>addr' = addr ^ (((addr &gt;&gt; 7) &amp; 0x3) &lt;&lt; 4)</code>：bit[8:7]（每两行一个 128 字节段的段号）异或进 bit[5:4]（16 字节块号），bank 由 bit[6:2] 决定。</figcaption>
 </figure>
 
-<p>理解 swizzle 的关键是理解共享内存的 bank 结构。A100 的共享内存有 32 个 bank，每个 bank 宽 4 字节，连续 128 字节跨越所有 32 个 bank。<code>ldmatrix.x4</code> 让一个 warp 的前 8 个线程各提供一个 SMEM 地址，硬件从这 8 个地址各读 16 字节（4 个 FP16）。如果这 8 个地址落在不同的 bank 上，就是无冲突的 8 路并行读取（128 字节/周期）；如果多个地址落在同一个 bank 上，就会产生多路冲突，读取被串行化。</p>
+<p>理解 swizzle 的关键是理解共享内存的 bank 结构。A100 的共享内存有 32 个 bank，每个 bank 宽 4 字节，连续 128 字节跨越所有 32 个 bank。对 <code>ldmatrix</code> 的一个 8&times;8 矩阵，8 个线程各提供一个 SMEM 地址，硬件从每个地址读 16 字节（8 个 FP16，占 4 个 bank）。如果这 8 段 16 字节覆盖了全部 32 个 bank，就无冲突；如果有两段落在同一组 bank 上，读取就被拆成多次。</p>
 
-<p>没有 swizzle 时，A 矩阵在 SMEM 中按行存储：<code>As[row][col]</code>，地址 = <code>base + row * BK * 2 + col * 2</code>。当 BK=32 时，行间距 = 64 字节。<code>ldmatrix</code> 读的 4 行起始地址分别是 base、base+64、base+128、base+192——这四个地址对 32 bank 取模后分别是 bank 0、bank 16、bank 0、bank 16——两对两路冲突。如果是 <code>.x4</code>（8 行），8 个地址中有 4 对冲突，吞吐降为 1/4。XOR swizzle 通过把行号的低 3 位参与到 bank 选择中，打破了这种周期性冲突。</p>
+<p>没有 swizzle 时，A 矩阵在 SMEM 中按行存储：<code>As[row][col]</code>，地址 = <code>base + row * BK * 2 + col * 2</code>。当 BK=32 时，行间距 = 64 字节。<code>ldmatrix</code> 读一个 8&times;8 矩阵的 8 行起始地址是 base、base+64、…、base+448——按 4 字节 bank 编号取模 32 后依次是 bank 0、16、0、16、……：8 段 16 字节只占了 bank 0–3 和 16–19 两组，每组被 4 行争用，四路冲突，这一次读取要分 4 次完成。swizzle 后，第 r 行的 16 字节块号异或上 \(\lfloor r/2 \rfloor \bmod 4\)，8 行正好落到 8 组不同的 bank（可以逐行验算）。</p>
 
-<p>在代码中 swizzle 只是一个内联函数，在读写共享内存地址时统一调用：</p>
+<p>B 的 tile 是 BK&times;BN = 32&times;128 的行主序，行宽 256 字节，问题更严重：<code>ldmatrix.trans</code> 读的 8 行间隔 256 字节，全部落在同一组 bank 上，八路冲突。所以 A、B 各用一个 swizzle：A 把 16 字节块号异或上 \(\lfloor r/2 \rfloor \bmod 4\)，B 异或上 \(r \bmod 8\)。两个函数都作用在一个 stage 内的字节偏移上，只在一行内部置换 16 字节块，所以 <code>cp.async</code> 写入和 <code>ldmatrix</code> 读取用同一个函数就能对上：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_mma_sync.cu#L9-L11"><code>__device__ __forceinline__ uint32_t swizzle(uint32_t addr) {
-    return addr ^ ((addr >> 4) &amp; 0x7) &lt;&lt; 9;
+<pre data-code="code/gm25-ampere-hgemm/hgemm_common.cuh#L20-L27"><code>// A: 64 B rows (4 chunks): chunk ^= (row / 2) % 4.
+__device__ __forceinline__ uint32_t swz_a(uint32_t o) {
+  return o ^ (((o &gt;&gt; 7) &amp; 0x3) &lt;&lt; 4);
+}
+// B: 256 B rows (16 chunks): chunk ^= row % 8.
+__device__ __forceinline__ uint32_t swz_b(uint32_t o) {
+  return o ^ (((o &gt;&gt; 8) &amp; 0x7) &lt;&lt; 4);
 }</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_mma_sync.cu</code> 第 9–11 行（未在 GPU 上运行）</p>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_common.cuh</code> 第 20–27 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-<p>接下来是主循环中的 <code>ldmatrix</code> 和 <code>mma.sync</code>。每个 warp 通过 <code>ldmatrix.x4</code> 加载 A 的 16&times;16 子块到 4 个 32 位寄存器（<code>frag_a[0..3]</code>），<code>ldmatrix.x2</code> 加载 B 的 16&times;8 子块到 2 个寄存器（<code>frag_b[0..1]</code>），然后发射 <code>mma.sync.m16n8k16</code>：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_mma_sync.cu#L76-L104"><code>        uint32_t a_addr = swizzle(
-            a_base + (warpId / 2) * 16 * BK * 2
-            + laneId * 16 * 2);
-        asm volatile(
-            "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
-            "{%0,%1,%2,%3}, [%4];"
-            : "=r"(frag_a[0]), "=r"(frag_a[1]),
-              "=r"(frag_a[2]), "=r"(frag_a[3])
-            : "r"(a_addr));
+<p>接下来是一个 k16 步里的 <code>ldmatrix</code>。A 用不带 <code>.trans</code> 的 <code>.x4</code>：线程 0–15 指向 16 行的第 kk 列，线程 16–31 指向同样 16 行的第 kk+8 列，四个寄存器依次是 m16n8k16 的 a0a1、a2a3、a4a5、a6a7。B 在共享内存里是 K&times;N 行主序，而 mma 要的 B fragment 是&ldquo;线程 t 持有第 t/4 列、第 2(t%4) 和 2(t%4)+1 行&rdquo;，所以用 <code>.x4.trans</code>：线程 0–15 指向 k 行 kk..kk+15 的第 n 列，线程 16–31 指向同样的行、往右 8 列，一次得到两个 n8 块的 b0b1、b2b3：</p>
 
-        uint32_t b_addr = swizzle(
-            b_base + (warpId % 2) * 8 * BN * 2
-            + laneId * 16 * 2);
-        asm volatile(
-            "ldmatrix.sync.aligned.m8n8.x2.shared.b16 "
-            "{%0,%1}, [%2];"
-            : "=r"(frag_b[0]), "=r"(frag_b[1])
-            : "r"(b_addr));
+<pre data-code="code/gm25-ampere-hgemm/hgemm_common.cuh#L86-L107"><code>__device__ __forceinline__ void load_frags(
+    uint32_t (&amp;af)[4][4], uint32_t (&amp;bf)[4][2],
+    uint32_t sa, uint32_t sb, int wm, int wn, int kk,
+    int lane) {
+#pragma unroll
+  for (int mi = 0; mi &lt; 4; ++mi) {
+    int r = wm + mi * 16 + lane % 16;
+    int c = kk + (lane / 16) * 8;
+    ldsm_x4(af[mi], sa + swz_a(r * 64 + c * 2));
+  }
+#pragma unroll
+  for (int j = 0; j &lt; 2; ++j) {
+    int r = kk + lane % 16;
+    int c = wn + j * 16 + (lane / 16) * 8;
+    uint32_t t[4];
+    ldsm_x4_t(t, sb + swz_b(r * 256 + c * 2));
+    bf[2 * j][0] = t[0];
+    bf[2 * j][1] = t[1];
+    bf[2 * j + 1][0] = t[2];
+    bf[2 * j + 1][1] = t[3];
+  }
+}</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_common.cuh</code> 第 86–107 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-        asm volatile(
-            "mma.sync.aligned.m16n8k16.row.col.f32"
-            ".f16.f16.f32 "
-            "{%0,%1,%2,%3}, {%4,%5,%6,%7}, "
-            "{%8,%9}, {%0,%1,%2,%3};"
-            : "+f"(acc[0]), "+f"(acc[1]),
-              "+f"(acc[2]), "+f"(acc[3])
-            : "r"(frag_a[0]), "r"(frag_a[1]),
-              "r"(frag_a[2]), "r"(frag_a[3]),
-              "r"(frag_b[0]), "r"(frag_b[1]));</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_mma_sync.cu</code> 第 76–104 行（未在 GPU 上运行）</p>
 
-<p>注意 <code>mma.sync</code> 的输出格式——它直接决定了 epilogue 的复杂度。每线程持有 4 个 FP32 累加值（<code>acc[0..3]</code>），对应输出矩阵中不连续的元素。具体来说，<code>mma.sync.m16n8k16</code> 的输出是一个 16&times;8 的 FP32 矩阵，32 个线程各持有其中 4 个值——线程 0 持有 (0,0)、(0,1)、(8,0)、(8,1)，线程 1 持有 (0,2)、(0,3)、(8,2)、(8,3)，以此类推。这种&ldquo;交错分布&rdquo;是 Tensor Core 硬件内部的数据通路决定的，无法改变——它来自 Tensor Core 的 4&times;4&times;4 子阵乘法单元的物理布线。如果直接把每线程的 4 个值写到全局内存的对应位置，32 个线程的写地址高度不连续——每个线程写的 4 个值分散在矩阵的不同行中，相邻线程写的地址间隔数百字节，无法合并成 128B 事务。这就是为什么 epilogue 必须经过共享内存中转——先把不连续的寄存器值写到 SMEM 的连续位置，再由全 block 的线程用连续索引读出并合并写回全局内存。</p>
+<p>拿到 fragment 后，<code>mma_tile</code> 对 4&times;4 个输出块各发一条 <code>mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32</code>。注意 <code>mma.sync</code> 的输出格式——它直接决定了 epilogue 的复杂度。每个输出块每线程持有 4 个 FP32 累加值，对应输出矩阵中不连续的元素。具体来说，<code>mma.sync.m16n8k16</code> 的输出是一个 16&times;8 的 FP32 矩阵，32 个线程各持有其中 4 个值——线程 0 持有 (0,0)、(0,1)、(8,0)、(8,1)，线程 1 持有 (0,2)、(0,3)、(8,2)、(8,3)，以此类推。这种分布由 PTX ISA 规定<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。">5</a>]</span>，程序员无法改变。如果直接把每线程的值逐个写到全局内存的对应位置，一条存储指令里 32 个线程分布在 8 行上，每行只有 4 个线程写相邻的列——写的地址分散在 8 个不同的 32 字节 sector 里，无法合并成整段的 128B 事务。基础版 <code>hgemm_mma_sync.cu</code> 直接从寄存器写回（每线程每次写一对相邻列，一个 <code>half2</code>）；优化版把 C 先暂存到共享内存再整行写回，见 Epilogue 一节。</p>
 
 <h2 id="sec-pipeline">cp.async 三级流水线</h2>
 
-<p><code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>详细讲过）让 GMEM&rarr;SMEM 的拷贝绕过寄存器、异步执行。配合 <code>commit_group</code> / <code>wait_prior</code>，我们可以把共享内存分成三个 stage，让搬运和计算完全重叠（<a href="#fig-pipeline">图 3</a>）：</p>
+<p><code>cp.async</code>（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>详细讲过）让 GMEM&rarr;SMEM 的拷贝绕过寄存器、异步执行。配合 <code>cp.async.commit_group</code> / <code>cp.async.wait_group</code>，我们可以把共享内存分成三个 stage，让搬运和计算重叠（<a href="#fig-pipeline">图 3</a>）：</p>
 
 <figure id="fig-pipeline" data-kind="diagram">
 <img aria-labelledby="fig-pipeline-cap" src="figs/multistage_pipeline.svg" alt="三级 cp.async 流水线时序"/>
-<figcaption id="fig-pipeline-cap"><span class="fig-label">图 3</span><b>cp.async 三级流水线：总有两个 tile 在搬运路上、一个在被 Tensor Core 消费。</b>蓝色为 GMEM→SMEM 异步拷贝，绿色为 Tensor Core MMA，红色虚线为 <code>wait_prior(1)</code> 同步点。填充阶段（灰色）是流水线未满时计算单元空转。</figcaption>
+<figcaption id="fig-pipeline-cap"><span class="fig-label">图 3</span><b>cp.async 三级流水线：总有两个 tile 在搬运路上、一个在被 Tensor Core 消费。</b>蓝色为 GMEM→SMEM 异步拷贝，绿色为 Tensor Core MMA，红色虚线为 <code>wait_group 1</code> 同步点。填充阶段（灰色）是流水线未满时计算单元空转。</figcaption>
 </figure>
 
 <p>流水线的关键是 stage 数的选择。每个 stage 需要存一块 A（BM&times;BK）和一块 B（BK&times;BN）。以 BM=BN=128、BK=32 为例：</p>
@@ -384,196 +392,239 @@ wmma::store_matrix_sync(C + row0 * N + col0, out, N,
 \text{每 stage} = (128 \times 32 + 32 \times 128) \times 2\,\text{B} = 16\,\text{KB}
 \]
 
-<p>A100 每 SM 共享内存上限 164 KB（需要通过 <code>cudaFuncSetAttribute(..., cudaFuncAttributeMaxDynamicSharedMemorySize, 164*1024)</code> 显式 opt-in，否则默认只有 48 KB）。三个 stage 占 48 KB，正好在默认限制内；如果想 stage=4 就是 64 KB，需要 opt-in 但仍然可行。更多 stage 意味着更好的延迟隐藏——理想情况下，stage 数应该使搬运延迟完全被计算延迟掩盖。A100 的 HBM 延迟约 400 ns，Tensor Core 每个 K 步（BK=32 的 16&times;8&times;16 MMA）的计算时间约 50–80 ns，所以需要 \(\lceil 400/60 \rceil \approx 7\) 个 stage 才能完全掩盖——但 7 个 stage 需要 112 KB SMEM，加上 epilogue 缓冲就超出 164 KB 了。实践中 3–4 个 stage 是 SMEM 占用和延迟隐藏的平衡点。</p>
+<p>A100 每 SM 共享内存上限 164 KB、每 block 上限 163 KB；超过 48 KB 必须用动态共享内存并通过 <code>cudaFuncSetAttribute(..., cudaFuncAttributeMaxDynamicSharedMemorySize, bytes)</code> 显式 opt-in<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>。三个 stage 占 48 KB，正好在不需要 opt-in 的范围内；stage=4 就是 64 KB，需要 opt-in 但仍然可行。更多 stage 意味着更好的延迟隐藏——粗略地说，需要的 stage 数约为&ldquo;一次 GMEM&rarr;SMEM 搬运的延迟 &divide; 一个 stage 的计算时间&rdquo;再加一。代价是 SMEM：每多一个 stage 多 16 KB，SMEM 用得越多，每 SM 能同时驻留的 block 越少。本篇的代码取 3 个 stage；具体取多少应当在目标 GPU 上实测。</p>
 
-<p>选择 stage 数时还有一个容易忽略的因素：<b>编译器的寄存器分配</b>。更多 stage 意味着主循环中同时存在更多活跃的 SMEM 指针和 stage 计数器，编译器需要额外寄存器来追踪它们。如果 stage 数从 3 增加到 5，寄存器用量可能增加 10–20 个，导致 occupancy 从 2 个 block 降到 1 个——失去的延迟隐藏机会（来自更少的可调度 warp）可能反而超过多出的流水线深度带来的收益。所以增加 stage 数并非总是正收益，需要用 Nsight Compute 实测。</p>
+<p>选择 stage 数时还有一个容易忽略的因素：<b>编译器的寄存器分配</b>。更多 stage 意味着主循环中同时存在更多活跃的 SMEM 指针和 stage 计数器，编译器需要额外寄存器来追踪它们。如果寄存器用量因此越过某个阈值，每 SM 能驻留的 block 数会下降——失去的延迟隐藏机会（来自更少的可调度 warp）可能反而超过多出的流水线深度带来的收益。所以增加 stage 数并非总是正收益，需要用 Nsight Compute 实测。</p>
 
-<p>流水线的代码骨架：先用 <code>cp_async_tile</code> 预填 STAGES&minus;1 个 stage，然后在 K 循环中每次：发射下一个 tile 的异步拷贝、commit、<code>wait_prior(STAGES-2)</code> 确保最早的 tile 已到、执行 MMA。先看 <code>cp_async_tile</code> 的实现——每个线程根据自身 <code>tid</code> 算出负责搬运的 A 和 B 的行列位置，用 <code>__pipeline_memcpy_async</code> 发起 16 字节（即 8 个 FP16 值）的异步拷贝，目标地址经 swizzle 处理：</p>
+<p>先看搬运。每个 stage 的 A tile（128&times;32 FP16）和 B tile（32&times;128 FP16）各是 8 KB = 512 个 16 字节块，256 个线程每人各搬 A、B 的 2 块。每次 <code>cp.async.cg</code> 搬 16 字节（8 个 FP16），目标是共享内存里经 swizzle 的偏移：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_mma_sync.cu#L32-L43"><code>    auto cp_async_tile = [&amp;](int stage, int k_offset) {
-        const int row_a = tid / (BK / 8);
-        const int col_a = (tid % (BK / 8)) * 8;
-        const __half* gA = A + (by * BM + row_a) * K
-                           + k_offset + col_a;
-        uint32_t dst_a = swizzle(
-            __cvta_generic_to_shared(
-                &amp;sA[stage * BM * BK + row_a * BK + col_a]));
-        __pipeline_memcpy_async(
-            reinterpret_cast&lt;void*&gt;(dst_a),
-            gA, 16);</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_mma_sync.cu</code> 第 32–43 行（未在 GPU 上运行）</p>
+<pre data-code="code/gm25-ampere-hgemm/hgemm_common.cuh#L43-L57"><code>// Stage one BMxBK tile of A and one BKxBN tile of B.
+// Each tile is 512 chunks of 16 B: 2 + 2 per thread.
+__device__ __forceinline__ void load_tile(
+    uint32_t sa, uint32_t sb, const half* A,
+    const half* B, int N, int K, int m0, int n0,
+    int k0, int tid) {
+#pragma unroll
+  for (int i = 0; i &lt; 2; ++i) {
+    int c = tid + i * NTHREADS;      // chunk 0..511
+    int ra = c / 4, qa = c % 4;      // A: 128 x 4
+    cp_async16(sa + swz_a(ra * 64 + qa * 16),
+               A + (size_t)(m0 + ra) * K + k0 + qa * 8);
+    int rb = c / 16, qb = c % 16;    // B: 32 x 16
+    cp_async16(sb + swz_b(rb * 256 + qb * 16),
+               B + (size_t)(k0 + rb) * N + n0 + qb * 8);</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_common.cuh</code> 第 43–57 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-<p>每个线程搬运 16 字节（8 个 FP16），256 线程一轮共搬 4096 字节。对于 A 矩阵（BM&times;BK = 128&times;32 = 4096 个 FP16 = 8192 字节），需要两轮协作搬运。<code>__cvta_generic_to_shared</code> 把共享内存指针转为 32 位地址（SMEM 只有 ~200 KB，32 位够用），然后对这个地址做 swizzle——写入侧和读取侧用同一个 XOR 公式才能正确匹配。这段代码也展示了 <code>cp.async</code> 的一个实际限制：每次只能搬 4/8/16 字节（一个事务粒度），不能搬整个 tile——所以仍然需要整个 block 的线程协作，每线程搬运自己负责的那一小段数据。</p>
+<p><code>__cvta_generic_to_shared</code> 把共享内存指针转为 32 位的 shared 地址，<code>cp.async</code> 和 <code>ldmatrix</code> 都用这种地址；写入侧和读取侧必须用同一个 swizzle 函数才能对上。<code>cp.async</code> 每条指令只能搬 4、8 或 16 字节，所以仍然需要整个 block 的线程协作。</p>
 
-<p>接下来是主循环骨架——预填、commit、wait、执行：</p>
+<p>主循环的顺序是：预填 STAGES&minus;1 个 stage；每次迭代先 <code>cp.async.wait_group STAGES-2</code>（最多允许最近的 1 组还在路上，于是第 kt 块已到），再 <code>__syncthreads()</code>——它既让所有线程的拷贝对全 block 可见，也保证没人还在读上一轮用过的 stage，然后才往那个 stage 预取第 kt+2 块，最后计算第 kt 块。即使没有东西可预取也要 commit 一个空组，让&ldquo;最近 N 组&rdquo;的计数保持一致：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_mma_sync.cu#L56-L68"><code>    for (int s = 0; s &lt; STAGES - 1; ++s) {
-        cp_async_tile(s, s * BK);
-        __pipeline_commit();
+<pre data-code="code/gm25-ampere-hgemm/hgemm_mma_sync.cu#L26-L59"><code>  // Prologue: stages 0 .. STAGES-2 in flight.
+  for (int s = 0; s &lt; STAGES - 1; ++s) {
+    if (s &lt; KT)
+      load_tile(sA + s * A_BYTES, sB + s * B_BYTES,
+                A, B, N, K, m0, n0, s * BK, tid);
+    cp_async_commit();
+  }
+
+  for (int kt = 0; kt &lt; KT; ++kt) {
+    // At most STAGES-2 newer groups may still be in
+    // flight, so the group of tile kt has landed.
+    cp_async_wait&lt;STAGES - 2&gt;();
+    // Make every thread's copies visible, and make
+    // sure nobody still reads stage (kt - 1) % STAGES,
+    // which the prefetch below overwrites.
+    __syncthreads();
+    int pf = kt + STAGES - 1;
+    if (pf &lt; KT) {
+      int ps = pf % STAGES;
+      load_tile(sA + ps * A_BYTES, sB + ps * B_BYTES,
+                A, B, N, K, m0, n0, pf * BK, tid);
     }
+    cp_async_commit();  // possibly empty: keeps count
 
-    for (int k = 0; k &lt; K / BK; ++k) {
-        int fetch = (k + STAGES - 1) % STAGES;
-        if (k + STAGES - 1 &lt; K / BK) {
-            cp_async_tile(fetch, (k + STAGES - 1) * BK);
-        }
-        __pipeline_commit();
-        __pipeline_wait_prior(STAGES - 2);
-        __syncthreads();</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_mma_sync.cu</code> 第 56–68 行（未在 GPU 上运行）</p>
+    const int st = kt % STAGES;
+#pragma unroll
+    for (int kk = 0; kk &lt; BK; kk += 16) {
+      uint32_t af[4][4], bf[4][2];
+      load_frags(af, bf, sA + st * A_BYTES,
+                 sB + st * B_BYTES, wm, wn, kk, lane);
+      mma_tile(acc, af, bf);
+    }
+  }
+  cp_async_wait&lt;0&gt;();</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_mma_sync.cu</code> 第 26–59 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-<h2 id=”sec-regdbuf” id="sec-2">寄存器双缓冲</h2>
+<h2 id="sec-regdbuf">寄存器双缓冲</h2>
 
-<p><code>ldmatrix</code> 从共享内存加载到寄存器也有延迟（通常 20–30 个周期，取决于 SMEM bank conflict 和 warp scheduling）。如果在同一个 K-chunk 内串行执行&ldquo;load → MMA → load → MMA&rdquo;，Tensor Core 会在 <code>ldmatrix</code> 期间空转——这在 Nsight Compute 的 warp stall 分析中表现为 <code>stall_mio_throttle</code>（memory IO 占满发射槽导致 Tensor Core 空闲）。</p>
+<p><code>ldmatrix</code> 从共享内存加载到寄存器也有延迟（且 bank conflict 会让它更长）。如果在同一个 K-chunk 内串行执行&ldquo;load → MMA → load → MMA&rdquo;，每条 MMA 都要等它的 <code>ldmatrix</code> 返回，Tensor Core 在等待期间空转。</p>
 
-<p>寄存器双缓冲的核心思想和 SMEM 双缓冲一样——流水线化：声明两组 fragment（<code>frag_a[2][4]</code>、<code>frag_b[2][2]</code>），先加载 buf 0 和 buf 1，然后在每次 K 步内交替&ldquo;用 buf 0 做 MMA 的同时加载 buf 1&rdquo;和&ldquo;用 buf 1 做 MMA 的同时加载 buf 0&rdquo;。warp scheduler 会在 MMA 指令的执行延迟期间调度 ldmatrix 指令，两者的执行流水线重叠。这是三级搬运流水线之上的第四级——从 GMEM 到 SMEM 到 register 到 Tensor Core，每一级都有自己的双缓冲或多缓冲来隐藏延迟。</p>
+<p>寄存器双缓冲的核心思想和 SMEM 双缓冲一样——流水线化：声明两组 fragment（<code>af[2][4][4]</code>、<code>bf[2][4][2]</code>），先加载第 0 个 k16 步的 fragment，然后每一步先发下一步的 <code>ldmatrix</code>、再发这一步的 16 条 <code>mma.sync</code>。warp scheduler 会在 MMA 指令的执行延迟期间调度 ldmatrix 指令，两者的执行流水线重叠。这是三级搬运流水线之上的第四级——从 GMEM 到 SMEM 到 register 到 Tensor Core，每一级都有自己的双缓冲或多缓冲来隐藏延迟。</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L72-L84"><code>    for (int k = 0; k &lt; K / BK; ++k) {
-        int stage = k % STAGES;
-        __pipeline_wait_prior(STAGES - 2);
-        __syncthreads();
-
-        load_frag(0, stage, 0);
-        load_frag(1, stage, 1);
-        mma_frag(0);
-        mma_frag(1);
-
-        __syncthreads();
-        __pipeline_commit();
+<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L64-L78"><code>    // Register double buffering inside the stage:
+    // fragments of k-step ks+1 are loaded before the
+    // mma of k-step ks is issued.
+    const uint32_t sa = sA + (kt % STAGES) * A_BYTES;
+    const uint32_t sb = sB + (kt % STAGES) * B_BYTES;
+    uint32_t af[2][4][4], bf[2][4][2];
+    load_frags(af[0], bf[0], sa, sb, wm, wn, 0, lane);
+#pragma unroll
+    for (int ks = 0; ks &lt; BK / 16; ++ks) {
+      const int cur = ks &amp; 1;
+      if (ks + 1 &lt; BK / 16)
+        load_frags(af[cur ^ 1], bf[cur ^ 1], sa, sb,
+                   wm, wn, (ks + 1) * 16, lane);
+      mma_tile(acc, af[cur], bf[cur]);
     }</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 72–84 行（未在 GPU 上运行）</p>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 64–78 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-<p>代价是寄存器压力翻倍：原来需要 4+2=6 个 32 位寄存器存 fragment，现在需要 12 个。加上累加器（每个 16&times;8 tile 需要 4 个 FP32 寄存器，如果 block 内有多个 warp tile 则乘以 warp tile 数），总寄存器用量可能达到 100–150 个。这会降低 occupancy——但 Tensor Core GEMM 对 occupancy 的需求和 CUDA core GEMM 截然不同。CUDA core GEMM 需要高 occupancy 来隐藏 FMA 流水线延迟（~4 周期），而 Tensor Core 的 MMA 指令延迟虽然更长（~16 周期），但一条指令做的工作量也大得多（8192 vs 2 FLOP），所以只需要 1–2 个 active warp 就能喂饱 Tensor Core 的吞吐。换句话说：Tensor Core GEMM 的瓶颈几乎总是搬运而非 occupancy，因此用寄存器换搬运效率是正确的权衡。</p>
 
-<p>具体算一下寄存器预算。对每 warp 处理 16&times;16 output tile 的配置：累加器需要 8 个 FP32 寄存器（两条 m16n8k16 各输出 4 个），fragment 双缓冲需要 \(2 	imes (4 + 2) = 12\) 个 32 位寄存器，加上地址计算和循环变量约 30 个临时寄存器，总计约 50 个——在 A100 每线程 255 个上限内有大量余量。如果把 warp tile 扩大到 64&times;64（每 warp 拥有 16 个 16&times;16 的 MMA 输出块，共 128 个 FP32 累加器），寄存器用量飙升到 160+，occupancy 降到每 SM 只有 1 个 block，但每个 warp 在一次 K 步内发射 16 条 MMA 指令，足以填满 Tensor Core 流水线。这种大 warp tile + 低 occupancy 正是 CUTLASS 3.x warpgroup-level MMA 的设计思路。</p>
+<p>本篇的 BK=32 每个 stage 只有两个 k16 步，所以这里的双缓冲只在一个 stage 内部预取；跨 stage 预取（在等下一个 stage 之前就加载它的第一步 fragment）要把等待和同步的位置一起调整，留给 CUTLASS 这类完整实现。代价是 fragment 寄存器翻倍：一组是 \(4 \times 4 + 4 \times 2 = 24\) 个 32 位寄存器，两组 48 个。加上累加器（每个 16&times;8 输出块每线程 4 个 FP32 寄存器，warp tile 越大乘得越多），寄存器用量会明显上升并降低 occupancy。但 Tensor Core GEMM 对 occupancy 的需求和 CUDA core GEMM 不同：一条 MMA 指令做 2048 次乘加，而一条 FMA 指令（整个 warp）只做 32 次，所以要让 Tensor Core 忙起来所需的在途 warp 数少得多——瓶颈通常在搬运而非 occupancy，用寄存器换数据复用是常见的权衡。</p>
+
+<p>具体算一下寄存器预算：64 个 FP32 累加器 + 48 个 fragment 寄存器 + 地址和循环变量，每线程一百多个寄存器，在 A100 每线程 255 个的上限之内；256 线程的 block 若每线程用 160 个寄存器，\(256 \times 160 = 40960\) 个，每 SM（65536 个）只能驻留 1 个 block<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>。换来的是每个 warp 在一个 k16 步内发 16 条 m16n8k16、A 和 B 的每个 fragment 都被复用 4 次。</p>
 
 <h2 id="sec-raster">Threadblock swizzle 与 L2 复用</h2>
 
-<p>GEMM 的 grid 是一个 (M/BM) &times; (N/BN) 的二维网格。如果用默认的行优先发射（blockIdx.x 先变），同一行的 CTA 读 A 的同一行块但读 B 的不同列块（<a href="#fig-raster">图 4</a>）。对于 M=N=4096、BN=128 的情况，一行有 32 个 CTA，它们的 B 列块总共 32&times;128&times;K&times;2 字节——远超 A100 的 40 MB L2。CTA 0 加载的 B 列块在 CTA 6 执行时就已被逐出——下一行的 CTA 只能重新从 HBM 加载。</p>
+<p>GEMM 的 grid 是一个 (M/BM) &times; (N/BN) 的二维网格。如果用默认的行优先发射（blockIdx.x 先变），连续发射的 CTA 读 A 的同一行块、B 的不同列块（<a href="#fig-raster">图 4</a>）。对于 M=N=K=4096、BN=128、FP16，一个 B 列块是 \(4096 \times 128 \times 2 = 1\) MB，一行 32 个 CTA 要读 32 MB 的 B，已接近 A100 的 40 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>——再加上 A 和其他并发 CTA 的数据，下一行 CTA 再需要某个 B 列块时，它可能已经被逐出，只能重新从 HBM 加载。</p>
 
 <figure id="fig-raster" data-kind="diagram">
 <img aria-labelledby="fig-raster-cap" src="figs/block_rasterization.svg" alt="行优先 vs 条带交错遍历的 L2 复用"/>
-<figcaption id="fig-raster-cap"><span class="fig-label">图 4</span><b>行优先遍历（a）导致 B 的列块在 L2 中无复用；条带交错遍历（b）让同一条带内的 CTA 共享 B 的列块。</b>条带宽度 STRIP=4 意味着同一列的 4 个 CTA 连续执行，它们读同一块 B——3/4 命中 L2。</figcaption>
+<figcaption id="fig-raster-cap"><span class="fig-label">图 4</span><b>行优先遍历（a）下，同一个 B 列块要隔一整行 CTA 才被再次读取；条带交错遍历（b）让同一条带内连续发射的 CTA 读同一个 B 列块。</b>条带宽度 STRIP=4 意味着同一列的 4 个 CTA 连续发射。示意图，非实测命中率。</figcaption>
 </figure>
 
-<p>条带（strip）交错遍历的做法很简单——把 CUDA 分配的线性 CTA 索引重新映射为逻辑上的 (bx, by) 坐标，使得连续发射的 CTA 在 M 维度上相邻而非在 N 维度上相邻。实现只需要在 kernel 开头加几行整数运算——零额外开销：</p>
+<p>条带（strip）交错遍历的做法很简单——把线性 CTA 索引重新映射为逻辑上的 (tile 行, tile 列)，使得连续发射的 CTA 在 M 维度上相邻而非在 N 维度上相邻。要注意 M 方向的 tile 数不一定是 STRIP 的倍数：最后一个条带更矮，映射必须按实际行数取模，否则会有 tile 没人算：</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L105-L111"><code>    constexpr int STRIP = 4;
-    int linear = blockIdx.x + blockIdx.y * gridDim.x;
-    int strip_id = linear / (STRIP * gridDim.x);
-    int in_strip = linear % (STRIP * gridDim.x);
-    int bx = in_strip / STRIP;
-    int by = strip_id * STRIP + in_strip % STRIP;
-    if (by >= M / BM) return;</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 105–111 行（未在 GPU 上运行）</p>
+<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L16-L26"><code>__device__ __forceinline__ void strip_swizzle(
+    int&amp; tm, int&amp; tn) {
+  const int gx = gridDim.x, gy = gridDim.y;
+  int lin = blockIdx.y * gx + blockIdx.x;
+  int strip = lin / (STRIP * gx);
+  int left = gy - strip * STRIP;
+  int rows = left &lt; STRIP ? left : STRIP;
+  int in = lin - strip * STRIP * gx;
+  tn = in / rows;
+  tm = strip * STRIP + in % rows;
+}</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 16–26 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-<p>STRIP 的选择取决于 L2 容量与 B 列块大小的比值。以 A100（40 MB L2）、K=4096、FP16 为例：一列 B 块 = K &times; BN &times; 2 = 4096 &times; 128 &times; 2 = 1 MB。如果用行优先遍历，一行的所有 CTA 读 32 个不同的 B 列块 = 32 MB，接近 L2 容量——当下一行的 CTA 开始时，第一行加载的 B 数据已经被部分逐出。STRIP=4 时，连续 4 个 CTA 读同一个 B 列块，只有每 4 个 CTA 换一次——L2 命中率从 \(\approx 0\%\) 提到 \(\approx 75\%\)（4 个 CTA 中 3 个命中 L2）。</p>
 
-<p>Threadblock swizzle 对性能的影响在大矩阵上尤其显著。以 M=N=4096、BM=BN=128 为例，grid 大小为 32&times;32 = 1024 个 CTA。没有 swizzle 时，B 的总 HBM 读量为 \(32 \times 32 \times 1\,\text{MB} = 1024\,\text{MB}\)；STRIP=4 的 swizzle 后，只有 \(32 \times 32 / 4 \times 1\,\text{MB} = 256\,\text{MB}\) 是真正的 HBM miss——总共节省 768 MB 的 HBM 带宽，在 A100 2.0 TB/s 上相当于省了 0.38 ms，对一个 ~2 ms 的 kernel 来说提速约 20%。</p>
+<p>STRIP 的选择取决于 L2 容量、B 列块大小以及同时在跑的 CTA 数。一个只看发射顺序的粗略上界：STRIP=4 时连续 4 个 CTA 读同一个 B 列块，如果后 3 个都命中 L2，B 的 HBM 读取量最多降到原来的 1/4。实际命中率还取决于并发度——A100 有 108 个 SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，同一时刻在跑的 CTA 本来就覆盖好几行网格，彼此之间也会共享 B——所以真实收益必须用 Nsight Compute 的 L2 命中率和 DRAM 读取量来测。</p>
+
+
 
 <h2 id="sec-epilogue">Epilogue：从累加器到全局内存</h2>
 
-<p><code>mma.sync</code> 的输出分布在 warp 的 32 个线程中——每线程持有输出矩阵中<b>不连续</b>的元素（<a href="#fig-epilogue">图 5</a>）。如果直接写全局内存，每线程写 2 字节的 FP16 值到不同地址，事务宽度只有 32B 而非理想的 128B，带宽利用率约 25%。</p>
+<p><code>mma.sync</code> 的输出分布在 warp 的 32 个线程中——每线程持有输出矩阵中<b>不连续</b>的元素（<a href="#fig-epilogue">图 5</a>）。如果直接逐元素写全局内存，一条存储指令里 32 个线程各写 2 字节的 FP16，分布在 8 行上：有用数据 64 字节，却触及 8 个 32 字节 sector（256 字节），利用率 25%。</p>
 
 <figure id="fig-epilogue" data-kind="diagram">
 <img aria-labelledby="fig-epilogue-cap" src="figs/epilogue_flow.svg" alt="Epilogue 数据流"/>
-<figcaption id="fig-epilogue-cap"><span class="fig-label">图 5</span><b>Epilogue 数据流：FP32 累加器经可选的融合操作后转为 FP16，先写共享内存、再由全 block 合并写回全局内存。</b>中间经过共享内存是因为 MMA 输出在各线程中的分布不连续，直接写 GMEM 的事务宽度只有 ~32B。</figcaption>
+<figcaption id="fig-epilogue-cap"><span class="fig-label">图 5</span><b>Epilogue 数据流：FP32 累加器经可选的融合操作后转为 FP16，先写共享内存、再由全 block 合并写回全局内存。</b>中间经过共享内存是因为 MMA 输出在各线程中的分布不连续，直接逐元素写 GMEM 时每条存储指令只用到所触 sector 的 25%。</figcaption>
 </figure>
 
-<p>标准做法是经过共享内存中转：每线程把自己的累加值（可选地融合 bias、activation）写到共享内存中按行主序排列的位置，<code>__syncthreads()</code> 后，全 block 的线程用连续索引从共享内存读出并合并写回全局内存。这个过程的 SMEM 用量是 BM&times;BN&times;2 字节（FP16 输出），对 128&times;128 的 tile 是 32 KB——可以复用主循环的某个 stage 的 SMEM，不需要额外分配。</p>
+<p>标准做法是经过共享内存中转：每线程把自己的累加值（可选地融合 bias、activation）写到共享内存中按行主序排列的位置，<code>__syncthreads()</code> 后，全 block 的线程用连续索引从共享内存读出并合并写回全局内存。这个过程的 SMEM 用量是 BM&times;BN&times;2 字节（FP16 输出），对 128&times;128 的 tile 是 32 KB；代码里每行多留 8 个元素（行宽 136）以错开 bank，共 34 KB，直接复用流水线的 48 KB——前提是先 <code>cp.async.wait_group 0</code> 并 <code>__syncthreads()</code>，确认流水线的共享内存不再被使用。写回时每个线程一次搬 16 字节（<code>uint4</code>），一行 128 个 FP16 由 16 个线程连续写出。</p>
 
-<p>Epilogue 融合是高性能 GEMM 库的关键能力——cuBLAS 和 CUTLASS<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。">5</a>]</span> 都支持在 epilogue 里融合 bias add、ReLU/GeLU/SiLU 激活、残差连接、甚至输出量化（FP16&rarr;INT8/FP8），避免额外的 kernel launch 和全局内存读写。以 Transformer 的投影层为例：没有融合时，GEMM 写回 C（一次全局写）、bias add kernel 读 C + 写 C（一读一写）、GeLU kernel 读 C + 写 C（一读一写），总共 5 次 C 大小的全局内存访问；融合后只有 1 次全局写，省了 80% 的 epilogue 带宽。对于 memory-bound 的小矩阵乘（如推理时 batch=1 的 GEMM），epilogue 融合甚至比主循环的优化更重要。</p>
+<p>Epilogue 融合是高性能 GEMM 库的关键能力——cuBLAS 和 CUTLASS<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。">4</a>]</span> 都支持在 epilogue 里融合 bias add、ReLU/GeLU/SiLU 激活、残差连接、甚至输出量化（FP16&rarr;INT8/FP8），避免额外的 kernel launch 和全局内存读写。以 Transformer 的投影层为例：没有融合时，GEMM 写回 C（一次全局写）、bias add kernel 读 C + 写 C（一读一写）、GeLU kernel 读 C + 写 C（一读一写），总共 5 次 C 大小的全局内存访问；融合后只有 1 次全局写，省了 80% 的 epilogue 带宽。对于 memory-bound 的小矩阵乘（如推理时 batch=1 的 GEMM），epilogue 融合甚至比主循环的优化更重要。</p>
 
-<p>从系统视角看，epilogue 融合的价值还体现在&ldquo;消除 kernel launch 开销&rdquo;。每个独立的 elementwise kernel（bias add、activation、quantize）都需要一次 grid launch（~5 &mu;s 在 Ampere 上），加上 SMEM 和寄存器的重新分配。对于一个 ~15 &mu;s 的小矩阵乘来说，三个 epilogue kernel 的 launch 开销（15 &mu;s）就已经等于主 GEMM 本身了。融合后只需要一次 launch、一次 SMEM 分配，计算完成后直接从寄存器写回——从 4 个 kernel 变成 1 个。在推理服务中，这种微秒级的优化累积到整个 Transformer 层（6 个 GEMM + 若干 elementwise），可以节省 15–20% 的端到端延迟。</p>
+<p>从系统视角看，epilogue 融合还省掉了 kernel launch：每个独立的 elementwise kernel（bias add、activation、quantize）都要单独启动一次。对本身只跑几十微秒甚至更短的小矩阵乘，这些启动开销和额外的全局读写占比不小——融合后从多个 kernel 变成 1 个。</p>
 
-<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L172-L187"><code>    __shared__ __half epilogue_smem[BM * BN];
-    int row0 = (warpId / 2) * 16;
-    int col0 = (warpId % 2) * 8;
-    for (int i = 0; i &lt; 4; ++i) {
-        int r = row0 + (laneId / 4) + (i / 2) * 8;
-        int c = col0 + (laneId % 4) * 2 + (i % 2);
-        epilogue_smem[r * BN + c] = __float2half(acc[i]);
+<pre data-code="code/gm25-ampere-hgemm/hgemm_optimized.cu#L83-L106"><code>  // Epilogue: fragments -&gt; smem (row stride CS) -&gt;
+  // 16-byte coalesced stores of whole rows.
+  half* Cs = reinterpret_cast&lt;half*&gt;(smem);
+  const int g = lane / 4, tq = lane % 4;
+#pragma unroll
+  for (int mi = 0; mi &lt; 4; ++mi)
+#pragma unroll
+    for (int ni = 0; ni &lt; 4; ++ni) {
+      int r = wm + mi * 16 + g;
+      int c = wn + ni * 8 + tq * 2;
+      const float* d = acc[mi][ni];
+      *reinterpret_cast&lt;half2*&gt;(Cs + r * CS + c) =
+          __floats2half2_rn(d[0], d[1]);
+      *reinterpret_cast&lt;half2*&gt;(Cs + (r + 8) * CS + c) =
+          __floats2half2_rn(d[2], d[3]);
     }
-    __syncthreads();
+  __syncthreads();
+  for (int i = tid; i &lt; BM * BN / 8; i += NTHREADS) {
+    int r = i / (BN / 8), q = i % (BN / 8);
+    uint4 v = *reinterpret_cast&lt;const uint4*&gt;(
+        Cs + r * CS + q * 8);
+    *reinterpret_cast&lt;uint4*&gt;(
+        C + (size_t)(m0 + r) * N + n0 + q * 8) = v;
+  }</code></pre>
+<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 83–106 行（未在 GPU 上运行；index 计算已用 CPU 仿真核对，见局限一节）</p>
 
-    for (int idx = tid; idx &lt; BM * BN; idx += 256) {
-        int r = by * BM + idx / BN;
-        int c = bx * BN + idx % BN;
-        if (r &lt; M &amp;&amp; c &lt; N)
-            C[r * N + c] = epilogue_smem[idx];
-    }</code></pre>
-<p class="src-note">完整代码：<code>code/gm25-ampere-hgemm/hgemm_optimized.cu</code> 第 172–187 行（未在 GPU 上运行）</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
-<p>Ampere 的 HGEMM 工具箱在后两代被全面替换。核心驱动力是同一个：每一代 Tensor Core 的吞吐都在翻倍（Ampere 312 TFLOPS、Hopper 约 990 TFLOPS、Blackwell 超过 2 PFLOPS），搬运和协调的硬件机制也必须同步演进——否则计算单元会因为等数据而空转。下表对比了三代架构的 GEMM 构建模块，可以看到每一代都在把搬运的职责从软件（程序员手写的 swizzle、ldmatrix、cp.async）转移到硬件（TMA、descriptor、TMEM、CLC）。</p>
+<p>Ampere 的 HGEMM 工具箱在后两代被全面替换。核心驱动力是同一个：每一代 Tensor Core 的稠密 FP16 吞吐都大幅提高（A100 312 TFLOPS、H100 SXM 约 990 TFLOPS、HGX B200 每 GPU 约 2.25 PFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>），搬运和协调的硬件机制也必须同步演进——否则计算单元会因为等数据而空转。下表对比了三代架构的 GEMM 构建模块，可以看到每一代都在把搬运的职责从软件（程序员手写的 swizzle、ldmatrix、cp.async）转移到硬件（TMA、矩阵描述符、TMEM、CLC）。</p>
 
 <table data-source="paper">
-<caption><b>三代 GEMM 构建模块对比。</b>数据来自 NVIDIA PTX ISA 9.4、CUDA 编程指南 12.8 及 CUTLASS 文档。</caption>
+<caption><b>三代 GEMM 构建模块对比。</b>依据 PTX ISA 9.4<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。">5</a>]</span>（wgmma、tcgen05 各节）与本系列 <code>_notes/hw-facts.md</code><span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>。</caption>
 <thead>
 <tr><th>组件</th><th>Ampere (sm_80)</th><th>Hopper (sm_90a)</th><th>Blackwell (sm_100a)</th></tr>
 </thead>
 <tbody>
-<tr><td>矩阵乘指令</td><td><code>mma.sync</code> m16n8k16</td><td><code>wgmma.mma_async</code> m64n*k16</td><td><code>tcgen05.mma</code> m256n*k*</td></tr>
+<tr><td>矩阵乘指令</td><td><code>mma.sync</code> m16n8k16</td><td><code>wgmma.mma_async</code> m64nNk16（16 位输入）</td><td><code>tcgen05.mma</code>，单 CTA M=64/128，CTA pair 最大 M=256</td></tr>
 <tr><td>发射粒度</td><td>1 warp (32 线程)</td><td>1 warpgroup (128 线程)</td><td>1 线程</td></tr>
-<tr><td>A 操作数来源</td><td>寄存器 (ldmatrix)</td><td>共享内存 (64b descriptor)</td><td>TMEM</td></tr>
-<tr><td>GMEM→SMEM</td><td><code>cp.async</code></td><td>TMA (一线程一 tile)</td><td>TMA + CLC</td></tr>
-<tr><td>流水线协调</td><td>commit_group/wait_prior</td><td>mbarrier (arrive/wait)</td><td>mbarrier + CLC fence</td></tr>
-<tr><td>bank 冲突</td><td>需 XOR swizzle</td><td>TMA + descriptor 自动处理</td><td>TMEM 无 bank 概念</td></tr>
-<tr><td>L2 复用</td><td>threadblock swizzle</td><td>persistent + tile scheduler</td><td>persistent + CLC</td></tr>
-<tr><td>典型 stage 数</td><td>3–4</td><td>4–8</td><td>2 (PIPE_DEPTH)</td></tr>
+<tr><td>操作数来源</td><td>A、B 都在寄存器（ldmatrix）</td><td>A：SMEM 描述符或寄存器；B：SMEM 描述符；累加器在寄存器</td><td>A：SMEM 描述符或 TMEM；B：SMEM 描述符；累加器在 TMEM</td></tr>
+<tr><td>GMEM→SMEM</td><td><code>cp.async</code></td><td>TMA（一线程一 tile）</td><td>TMA</td></tr>
+<tr><td>流水线协调</td><td>cp.async.commit_group / wait_group</td><td>mbarrier（arrive/wait，tx-count）</td><td>mbarrier + <code>tcgen05.commit</code></td></tr>
+<tr><td>bank 冲突</td><td>手写 XOR swizzle</td><td>TMA 按描述符里的 swizzle 模式写 SMEM，MMA 描述符按同一模式读</td><td>同 Hopper（A/B 仍在 SMEM）</td></tr>
+<tr><td>L2 复用 / 调度</td><td>threadblock swizzle</td><td>persistent kernel + tile scheduler</td><td>persistent kernel + CLC（work stealing）</td></tr>
 </tbody>
 </table>
 
-<p>Hopper（<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>）用 WGMMA 取代 mma.sync——发射粒度从 warp（32 线程）升级到 warpgroup（128 线程，即 4 个 warp），指令形状从 m16n8k16 扩大到 m64n*k16（n 可选 8/16/32/...256），一条指令的吞吐远超 Ampere。A 操作数直接从共享内存读取（通过 64 位描述符指定 SMEM 中的矩阵位置和布局），不再需要 ldmatrix 加载到寄存器——这省去了大量寄存器和 ldmatrix 的延迟。B 操作数也可以来自 SMEM 或寄存器。TMA（Tensor Memory Accelerator）取代 cp.async——一个线程发一条 <code>cp.async.bulk.tensor</code> 指令就能搬一个 2D tile（包括自动的边界检查和 padding），不需要整个 warp 协作；mbarrier 取代 commit_group/wait_prior，提供更精细的异步同步原语。</p>
+<p>Hopper（<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>）用 WGMMA 取代 mma.sync——发射粒度从 warp（32 线程）升级到 warpgroup（128 线程，即 4 个 warp），指令形状从 m16n8k16 扩大到 m64nNk16（N 取 8 到 256 之间 8 的倍数）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。">5</a>]</span>。B 操作数必须通过 64 位矩阵描述符直接从共享内存读取，A 操作数可以来自共享内存描述符或寄存器——不再需要 ldmatrix 把 B 搬进寄存器，省掉了寄存器和 ldmatrix 的开销。TMA（Tensor Memory Accelerator）取代 cp.async——一个线程发一条 <code>cp.async.bulk.tensor</code> 指令就能搬一个 2D tile（包括自动的边界检查和 padding），不需要整个 warp 协作；mbarrier 取代 commit_group/wait_prior，提供更精细的异步同步原语。</p>
 
-<p>Blackwell（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）更进一步：tcgen05.mma 的发射粒度降到单线程、操作数存在专用的 TMEM（Tensor Memory，每 SM 512 KB）中、2-CTA 协作让一个 CTA 专门做 A 和 B 的 TMA 搬运、另一个 CTA 专门做 Tensor Core 计算。CLC（Cluster Launch Control）管理持久化调度——硬件自动做 tile 分配和 CTA 复用，不需要程序员手写 tile 计数器和原子操作。Blackwell 的 FP16 Tensor Core 峰值超过 2 PFLOPS（以 B200 为例），搬运压力更大——但 TMEM 没有 bank conflict 概念（它用的是 tensor-private 的寄存器文件，不是共享的 SRAM），所以 swizzle 不再需要。</p>
+<p>Blackwell（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）更进一步：<code>tcgen05.mma</code> 由单个线程发射，累加器放在专用的 TMEM（Tensor Memory，每 SM 256 KB）里<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，不再占寄存器。CTA pair（<code>cta_group::2</code>）让同一 cluster 中相邻的两个 CTA 合作完成一条 MMA：两个 CTA 各自把自己那一半操作数搬进自己的 SMEM，MMA 由其中一个 CTA 的单个线程发射，硬件同时读两个 CTA 的 SMEM（详见<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>）。CLC（Cluster Launch Control）支持 work-stealing 式的持久化调度：一个正在运行的 CTA 可以原子地&ldquo;取消&rdquo;一个尚未启动的 cluster 并接手它的坐标<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，不需要程序员手写全局 tile 计数器。A/B 操作数仍然在共享内存里，由 TMA 按 swizzle 模式写入，所以 swizzle 并没有消失，只是从手写的地址运算变成了 TMA 和矩阵描述符里的一个配置项。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：Ampere 上的 HGEMM 流水线怎么设计？</dt>
-<dd>三级 <code>cp.async</code> 流水线：共享内存分 3 个 stage，每个 stage 存一块 A（BM&times;BK）和一块 B（BK&times;BN）。预填 2 个 stage，主循环每次：发射下一个 stage 的异步拷贝 → <code>commit</code> → <code>wait_prior(1)</code> 确保最早的 stage 到达 → 执行 MMA → <code>__syncthreads()</code>。总有 2 个 tile 在搬运路上、1 个在被消费。
-<br><b>追问</b>：stage 数为什么不是 2 或 5？→ 2 个 stage 不够隐藏 HBM 延迟（A100 ~400 ns）；5 个以上共享内存不够用且收益递减。</dd>
+<dd>三级 <code>cp.async</code> 流水线：共享内存分 3 个 stage，每个 stage 存一块 A（BM&times;BK）和一块 B（BK&times;BN）。预填 2 个 stage，主循环每次：<code>cp.async.wait_group 1</code> 确保第 kt 块已到 → <code>__syncthreads()</code> → 把第 kt+2 块异步拷进上一轮用完的 stage → commit（可以是空组）→ 对第 kt 块执行 ldmatrix + MMA。总有 2 个 tile 在搬运路上、1 个在被消费。
+<br><b>追问</b>：stage 数怎么定？→ 大约是&ldquo;一次搬运的延迟 &divide; 一个 stage 的计算时间&rdquo;再加一；上限由 SMEM（每 stage 16 KB）和希望驻留的 block 数决定，最终靠实测。</dd>
 
 <dt id="sec-q2">Q2：为什么 ldmatrix 需要 swizzle？</dt>
-<dd><code>ldmatrix.m8n8.x4</code> 让 8 线程分别读共享内存的连续 4 行，每行 16B。如果行间距等于 BK&times;2=64B，4 行的低 5 位都相同——它们落在同一个 bank 上，产生四路冲突。XOR swizzle 把行号的低 3 位异或到地址的 bank 选择位，使相邻行访问不同 bank。
-<br><b>追问</b>：swizzle 函数怎么写？→ <code>addr' = addr ^ ((addr >> 4) & 0x7) << 9</code>，其中 bit[6:4] 是行号低 3 位，bit[11:9] 是 bank 选择域。</dd>
+<dd><code>ldmatrix</code> 的每个 8&times;8 矩阵由 8 个线程各指向一行 16B。行间距为 BK&times;2=64B 时，8 行只落在 bank 0–3 和 16–19 两组上，每组 4 行，四路冲突。XOR swizzle 用地址高位扰动 16B 块号，让 8 行落到 8 组不同的 bank。
+<br><b>追问</b>：swizzle 函数怎么写？→ 64B 行宽时 <code>addr' = addr ^ (((addr &gt;&gt; 7) &amp; 0x3) &lt;&lt; 4)</code>：bank 由 bit[6:2] 决定，bit[5:4] 是 16B 块号的低 2 位，bit[8:7] 是两行一组的段号。行宽变了，位移量要跟着变。</dd>
 
 <dt id="sec-q3">Q3：Threadblock swizzle 是什么？为什么有用？</dt>
-<dd>把线性 CTA 索引重新映射为 (bx, by)，使相邻 CTA 在 M 维度上组成“条带”而非在 N 维度上展开。条带内的 CTA 读同一列 B——它们的 B 工作集在 L2 中被复用。典型 STRIP=4，L2 命中率从 ~0% 提到 ~75%。
+<dd>把线性 CTA 索引重新映射为 (bx, by)，使相邻 CTA 在 M 维度上组成&ldquo;条带&rdquo;而非在 N 维度上展开。条带内连续发射的 CTA 读同一列 B——它们的 B 工作集更可能在 L2 中被复用。本篇示例取 STRIP=4；收益要看 L2 命中率和 DRAM 读取量的实测。
 <br><b>追问</b>：怎么选 STRIP？→ STRIP &times; B 列块大小 &le; L2 容量 / CTA 并发数。</dd>
 
 <dt id="sec-q4">Q4：Epilogue fusion 有哪些、为什么重要？</dt>
 <dd>在 GEMM 的写回阶段融合 bias add、激活（ReLU/GeLU/SiLU）、残差连接、输出量化（FP16→INT8/FP8）等操作。这些操作本身是 memory-bound 的 elementwise kernel——如果单独 launch，需要读写一次完整的 C 矩阵（2&times;M&times;N 字节 FP16），而融合在 epilogue 里只是在寄存器→smem 路径上多几条指令。
-<br><b>追问</b>：epilogue 经过 smem 的目的？→ MMA 输出分布在 warp 的各线程中且不连续，直接写 GMEM 只有 ~25% 带宽利用率；经 smem 重排后用连续索引写回，达到 ~100%。</dd>
+<br><b>追问</b>：epilogue 经过 smem 的目的？→ MMA 输出分布在 warp 的各线程中且不连续，逐元素直接写 GMEM 时一条存储指令只用到所触 sector 的 25%（64B / 8&times;32B）；经 smem 重排后按行连续写回，可接近 100%。</dd>
 
 <dt id="sec-q5">Q5：cp.async 和普通的 shared memory load 有什么区别？</dt>
-<dd><code>cp.async</code> 是硬件级的异步拷贝指令，绕过寄存器直接从全局内存拷贝到共享内存——数据不经过寄存器文件，节省寄存器带宽。它在发射后立即返回，warp 可以继续执行其他指令。配合 <code>commit_group</code> 和 <code>wait_prior</code>，可以精确控制哪些拷贝已经完成。而普通的 SMEM load 需要先用 LDG 从 GMEM 读到寄存器（延迟 ~400 个周期），再用 STS 从寄存器写到 SMEM——占两次寄存器读写、两条指令的发射槽。
+<dd><code>cp.async</code> 是硬件级的异步拷贝指令，绕过寄存器直接从全局内存拷贝到共享内存——数据不经过寄存器文件，节省寄存器带宽。它在发射后立即返回，warp 可以继续执行其他指令。配合 <code>cp.async.commit_group</code> 和 <code>cp.async.wait_group</code>，可以精确控制哪些拷贝已经完成。而传统做法需要先用 LDG 从 GMEM 读到寄存器，再用 STS 从寄存器写到 SMEM——数据要经过寄存器，且 STS 必须等 LDG 的数据返回。
 <br><b>追问</b>：cp.async 能用在 Volta 上吗？→ 不能，cp.async 是 Ampere（sm_80）引入的。Volta 只能用传统的 LDG + STS 路径。</dd>
 
 <dt id="sec-q6">Q6：为什么 Tensor Core GEMM 不需要高 occupancy？</dt>
-<dd>CUDA core GEMM 需要高 occupancy（每 SM 多个 active warp）来隐藏 FMA 的流水线延迟——一个 warp 在等 FMA 结果时，scheduler 切到另一个 warp 继续发射。但 Tensor Core 的一条 MMA 指令做数千次 FMA（m16n8k16 是 4096 FLOP），即使延迟是 16 个周期，一个 warp 在等的时候另一个 warp 发一条 MMA 就够了。实际上 Tensor Core GEMM 的瓶颈几乎总是搬运（SMEM→register 或 GMEM→SMEM），而非计算流水线的气泡。所以用更多寄存器换更好的数据复用（降 occupancy 但减少搬运）是正确的方向。
+<dd>CUDA core GEMM 需要高 occupancy（每 SM 多个 active warp）来隐藏 FMA 的流水线延迟——一个 warp 在等 FMA 结果时，scheduler 切到另一个 warp 继续发射。但 Tensor Core 的一条 MMA 指令做 2048 次乘加（m16n8k16，4096 FLOP），一个 warp 发出的一条指令就够 Tensor Core 忙一阵，只要少数几个 warp 轮流发射、并且数据跟得上即可。实际上 Tensor Core GEMM 的瓶颈几乎总是搬运（SMEM→register 或 GMEM→SMEM），而非计算流水线的气泡。所以用更多寄存器换更好的数据复用（降 occupancy 但减少搬运）是正确的方向。
 <br><b>追问</b>：有没有反例？→ 有——当 K 很小时（如 K=16），MMA 只发一次，计算时间短，瓶颈可能变成 SMEM 搬运或 epilogue，此时高 occupancy 反而有帮助。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查（<code>check_cuda.sh</code>），<b>未在 GPU 上编译或运行</b>。内联 PTX（<code>ldmatrix</code>、<code>mma.sync</code>）由 clang 当作字符串跳过——其语法正确性依赖人工对照 PTX ISA 9.4 §9.7.17（mma）和 §9.7.14.6（ldmatrix）。真正编译需要 <code>nvcc -arch=sm_80</code>（Ampere）或更高。</li>
-<li>性能数字（312 TFLOPS 峰值、90–96% 利用率等）是理论推导和文献参考值，非本机实测。实际能达到多少取决于矩阵大小、内存对齐、SMEM bank conflict 的消除程度、以及 epilogue 的效率。</li>
-<li>swizzle 公式假定 BK=32（即行宽 64 字节 = 32 个 FP16，每行恰好跨越 2 个 128 字节的 bank 周期）。对其他 BK 值（如 BK=16 或 BK=64），XOR mask 的位移量需要相应调整——具体来说是修改 bit 选择域以匹配新的行间距对 bank 的映射关系。</li>
-<li>寄存器双缓冲的示例简化了 inner-K 循环：实际实现（如 CUTLASS 2.x）在 BK 内还有多次 ldmatrix + mma 的交错。</li>
-<li>Epilogue 的 bias/activation 融合在代码中未实现，只在正文中描述了原理——完整实现见 CUTLASS<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。">5</a>]</span> 的 <code>EpilogueVisitor</code> 和 <code>EVT</code>（Epilogue Visitor Tree）机制，它允许用户以声明式的方式组合任意的 epilogue 操作。</li>
-<li>FP16 的精度问题没有展开讨论。FP16 只有 10 位尾数（相对精度 \(\sim 10^{-3}\)），在大矩阵乘中累加误差可能显著。实践中 Tensor Core 的累加器用 FP32（如代码所示），所以中间精度是 FP32——只有输入和输出是 FP16。如果需要更高精度的 FP16 输出，可以用 Kahan 补偿或分块累加。</li>
-<li>性能数字（312 TFLOPS、19.5 TFLOPS、40 MB L2）来自 <code>_notes/hw-facts.md</code>（A100 SXM5 规格，各有 NVIDIA 官方出处）。</li>
+<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查（<code>check_cuda.sh</code>），<b>未在 GPU 上编译或运行</b>。内联 PTX（<code>cp.async</code>、<code>ldmatrix</code>、<code>mma.sync</code>）由 clang 当作字符串跳过——其语法依赖人工对照 PTX ISA 9.4 §9.7.10.28.3、§9.7.16.5.15、§9.7.16。真正编译需要 <code>nvcc -arch=sm_80</code>（Ampere）或更高。</li>
+<li>本篇没有任何实测数字：312 TFLOPS 等是 NVIDIA 公布的峰值<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。">2</a>]</span>，实际能达到多少取决于矩阵大小、内存对齐、SMEM bank conflict 的消除程度以及 epilogue 的效率。</li>
+<li><b>没有 GPU，代码的正确性用 CPU 仿真核对。</b><code>gm25-ampere-hgemm/plots/emulate_hgemm.py</code> 按 PTX ISA 的定义模拟 <code>ldmatrix.x4</code>（含 <code>.trans</code>）的寄存器分发、m16n8k16 的 A/B/C fragment 布局和 <code>cp.async</code> 的 commit/wait 语义，逐行照搬两个 kernel 的下标计算，对 M&times;N&times;K = 256&times;256&times;32、256&times;128&times;96、640&times;256&times;64、128&times;128&times;256 跑完所有 CTA，与 numpy 矩阵乘对比：两个 kernel 全部通过（最大误差 &le; 4&times;10<sup>&minus;3</sup>，FP16 输出的舍入级别），每个 C 元素恰好写一次，条带 swizzle 是双射，所有 <code>ldmatrix</code> 读取都没有 bank 冲突（假定共享内存基址 128 字节对齐），也没有读写竞争。两个反例能被它查出来：去掉 B 的 <code>.trans</code> 时结果错误，把 <code>wait_group 1</code> 改成 2 时报告读到未完成的拷贝。仿真不能代替真机：它不检查 PTX 汇编能否被 ptxas 接受、性能，以及编译器对 <code>asm volatile</code> 的调度。代码假定 M、N 是 128 的倍数，K 是 32 的倍数，指针 16 字节对齐。</li>
+
+<li>两个 swizzle 公式分别对应 64 字节（A，BK=32）和 256 字节（B，BN=128）的行宽，换 tile 大小时位移量要跟着改；无冲突的结论还假定共享内存基址 128 字节对齐。</li>
+<li>寄存器双缓冲只在一个 stage 内部预取（BK=32 只有两个 k16 步），没有跨 stage 预取。</li>
+<li>Epilogue 的 bias/activation 融合在代码中未实现（只做了经共享内存的合并写回），只在正文中描述了原理——完整实现见 CUTLASS<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。">4</a>]</span> 的 <code>EpilogueVisitor</code> 和 <code>EVT</code>（Epilogue Visitor Tree）机制，它允许用户以声明式的方式组合任意的 epilogue 操作。</li>
+<li>FP16 的精度问题没有展开讨论。FP16 只有 10 位尾数（相对精度 \(\sim 10^{-3}\)），累加误差在大 K 时可能显著。代码里 Tensor Core 的累加器用 FP32，所以累加精度是 FP32——只有输入和输出是 FP16。</li>
+<li>硬件数字（312 TFLOPS、19.5 TFLOPS、40 MB L2、164 KB SMEM）来自 <code>_notes/hw-facts.md</code>（A100 SXM4 规格，各有 NVIDIA 官方出处）。</li>
 <li>Hopper 和 Blackwell 的 GEMM 写法见 <a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>和<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>从 WMMA 到 <code>mma.sync</code> + swizzle + cp.async 流水线 + 寄存器双缓冲 + threadblock swizzle + epilogue via smem——Ampere HGEMM 的每一步优化都在解决同一个问题：Tensor Core 的吞吐太高，搬运跟不上。回顾一下这条路径上的算术强度变化：WMMA 直接读 GMEM 时只有 ~8 FLOP/B，而 Tensor Core 的 roofline 临界点是 156 FLOP/B——差了 20 倍。加上 SMEM 分块（BM=BN=128）后提升到 ~32 FLOP/B，再加上三级流水线让搬运和计算完全重叠，实际有效算术强度接近 SMEM 层面的理论值。最终一个精心优化的 Ampere HGEMM 能达到 280–300 TFLOPS 左右，约 90–96% 的 312 TFLOPS 峰值。</p>
-<p>下一篇换到 Hopper，TMA 和 WGMMA 会把搬运的负担从整个 warp 转移到一个线程——程序员不再需要手写 swizzle 和 ldmatrix，硬件自动处理布局。代价是全新的编程模型——warpgroup 协作、描述符驱动的操作数寻址、mbarrier 异步同步——需要从头理解、适应和重构。</p>
+<p>从 WMMA 到 <code>mma.sync</code> + swizzle + cp.async 流水线 + 寄存器双缓冲 + threadblock swizzle + epilogue via smem——Ampere HGEMM 的每一步优化都在解决同一个问题：Tensor Core 的吞吐太高，搬运跟不上。回顾一下这条路径上的算术强度变化：WMMA 直接读 GMEM 时（不计缓存）只有 8 FLOP/B，而 Tensor Core 的 roofline 临界点约 153 FLOP/B——差了约 19 倍。加上 SMEM 分块（BM=BN=128、FP16）后，HBM 层面的算术强度变成 \(128 \times 128 / (128 + 128) = 64\) FLOP/B（FP16 每元素 2 字节，是 FP32 版本的两倍），仍低于 153 FLOP/B 的临界点——所以大 tile 还要靠 L2 复用（threadblock swizzle）和多级流水线把搬运藏起来。本篇没有实测，能逼近峰值到什么程度要在 GPU 上测。</p>
+<p>下一篇换到 Hopper，TMA 会把搬运的负担从整个 block 的线程转移到一个线程，WGMMA 直接从 SMEM 读操作数——程序员不再需要手写 swizzle 地址运算和 ldmatrix，而是在描述符里选 swizzle 模式。代价是全新的编程模型——warpgroup 协作、描述符驱动的操作数寻址、mbarrier 异步同步——需要从头理解、适应和重构。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -587,17 +638,17 @@ wmma::store_matrix_sync(C + row0 * N + col0, out, N,
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-siboehm">Simon Boehm (2022). <a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance</a>. 博客文章（A100 上 9 步 SGEMM 优化的测量数据）。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 SXM5 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、L2 40 MB、每 SM 共享内存上限 164 KB。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.24 Warp Matrix Functions (WMMA)、§7.27 Asynchronous Data Copies using cuda::pipeline。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（mma.sync：形状、数据类型、寄存器映射）、§9.7.14.6（ldmatrix）、§9.7.5.6（cp.async）。</li>
+  <li id="ref-siboehm">Simon Boehm (2022). <a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance</a>. 博客文章，2022 年 12 月（RTX A6000 上 FP32 SGEMM 各优化步骤的 GFLOPS，相对 cuBLAS）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 SXM4 的 FP16 Tensor Core 峰值 312 TFLOPS、FP32 CUDA core 峰值 19.5 TFLOPS、每 SM 每时钟 1024 FP16 FMA / 64 FP32 FMA、L2 40 MB、每 SM / 每 block 共享内存上限 164 / 163 KB、每 block 最多 1024 线程；H100、B200 峰值与 TMEM、CLC。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.24 Warp Matrix Functions（WMMA；fragment 内部映射未指定）、§7.27 Asynchronous Data Copies using cuda::pipeline。</li>
   <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass/blob/91843b71d90737e0a9b86f7d9df213cff5a3526f/media/docs/cpp/efficient_gemm.md?plain=1">CUTLASS: Efficient GEMM in CUDA</a>，提交 <code>91843b7</code>。Ampere GEMM 的流水线、swizzle、epilogue 设计。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16（mma.sync：形状、数据类型、fragment 布局）、§9.7.16.5.15（ldmatrix）、§9.7.10.28.3.1（cp.async）、§9.7.17（wgmma）、§9.7.18（tcgen05）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 25 篇。文中代码完整版在系列目录的 <code>code/gm25-ampere-hgemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图，依据 PTX ISA 9.4 与 CUDA 编程指南绘制；表 1 数据来自 NVIDIA 官方文档，出处见表注与参考文献。
+  本文是「从零精通 GPU Kernel」系列第 25 篇。文中代码完整版在系列目录的 <code>code/gm25-ampere-hgemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–5 为手绘示意图（图 1 的寄存器布局依据 PTX ISA 9.4 §9.7.16）；表 1 依据 PTX ISA 与 hw-facts，出处见表注；本篇无实测数据。
 </footer>
 
 </div>

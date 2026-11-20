@@ -20,23 +20,23 @@
   <text x="30" y="170" class="sublabel">&emsp;&emsp;online softmax + O_i update</text>
 
   <text x="30" y="195" class="sublabel" fill="#D55E00">问题 1：O_i 写回 HBM T_c 次</text>
-  <text x="30" y="210" class="sublabel" fill="#D55E00">问题 2：warp 间需要共享 m/l</text>
+  <text x="30" y="210" class="sublabel" fill="#D55E00">问题 2：warp 间 split-K，经 smem 合并</text>
   <text x="30" y="225" class="sublabel" fill="#D55E00">问题 3：非 matmul FLOP 更多</text>
-  <text x="30" y="240" class="sublabel" fill="#D55E00">grid 并行度受 KV block 限制</text>
+  <text x="30" y="240" class="sublabel" fill="#D55E00">只在 batch &times; head 上并行</text>
 
   <!-- FA2 -->
   <rect x="370" y="40" width="330" height="210" class="box" fill="#E8F5E9" stroke="#388E3C"/>
   <text x="535" y="62" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">FlashAttention-2（外层 Q）</text>
 
   <text x="380" y="85" class="sublabel">for i in Q_blocks:&emsp;&emsp;&emsp;← 外层</text>
-  <text x="380" y="102" class="sublabel">&emsp;load Q_i to registers（常驻）</text>
+  <text x="380" y="102" class="sublabel">&emsp;load Q_i（常驻片上）</text>
   <text x="380" y="119" class="sublabel">&emsp;for j in KV_blocks:&emsp;← 内层</text>
   <text x="380" y="136" class="sublabel">&emsp;&emsp;load K_j, V_j to SRAM</text>
   <text x="380" y="153" class="sublabel">&emsp;&emsp;S_ij = Q_i @ K_j.T</text>
   <text x="380" y="170" class="sublabel">&emsp;&emsp;online softmax + O_i update</text>
 
   <text x="380" y="195" class="sublabel" fill="#388E3C">改进 1：O_i 只写回 HBM 一次</text>
-  <text x="380" y="210" class="sublabel" fill="#388E3C">改进 2：warp 间不共享 m/l</text>
-  <text x="380" y="225" class="sublabel" fill="#388E3C">改进 3：非 matmul FLOP 减半</text>
+  <text x="380" y="210" class="sublabel" fill="#388E3C">改进 2：warp 间 split-Q，无需通信</text>
+  <text x="380" y="225" class="sublabel" fill="#388E3C">改进 3：减少非 matmul FLOP</text>
   <text x="380" y="240" class="sublabel" fill="#388E3C">grid = (batch, head, Q_block)</text>
 </svg>

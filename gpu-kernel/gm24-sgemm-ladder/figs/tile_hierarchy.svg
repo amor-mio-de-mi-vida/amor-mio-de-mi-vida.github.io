@@ -17,16 +17,21 @@
 <!-- block tile (BM×BN) -->
 <rect class="d-box soft" x="270" y="70" width="180" height="160" rx="4"/>
 <text class="d-text" x="360" y="90" text-anchor="middle">block tile (BM×BN)</text>
-<!-- warp tiles inside -->
-<rect class="d-box blue" x="280" y="100" width="76" height="56" rx="3"/>
-<text class="d-small" x="318" y="130" text-anchor="middle" fill="#0b5cad">WM×WN</text>
-<rect class="d-box" x="362" y="100" width="76" height="56" rx="3" fill="#e8e8e4"/>
-<rect class="d-box" x="280" y="162" width="76" height="56" rx="3" fill="#e8e8e4"/>
-<rect class="d-box" x="362" y="162" width="76" height="56" rx="3" fill="#e8e8e4"/>
-<text class="d-label" x="360" y="248" text-anchor="middle">4 个 warp tile</text>
+<!-- warp tiles inside: 2 x 4 warps, each WM=64 x WN=32 -->
+<rect class="d-box blue" x="280" y="100" width="38" height="56" rx="3"/>
+<text class="d-small" x="299" y="124" text-anchor="middle" fill="#0b5cad">WM</text>
+<text class="d-small" x="299" y="140" text-anchor="middle" fill="#0b5cad">×WN</text>
+<rect class="d-box" x="322" y="100" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="364" y="100" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="406" y="100" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="280" y="162" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="322" y="162" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="364" y="162" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<rect class="d-box" x="406" y="162" width="38" height="56" rx="3" fill="#e8e8e4"/>
+<text class="d-label" x="360" y="248" text-anchor="middle">8 个 warp tile（2×4）</text>
 
 <!-- zoom arrow 2 -->
-<line x1="360" y1="128" x2="490" y2="128" stroke="#888" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<line x1="452" y1="128" x2="490" y2="128" stroke="#888" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
 
 <!-- warp tile detail -->
 <rect class="d-box soft" x="495" y="70" width="200" height="160" rx="4"/>

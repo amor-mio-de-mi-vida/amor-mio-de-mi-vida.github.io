@@ -19,11 +19,11 @@
   <!-- DDR -->
   <rect x="180" y="82" width="140" height="36" rx="5" fill="#a8d5ba" stroke="#34a853" stroke-width="1"/>
   <text x="250" y="100" text-anchor="middle" font-size="10" fill="#1b5e20" font-weight="bold">DDR5 Local Memory</text>
-  <text x="250" y="113" text-anchor="middle" font-size="9" fill="#388e3c">~50 ns latency</text>
+  <text x="250" y="113" text-anchor="middle" font-size="9" fill="#388e3c">本地内存</text>
 
   <!-- PCIe Root Complex 0 -->
   <rect x="40" y="135" width="280" height="28" rx="4" fill="#fce4ec" stroke="#e57373" stroke-width="1"/>
-  <text x="180" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 0 (64 lanes Gen5)</text>
+  <text x="180" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 0 (Gen5)</text>
 
   <!-- GPU 0-3 -->
   <rect x="40" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
@@ -70,11 +70,11 @@
   <!-- DDR -->
   <rect x="520" y="82" width="140" height="36" rx="5" fill="#a8d5ba" stroke="#34a853" stroke-width="1"/>
   <text x="590" y="100" text-anchor="middle" font-size="10" fill="#1b5e20" font-weight="bold">DDR5 Local Memory</text>
-  <text x="590" y="113" text-anchor="middle" font-size="9" fill="#388e3c">~50 ns latency</text>
+  <text x="590" y="113" text-anchor="middle" font-size="9" fill="#388e3c">本地内存</text>
 
   <!-- PCIe Root Complex 1 -->
   <rect x="380" y="135" width="280" height="28" rx="4" fill="#fce4ec" stroke="#e57373" stroke-width="1"/>
-  <text x="520" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 1 (64 lanes Gen5)</text>
+  <text x="520" y="154" text-anchor="middle" font-size="10" fill="#c62828" font-weight="bold">PCIe Root Complex 1 (Gen5)</text>
 
   <!-- GPU 4-7 -->
   <rect x="380" y="180" width="62" height="50" rx="4" fill="#76b900" stroke="#558b2f" stroke-width="1"/>
@@ -113,14 +113,14 @@
   <!-- UPI/CXL interconnect -->
   <line x1="160" y1="100" x2="380" y2="100" stroke="#d32f2f" stroke-width="3" stroke-dasharray="8,4"/>
   <text x="270" y="50" text-anchor="middle" font-size="11" font-weight="bold" fill="#d32f2f">UPI / CXL Interconnect</text>
-  <text x="270" y="95" text-anchor="middle" font-size="9" fill="#d32f2f">~100+ ns cross-NUMA</text>
+  <text x="270" y="95" text-anchor="middle" font-size="9" fill="#d32f2f">跨 NUMA 访问</text>
 
   <!-- Cross-NUMA penalty annotation -->
   <rect x="100" y="305" width="500" height="75" rx="6" fill="#fff3e0" stroke="#ff9800" stroke-width="1.2"/>
-  <text x="350" y="325" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Cross-NUMA 性能惩罚</text>
-  <text x="350" y="342" text-anchor="middle" font-size="10" fill="#555">GPU 0 → NIC 0 (同 NUMA): 1 跳 PCIe, ~2 μs, 带宽 = 64 GB/s</text>
-  <text x="350" y="357" text-anchor="middle" font-size="10" fill="#d32f2f">GPU 0 → NIC 4 (跨 NUMA): PCIe → UPI → PCIe, ~5-8 μs, 带宽 ≈ 40 GB/s</text>
-  <text x="350" y="372" text-anchor="middle" font-size="10" fill="#555">cudaHostAlloc 在错误 NUMA 节点: pinned memory 访问延迟翻倍</text>
+  <text x="350" y="325" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Cross-NUMA 路径（示意，不标数值）</text>
+  <text x="350" y="342" text-anchor="middle" font-size="10" fill="#555">GPU 0 → NIC 0 (同 PCIe switch): 不经过 CPU</text>
+  <text x="350" y="357" text-anchor="middle" font-size="10" fill="#d32f2f">GPU 0 → NIC 4 (跨 NUMA): PCIe → CPU → UPI → CPU → PCIe</text>
+  <text x="350" y="372" text-anchor="middle" font-size="10" fill="#555">cudaHostAlloc 落在远端 NUMA 节点: DMA 也要跨 UPI</text>
 
   <!-- Legend -->
   <rect x="50" y="395" width="14" height="10" rx="2" fill="#76b900"/>

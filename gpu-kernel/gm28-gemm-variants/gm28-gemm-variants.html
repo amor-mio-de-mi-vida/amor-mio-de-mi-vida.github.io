@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 22 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -230,8 +230,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>Split-K 把 K 维度切成多份分给不同 CTA，最后做一次 reduce——当 M 很小、tile 行数不够铺满 SM 时（如解码阶段 M=1&ndash;16），这比标准分块效率高出数倍。</li>
-<li>Stream-K 进一步消除 Split-K 的 wave quantization：把 K 维度的迭代当作连续&ldquo;工作流&rdquo;均分给所有 CTA，不会有 CTA 空等最后一波。</li>
+<li>Split-K 把 K 维度切成多份分给不同 CTA，最后做一次 reduce——当 M 很小、tile 数不够铺满 SM 时（如解码阶段 M=1&ndash;16），它用 K 方向的并行度把空闲的 SM 用起来。</li>
+<li>Stream-K 进一步解决 wave quantization：把所有 tile 的 K 方向迭代当作一条连续的&ldquo;工作流&rdquo;均分给所有 CTA，不会有 CTA 空等最后一波。</li>
 <li>Grouped GEMM 把 MoE 的多个专家矩阵乘打包进一个 kernel——预计算 tile 调度表，每个 CTA 按表查自己负责哪个 group 的哪块 tile。</li>
 <li>GEMV 和 skinny GEMM（M&le;4）完全受带宽约束：Tensor Core 用不上，优化重点是向量化加载和 warp shuffle 规约。</li>
   </ul>
@@ -249,13 +249,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <ul>
 <li><b>解码阶段</b>：batch size=1 时 M=1（GEMV）或 M=token 数（通常几十）——标准分块的 tile 行数太少，SM 大面积闲置。这是 LLM 推理中最常见的 GEMM 场景。</li>
-<li><b>MoE 层</b>：Mixture-of-Experts 模型（如 Mixtral、DeepSeek）需要对不同大小的 token 子集分别做 GEMM——每个 expert 分到的 token 数不同（从几个到几百个），逐个 expert 调用 GEMM 有 launch overhead 且无法负载均衡。</li>
-<li><b>Prefill 的首 token</b>：prefill 阶段的 sequence length 可以很长（M=几千），但 K 也很大（MLP 的 intermediate size 通常是 hidden 的 4 倍）——标准分块可能面临 K 维度的遍历开销不均。</li>
+<li><b>MoE 层</b>：Mixture-of-Experts 模型（如 Mixtral、DeepSeek）需要对不同大小的 token 子集分别做 GEMM——每个 expert 分到的 token 数不同，逐个 expert 调用 GEMM 要多次 launch，且每次的 tile 数可能不够铺满 SM。</li>
 <li><b>Epilogue 开销</b>：GEMM 之后往往紧跟 bias + activation（如 GELU/SiLU）+ residual add——如果分成独立 kernel，中间结果要写回 HBM 再读出来，多出一轮全局读写。对带宽受限的推理场景，这个额外读写的代价很大。</li>
 <li><b>不规则 shape</b>：LoRA 微调中 down-projection 是 rank&times;hidden（如 16&times;4096），batch attention 中的 score 矩阵是 head&times;seq&times;seq（seq 长度可变）——这些场景的 M、N、K 可能同时不对齐 tile 大小，标准 GEMM 的边界 padding 浪费更加严重。</li>
 </ul>
 
-<p>总结来说，标准 GEMM kernel 的设计假设——&ldquo;M 和 N 都足够大&rdquo;——在现代 LLM 推理中经常不成立。这就是为什么需要一系列 GEMM 变种来应对不同的矩阵形状和计算模式。本篇从五个方向展开：Split-K/Stream-K（增加 K 方向并行度）、Grouped GEMM（打包多个小矩阵乘）、GEMV/skinny GEMM（带宽优化）、Epilogue fusion（减少全局读写）和 L2 遍历优化（提高缓存命中率）。</p>
+<p>总结来说，标准 GEMM kernel 的设计假设——&ldquo;M 和 N 都足够大&rdquo;——在现代 LLM 推理中经常不成立。这就是为什么需要一系列 GEMM 变种来应对不同的矩阵形状和计算模式。本篇从五个方向展开：Split-K/Stream-K（利用 K 方向的并行度）、Grouped GEMM（打包多个小矩阵乘）、GEMV/skinny GEMM（带宽优化）、Epilogue fusion（减少全局读写）和 L2 遍历优化（提高缓存命中率）。</p>
 
 <h2 id="sec-splitk">Split-K：沿 K 维度拆分</h2>
 
@@ -328,34 +327,34 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>Split-K 的代价是额外的 workspace 内存（split_k &times; M &times; N &times; sizeof(float)）和一次 reduce kernel launch。当 split_k &times; M_tiles &times; N_tiles &ge; SM 数量时，所有 SM 都有活干——这正是 M 很小时 Split-K 的价值。</p>
 
-<p>用数字算一下：M=16、N=8192、K=8192，tile 大小 128&times;128。标准 GEMM 的 tile grid 是 1&times;64 = 64 个 tile，A100 的 108 个 SM 中有 44 个空闲。如果 split_k=4，则 grid 变为 1&times;64&times;4 = 256 个 tile——至少铺满 2 波，利用率接近 100%。代价是 workspace 大小 = 4&times;16&times;8192&times;4 = 2 MB（FP32），很小。reduce kernel 对 16&times;8192 = 131072 个元素求和 4 次——约 2 MB 的读写，A100 上 &lt; 1 &mu;s。</p>
+<p>用数字算一下：M=16、N=8192、K=8192，tile 大小 128&times;128。标准 GEMM 的 tile grid 是 1&times;64 = 64 个 tile，A100 的 108 个 SM 中有 44 个空闲。如果 split_k=4，则 grid 变为 1&times;64&times;4 = 256 个 CTA——约 2.4 波，前两波铺满 108 个 SM（最后一波 40 个，见下文 Stream-K 一节）。代价是 workspace 大小 = 4&times;16&times;8192&times;4 B = 2 MiB（FP32），很小。reduce kernel 读 2 MiB、写 0.5 MiB，按 A100 约 2 TB/s 的带宽算约 1.3 &mu;s（不含 kernel 启动）。</p>
 
-<p>Split-K 的另一个变体是 <b>parallel Split-K</b>（与 serial Split-K 相对）。Serial Split-K 让不同的 CTA 在 K 方向上串行累加（通过 atomicAdd 或 semaphore），不需要 workspace 但引入了 CTA 间的依赖——后面的 CTA 必须等前面的写完才能累加，形成流水线。Parallel Split-K（本篇展示的方案）完全独立——每个 CTA 写自己的 workspace slot，reduce kernel 最后一次性求和。Parallel 方案的优点是实现简单、无 CTA 间同步；缺点是 workspace 内存随 split_k 线性增长。实践中 cuBLAS 的 Split-K 选择取决于 split_k 大小：split_k 较小时（2&ndash;4）用 parallel 方式避免同步开销，split_k 较大时（8&ndash;16）可能用 serial 方式节省内存。</p>
+<p>Split-K 的另一个变体是 <b>parallel Split-K</b>（与 serial Split-K 相对）。Serial Split-K 让负责同一 tile 的各 CTA 依次把部分和累加到输出上（用 semaphore 排序，或者用 atomicAdd），不需要 split_k 份 workspace，但引入了 CTA 间的依赖。Parallel Split-K（本篇展示的方案）完全独立——每个 CTA 写自己的 workspace slot，reduce kernel 最后一次性求和。Parallel 方案的优点是实现简单、无 CTA 间同步；缺点是 workspace 内存随 split_k 线性增长，并且多一次 kernel。Boehm 追踪 cuBLAS SGEMM 时看到，边长 256 的方阵会调用一个 split-K 的 GEMM kernel 再跟一个 <code>splitKreduce_kernel</code>——即 parallel 方式<span class="cite">[<a href="#ref-siboehm" title="Simon Boehm (2022). How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog. 个人博客（cuBLAS SGEMM kernel 追踪：边长 256 时 split-K + <code>splitKreduce_kernel</code>）。">1</a>]</span>。</p>
 
 <h2 id="sec-streamk">Stream-K：消除 wave quantization</h2>
 
 <p>Split-K 的 <code>split_k</code> 是静态参数，选多了 reduce 开销大、选少了 SM 仍然闲置。更深层的问题是 <b>wave quantization</b>：如果 total_tiles 不是 SM 数的整数倍，最后一波的 CTA 会空等。</p>
 
-<p>Stream-K<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598。">1</a>]</span> 的思路完全不同：把整个 K 维度的迭代当成一条连续的&ldquo;工作流&rdquo;，平均分给每个 CTA。不再按 tile 分配工作，而是按 K 方向的迭代次数分配。每个 CTA 的工作是一段连续的 (tile, k_start, k_end) 区间——可能跨 tile 边界。CTA 在完成一个 tile 的 partial sum 后不退出，而是继续做下一个 tile 的 partial sum，直到分配的总工作量耗尽。这种&ldquo;以工作量为中心&rdquo;而非&ldquo;以 tile 为中心&rdquo;的调度确保了每个 CTA 的负载几乎完全相同。</p>
+<p>Stream-K<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span> 的思路完全不同：把所有 tile 的 K 方向迭代（MAC-loop iteration）首尾相接当成一条连续的&ldquo;工作流&rdquo;，平均分给每个 CTA。不再按 tile 分配工作，而是按 K 方向的迭代次数分配。每个 CTA 的工作是一段连续的 (tile, k_start, k_end) 区间——可能跨 tile 边界。CTA 在完成一个 tile 的 partial sum 后不退出，而是继续做下一个 tile 的 partial sum，直到分配的总工作量耗尽。这种&ldquo;以工作量为中心&rdquo;而非&ldquo;以 tile 为中心&rdquo;的调度让每个 CTA 执行的 MAC 迭代数几乎相同。论文在 A100 上用单一 tile 配置，在 32,824 个 GEMM 形状上相对 CUTLASS 同 tile 的 data-parallel kernel 最高快 14 倍、相对 cuBLAS 最高快 6.7 倍，平均表现也更高、更稳定<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span>。</p>
 
-<p>举个例子：M=N=4096、K=4096、BM=BN=128、BK=32。total_tiles = 32&times;32 = 1024，每个 tile 有 K/BK = 128 次迭代，总工作量 = 1024&times;128 = 131072 次迭代。A100 有 108 个 SM，Stream-K 让每个 CTA 做 131072/108 &asymp; 1214 次迭代。CTA 0 做 tile 0 的全部 128 次迭代 + tile 1 的全部 128 次 + &hellip; + tile 9 的前 62 次 = 1214 次。CTA 1 接续 tile 9 的后 66 次 + tile 10 的全部 128 次 + &hellip; 以此类推。tile 9 被两个 CTA 分割——各自计算部分 K 的 partial sum，最后需要在全局内存中合并。</p>
+<p>举个例子：M=N=4096、K=4096、BM=BN=128、BK=32。total_tiles = 32&times;32 = 1024，每个 tile 有 K/BK = 128 次迭代，总工作量 = 1024&times;128 = 131072 次迭代。A100 有 108 个 SM，Stream-K 让每个 CTA 做 131072/108 &asymp; 1214 次迭代。CTA 0 做 tile 0 的全部 128 次迭代 + tile 1 的全部 128 次 + &hellip; + tile 9 的前 62 次 = 1214 次。CTA 1 接续 tile 9 的后 66 次 + tile 10 的全部 128 次 + &hellip; 以此类推。tile 9 被两个 CTA 分割——各自计算部分 K 的 partial sum，最后需要在全局内存中合并。（论文实际使用的是混合调度：大部分 tile 按普通 data-parallel 方式整块完成，只对剩下不满一波的那部分做 Stream-K 均分，以减少跨 CTA 合并的开销<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span>。）</p>
 
 <p>Stream-K 的优点：</p>
 <ul>
-<li>不存在 wave quantization——每个 CTA 的工作量几乎相同。</li>
-<li>workspace 只需要 2&times;SM 数量个 partial tile（而非 split_k 倍），内存开销小。</li>
-<li>在 M 小的情况下比 Split-K 更优，因为它自适应地决定每个 CTA 处理多少 K 迭代。</li>
+<li>没有 wave quantization——每个 CTA 的 MAC 迭代数几乎相同。</li>
+<li>需要暂存的 partial tile 数量与 CTA 数同量级（每个 CTA 最多为一个没从头做起的 tile 写一份部分和），而不是 split_k 倍的整块输出。</li>
+<li>一份 tile 配置就能覆盖各种形状，不必像传统库那样维护一大堆 kernel 变体再用启发式挑选<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span>。</li>
 </ul>
 
-<p>Stream-K 的缺点是 tile 边界处需要跨 CTA 的 partial sum reduce——当一个 CTA 完成了 tile A 的后半段和 tile B 的前半段，tile A 的 partial sum 需要和另一个 CTA 的前半段合并。这种跨 CTA 的 reduce 可以通过全局内存的原子加法或两阶段写回（先写 workspace，再 reduce）实现，复杂度远高于 Split-K。</p>
+<p>Stream-K 的缺点是 tile 边界处需要跨 CTA 的 partial sum reduce——当一个 CTA 完成了 tile A 的后半段和 tile B 的前半段，tile A 的 partial sum 需要和另一个 CTA 的前半段合并。论文的做法是：非起始的 CTA 把部分和写进临时全局存储并置一个 flag，负责 tile 起始段的 CTA 等这些 flag、读回部分和累加后再写 C<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span>。这比 Split-K 复杂。</p>
 
-<p>Stream-K 的另一个挑战是 <b>tile 切换开销</b>：CTA 在 tile 边界需要重新加载新 tile 的 A/B 数据、重新初始化累加器。如果 K 维度的工作量分割正好在 tile 循环的 BK 边界上，这个开销最小；否则需要处理不对齐的情况。Osama 等人的论文<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598。">1</a>]</span>详细分析了不同分割策略的权衡。CUTLASS 3.x 提供了完整的 Stream-K 实现<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">2</a>]</span>，支持自适应的工作量分配。</p>
+<p>Stream-K 的另一个挑战是 <b>tile 切换开销</b>：CTA 在 tile 边界需要重新加载新 tile 的 A/B 数据、重新初始化累加器。如果 K 维度的工作量分割正好在 tile 循环的 BK 边界上，这个开销最小；否则需要处理不对齐的情况。Osama 等人的论文<span class="cite">[<a href="#ref-streamk" title="Osama, Merrill, Stahl &amp; Kolev (2023). Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。">2</a>]</span>详细分析了不同分割策略的权衡。CUTLASS 3.x 提供了完整的 Stream-K 实现<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>，支持自适应的工作量分配。</p>
 
-<p>用数字对比 Split-K 和 Stream-K：M=16、N=8192、K=8192，A100 的 108 个 SM。Split-K 用 split_k=4 得到 256 个 tile，铺 2.4 波——最后一波只用 256&ndash;108&times;2=40 个 SM（37% 利用率）。Stream-K 则把 total_k_iters = 4096&times;64 = 262144 次 BK=32 的迭代均分给 108 个 CTA，每个 CTA 做约 2427 次迭代——没有空等的最后一波。当然实际中 Stream-K 的 tile 切换和 partial sum reduce 会吃掉部分收益，效果取决于具体 shape——经验上，M&le;32 且 K&ge;4096 的 skinny shape 是 Stream-K 收益最大的典型区间。</p>
+<p>用数字对比 Split-K 和 Stream-K：M=16、N=8192、K=8192，A100 的 108 个 SM。Split-K 用 split_k=4 得到 256 个 CTA，铺 2.4 波——最后一波只用 256&minus;108&times;2=40 个 SM（37%）。Stream-K 则把 64 个 tile &times; (8192/32) = 16384 次 BK=32 的迭代均分给 108 个 CTA，每个 CTA 做约 152 次迭代——没有空等的最后一波。实际中 tile 切换和 partial sum 合并会吃掉部分收益，具体效果要看形状并实测。</p>
 
 <h2 id="sec-grouped">Grouped GEMM：服务 MoE</h2>
 
-<p>Mixture-of-Experts（MoE）模型中，每个 token 被路由器分配到不同的 expert<span class="cite">[<a href="#ref-megablocks" title="Gale et al. (2023). MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. arXiv:2211.15841。">3</a>]</span>。如果逐个 expert 调用 GEMM，kernel launch overhead 和 SM 利用率都是问题。Grouped GEMM 把所有 expert 的矩阵乘法打包进一个 kernel（<a href="#fig-grouped_dispatch">图 2</a>）。</p>
+<p>Mixture-of-Experts（MoE）模型中，每个 token 被路由器分配到不同的 expert<span class="cite">[<a href="#ref-megablocks" title="Gale et al. (2023). MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. arXiv:2211.15841。">4</a>]</span>。如果逐个 expert 调用 GEMM，要启动很多次 kernel，而且每次的 tile 数可能不够铺满 SM。Grouped GEMM 把所有 expert 的矩阵乘法打包进一个 kernel（<a href="#fig-grouped_dispatch">图 2</a>）。</p>
 
 <figure id="fig-grouped_dispatch" data-kind="diagram">
 <img aria-labelledby="fig-grouped_dispatch-cap" src="figs/grouped_dispatch.svg" alt="Grouped GEMM 调度"/>
@@ -401,23 +400,23 @@ struct TileInfo {
   float acc = 0.0f;</code></pre>
 <p class="src-note">完整代码：<code>code/gm28-gemm-variants/grouped_gemm.cu</code> 第 23–41 行（未在 GPU 上运行）</p>
 
-<p>Host 端预计算 tile 调度表，把所有 group 的 tile 展平为一维数组。这样一次 kernel launch 就做完所有 expert 的 GEMM——没有 launch overhead，SM 也能更好地负载均衡。注意 kernel 内部通过 <code>tiles[tile_idx]</code> 做间接寻址来获取当前 tile 所属的 group——这个间接访问的开销极小（一次全局内存读取，通常被 L2 缓存命中），相比消除的 kernel launch overhead（每次 5&ndash;20 &mu;s）完全值得。</p>
+<p>Host 端预计算 tile 调度表，把所有 group 的 tile 展平为一维数组。这样一次 kernel launch 就做完所有 expert 的 GEMM，所有 group 的 tile 一起参与调度。kernel 内部通过 <code>tiles[tile_idx]</code> 做一次间接寻址来获取当前 tile 所属的 group，代价是每个 CTA 多一次小的全局内存读取。</p>
 
-<p>以 Mixtral 8x7B 为例：8 个 expert，hidden=4096，intermediate=14336。如果 top-2 路由，每个 expert 平均分到 batch&times;seq/4 个 token。假设 batch=1、seq=2048，则每个 expert 平均 M=512。8 个 expert 的 GEMM 总共有 8 &times; (512/128) &times; (14336/128) = 8 &times; 4 &times; 112 = 3584 个 tile——足够铺满 A100 的 108 个 SM 30 多波。如果逐个 expert 调用，每次只有 448 个 tile，且 8 次 kernel launch 的开销（约 10&ndash;20 &mu;s/次）在 MoE 的延迟预算中可能占显著比例。</p>
+<p>以 Mixtral 8x7B 为例：8 个 expert，hidden=4096，intermediate=14336。如果 top-2 路由，每个 expert 平均分到 batch&times;seq/4 个 token。假设 batch=1、seq=2048，则每个 expert 平均 M=512。8 个 expert 的 GEMM 总共有 8 &times; (512/128) &times; (14336/128) = 8 &times; 4 &times; 112 = 3584 个 tile——足够铺满 A100 的 108 个 SM 30 多波。如果逐个 expert 调用，每次只有 448 个 tile（约 4.1 波，每次都有一个不满的尾波），还要启动 8 次 kernel。（这是按平均负载算的；实际路由不均时各 expert 的 M 差别很大。）</p>
 
-<p>Grouped GEMM 的一个关键优化是 <b>tile 交错排列</b>：不是先排完 group 0 的所有 tile 再排 group 1，而是把不同 group 的 tile 交错。这样同一波 CTA 中包含来自不同 group 的 tile——即使某个 group 的 M 很小（只有几个 tile），它的 tile 也会被夹在其他 group 的 tile 中间执行，不会造成一整波 SM 空闲。交错还有利于 L2 缓存：不同 group 的 B 矩阵（权重）地址通常不连续，交错可以避免在 group 切换时大规模驱逐缓存。</p>
+<p>tile 在调度表里的排列顺序也会影响效率。最朴素的做法（本篇代码）是先排完 group 0 的所有 tile 再排 group 1；也可以把不同 group 的 tile 交错，让同一波里混有多个 group 的 tile。哪种更好取决于 group 大小分布和 L2 复用，本篇没有实测。</p>
 
-<p>MoE 的 Grouped GEMM 还有一个特殊需求：<b>token 排序</b>。路由器把 token 分配给不同 expert 后，同一个 expert 的 token 在输入张量中不连续——需要先做一次 gather/scatter 把属于同一 expert 的 token 排到一起，才能用连续内存做 GEMM。这个排序本身是一个带宽密集型操作，在小 batch 下可能占 MoE 层总延迟的 10&ndash;20%。DeepSeek-V3 等框架在排序和 Grouped GEMM 之间做了精细的流水线重叠来隐藏这个开销。</p>
+<p>MoE 的 Grouped GEMM 还有一个特殊需求：<b>token 排序</b>。路由器把 token 分配给不同 expert 后，同一个 expert 的 token 在输入张量中不连续——需要先做一次 gather/permute 把属于同一 expert 的 token 排到一起，才能用连续内存做 GEMM；算完再按原顺序 scatter 回去。这一步本身是带宽密集型操作。MegaBlocks 则把 MoE 计算表达成块稀疏矩阵乘，并为此写了专门的块稀疏 GPU kernel<span class="cite">[<a href="#ref-megablocks" title="Gale et al. (2023). MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. arXiv:2211.15841。">4</a>]</span>。</p>
 
-<p>负载均衡是 Grouped GEMM 面临的独特挑战。在 dense GEMM 中所有 tile 大小相同，负载天然均衡。但在 MoE 的 Grouped GEMM 中，不同 expert 分到的 token 数可能差异很大——热门 expert 可能有 1000 个 token（M=1000），冷门 expert 只有 10 个（M=10）。如果简单地按 group 顺序排列 tile，热门 expert 的 tile 填满前几波 SM，冷门 expert 的少量 tile 在最后一波留下大量空闲 SM。CUTLASS 的 Grouped GEMM 使用两种策略缓解这个问题：第一是前面提到的 tile 交错排列；第二是动态 tile 分配——类似 persistent kernel 的 atomicAdd，让空闲 SM 从全局队列取下一个 tile，不管它属于哪个 group。后一种方式更灵活但引入了原子操作的开销——和标准 GEMM 的 persistent kernel 相同的权衡，需要根据 expert 数量和负载偏斜程度来选择最优的调度策略。</p>
+<p>负载均衡是 Grouped GEMM 面临的独特挑战。在 dense GEMM 中所有 tile 大小相同，负载天然均衡；在 MoE 的 Grouped GEMM 中，不同 expert 分到的 token 数可能差异很大。CUTLASS 2.x 的 grouped GEMM 采用 persistent 方式：启动固定数量的 CTA，每个 CTA 从 <code>blockIdx.x</code> 开始、以 grid 大小为步长遍历所有 group 首尾相接后的全局 tile 编号，由 problem visitor 算出当前 tile 属于哪个 group——这个映射可以完全在设备上算（<code>GroupScheduleMode::kDeviceOnly</code>），也可以由 host 预计算（<code>kHostPrecompute</code>）<span class="cite">[<a href="#ref-cutlassgrouped" title="NVIDIA (2025). grouped_problem_visitor.h，提交 <code>91843b7</code>：<code>GroupScheduleMode::kDeviceOnly / kHostPrecompute</code>，CTA 以 grid 大小为步长遍历全局 tile 编号。">5</a>]</span>。和 persistent GEMM 一样，它省掉了每个 tile 的 CTA 启动，但不同大小的 tile 之间仍可能不均衡。</p>
 
 <h2 id="sec-gemv">GEMV 和 Skinny GEMM</h2>
 
-<p>当 M=1 时 GEMM 退化为 GEMV（矩阵-向量乘），完全受内存带宽约束——Tensor Core 用不上，因为 MMA 指令需要至少 m=8&ndash;16 的 tile<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA 指令族）。">4</a>]</span>（<a href="#fig-gemv_memory">图 3</a>）。这是 LLM 推理解码阶段最频繁的操作：每生成一个 token 需要做 2&times;num_layers 次 GEMV（QKV projection + output projection + 两次 MLP），token 生成速度直接受限于 GEMV 的延迟。</p>
+<p>当 M=1 时 GEMM 退化为 GEMV（矩阵-向量乘），受内存带宽约束——用 Tensor Core 也帮不上忙，因为 MMA 指令的 M 维度最小是 8 或 16<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16（mma.sync 的矩阵形状：M 最小 8 或 16）。">6</a>]</span>，M=1 时绝大部分算力在算填充的零（<a href="#fig-gemv_memory">图 3</a>）。batch=1 解码时，每一层的 QKV 投影、输出投影和 MLP 的几个矩阵乘都是 GEMV，token 生成速度直接受限于读权重的带宽。</p>
 
 <figure id="fig-gemv_memory" data-kind="diagram">
 <img aria-labelledby="fig-gemv_memory-cap" src="figs/gemv_memory.svg" alt="GEMV 带宽约束"/>
-<figcaption id="fig-gemv_memory-cap"><span class="fig-label">图 3</span><b>GEMV 是带宽瓶颈：每个输出值需要读取整行权重。</b>算术强度 &asymp; 2&times;K / (K&times;sizeof(half)) = 2 FLOP/byte，远低于 GPU 的计算/带宽比。优化靠向量化加载和 warp shuffle 规约。</figcaption>
+<figcaption id="fig-gemv_memory-cap"><span class="fig-label">图 3</span><b>GEMV 是带宽瓶颈：每个输出值需要读取整行权重。</b>FP16 权重的算术强度 &asymp; 2K FLOP / (2K 字节) = 1 FLOP/byte，远低于 GPU 的计算/带宽比（H100 FP16 约 295 FLOP/byte）。优化靠向量化加载和 warp shuffle 规约。</figcaption>
 </figure>
 
 <p>FP16 GEMV 的优化策略：每个 warp 负责一个输出行，32 个线程分摊 K 维度的加载和乘累加，最后用 <code>__shfl_down_sync</code> 做 warp 内规约：</p>
@@ -476,15 +475,15 @@ struct TileInfo {
 
 <p>和 GEMV 的区别在于外层多了一个 <code>m</code> 循环——每个 warp 依次处理 M 行。因为 M 很小（2&ndash;4），所有行的 A 矩阵数据可以完全放在寄存器中——不需要共享内存缓存。每行的 K 方向归约仍然用 <code>__shfl_down_sync</code>，和 GEMV 完全相同。</p>
 
-<p>Skinny GEMM（M=2&ndash;4）和 GEMV 类似：按 N 方向分 tile，每个 warp 处理一个 (m, n) 对，K 方向用 32 线程协作。对于 M&le;4，这比标准 tile GEMM 高效得多——标准分块的最小 tile 是 64&times;64，M=4 时有效计算只占 4/64 = 6.25%，其余在做 padding 零值的无效乘加。Skinny GEMM 的另一个优势是不需要 shared memory 做 tile 缓存——M 行的 A 矩阵可以直接放进寄存器（M=4 时 A 的一个 K 切片只有 4 个值），B 矩阵直接从全局内存流式加载。这释放了 shared memory 给更多线程使用，提高了 occupancy。在 H100 上，不使用 shared memory 的 kernel 可以达到每 SM 64 个活跃 warp 的理论上限，而使用 48 KB shared memory 的标准 GEMM tile 只能做到 32 个 warp——occupancy 翻倍直接意味着更好的延迟隐藏和更高的内存带宽利用率。</p>
+<p>Skinny GEMM（M=2&ndash;4）和 GEMV 类似：按 N 方向分 tile，每个 warp 处理一个 (m, n) 对，K 方向用 32 线程协作。对于 M&le;4，如果硬套 64&times;64 的 tile，M=4 时有效计算只占 4/64 = 6.25%，其余在做 padding 零值的无效乘加。Skinny GEMM 的另一个优势是不需要 shared memory 做 tile 缓存——M 行的 A 矩阵可以直接放进寄存器（M=4 时 A 的一个 K 切片只有 4 个值），B 矩阵直接从全局内存流式加载。不用 shared memory，occupancy 就只受寄存器和线程数限制（每 SM 最多 64 个 warp<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>），更多在途的加载有利于把带宽用满。</p>
 
-<p>GEMV 的性能上限完全由带宽决定。以 H100 SXM5 为例：FP16 GEMV 读取权重 W [N, K]（\(N \times K \times 2\) 字节）和输入 x [K]（\(K \times 2\) 字节），写出 y [N]（\(N \times 2\) 字节）。HBM 带宽 3.35 TB/s，对 N=8192、K=8192，权重读取量 128 MB，理论最小时间 128 MB / 3.35 TB/s &asymp; 38 &mu;s。实际的优化 GEMV 能达到 80&ndash;90% 的带宽利用率——即约 42&ndash;48 &mu;s。这远快于用标准 GEMM（tile 开销、Tensor Core 的 M 维度浪费），但也说明 GEMV 的加速空间有限——瓶颈是物理带宽，不是代码效率。一个有趣的推论是：GEMV 的性能和数据类型直接相关——FP16 权重比 FP32 快两倍（数据量减半），INT8 又快两倍，INT4 再快两倍。这就是为什么 LLM 推理中权重量化（W4A16、W8A8）对 decode 阶段的加速效果特别显著——它直接减少了 GEMV 的带宽需求。</p>
+<p>GEMV 的性能上限完全由带宽决定。以 H100 SXM5 为例：FP16 GEMV 读取权重 W [N, K]（\(N \times K \times 2\) 字节）和输入 x [K]（\(K \times 2\) 字节），写出 y [N]（\(N \times 2\) 字节）。HBM 带宽 3.35 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>，对 N=8192、K=8192，权重读取量 \(8192^2 \times 2 \approx 134\) MB，理论最小时间 134 MB / 3.35 TB/s &asymp; 40 &mu;s。实际能达到带宽峰值的多少要实测，但这个下界说明 GEMV 的加速空间有限——瓶颈是物理带宽，不是代码效率。一个推论是：GEMV 的时间下界和权重的字节数成正比——FP16 权重的下界是 FP32 的一半，INT8 再减半，INT4 再减半。这就是为什么 LLM 推理中权重量化（W4A16、W8A8）对 decode 阶段的加速效果特别显著——它直接减少了 GEMV 的带宽需求。</p>
 
-<p>进一步优化 GEMV 的技巧包括：(1) 使用 <code>LDG.128</code>（128 位向量化加载，即 half8 / float4），每次 load 读取 8 个 FP16 值或 4 个 FP32 值——减少 load 指令数量和地址计算开销；(2) 每个 block 处理多行（例如 blockDim.y=4），让多行共享 x 向量的加载——x 只读一次，4 行的权重各读一次。这把 x 的有效带宽开销分摊到 4 行上；(3) 对 K 很大的情况（如 K=32768），用多个 block 在 K 方向并行（类似 Split-K），最后做一次 warp shuffle + atomicAdd 归约。<code>LDG.128</code> 在 H100 上尤其重要——128 位加载的吞吐是 32 位加载的 4 倍（每 cycle 一条 128 位 load 指令 vs 一条 32 位 load 指令），对带宽受限的 GEMV 来说这直接意味着 4 倍的有效加载吞吐提升。</p>
+<p>进一步优化 GEMV 的技巧包括：(1) 使用 128 位向量化加载（SASS 里的 <code>LDG.128</code>，即一次 8 个 FP16 或 4 个 FP32），减少 load 指令数量和地址计算开销；(2) 每个 block 处理多行（例如 blockDim.y=4），让多行共享 x 向量的加载——x 只读一次，4 行的权重各读一次。这把 x 的有效带宽开销分摊到 4 行上；(3) 对 K 很大的情况（如 K=32768），用多个 block 在 K 方向并行（类似 Split-K），最后做一次 warp shuffle + atomicAdd 归约。向量化的好处是：搬同样多的字节，128 位加载只需要 32 位加载 1/4 的指令数，让少量 warp 也能让足够多的字节在途。</p>
 
 <h2 id="sec-epilogue">Epilogue 融合</h2>
 
-<p>GEMM 的输出往往不是最终结果——后面还有 bias 加、activation（ReLU/GELU/SiLU）、residual add、layernorm 等操作。如果分成多个 kernel，每次都要把中间结果写回全局内存再读出来——多了一轮 HBM 读写。Transformer 的 MLP 层典型流程是 GEMM &rarr; bias &rarr; GELU &rarr; GEMM &rarr; bias &rarr; residual add，其中前三步和后三步各可以融合为一个 fused GEMM kernel——把 6 次全局读写降为 2 次。</p>
+<p>GEMM 的输出往往不是最终结果——后面还有 bias 加、activation（ReLU/GELU/SiLU）、residual add、layernorm 等操作。如果分成多个 kernel，每次都要把中间结果写回全局内存再读出来——多了一轮 HBM 读写。Transformer 的 MLP 层典型流程是 GEMM &rarr; bias &rarr; GELU &rarr; GEMM &rarr; bias &rarr; residual add，其中前三步和后三步各可以融合为一个 fused GEMM kernel——省掉 bias、激活、残差各自一次完整的读和写。</p>
 
 <p>Epilogue fusion 把这些操作融合到 GEMM kernel 的写回阶段：</p>
 
@@ -494,11 +493,11 @@ struct TileInfo {
 <li><b>Scale + Dequant</b>：低精度 GEMM（下一篇详述）的 epilogue 需要对 INT32/FP32 累加器做 per-tensor 或 per-channel 缩放，将中间精度的结果转回推理精度（通常是 FP16 或 BF16）。这在量化推理中是必须的步骤。</li>
 </ol>
 
-<p>CUTLASS 3.x 用 EVT（Epilogue Visitor Tree）抽象 epilogue——用户拼接一棵计算树（加载节点、计算节点、存储节点），编译时自动生成融合后的写回代码<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">2</a>]</span>。这让 epilogue 的组合数从 O(n!) 降到 O(n)——不需要为每种组合手写一个 kernel。</p>
+<p>CUTLASS 3.x 用 EVT（Epilogue Visitor Tree）抽象 epilogue——用户拼接一棵计算树（加载节点、计算节点、存储节点），编译时自动生成融合后的写回代码<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>——不需要为每种组合手写一个 kernel。</p>
 
-<p>Epilogue fusion 的性能收益来自减少全局内存访问。以 MLP 层的 GEMM + bias + GELU + GEMM 为例：不融合时，第一个 GEMM 的输出写回 HBM（M&times;N&times;2 字节），bias + GELU 再读出、计算、写回——多了两轮全局读写。对 M=4096、N=14336 的 FP16 矩阵，这是 2&times;4096&times;14336&times;2 = 224 MB 的额外 HBM 流量。在 H100 上，224 MB / 3.35 TB/s &asymp; 67 &mu;s——对于一个 MLP 层不到 1 ms 的总延迟来说，这个开销很显著。在 LLM 推理中，一次前向传播有十几层 MLP，累积下来 epilogue 的 HBM 流量可以占总流量的 30% 以上——fusion 把这部分流量降到接近零。</p>
+<p>Epilogue fusion 的性能收益来自减少全局内存访问。以 MLP 层的 GEMM + bias + GELU + GEMM 为例：不融合时，第一个 GEMM 的输出写回 HBM（M&times;N&times;2 字节），bias + GELU 再读出、计算、写回——多了两轮全局读写。对 M=4096、N=14336 的 FP16 矩阵，这是 2&times;4096&times;14336&times;2 &approx; 235 MB 的额外 HBM 流量，在 H100 上按 3.35 TB/s 算约 70 &mu;s。作为对比，这个 GEMM 本身（K=4096）在 989.5 TFLOPS 峰值下也要 \(2 \times 4096 \times 14336 \times 4096 / 989.5 \times 10^{12} \approx 0.49\) ms——额外流量约占它的七分之一。</p>
 
-<p>EVT 的工作原理是在 GEMM tile 写回时，让每个线程在寄存器中完成后续计算。累加器已经在寄存器里，bias 是一个行向量（每行一个值，远小于矩阵），activation 是逐元素操作——这些都不需要额外的全局内存访问。EVT 的编译器会遍历用户定义的计算树，为每个叶子节点生成加载代码（从全局内存或常量缓存），为内部节点生成计算指令，最后生成存储代码。整个 epilogue 在一个 warp 的寄存器文件内完成，不涉及 shared memory。这种设计的优雅之处在于它的可组合性：用户可以用简单的 C++ 模板表达式描述任意的 epilogue 计算图——<code>LinearCombination</code>（bias + activation）、<code>EVT(D, aux, bias, act)</code>（带辅助输出的融合）、甚至 <code>SplitK_Reduce + bias + GELU</code> 的组合——编译器自动生成最优的寄存器分配和指令调度。</p>
+<p>EVT 的思路是在 GEMM tile 写回时，让线程在累加器还在片上的时候完成后续计算：bias 是一个向量（远小于矩阵），activation 是逐元素操作，只有 residual 这类输入需要额外读一个同形状的 tile。用户用 C++ 模板把加载节点、计算节点和存储节点组合成一棵树，CUTLASS 据此生成写回代码<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>。</p>
 
 <h2 id="sec-l2">L2 Tile 遍历顺序</h2>
 
@@ -506,14 +505,14 @@ struct TileInfo {
 
 <figure id="fig-l2_traversal" data-kind="diagram">
 <img aria-labelledby="fig-l2_traversal-cap" src="figs/l2_traversal.svg" alt="L2 遍历顺序"/>
-<figcaption id="fig-l2_traversal-cap"><span class="fig-label">图 4</span><b>左：row-major 遍历——相邻 CTA 的 B 列跨度大，L2 命中率低。右：swizzle 遍历——相邻 CTA 共享 B 列块，L2 命中率高。</b>Swizzle 的思路是让同一波的 CTA 尽量在 B 矩阵的同一列带上工作。</figcaption>
+<figcaption id="fig-l2_traversal-cap"><span class="fig-label">图 4</span><b>左：row-major 遍历——相邻 CTA 的 B 列跨度大。右：swizzle 遍历——相邻 CTA 共享 B 列块，更容易命中 L2（示意，非实测）。</b>Swizzle 的思路是让同一波的 CTA 尽量在 B 矩阵的同一列带上工作。</figcaption>
 </figure>
 
-<p>Swizzle 遍历的做法（<a href="#fig-l2_traversal">图 4</a>）：把 tile grid 分成若干列组（column group），组内按列优先遍历。这样同一组的 CTA 共享 B 的同一列块——L2 缓存只需要保持一个列块的数据。CUDA Programming Guide<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §16.7 L2 Access Management、§7.30 Warpgroup MMA。">5</a>]</span> 的 L2 Access Management 一节也建议用 <code>cudaAccessPolicyWindow</code> 设置 L2 驻留策略。</p>
+<p>Swizzle 遍历的做法（<a href="#fig-l2_traversal">图 4</a>）：把 tile grid 分成若干列组（column group），组内按列优先遍历。这样同一组的 CTA 共享 B 的同一列块。另一种相关手段是 CUDA 编程指南 §3.2.3 介绍的 <code>cudaAccessPolicyWindow</code>，可以把一段全局内存设为在 L2 中优先驻留<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §3.2.3 Device Memory L2 Access Management（<code>cudaAccessPolicyWindow</code>）。">8</a>]</span>。</p>
 
-<p>具体映射：给定线性 blockIdx = x，列组宽度 = G，则 tile 坐标的 swizzle 版本可以用 XOR 或模运算实现。CUTLASS 提供 <code>SwizzleThreadBlock</code> 策略，支持 1、2、4、8 等不同的 swizzle 因子。直觉上，swizzle 因子 G=4 意味着每 4 列为一组，组内按列优先遍历——同一组的 4 列 tile 共享 B 矩阵的同一列块，这 4 列的数据大小约 BN&times;K&times;4&times;sizeof(half) = 128&times;8192&times;4&times;2 = 8 MB。如果 L2 cache 能容纳 8 MB（A100 有 40 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span>），则组内的所有 tile 几乎 100% L2 命中。</p>
+<p>具体映射：给定线性 blockIdx = x，列组宽度 = G，则 tile 坐标的 swizzle 版本可以用 XOR 或模运算实现。CUTLASS 2.x 提供 <code>GemmIdentityThreadblockSwizzle&lt;N&gt;</code> 这类 threadblock swizzle 策略，模板参数 N 就是 swizzle 因子<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>。直觉上，swizzle 因子 G=4 意味着每 4 列为一组，组内按列优先遍历——同一组的 4 列 tile 共享 B 矩阵的同一列块，这 4 列的数据大小约 BN&times;K&times;4&times;sizeof(half) = 128&times;8192&times;4&times;2 = 8 MB。A100 有 40 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>，放得下这 8 MB，组内后续 tile 有机会在 L2 命中（实际还要和 A、其他并发 CTA 的数据共享 L2）。</p>
 
-<p>L2 遍历顺序的效果取决于矩阵大小和 L2 容量的比值。对小矩阵（B 矩阵能完全放入 L2），遍历顺序几乎无影响。对大矩阵（B 矩阵远大于 L2），swizzle 可以将 L2 命中率从 &lt;30% 提升到 &gt;80%，对应 GEMM 整体速度提升 10&ndash;20%。这个优化在 Ampere 上特别重要——A100 的 L2 cache 有 40 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span>，对于 K=8192 的 FP16 矩阵，一个 BN=128 宽的列块大小约 128&times;8192&times;2 = 2 MB，L2 可以容纳约 20 个列块。如果 swizzle 因子 G=4，每组 4 个列块只需 8 MB——L2 完全够用，组内接近 100% 命中。Hopper 的 cluster multicast 则可以在不依赖 L2 的情况下实现类似的数据复用——两种机制可以叠加使用，在 B 矩阵极大的场景下能进一步降低对 HBM 带宽的依赖。</p>
+<p>L2 遍历顺序的效果取决于矩阵大小和 L2 容量的比值。对小矩阵（B 矩阵能完全放入 L2），遍历顺序几乎无影响。对大矩阵（B 矩阵远大于 L2），swizzle 才有意义，具体收益要用 L2 命中率和 DRAM 读取量实测。以 A100 为例，L2 有 40 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>，对于 K=8192 的 FP16 矩阵，一个 BN=128 宽的列块大小约 128&times;8192&times;2 = 2 MB，L2 可以容纳约 20 个列块。如果 swizzle 因子 G=4，每组 4 个列块只需 8 MB，容量上够用。Hopper 的 cluster multicast 则让 cluster 内的 CTA 共用一次读取，进一步减少 L2 读取——两种机制可以叠加使用。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变种</h2>
 
@@ -523,62 +522,62 @@ struct TileInfo {
 <tr><th>变种</th><th>Ampere</th><th>Hopper</th><th>Blackwell</th></tr>
 </thead>
 <tbody>
-<tr><td>Split-K reduce</td><td>全局内存 workspace + 第二个 kernel</td><td>同左，或 cluster 内 DSMEM reduce</td><td>CLC 调度自动均分，减少 Split-K 需求</td></tr>
-<tr><td>Grouped GEMM</td><td>Tile 调度表（本篇方式）</td><td>Persistent kernel + TMA per-group descriptor</td><td>CLC 内置 group 调度支持</td></tr>
+<tr><td>Split-K reduce</td><td>全局内存 workspace + 第二个 kernel</td><td>同左，或 cluster 内 DSMEM reduce</td><td>同 Hopper（CLC 只做 tile 级动态调度，不拆分 K）</td></tr>
+<tr><td>Grouped GEMM</td><td>Tile 调度表（本篇方式）或 persistent + problem visitor（CUTLASS 2.x）</td><td>Persistent kernel，每个 group 一份 TMA descriptor</td><td>同 Hopper，可用 CLC 动态取 tile（group 映射仍由软件做）</td></tr>
 <tr><td>GEMV</td><td>warp shuffle（本篇方式）</td><td>同左，TMA 对 M=1 无优势</td><td>同左</td></tr>
-<tr><td>L2 优化</td><td>Swizzle + cudaAccessPolicyWindow</td><td>Cluster multicast 替代部分 L2 功能</td><td>同 Hopper，cluster 更大</td></tr>
-<tr><td>Epilogue fusion</td><td>手写或 CUTLASS EVT</td><td>EVT + TMA store</td><td>EVT + tcgen05.st</td></tr>
+<tr><td>L2 优化</td><td>Swizzle + cudaAccessPolicyWindow</td><td>另加 cluster multicast 减少 L2 读取</td><td>同 Hopper</td></tr>
+<tr><td>Epilogue fusion</td><td>手写或 CUTLASS EVT</td><td>EVT + TMA store</td><td>EVT；累加器先用 <code>tcgen05.ld</code> 从 TMEM 读到寄存器，再写回</td></tr>
 </tbody>
 </table>
 
-<p>表中最显著的架构演进是 <b>Grouped GEMM 在 Hopper 上的 persistent kernel</b> 方式：不再用 tile 调度表查表，而是让一组 CTA 持续驻留在 SM 上，通过 TMA 描述符切换不同 group 的矩阵数据。CTA 完成一个 group 的 tile 后不退出，而是直接加载下一个 group 的 TMA descriptor 继续工作——消除了 kernel launch 和 CTA 调度的开销，而且 TMA descriptor 的切换只需要写入几个寄存器——延迟不到 100 ns，远低于 kernel relaunch 的 5&ndash;20 &mu;s。Blackwell 的 CLC（Cooperative Launch Control）进一步把这种持久化调度做进了硬件：SM 直接从硬件队列获取下一个工作单元，软件不需要管理调度表。</p>
+<p>表中最显著的架构演进是 <b>Grouped GEMM 在 Hopper 上的 persistent kernel</b> 方式：TMA 需要每个矩阵一份 tensor map（描述符），所以 grouped GEMM 要为每个 group 准备描述符，CTA 切换到另一个 group 的 tile 时改用对应的描述符；CTA 本身不退出，省掉了每个 tile 的启动和初始化。Blackwell 的 CLC（Cluster Launch Control）让持久化调度可以借助硬件：正在运行的 CTA 用 <code>clusterlaunchcontrol.try_cancel</code> 原子地取消一个尚未启动的 cluster 并接手它的坐标<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>，不需要软件维护全局 tile 计数器。</p>
 
-<p>另一个值得注意的是 <b>Split-K 在 Hopper 上的 cluster reduce</b>：同一个 cluster 内的 SM 可以通过 DSMEM（Distributed Shared Memory）直接交换 partial sum，不需要写入全局内存。这把 reduce 的延迟从数百纳秒（全局内存往返）降到几十纳秒（DSMEM 访问），对小矩阵的 Split-K 场景提升显著。</p>
+<p>另一个值得注意的是 <b>Split-K 在 Hopper 上的 cluster reduce</b>：同一个 cluster 内的 CTA 可以通过 DSMEM（Distributed Shared Memory）直接交换 partial sum，不需要写入全局内存；NVIDIA 称 DSMEM 交换数据比经全局内存快约 7 倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span>。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：什么时候用 Split-K 而不是标准 GEMM？</dt>
-<dd>当 M 方向的 tile 行数不够铺满所有 SM 时。典型场景：推理解码阶段 M=1&ndash;16，K=4096&ndash;16384。此时标准分块只有 1&ndash;2 行 tile，SM 利用率可能低于 10%。Split-K 通过在 K 方向增加并行度来弥补。
-<br><b>追问</b>：Split-K 的 split_k 怎么选？&rarr; 经验法则：让 total_tiles = M_tiles &times; N_tiles &times; split_k &ge; 2 &times; SM_count，但不要过大，否则 reduce kernel 的读写开销反而吃掉收益。CUTLASS 会用启发式搜索或 auto-tuning 来找到最优值——在实际部署中这是一个需要 profiling 才能确定的参数。</dd>
+<dd>当 M 方向的 tile 行数不够铺满所有 SM 时。典型场景：推理解码阶段 M=1&ndash;16，K=4096&ndash;16384。此时标准分块只有 1 行 tile，tile 总数可能少于 SM 数。Split-K 通过在 K 方向增加并行度来弥补。
+<br><b>追问</b>：Split-K 的 split_k 怎么选？&rarr; 思路是让 M_tiles &times; N_tiles &times; split_k 足以铺满 SM（并尽量接近 SM 数的整数倍），但不要过大，否则 workspace 和 reduce 的读写开销反而吃掉收益。实际部署中这是一个需要 profiling 或启发式表来确定的参数。</dd>
 
 <dt id="sec-q2">Q2：Stream-K 比 Split-K 好在哪？</dt>
-<dd>消除了 wave quantization。Split-K 的 total_tiles 如果不整除 SM 数，最后一波的 SM 会空等。Stream-K 把 K 方向的迭代当连续工作流均分，每个 CTA 的工作量几乎相同。代价是 tile 边界的 partial sum 需要额外的跨 CTA reduce。
+<dd>消除了 wave quantization。Split-K 的 CTA 数如果不整除 SM 数，最后一波的 SM 会空等。Stream-K 把 K 方向的迭代当连续工作流均分，每个 CTA 的工作量几乎相同。代价是 tile 边界的 partial sum 需要额外的跨 CTA reduce。
 <br><b>追问</b>：什么时候 Stream-K 不值？&rarr; M、N 都很大时，标准 GEMM 已经能铺满所有 SM——Split-K 和 Stream-K 带来的额外 workspace/reduce 开销没有收益。</dd>
 
 <dt id="sec-q3">Q3：Grouped GEMM 的调度表有什么讲究？</dt>
-<dd>关键是负载均衡：如果 group 的 M 差异很大（MoE 中常见——热门 expert 分到更多 token），按顺序排列 tile 会导致部分 SM 先做完热门 expert 然后空等。CUTLASS 的 Grouped GEMM 会把不同 group 的 tile 交错排列。
+<dd>关键是负载均衡：如果 group 的 M 差异很大（MoE 中常见——热门 expert 分到更多 token），按顺序排列 tile 会导致部分 SM 先做完热门 expert 然后空等。可以把不同 group 的 tile 交错排列，或者像 CUTLASS 2.x 那样用 persistent CTA 按步长遍历全局 tile 编号<span class="cite">[<a href="#ref-cutlassgrouped" title="NVIDIA (2025). grouped_problem_visitor.h，提交 <code>91843b7</code>：<code>GroupScheduleMode::kDeviceOnly / kHostPrecompute</code>，CTA 以 grid 大小为步长遍历全局 tile 编号。">5</a>]</span>。
 <br><b>追问</b>：为什么不给每个 expert 单独 launch GEMM？&rarr; Launch overhead 随 expert 数线性增长（64 个 expert 就 64 次 launch），而且每次 launch 的 tile 可能不够铺满 SM。</dd>
 
 <dt id="sec-q4">Q4：GEMV 优化的核心瓶颈是什么？</dt>
-<dd>纯带宽。M=1 时算术强度 &asymp; 2K / (K &times; sizeof(half)) = 2 FLOP/byte。H100 的计算/带宽比（312 TFLOPS / 3.35 TB/s &asymp; 93 FLOP/byte for FP16）远高于此——计算完全被带宽遮盖。所以优化方向不是 Tensor Core（M=1 无法用 MMA，最小 tile 要求 M&ge;8），而是向量化加载（half2 甚至 half8 via LDG.128）、多行共享输入向量、和 warp shuffle 减少线程间通信。<br>
+<dd>纯带宽。M=1、FP16 权重时算术强度 &asymp; 2K / (K &times; sizeof(half)) = 1 FLOP/byte。H100 的计算/带宽比（989.5 TFLOPS / 3.35 TB/s &asymp; 295 FLOP/byte，FP16 稠密）远高于此——计算完全被带宽遮盖。所以优化方向不是 Tensor Core（MMA 的 M 最小是 8 或 16），而是向量化加载（half2 甚至 half8 via LDG.128）、多行共享输入向量、和 warp shuffle 减少线程间通信。<br>
 <b>追问</b>：Tensor Core 能做 GEMV 吗？&rarr; 严格来说可以——pad M 到 8 或 16 然后用 mma.sync。但 7/8 的计算在做零值乘加，浪费了 Tensor Core 算力。对 GEMV 场景，CUDA core + 向量化加载通常更快。</dd>
 
 <dt id="sec-q5">Q5：L2 tile 遍历顺序（swizzle）为什么能提速？</dt>
-<dd>标准的 row-major 遍历中，相邻 CTA 访问 B 矩阵的不同列块——如果 B 大于 L2，这些列块互相驱逐缓存。Swizzle 让同一列组的 CTA 共享 B 的同一列块——L2 只需保留一个列块的数据，命中率从 &lt;30% 提升到 &gt;80%。效果取决于 B 大小与 L2 容量的比值：B 能完全放入 L2 时无效果，B 远大于 L2 时效果显著。<br>
-<b>追问</b>：Hopper 上还需要 L2 swizzle 吗？&rarr; 减弱了——Hopper 的 cluster multicast 可以在 cluster 内的 SM 之间广播 B tile，不依赖 L2 做数据复用。但 L2 仍然有价值，swizzle 和 multicast 可以叠加。</dd>
+<dd>标准的 row-major 遍历中，相邻 CTA 访问 B 矩阵的不同列块——如果 B 大于 L2，这些列块互相驱逐缓存。Swizzle 让同一列组的 CTA 共享 B 的同一列块，后续 CTA 更可能在 L2 命中。效果取决于 B 大小与 L2 容量的比值：B 能完全放入 L2 时无效果，B 远大于 L2 时才有意义，具体收益要实测。<br>
+<b>追问</b>：Hopper 上还需要 L2 swizzle 吗？&rarr; 需要。cluster multicast 只在一个 cluster（通常 2 个 CTA）内共享一次读取，跨 cluster 的复用仍靠 L2，swizzle 和 multicast 可以叠加。</dd>
 
 <dt id="sec-q6">Q6：Epilogue fusion 的收益上限是多少？</dt>
-<dd>取决于 GEMM 本身是计算密集还是带宽密集。对大矩阵的 FP16 GEMM（算术强度远超 roofline 拐点），GEMM 时间主导，epilogue 的额外带宽只占几个百分点——fusion 收益有限。但对小矩阵或低精度 GEMM（INT8/FP8），算术强度降低，epilogue 的额外读写占比大幅上升——fusion 可以提速 20&ndash;40%。<br>
-<b>追问</b>：为什么不把所有后续操作都融合？&rarr; 寄存器压力。GEMM 的累加器本身占用大量寄存器（128&times;128 tile 的 FP32 累加器 = 每线程 128 个寄存器），epilogue 再叠加多个操作会超出寄存器文件容量（每 SM 65536 个 32-bit 寄存器），导致 occupancy 下降或 spill 到 local memory。实践中一般融合 1&ndash;3 个逐元素操作，更复杂的（如 layernorm）通常单独做。</dd>
+<dd>取决于 GEMM 本身是计算密集还是带宽密集。对大矩阵的 FP16 GEMM（算术强度远超 roofline 拐点），GEMM 时间主导，epilogue 的额外带宽只占几个百分点——fusion 收益有限。但对小矩阵或低精度 GEMM（INT8/FP8），GEMM 本身更快，epilogue 的额外读写占比随之上升——fusion 的相对收益更大，具体多少要看形状实测。<br>
+<b>追问</b>：为什么不把所有后续操作都融合？&rarr; 寄存器压力。GEMM 的累加器本身占用大量寄存器（128&times;128 tile 的 FP32 累加器分给 128 个线程时，每线程 128 个寄存器），epilogue 再叠加多个操作会超出寄存器文件容量（每 SM 65536 个 32-bit 寄存器），导致 occupancy 下降或 spill 到 local memory。实践中一般融合 1&ndash;3 个逐元素操作，更复杂的（如 layernorm）通常单独做。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。Split-K 的 workspace 大小和 reduce kernel 的效率未经实测。</li>
-<li>Stream-K 没有代码示例——它的实现涉及精密的工作量分配和跨 CTA reduce，远比 Split-K 复杂。完整实现见 CUTLASS 3.x<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">2</a>]</span>。</li>
-<li>Grouped GEMM 的调度表是最朴素的顺序排列版本——实际的 CUTLASS 实现有更复杂的交错策略来优化 L2 命中率。</li>
+<li>Stream-K 没有代码示例——它的实现涉及精密的工作量分配和跨 CTA reduce，远比 Split-K 复杂。完整实现见 CUTLASS 3.x<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>。</li>
+<li>Grouped GEMM 的调度表是最朴素的顺序排列版本；CUTLASS 2.x 用 persistent CTA + problem visitor 而不是一个 tile 一个 CTA<span class="cite">[<a href="#ref-cutlassgrouped" title="NVIDIA (2025). grouped_problem_visitor.h，提交 <code>91843b7</code>：<code>GroupScheduleMode::kDeviceOnly / kHostPrecompute</code>，CTA 以 grid 大小为步长遍历全局 tile 编号。">5</a>]</span>。</li>
 <li>GEMV 示例只展示了最基本的 warp-per-row 策略。实际优化还涉及 LDG.128 向量化、寄存器 double-buffering、多行共享 x 向量等技巧。</li>
-<li>Epilogue fusion 只做了概念描述——EVT 的实际 API 和编译时代码生成机制可参考 CUTLASS 源码<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">2</a>]</span>。</li>
-<li>L2 swizzle 的最优列组宽度取决于 L2 容量和 tile 大小——A100 的 40 MB L2 和 H100 的 50 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span> 对应不同的最优参数。</li>
+<li>Epilogue fusion 只做了概念描述——EVT 的实际 API 和编译时代码生成机制可参考 CUTLASS 源码<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x。Split-K、Stream-K、Grouped GEMM 的参考实现。">3</a>]</span>。</li>
+<li>L2 swizzle 的最优列组宽度取决于 L2 容量和 tile 大小——A100 的 40 MB L2 和 H100 的 50 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。">7</a>]</span> 对应不同的最优参数。</li>
 <li>没有讨论 <b>Batched GEMM</b>——即同一 shape 的多个独立 GEMM（如 multi-head attention 中的 per-head GEMM）。Batched GEMM 和 Grouped GEMM 的区别：Batched 要求所有 batch 的 M、N、K 相同（只是指针不同），实现更简单——用 grid 的 z 维度区分 batch 即可。</li>
-<li>没有涉及 GEMM 的 <b>autotuning</b>——实际框架（如 cuBLAS、Triton、CUTLASS profiler）会对每个 shape 搜索最优的 tile 大小、split_k、pipeline stage 数等超参数。搜索空间可达数千种配置，通常用经验启发式或离线 profiling 缩小。</li>
+<li>没有涉及 GEMM 的 <b>autotuning</b>——实际框架（如 cuBLAS、Triton、CUTLASS profiler）会对每个 shape 搜索最优的 tile 大小、split_k、pipeline stage 数等超参数。通常用经验启发式或离线 profiling 缩小搜索范围。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>不是所有矩阵乘都是大方阵。Split-K 和 Stream-K 解决 M 小时 SM 利用率低的问题——前者静态切分 K 维度，后者动态均分工作量消除 wave quantization；Grouped GEMM 把 MoE 的多个 expert 打包进一个 kernel，通过 tile 调度表实现跨 group 负载均衡；GEMV 和 skinny GEMM 用带宽优化替代 Tensor Core，瓶颈是物理 HBM 带宽而非计算力；Epilogue fusion 将 bias/activation/residual 融合到写回阶段，省掉一轮甚至多轮全局读写；L2 swizzle 通过调整 tile 遍历顺序提高缓存命中率。</p>
+<p>不是所有矩阵乘都是大方阵。Split-K 和 Stream-K 解决 M 小时 SM 利用率低的问题——前者静态切分 K 维度，后者把所有 tile 的 K 迭代均分给 CTA 消除 wave quantization；Grouped GEMM 把 MoE 的多个 expert 打包进一个 kernel，所有 group 的 tile 一起调度；GEMV 和 skinny GEMM 用带宽优化替代 Tensor Core，瓶颈是物理 HBM 带宽而非计算力；Epilogue fusion 将 bias/activation/residual 融合到写回阶段，省掉一轮甚至多轮全局读写；L2 swizzle 通过调整 tile 遍历顺序提高缓存命中率。</p>
 
 <p>这些变种在实际推理框架中的重要性不亚于&ldquo;标准&rdquo;大矩阵 GEMM：LLM 推理的解码阶段几乎全部是 GEMV 和 skinny GEMM，MoE 模型的每一层都依赖 Grouped GEMM，而 Epilogue fusion 和 L2 优化则对所有 shape 都有效。掌握这些变种，才算真正理解了 GPU 上矩阵乘法的完整图景——下一篇进入低精度 GEMM：FP8 block scaling、W4A16 反量化和 MXFP4。</p>
 
@@ -594,12 +593,14 @@ struct TileInfo {
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-streamk">Osama, Merrill, Stahl &amp; Kolev (2023). <a href="https://arxiv.org/abs/2301.03598">Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU</a>. arXiv:2301.03598。</li>
+  <li id="ref-siboehm">Simon Boehm (2022). <a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog</a>. 个人博客（cuBLAS SGEMM kernel 追踪：边长 256 时 split-K + <code>splitKreduce_kernel</code>）。</li>
+  <li id="ref-streamk">Osama, Merrill, Stahl &amp; Kolev (2023). <a href="https://arxiv.org/abs/2301.03598">Stream-K: Work-centric Parallel Decomposition for Dense Matrix-Matrix Multiplication on the GPU</a>. arXiv:2301.03598（A100 上相对 CUTLASS data-parallel 最高 14×、相对 cuBLAS 最高 6.7×；fixed-split 与 two-tile 混合调度）。</li>
   <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass">CUTLASS 3.x</a>。Split-K、Stream-K、Grouped GEMM 的参考实现。</li>
   <li id="ref-megablocks">Gale et al. (2023). <a href="https://arxiv.org/abs/2211.15841">MegaBlocks: Efficient Sparse Training with Mixture-of-Experts</a>. arXiv:2211.15841。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（MMA 指令族）。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §16.7 L2 Access Management、§7.30 Warpgroup MMA。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 40 MB L2、H100 50 MB L2 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-cutlassgrouped">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass/blob/91843b71d90737e0a9b86f7d9df213cff5a3526f/include/cutlass/gemm/kernel/grouped_problem_visitor.h">grouped_problem_visitor.h</a>，提交 <code>91843b7</code>：<code>GroupScheduleMode::kDeviceOnly / kHostPrecompute</code>，CTA 以 grid 大小为步长遍历全局 tile 编号。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16（mma.sync 的矩阵形状：M 最小 8 或 16）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 108 SMs / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s / 989.5 TFLOPS FP16、每 SM 最多 64 warp、DSMEM、CLC。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §3.2.3 Device Memory L2 Access Management（<code>cudaAccessPolicyWindow</code>）。</li>
 </ol>
 
 </article>

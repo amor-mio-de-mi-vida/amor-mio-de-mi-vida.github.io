@@ -66,7 +66,7 @@
 
   <!-- Sync lines: wait_prior(1) before each MMA -->
   <line class="sync-line" x1="224" y1="45" x2="224" y2="282"/>
-  <text x="226" y="42" class="anno">wait_prior(1)</text>
+  <text x="226" y="42" class="anno">wait_group 1</text>
   <line class="sync-line" x1="302" y1="45" x2="302" y2="282"/>
   <line class="sync-line" x1="380" y1="45" x2="380" y2="282"/>
 

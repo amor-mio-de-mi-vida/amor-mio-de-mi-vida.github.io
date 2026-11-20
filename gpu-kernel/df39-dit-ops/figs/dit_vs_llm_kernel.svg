@@ -16,7 +16,7 @@
 <rect x="180" y="68" width="145" height="24" rx="3" fill="#93c5fd" stroke="#3b82f6"/>
 <text x="252" y="84" text-anchor="middle" class="code" font-size="10">KV cache &#x2192; GEMV</text>
 
-<text x="40" y="110" class="label">&#x2022; Compute-bound (large M from batch)</text>
+<text x="40" y="110" class="label">&#x2022; GEMM M = batch (256 here)</text>
 <text x="40" y="128" class="label">&#x2022; KV cache read dominates memory</text>
 <text x="40" y="146" class="label">&#x2022; Causal mask &#x2192; triangle skip</text>
 <text x="40" y="164" class="label">&#x2022; PagedAttention for cache mgmt</text>
@@ -34,14 +34,14 @@
 <rect x="530" y="68" width="135" height="24" rx="3" fill="#fde047" stroke="#eab308"/>
 <text x="597" y="84" text-anchor="middle" class="code" font-size="10">No cache, full fwd</text>
 
-<text x="390" y="110" class="label">&#x2022; Memory-bound (tiny M=2)</text>
+<text x="390" y="110" class="label">&#x2022; GEMM M = batch&#xd7;L = 8192: compute-bound</text>
 <text x="390" y="128" class="label">&#x2022; Each denoise step = full forward</text>
 <text x="390" y="146" class="label">&#x2022; No causal mask (bidirectional)</text>
 <text x="390" y="164" class="label">&#x2022; No KV cache needed</text>
 <text x="390" y="182" class="label">&#x2022; Optimize: latency (ms/step)</text>
 
 <rect x="385" y="195" width="280" height="28" rx="3" fill="#fef9c3" stroke="#fde047"/>
-<text x="525" y="213" text-anchor="middle" class="code" font-size="10">GEMM shape: [2, 3072] &#xd7; [3072, 3072]</text>
+<text x="525" y="213" text-anchor="middle" class="code" font-size="10">GEMM shape: [8192, 3072] &#xd7; [3072, 3072]</text>
 
 <text x="350" y="255" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

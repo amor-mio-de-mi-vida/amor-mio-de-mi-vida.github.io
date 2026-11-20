@@ -1,106 +1,52 @@
-<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" class="d-fig">
+<svg viewBox="0 0 640 330" xmlns="http://www.w3.org/2000/svg" class="d-fig">
   <style>
     .d-label { font: 600 13px "Inter", sans-serif; fill: var(--ink, #1a1a1a); }
     .d-note  { font: 400 11px "Inter", sans-serif; fill: var(--ink-2, #4a4a4a); }
-    .bar-bw  { fill: #56B4E9; opacity: 0.7; }
-    .bar-tc  { fill: #009E73; opacity: 0.7; }
+    .bar-bw  { fill: #56B4E9; opacity: 0.8; }
+    .bar-tc  { fill: #009E73; opacity: 0.8; }
     .grid-line { stroke: var(--rule, #e4e4e0); stroke-width: 0.5; }
   </style>
-
-  <text x="360" y="22" text-anchor="middle" class="d-label">精度 vs 带宽节省 vs Tensor Core 吞吐（H100 SXM）</text>
-  <text x="360" y="38" text-anchor="middle" class="d-note">来源：hw-facts.md（NVIDIA 官方规格）；带宽节省相对于 FP32</text>
-
-  <!-- Y axis -->
-  <line x1="80" y1="55" x2="80" y2="260" stroke="var(--ink-3,#8a8a86)" stroke-width="1"/>
-  <text x="34" y="160" text-anchor="middle" class="d-label" transform="rotate(-90,34,160)" style="font-size:11px">相对值（FP32 = 1×）</text>
-
-  <!-- Y ticks -->
-  <text x="72" y="258" text-anchor="end" class="d-note">0</text>
-  <text x="72" y="218" text-anchor="end" class="d-note">2×</text>
-  <text x="72" y="178" text-anchor="end" class="d-note">4×</text>
-  <text x="72" y="138" text-anchor="end" class="d-note">6×</text>
-  <text x="72" y="98" text-anchor="end" class="d-note">8×</text>
-  <text x="72" y="63" text-anchor="end" class="d-note">10×</text>
-
-  <!-- Grid -->
-  <line x1="80" y1="215" x2="660" y2="215" class="grid-line"/>
-  <line x1="80" y1="175" x2="660" y2="175" class="grid-line"/>
-  <line x1="80" y1="135" x2="660" y2="135" class="grid-line"/>
-  <line x1="80" y1="95" x2="660" y2="95" class="grid-line"/>
-  <line x1="80" y1="60" x2="660" y2="60" class="grid-line"/>
-
-  <!-- X axis -->
-  <line x1="80" y1="255" x2="660" y2="255" stroke="var(--ink-3,#8a8a86)" stroke-width="1"/>
-
-  <!-- FP32: BW=1×, TC=1× (H100 FP32 CUDA core ~67 TFLOPS, dense TC FP32=N/A; use ~1× baseline) -->
-  <!-- Actually for TC throughput: FP32 ~67 TF, FP16 ~989 TF dense, FP8 ~1979 TF dense, INT8 ~1979 TF -->
-  <!-- Relative to FP32: FP16=~2×BW, ~15× TC; FP8=~4×BW, ~30× TC. Too big for chart. -->
-  <!-- Better: show relative to FP16 TC as 1× -->
-  <!-- FP16: BW 1×, TC 1× (989 TFLOPS dense); FP8: BW 2×, TC 2× (1979); INT8: BW 2×, TC 2× -->
-  <!-- FP32: BW 0.5×, TC 0.067× (CUDA core only, no FP32 TC) -->
-
-  <!-- Let's use: bytes per element relative (FP32=4B, FP16=2B, FP8=1B, INT4=0.5B, FP4=0.5B) -->
-  <!-- BW saving = FP32_bytes / type_bytes -->
-  <!-- TC throughput = type_TFLOPS / FP32_TFLOPS (CUDA core) -->
-
-  <!-- Group: FP32 -->
-  <g transform="translate(100, 0)">
-    <!-- BW saving: 1× -->
-    <rect x="0" y="235" width="28" height="20" class="bar-bw"/>
-    <!-- TC: 1× (baseline) -->
-    <rect x="32" y="235" width="28" height="20" class="bar-tc"/>
-    <text x="30" y="270" text-anchor="middle" class="d-note">FP32</text>
-    <text x="14" y="231" text-anchor="middle" class="d-note" style="font-size:9px">1×</text>
-    <text x="46" y="231" text-anchor="middle" class="d-note" style="font-size:9px">1×</text>
-  </g>
-
-  <!-- Group: FP16 -->
-  <g transform="translate(210, 0)">
-    <!-- BW saving: 2× (2 bytes vs 4) -->
-    <rect x="0" y="215" width="28" height="40" class="bar-bw"/>
-    <!-- TC: ~15× (989/67) ≈ 15 but too big; cap at 8× for chart, note actual -->
-    <rect x="32" y="95" width="28" height="160" class="bar-tc"/>
-    <text x="30" y="270" text-anchor="middle" class="d-note">FP16</text>
-    <text x="14" y="211" text-anchor="middle" class="d-note" style="font-size:9px">2×</text>
-    <text x="46" y="91" text-anchor="middle" class="d-note" style="font-size:9px">8×</text>
-  </g>
-
-  <!-- Group: FP8 -->
-  <g transform="translate(320, 0)">
-    <!-- BW saving: 4× -->
-    <rect x="0" y="175" width="28" height="80" class="bar-bw"/>
-    <!-- TC: ~30× but cap to show relationship; use same relative scale -->
-    <rect x="32" y="60" width="28" height="195" class="bar-tc"/>
-    <text x="30" y="270" text-anchor="middle" class="d-note">FP8</text>
-    <text x="14" y="171" text-anchor="middle" class="d-note" style="font-size:9px">4×</text>
-    <text x="46" y="56" text-anchor="middle" class="d-note" style="font-size:9px">10×</text>
-  </g>
-
-  <!-- Group: INT8 -->
-  <g transform="translate(430, 0)">
-    <!-- BW saving: 4× -->
-    <rect x="0" y="175" width="28" height="80" class="bar-bw"/>
-    <rect x="32" y="60" width="28" height="195" class="bar-tc"/>
-    <text x="30" y="270" text-anchor="middle" class="d-note">INT8</text>
-    <text x="14" y="171" text-anchor="middle" class="d-note" style="font-size:9px">4×</text>
-    <text x="46" y="56" text-anchor="middle" class="d-note" style="font-size:9px">10×</text>
-  </g>
-
-  <!-- Group: INT4/FP4 -->
-  <g transform="translate(540, 0)">
-    <!-- BW saving: 8× -->
-    <rect x="0" y="95" width="28" height="160" class="bar-bw"/>
-    <!-- FP4 TC on B200: even higher -->
-    <rect x="32" y="60" width="28" height="195" class="bar-tc" style="fill:#D55E00"/>
-    <text x="30" y="270" text-anchor="middle" class="d-note">FP4</text>
-    <text x="14" y="91" text-anchor="middle" class="d-note" style="font-size:9px">8×</text>
-    <text x="46" y="56" text-anchor="middle" class="d-note" style="font-size:9px;fill:#D55E00">B200</text>
-  </g>
-
-  <!-- Legend -->
-  <rect x="200" y="292" width="24" height="12" rx="2" class="bar-bw"/>
-  <text x="230" y="302" class="d-note">带宽节省</text>
-  <rect x="320" y="292" width="24" height="12" rx="2" class="bar-tc"/>
-  <text x="350" y="302" class="d-note">TC 吞吐</text>
-  <text x="480" y="302" class="d-note">（相对于 FP32 CUDA core；computed from hw-facts.md）</text>
+  <text x="320.0" y="22" text-anchor="middle" class="d-label">位宽 vs 权重字节节省 vs Tensor Core 稠密峰值（相对 FP16）</text>
+  <text x="320.0" y="40" text-anchor="middle" class="d-note">蓝：每元素字节数相对 FP16 的节省（不含 scale）；绿：同一 GPU 上稠密峰值 ÷ FP16 稠密峰值</text>
+  <line x1="80" y1="70" x2="80" y2="255" stroke="#8a8a86" stroke-width="1"/>
+  <line x1="80" y1="255" x2="610" y2="255" stroke="#8a8a86" stroke-width="1"/>
+  <line x1="80" y1="210" x2="610" y2="210" class="grid-line"/>
+  <text x="72" y="214" text-anchor="end" class="d-note">1×</text>
+  <line x1="80" y1="165" x2="610" y2="165" class="grid-line"/>
+  <text x="72" y="169" text-anchor="end" class="d-note">2×</text>
+  <line x1="80" y1="120" x2="610" y2="120" class="grid-line"/>
+  <text x="72" y="124" text-anchor="end" class="d-note">3×</text>
+  <line x1="80" y1="75" x2="610" y2="75" class="grid-line"/>
+  <text x="72" y="79" text-anchor="end" class="d-note">4×</text>
+  <text x="72" y="259" text-anchor="end" class="d-note">0</text>
+  <rect x="99" y="210" width="32" height="45" class="bar-bw"/>
+  <text x="115" y="205" text-anchor="middle" class="d-note">1×</text>
+  <rect x="135" y="210" width="32" height="45" class="bar-tc"/>
+  <text x="151" y="205" text-anchor="middle" class="d-note">1×</text>
+  <text x="133" y="273" text-anchor="middle" class="d-label" style="font-size:12px">FP16</text>
+  <text x="133" y="288" text-anchor="middle" class="d-note">H100</text>
+  <rect x="205" y="165" width="32" height="90" class="bar-bw"/>
+  <text x="221" y="160" text-anchor="middle" class="d-note">2×</text>
+  <rect x="241" y="165" width="32" height="90" class="bar-tc"/>
+  <text x="257" y="160" text-anchor="middle" class="d-note">2×</text>
+  <text x="239" y="273" text-anchor="middle" class="d-label" style="font-size:12px">FP8</text>
+  <text x="239" y="288" text-anchor="middle" class="d-note">H100</text>
+  <rect x="311" y="165" width="32" height="90" class="bar-bw"/>
+  <text x="327" y="160" text-anchor="middle" class="d-note">2×</text>
+  <rect x="347" y="165" width="32" height="90" class="bar-tc"/>
+  <text x="363" y="160" text-anchor="middle" class="d-note">2×</text>
+  <text x="345" y="273" text-anchor="middle" class="d-label" style="font-size:12px">INT8</text>
+  <text x="345" y="288" text-anchor="middle" class="d-note">H100</text>
+  <rect x="417" y="75" width="32" height="180" class="bar-bw"/>
+  <text x="433" y="70" text-anchor="middle" class="d-note">4×</text>
+  <text x="469" y="249" text-anchor="middle" class="d-note">无 MMA</text>
+  <text x="451" y="273" text-anchor="middle" class="d-label" style="font-size:12px">INT4</text>
+  <rect x="523" y="75" width="32" height="180" class="bar-bw"/>
+  <text x="539" y="70" text-anchor="middle" class="d-note">4×</text>
+  <rect x="559" y="75" width="32" height="180" class="bar-tc"/>
+  <text x="575" y="70" text-anchor="middle" class="d-note">4×</text>
+  <text x="557" y="273" text-anchor="middle" class="d-label" style="font-size:12px">FP4</text>
+  <text x="557" y="288" text-anchor="middle" class="d-note">B200</text>
+  <text x="320.0" y="306" text-anchor="middle" class="d-note">稠密峰值：H100 FP16 989.5 TF、FP8 1,979 TF、INT8 1,979 TOPS；HGX B200 每 GPU FP16 2.25 PF、FP4 9 PF</text>
+  <text x="320.0" y="322" text-anchor="middle" class="d-note">（hw-facts §4）。Hopper 的 wgmma 没有 INT4 输入类型</text>
 </svg>

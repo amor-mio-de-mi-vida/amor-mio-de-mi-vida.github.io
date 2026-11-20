@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 316">
 <style>
   text{font-family:system-ui,sans-serif;font-size:12px;fill:#23272f}
   .title{font-size:12px;font-weight:700}
@@ -49,22 +49,22 @@
 
 <!-- HBM traffic comparison -->
 <rect x="30" y="195" width="310" height="95" class="box" fill="#fef2f2" stroke="#fca5a5"/>
-<text x="185" y="215" text-anchor="middle" class="title" fill="#dc2626">Unfused: 5 HBM round-trips</text>
+<text x="185" y="215" text-anchor="middle" class="title" fill="#dc2626">Unfused: 4 kernels</text>
 <text x="45" y="235" class="code" font-size="10">1. Read x &#x2192; Write mean,var (LayerNorm pass1)</text>
 <text x="45" y="250" class="code" font-size="10">2. Read x,mean,var &#x2192; Write norm (LN pass2)</text>
 <text x="45" y="265" class="code" font-size="10">3. Read norm,scale &#x2192; Write scaled (multiply)</text>
 <text x="45" y="280" class="code" font-size="10">4. Read scaled,shift &#x2192; Write out (add)</text>
 
 <rect x="370" y="195" width="310" height="95" class="box" fill="#dcfce7" stroke="#86efac"/>
-<text x="525" y="215" text-anchor="middle" class="title" fill="#16a34a">Fused: 2 HBM round-trips</text>
-<text x="385" y="235" class="code" font-size="10">1. Read x &#x2192; warp reduce (pass 1, smem only)</text>
-<text x="385" y="250" class="code" font-size="10">2. Read x,scale,shift &#x2192; Write out (pass 2)</text>
-<text x="385" y="270" class="label">Saves ~60% HBM traffic</text>
-<text x="385" y="283" class="label">D=1024: 4 KB read + 4 KB write per token</text>
+<text x="525" y="215" text-anchor="middle" class="title" fill="#16a34a">Fused: 1 kernel, x read once</text>
+<text x="385" y="235" class="code" font-size="10">1. Read x into registers &#x2192; block reduce (pass 1)</text>
+<text x="385" y="250" class="code" font-size="10">2. Reuse x, read scale,shift (cached) &#x2192; Write out</text>
+<text x="385" y="270" class="label">~28 KB &#x2192; ~8 KB per token (~70% less)</text>
+<text x="385" y="283" class="label">D=1024, FP32: 4 KB read + 4 KB write per token</text>
 
 <defs>
 <marker id="a1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#888"/></marker>
 <marker id="a2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#818cf8"/></marker>
 </defs>
-<text x="350" y="298" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
+<text x="350" y="310" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (FP32, D=1024; scale/shift per sample, cached)</text>
 </svg>

@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 19 分钟阅读</span>
   </div>
 </header>
 
@@ -231,10 +231,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <p class="tldr-title">TL;DR</p>
   <ul>
     <li>NCCL 的初始化分四步：Bootstrap（TCP 控制连接）→ 拓扑检测（解析 /sys 中的 NVLink/PCIe/NET 信息）→ 图搜索（在拓扑上找最优 ring/tree）→ Channel 建立（分配缓冲区、建连接）。</li>
-    <li>Channel 是 NCCL 的并行单元：多个 channel 各走不同的 NVLink ring 路径，分片处理同一集合操作的不同数据，聚合所有 NVLink 带宽。H100 默认 32 个 channel。</li>
-    <li>三种协议适配不同消息大小：LL（低延迟，flag 内联数据）、LL128（NVLink 原子传输，效率最高）、Simple（大块 DMA，带宽最优）；NCCL 按消息大小自动切换。</li>
-    <li>Proxy 线程是 NCCL 跨节点通信的 CPU 端代理：GPU kernel 把数据写入 bounce buffer 并通过 FIFO 通知 proxy，proxy 调用 <code>ibv_post_send</code> 发起 RDMA；NVLink 路径不走 proxy，GPU 直接 load/store 对端显存。</li>
-    <li>ncclGroupStart/End 合并多个集合操作为一次 kernel launch，减少 ~10 μs/op 的启动开销——在 Transformer 中一个 layer 的 attention+MLP 可以只 launch 一次 NCCL kernel。</li>
+    <li>Channel 是 NCCL 的并行单元：每个 channel 对应一个 CUDA block，多个 channel 各走自己的 ring/tree，分片处理同一集合操作的不同数据，从而聚合多条链路的带宽。channel 数由 NCCL 按拓扑决定。</li>
+    <li>三种协议：LL（数据与 flag 各占一半，延迟最低）、LL128（每行只留一小段 flag，效率约 94%）、Simple（大块数据 + 显式同步，带宽最高）；NCCL 用同一个代价模型在算法和协议之间选组合，没有固定的字节阈值。</li>
+    <li>Proxy 线程是 NCCL 跨节点通信的 CPU 端代理：GPU kernel 把数据写入通信缓冲区并更新共享的计数器，proxy 发现后调用 <code>ibv_post_send</code> 发起 RDMA；NVLink 路径不走 proxy，GPU 直接读写对端显存。</li>
+    <li>ncclGroupStart/End 可以把多个<b>相互独立</b>的集合操作合成一次 NCCL launch，启动开销只付一次；它还用于单线程管理多 GPU（避免死锁）和合并 send/recv。</li>
   </ul>
 </div>
 
@@ -246,7 +246,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>NCCL（NVIDIA Collective Communication Library）是几乎所有 GPU 分布式训练框架的通信后端：PyTorch 的 <code>torch.distributed</code>、DeepSpeed、Megatron-LM 都默认使用 NCCL。但 NCCL 不只是一个&ldquo;调 API 就行&rdquo;的黑箱——理解它的内部机制对于诊断通信性能瓶颈、选择正确的环境变量、设计自定义通信算子都是必要的。</p>
 
-<p>一个常见的问题是：为什么 AllReduce 只跑到理论带宽的 60%？可能的原因有很多——channel 数量不足导致 NVLink 没有被充分利用、协议选择不当导致小消息走了 Simple（启动延迟高）而不是 LL128（延迟低）、GPU 和 NIC 不在同一 NUMA 节点导致 GPUDirect RDMA 降级为 CPU 中转……这些问题都需要理解 NCCL 的内部选择逻辑才能诊断和修正。本篇从源码级别剖析 NCCL 的初始化流水线、运行时调度机制、三种传输协议的数据路径、以及关键的性能调优手段<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository. 源码级参考：bootstrap、topo、graph、channel、kernel、proxy 模块。">1</a>]</span>。</p>
+<p>一个常见的问题是：为什么 AllReduce 的 busbw 明显低于链路峰值？可能的原因有很多——channel 数量不足导致链路没有被充分利用、协议选择不当、GPU 和 NIC 距离太远导致 GPUDirect RDMA 没有启用……这些问题都需要理解 NCCL 的内部选择逻辑才能诊断和修正。本篇从源码级别剖析 NCCL 的初始化流水线、运行时调度机制、三种传输协议的数据路径、以及关键的性能调优手段<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。</p>
 
 <h2 id="sec-init" data-short="初始化">初始化流水线</h2>
 
@@ -257,19 +257,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p><a href="#fig-nccl_architecture">图 1</a>展示了 NCCL 从初始化到运行时的完整流水线。</p>
 
-<p><b>Step 1: Bootstrap</b>——所有 rank 通过一个共享的 <code>ncclUniqueId</code>（本质是 root rank 的 IP:port）建立 TCP 控制连接环。这个环只用于交换少量元数据（拓扑信息、handle），不走数据路径。Bootstrap 的过程是：rank 0 创建监听 socket，其他 rank 连接 rank 0 获取邻居信息，最终形成一个逻辑环——每个 rank 知道自己的前驱和后继 rank 的地址。这个环结构使得后续的广播和收集操作只需要 O(N) 的点对点通信就能完成。Bootstrap 的连接超时由 <code>NCCL_CONNECT_TIMEOUT</code> 控制（默认 120 秒），在大规模集群中（数千个 rank），如果某个节点启动慢，其他节点可能在这个超时内等待——这是大规模训练任务启动慢的常见原因之一。</p>
+<p><b>Step 1: Bootstrap</b>——所有 rank 通过一个共享的 <code>ncclUniqueId</code>（其中含有 root 监听 socket 的地址）建立 TCP 控制连接环。这个环只用于交换少量元数据（拓扑信息、handle），不走数据路径。Bootstrap 的过程是：root 创建监听 socket，各 rank 连接 root 上报自己的地址，root 再告诉每个 rank 它在环上的下一个 rank 是谁，最终形成一个逻辑环。之后的元数据 AllGather 就沿这个环做。在数千个 rank 的集群中，只要有一个节点启动慢，其他节点就都在 bootstrap 阶段等它——这是大规模训练任务启动慢的常见原因之一。</p>
 
-<p><b>Step 2: 拓扑检测</b>——每个 rank 解析本机的 <code>/sys/class/...</code> 信息，构建 NVLink / PCIe / NET 的拓扑图。具体来说，NCCL 遍历 <code>/sys/class/pci_bus/</code> 下的设备，读取 GPU 的 NVLink 连接信息（从 <code>/sys/bus/pci/devices/.../nvidia-caps/</code>）、PCIe 拓扑（哪些设备在同一 switch 下）、NIC 位置（每个 NIC 属于哪个 NUMA 节点）。检测结果被组织成一棵树：CPU → PCIe Switch → GPU/NIC。NCCL 能识别 NVSwitch（所有 GPU 等距）和 NVLink 直连（只有部分 GPU 对相连）两种拓扑。NVSwitch 拓扑通过检查每个 GPU 是否都有相同数量的 NVLink 连接来判定——如果 8 个 GPU 各有 18 条 NVLink 连向同一组 NVSwitch 芯片，就识别为全互联拓扑。拓扑检测的结果还包括 NUMA 亲和性信息——每个 GPU 和 NIC 属于哪个 CPU socket。这对后续的 proxy 线程绑定和 GPUDirect RDMA 决策至关重要：NCCL 会把 proxy 线程绑定到 GPU 所在的 NUMA 节点上，减少跨 NUMA 的内存访问开销。</p>
+<p><b>Step 2: 拓扑检测</b>——每个 rank 构建本机的 GPU / PCIe / NVLink / NIC 拓扑图。PCIe 层次（哪些设备在同一 switch 下、属于哪个 CPU）从 sysfs 的 PCI 设备路径读出；GPU 的 NVLink 连接则通过 NVML 逐条查询（是否可用于 P2P、对端是哪个设备）<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。对端是 NVSwitch 时，NCCL 把它建模为一个交换节点，所有 GPU 经它等距相连；否则就是 NVLink 直连图。拓扑结果还包括每个 GPU 和 NIC 属于哪个 CPU socket，后续的 CPU 亲和性和 GPUDirect RDMA 决策都依赖它。</p>
 
-<p>NUMA 亲和性信息在拓扑检测中扮演关键角色。NCCL 读取每个 GPU 的 <code>/sys/bus/pci/devices/&lt;BDF&gt;/numa_node</code> 获取其所属的 NUMA 节点号，同时读取每个 NIC 的 NUMA 归属。这些信息影响三个关键决策：（一）proxy 线程绑定——NCCL 把处理某个 GPU 的 IB 通信的 proxy 线程绑定到该 GPU 所在的 NUMA 节点的 CPU 核心上，避免 proxy 的 FIFO 轮询和 <code>ibv_post_send</code> 调用跨 NUMA 访问内存，减少每次操作约 1-3 μs 的额外延迟；（二）GPUDirect RDMA 决策——当 GPU 和 NIC 在同一 NUMA 节点（且在同一 PCIe switch 下）时才默认开启 GDR，否则 NIC 的 DMA 要穿过 UPI 互联才能到达 GPU 显存，性能反而不如 CPU 内存中转；（三）IB QP 绑定——NCCL 会把 IB 连接的 <code>ibv_context</code> 选为 GPU 同 NUMA 节点的 NIC，保证 RDMA 数据路径不跨 NUMA。如果系统的 BIOS 中开启了 NUMA interleaving（SNC disabled 且 memory interleaving = auto），所有设备的 <code>numa_node</code> 都返回 0 或 -1，NCCL 无法正确做亲和性决策——这是自建集群中最常见的配置错误之一。诊断方法：运行 <code>NCCL_DEBUG=INFO</code> 看日志中的 <code>NET/IB</code> 行是否显示 GPU 和 NIC 在同一 NUMA 节点。</p>
+<p>NUMA 亲和性信息在拓扑检测中扮演关键角色。这些信息影响三个关键决策：（一）CPU 亲和性——默认情况下，NCCL 使用&ldquo;继承来的 CPU 亲和性&rdquo;与&ldquo;GPU 对应的 CPU 亲和性&rdquo;的交集<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>，proxy 等线程因此跑在离 GPU 近的核上；（二）GPUDirect RDMA 决策——由 <code>NCCL_NET_GDR_LEVEL</code> 规定 NIC 与 GPU 之间允许的最大拓扑距离，不设置时 NCCL 按架构和环境自动选择；距离太远时 NIC 的 DMA 要穿过 CPU 间互联，GDR 可能反而不如经 CPU 内存中转；（三）NIC 选择——NCCL 优先为每个 GPU 选拓扑上最近的 NIC。如果固件报告的 PCI/NUMA 信息不对（例如 <code>numa_node</code> 读出 -1），这些自动决策都会受影响。诊断方法：运行 <code>NCCL_DEBUG=INFO</code> 看日志中的 <code>NET/IB</code> 行是否显示 GPU 和 NIC 在同一 NUMA 节点。</p>
 
-<p><b>Step 3: 图搜索</b>——在拓扑上搜索最优的 ring 和 tree 路径。对于 NVSwitch 拓扑（如 DGX H100），ring 搜索比较简单（任何排列都等距）；对于直连拓扑，需要找到经过所有 GPU 且负载均衡的环——这是一个 NP-hard 问题（哈密顿回路），NCCL 用贪心启发式求解。NCCL 搜索多条不同的 ring，分配给不同的 channel。搜索目标是使所有 ring 尽量走不同的 NVLink 路径，避免同一条物理链路被多个 channel 共享（导致带宽竞争）。Tree 的搜索则是构建以 rank 0 为根的二叉树或多叉树，使得叶节点到根的最大深度最小。</p>
+<p><b>Step 3: 图搜索</b>——在拓扑上搜索最优的 ring 和 tree 路径。对于 NVSwitch 拓扑（如 DGX H100），ring 搜索比较简单（任何排列都等距）；对于直连拓扑，需要找到经过所有 GPU 且带宽均衡的环（一般情形下是哈密顿回路问题），NCCL 用带时间上限的回溯搜索，从高目标带宽往下试。搜到的多条 ring 分配给不同的 channel，并尽量让同一条物理链路不被过多 channel 共享。Tree 的结构是：节点内串成一条链，节点间用双二叉树（两棵互补的二叉树各承担一半数据）<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。</p>
 
-<p><b>Step 4: Channel 建立</b>——为每个 channel 分配发送/接收缓冲区、建立 P2P 连接。对 NVLink 路径，通过 <code>cudaIpcGetMemHandle</code> / <code>cudaIpcOpenMemHandle</code> 交换 IPC 内存句柄，使得一个 GPU 可以直接访问另一个 GPU 的缓冲区。对 IB 路径，建立 QP（Queue Pair）连接——创建 QP、交换 QP 号和 LID/GID、做状态转换（RESET → INIT → RTR → RTS）。每个 channel 的缓冲区大小由 <code>NCCL_BUFFSIZE</code> 控制（默认 4 MB），被分成多个 slot 用于流水线。</p>
+<p><b>Step 4: Channel 建立</b>——为每个 channel 分配发送/接收缓冲区、建立 P2P 连接。对 NVLink/PCIe P2P 路径，通过 CUDA IPC 句柄（<code>cudaIpcGetMemHandle</code> / <code>cudaIpcOpenMemHandle</code>）或 cuMem VMM 句柄（<code>NCCL_CUMEM_ENABLE</code>）交换缓冲区，使得一个 GPU 可以直接访问另一个 GPU 的缓冲区。对 IB 路径，建立 QP（Queue Pair）连接——创建 QP、交换 QP 号和 LID/GID、做状态转换（RESET → INIT → RTR → RTS）。一对 GPU 之间的通信缓冲区大小由 <code>NCCL_BUFFSIZE</code> 控制（默认 4 MiB）<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>，被分成 <code>NCCL_STEPS</code> = 8 个 slot 用于流水线<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。</p>
 
-<p>以下是 NCCL 的基本使用模式<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 集合操作 API、环境变量、性能调优。">2</a>]</span>：</p>
+<p>以下是 NCCL 的基本使用模式<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>：</p>
 
-<pre data-code="code/cm49-nccl-internals/nccl_allreduce_example.cu#L11-L51"><code>void run_allreduce(int rank, int nranks,
+<pre data-code="code/cm49-nccl-internals/nccl_allreduce_example.cu#L12-L55"><code>void run_allreduce(int rank, int nranks,
                    ncclUniqueId id) {
   cudaSetDevice(rank);
 
@@ -277,6 +277,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float *d_send, *d_recv;
   cudaMalloc(&amp;d_send, N * sizeof(float));
   cudaMalloc(&amp;d_recv, N * sizeof(float));
+
+  // Fill with rank+1 so sum = nranks*(nranks+1)/2
+  float* h = (float*)malloc(N * sizeof(float));
+  for (int i = 0; i &lt; N; ++i) h[i] = rank + 1.0f;
+  cudaMemcpy(d_send, h, N * sizeof(float),
+             cudaMemcpyHostToDevice);
+  free(h);
 
   ncclComm_t comm;
   ncclCommInitRank(&amp;comm, nranks, id, rank);
@@ -304,162 +311,167 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cm49-nccl-internals/nccl_allreduce_example.cu</code>（未在 GPU 上运行）</p>
 
-<p><code>ncclCommInitRank</code> 内部执行了上述全部四步初始化。这个调用通常需要数秒甚至数十秒的时间（拓扑检测需要遍历大量系统文件，图搜索在复杂拓扑上是计算密集的，而 IB 的 QP 连接建立需要多轮握手），所以训练框架一般在启动时只调用一次并缓存通信句柄。<code>ncclAllReduce</code> 本身只是把操作入队到 CUDA stream，不等待完成——真正的同步发生在后面的 <code>cudaStreamSynchronize</code>。</p>
+<p><code>ncclCommInitRank</code> 内部执行了上述全部四步初始化。它涉及拓扑探测、图搜索和多轮网络握手，开销远大于一次集合操作，所以训练框架一般在启动时只调用一次并缓存通信句柄。<code>ncclAllReduce</code> 本身只是把操作入队到 CUDA stream，不等待完成——真正的同步发生在后面的 <code>cudaStreamSynchronize</code>。</p>
 
-<p>一个常被忽视的初始化细节是<b>初始化顺序和超时</b>。当使用多进程模式（每进程一个 GPU）时，所有进程的 <code>ncclCommInitRank</code> 必须在超时窗口内（默认 120 秒）同时执行——如果某个进程因为 GPU 初始化慢或资源分配延迟而错过窗口，所有其他进程都会超时失败。在千卡规模的训练中，这种&ldquo;慢启动&rdquo;问题很常见：某台机器的 GPU 驱动加载慢、CUDA context 创建因 ECC 扫描而延迟、或者 PCIe 设备枚举在 BIOS 层面就慢——这些都会导致整个训练任务的初始化失败。解决方案包括：增大 <code>NCCL_CONNECT_TIMEOUT</code>（如设为 600 秒）、用预检脚本在 NCCL 初始化前先验证所有节点的 GPU 就绪状态、以及使用弹性训练框架（如 TorchElastic）在节点失败时自动重试而不是整体超时。</p>
+<p>一个常被忽视的初始化细节是<b>初始化是集体操作</b>。多进程模式（每进程一个 GPU）下，所有 rank 都必须调用 <code>ncclCommInitRank</code>，先到的 rank 会一直等后到的 rank；任何一个进程起不来，其他进程就卡在初始化里（上层框架通常有自己的超时）。在千卡规模的训练中，这种&ldquo;慢启动&rdquo;并不罕见：某台机器驱动加载慢、某张卡状态异常，都会拖住整个任务。常见的对策是在 NCCL 初始化前用预检脚本确认所有节点的 GPU 就绪，以及使用弹性训练框架（如 TorchElastic）在节点失败时重启。</p>
 
 <h2 id="sec-channel" data-short="Channel">Channel 与多 Ring 并行</h2>
 
 <figure id="fig-channel_ring" data-kind="diagram">
   <img aria-labelledby="fig-channel_ring-cap" src="figs/channel_ring.svg" alt="NCCL 多 Channel 多 Ring 并行">
-  <figcaption id="fig-channel_ring-cap"><span class="fig-label">图 2</span><b>多 channel 走不同 ring 路径，聚合 NVLink 带宽。</b>每个 channel 拥有独立的 ring 顺序和独立的缓冲区，处理数据的不同分片。不同 ring 走不同的 NVLink 路径，最大化链路利用率。H100 上 NCCL 默认使用 32 个 channel<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。">3</a>]</span>。</figcaption>
+  <figcaption id="fig-channel_ring-cap"><span class="fig-label">图 2</span><b>多 channel 走不同 ring 路径，聚合 NVLink 带宽。</b>每个 channel 拥有独立的 ring 顺序和独立的缓冲区，处理数据的不同分片。不同 ring 走不同的 NVLink 路径，最大化链路利用率。实际 channel 数由 NCCL 按拓扑决定，可在 <code>NCCL_DEBUG=INFO</code> 日志里看到。</figcaption>
 </figure>
 
 <p>如<a href="#fig-channel_ring">图 2</a>所示，Channel 是 NCCL 的<b>并行粒度</b>。一次 AllReduce 操作的数据被切成 N_CH 片，每片由一个 channel 独立处理。每个 channel 有自己的 ring 顺序（或 tree 结构）、发送/接收缓冲区、连接信息（NVLink IPC handle 或 IB QP）。</p>
 
-<p>多 channel 的好处是<b>聚合带宽</b>：单条 ring 只能利用一条 NVLink 路径的带宽，但 32 条 ring 走不同路径就能利用所有 NVLink 的带宽。在 NVSwitch 拓扑下，所有路径等距（数据经 NVSwitch crossbar 转发，不受源目 GPU 位置影响），channel 数量越多带宽越高（直到 NVLink 总带宽饱和）。但 channel 数量不是越多越好——每个 channel 需要独立的发送和接收缓冲区（默认 4 MB × 2 × 32 channel = 256 MB 显存开销）和独立的 GPU 线程资源（每 channel 至少一个 thread block，占用 SM 资源）。当 channel 数量超过 NVLink 的物理路径数时，多个 channel 共享同一条物理链路，带宽不再增加反而浪费寄存器和共享内存。另外，channel 数量还会影响小消息的性能——当消息很小时，切片后每个 channel 分到的数据量太少，启动开销反而占主导。NCCL 会根据消息大小动态减少实际使用的 channel 数。</p>
+<p>多 channel 的好处是<b>聚合带宽</b>：一个 CUDA block 的搬运能力有限，单条 ring 也只走一组链路；多个 channel 并行，才能把多条 NVLink 同时跑满。但 channel 数量不是越多越好——每个 channel 需要自己的连接缓冲区（每个对端、每种协议各一份，显存开销随 channel 数线性增长），还要占一个 CUDA block 的 SM 资源，和同时运行的计算 kernel 抢 SM。消息很小时，切片后每个 channel 分到的数据太少，固定开销反而占主导，所以 NCCL 会按每次操作的大小估算实际使用的 CTA 数。</p>
 
-<p>在 GPU 端，每个 channel 由一个 thread block 处理。NCCL 的 kernel 启动配置是 <code>&lt;&lt;&lt;N_CH * N_BLOCKS, BLOCK_SIZE&gt;&gt;&gt;</code>，其中 N_CH 是 channel 数，N_BLOCKS 是每个 channel 的 block 数（用于 Simple 协议的多 block 流水线），BLOCK_SIZE 通常是 512。每个 block 内的线程分工：warp 0 做控制（检查 flag、推进状态），其余 warp 做数据搬运（load/store 或归约运算）。</p>
+<p>在 GPU 端，NCCL 为每个 channel 启动一个 CUDA block<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>，grid 大小就是本次使用的 channel 数；每个 block 的线程数由 <code>NCCL_NTHREADS</code> 控制，较新的 GPU 上默认 512。</p>
 
 <h2 id="sec-enqueue" data-short="Enqueue 流程">运行时 Enqueue 流程</h2>
 
 <figure id="fig-nccl_enqueue_flow" data-kind="diagram">
   <img aria-labelledby="fig-nccl_enqueue_flow-cap" src="figs/nccl_enqueue_flow.svg" alt="NCCL 运行时 Enqueue 流程">
-  <figcaption id="fig-nccl_enqueue_flow-cap"><span class="fig-label">图 3</span><b>NCCL 的运行时 enqueue 流程。</b>用户调用 ncclAllReduce 后，经过参数检查、算法/协议选择、kernel 模板实例化三步。算法选择基于 alpha-beta 模型计算每种算法的预估时间；协议根据消息大小切换。最终的 kernel 是编译期模板实例化——FUNC/ALGO/PROTO 的组合避免了运行时分支。</figcaption>
+  <figcaption id="fig-nccl_enqueue_flow-cap"><span class="fig-label">图 3</span><b>NCCL 的运行时 enqueue 流程。</b>用户调用 ncclAllReduce 后，经过参数检查、算法/协议选择、kernel 模板实例化三步。算法和协议由同一个 alpha-beta 式代价模型一起选出。设备端代码按 (操作, 归约, 类型, 算法, 协议) 组合在编译期生成，运行时按函数 ID 分派。</figcaption>
 </figure>
 
 <p><a href="#fig-nccl_enqueue_flow">图 3</a>展示了运行时的 enqueue 流程。当用户调用 <code>ncclAllReduce</code> 时，NCCL 内部执行以下步骤：</p>
 
-<p><b>算法选择</b>：NCCL 对每种候选算法（Ring、Tree、CollnetDirect、CollnetChain、NVLS）用 alpha-beta 模型计算预估完成时间，选时间最小的。模型的参数（alpha 启动延迟和 beta 每字节传输时间）在初始化时根据硬件拓扑和连接类型标定——alpha 包含 kernel launch 延迟、NVLink 握手延迟、proxy 唤醒延迟等固定开销；beta 由物理链路带宽和协议效率共同决定。对于 NVSwitch 拓扑，Ring 和 Tree 的 alpha 接近（都是 NVLink 直连），但 beta 不同——Ring 的带宽利用率更高（(N-1)/N vs log(N)），所以大消息几乎总是选 Ring。当 NVLS 可用时（NVSwitch 3.0+），小消息会优先选 NVLS，因为它的 alpha 最低（只需一次 NVSwitch 写入和读取）。</p>
+<p><b>算法与协议选择</b>：NCCL 对每个候选 (算法, 协议) 组合——算法有 Ring、Tree、CollnetDirect、CollnetChain、NVLS、NVLSTree、PAT，协议有 LL、LL128、Simple——估算&ldquo;固定延迟 + 数据量 / 带宽&rdquo;，取时间最小者<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。固定延迟来自源码里按链路类型（NVLink / PCIe / 网络）列出的基准延迟表；带宽由图搜索得到的每 channel 带宽、channel 数和协议效率决定（LL 计 50%，LL128 计 120/128）。例如在默认常数表里，NVLink 上 NVLS 的固定延迟明显高于 Ring 的 LL/LL128，所以 NVLS 并不是为小消息准备的，它的优势在于减少每卡的传输量。</p>
 
-<p><b>协议选择</b>：基于消息大小的简单阈值判断。LL 协议的阈值约 8 KB，LL128 的阈值约 256 KB——超过这个大小就切换到 Simple 协议。这些阈值不是固定的，NCCL 会根据 channel 数和 GPU 数做微调。对 IB 路径，LL128 不可用（IB 不支持 128B 原子），所以 IB 上的协议选择是 LL（小消息）或 Simple（大消息）二选一。</p>
+<p>所以<b>协议选择没有固定的字节阈值</b>：通常的结果是小消息落在 LL、中等消息落在 LL128、大消息落在 Simple，但切换点随卡数、拓扑和版本而变（早期版本的 <code>NCCL_LL_THRESHOLD</code> 默认值就已是&ldquo;取决于 rank 数&rdquo;<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>）。LL128 是否可用也由代价模型判断：节点内要求 NVLink 路径；跨节点时，Hopper 及以后的 GPU 在 GPU–NIC 路径足够近时同样会启用<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。</p>
 
-<p><b>Kernel 模板实例化</b>：NCCL 的 kernel 使用 C++ 模板进行编译期多态——<code>ncclKernel&lt;FUNC, T, ALGO, PROTO&gt;</code> 的每种组合在编译时都生成一个独立的 kernel。这避免了运行时的 if-else 分支，使得每个 kernel 实例的代码路径完全确定，有利于 GPU 编译器优化。代价是编译产物较大（所有组合的 kernel 都在 NCCL 库中），但运行时只 launch 需要的那一个。</p>
+<p><b>设备代码生成</b>：NCCL 的构建脚本按 (集合操作, 归约算子, 数据类型, 算法, 协议) 的组合为每种情形生成设备函数，函数体内部的数据路径因此在编译期确定；kernel 入口则只保留一组有代表性的，运行时按 work 里记录的函数 ID 分派到对应的设备函数<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。代价是库体积大，这也是构建时可以用 <code>ONLY_FUNCS</code> 裁剪的原因。</p>
 
 <h2 id="sec-protocols" data-short="三种协议">三种传输协议</h2>
 
 <figure id="fig-nccl_protocols" data-kind="diagram">
   <img aria-labelledby="fig-nccl_protocols-cap" src="figs/nccl_protocols.svg" alt="NCCL 三种协议：Simple、LL、LL128">
-  <figcaption id="fig-nccl_protocols-cap"><span class="fig-label">图 4</span><b>NCCL 按消息大小自动选择协议。</b>Simple 用大块 DMA 拷贝 + proxy 线程发送，适合大消息（&gt;256 KB），100% 带宽效率。LL 每 4B 数据附带 4B flag，接收方 spin-wait flag 判断数据就绪，67% 效率但延迟极低。LL128 利用 NVLink 的 128B 原子传输，120B 数据 + 8B flag，94% 效率且低延迟。IB 只支持 Simple。</figcaption>
+  <figcaption id="fig-nccl_protocols-cap"><span class="fig-label">图 4</span><b>NCCL 的三种协议。</b>Simple 搬大块数据，每步用内存屏障 + flag 同步，带宽效率 100% 但每步固定开销最大。LL 每 4B 数据附带 4B flag，接收方轮询 flag 判断数据就绪，带宽效率 50% 但延迟最低。LL128 每 128B 行里放 120B 数据 + 8B flag，效率约 94%，依赖 128B 行不被拆分。三种协议都可以经 proxy 用于跨节点。</figcaption>
 </figure>
 
 <p><a href="#fig-nccl_protocols">图 4</a>对比了三种协议。核心区别在于<b>数据就绪的通知机制</b>：</p>
 
-<p><b>Simple 协议</b>：发送方把数据写入共享缓冲区后，通过 FIFO 通知 CPU proxy 线程。Proxy 检查数据就绪后调用 <code>ibv_post_send</code>（IB）或直接通过 NVLink 做大块拷贝。这种方式带宽高、但启动延迟大（需要 proxy 线程参与）。Simple 的缓冲区被分成多个 slot（默认 8 个），形成生产者-消费者的流水线：GPU kernel 向 slot[i] 写数据的同时，proxy 线程在发送 slot[i-1] 的数据。这种多 slot 流水线使得 proxy 的处理延迟可以被隐藏——只要 slot 数足够多，GPU 总有空 slot 可写。</p>
+<p><b>Simple 协议</b>：发送方把一整块数据写入接收方的缓冲区 slot，写完后执行内存屏障，再更新一个计数器（tail）告诉对方&ldquo;第 k 步的数据到了&rdquo;；接收方等计数器前进后再读。节点内 NVLink 路径上这完全由 GPU 完成；跨节点时，计数器由 CPU 上的 proxy 线程观察，proxy 再调用 <code>ibv_post_send</code> 把这一 slot 发出去。缓冲区分成 <code>NCCL_STEPS</code> = 8 个 slot<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>，形成生产者-消费者流水线：GPU 写 slot[i] 的同时，前面的 slot 还在传输。这种方式带宽最高，但每一步都要付一次屏障和同步的开销，所以小消息上不划算。</p>
 
-<p><b>LL（Low Latency）协议</b>：不走 proxy，完全在 GPU 端完成。发送方把 4B 数据和 4B flag 打包成 8B 写入对端的接收缓冲区，接收方 spin-wait flag 值变化。因为 NVLink 和 PCIe 都保证 8B 写入的原子性，flag 为新值意味着数据也是新的。LL 的 flag 值在每轮操作中递增——第 k 轮操作的 flag 值为 k+1，接收方检查 flag >= k+1 即可确认数据就绪。这种设计避免了显式的 flag 重置步骤。代价是 50% 带宽浪费在 flag 上（实际是 4B 数据 + 2B flag + 2B 对齐 = 8B 单元中只有 4B 有效数据，效率约 67%）。</p>
+<p><b>LL（Low Latency）协议</b>：不需要单独的屏障和计数器。NCCL 的 LL 行是 16 字节：<code>data1, flag1, data2, flag2</code> 各 4 字节<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>，发送方每次用 8 字节写入&ldquo;4 字节数据 + 4 字节 flag&rdquo;，接收方轮询 flag。只要 8 字节写入是原子的，看到新 flag 就意味着同一 8 字节里的数据也是新的。flag 取值随步数递增，接收方等 flag 等于本步期望值，因此不必每轮清零缓冲区。代价是一半带宽花在 flag 上，效率 50%。节点内 LL 完全在 GPU 上完成；跨节点时数据仍经 proxy 发送，源码注释说明 flag 放在数据之后，就是为了在网络写入部分到达时也不会先暴露 flag。</p>
 
-<p><b>LL128 协议</b>：利用 NVLink 128B 原子传输特性——一次 128B 的写入要么完全可见、要么完全不可见（NVLink 的传输粒度是 32B flit，128B = 4 个 flit 通过同一事务保证原子性）。发送方写 128B（120B 数据 + 8B flag），接收方 spin-wait flag 即可。效率 120/128 ≈ 94%，且延迟与 LL 接近。但只有 NVLink（非 IB）支持 128B 原子性，所以 LL128 只用于节点内通信。LL128 是 NVLink 上中等大小消息（8 KB - 256 KB）的最佳选择——兼顾低延迟和高效率。在 H100 的 NCCL 测试中，对于 64 KB 的 AllReduce，LL128 比 Simple 快约 2 倍（因为省去了 proxy 线程的介入），比 LL 带宽效率高 40%（94% vs 67%）。</p>
+<p><b>LL128 协议</b>：把同样的思路放大到 128 字节：每个 128 字节行由 15 个 8 字节数据和 1 个 8 字节 flag 组成（120B 数据 + 8B flag）<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>，接收方只检查 flag。它成立的前提是：一个 warp 写出的 128 字节行到达对端时不会被拆开、乱序可见。这不是所有平台都保证的，NCCL 文档特别警告：在不支持 LL128 的平台上强行启用可能导致<b>数据损坏</b><span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。因此 NCCL 只在经过验证的组合上默认启用它：节点内要求 NVLink 路径，GPU 至少 sm_70；跨节点部分则要求 GPU–NIC 路径足够近。效率 120/128 ≈ 94%，延迟介于 LL 和 Simple 之间，通常落在中等大小的消息上。</p>
 
-<p>三种协议之间的切换对用户是透明的——NCCL 在 enqueue 时自动根据消息大小选择最优协议。但如果你在调优时怀疑协议选择不当（比如中等大小的消息应该走 LL128 却走了 Simple），可以用 <code>NCCL_PROTO=LL128</code> 强制覆盖，然后对比性能。注意强制覆盖只应用于性能调试，生产环境应该用 auto——因为不同大小的消息最优协议确实不同，强制一种协议对其他大小的消息可能反而变差。</p>
+<p>三种协议之间的切换对用户是透明的——NCCL 在 enqueue 时自动根据消息大小选择最优协议。但如果你在调优时怀疑协议选择不当（比如中等大小的消息应该走 LL128 却走了 Simple），可以用 <code>NCCL_PROTO</code> 限制可用协议，然后对比性能。NCCL 文档不建议设置这个变量，除非是怀疑某个协议有 bug 而要禁用它<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>；强制一种协议对其他大小的消息可能反而变差。</p>
 
 <h2 id="sec-proxy" data-short="Proxy">Proxy 线程模型</h2>
 
 <figure id="fig-proxy_thread" data-kind="diagram">
   <img aria-labelledby="fig-proxy_thread-cap" src="figs/proxy_thread.svg" alt="NCCL Proxy 线程模型">
-  <figcaption id="fig-proxy_thread-cap"><span class="fig-label">图 5</span><b>Proxy 是 NCCL 跨节点通信的 CPU 端代理。</b>GPU ncclKernel 将数据写入 bounce buffer 并通过 FIFO 通知 proxy 线程。Proxy 轮询 FIFO，发现有新请求后调用 <code>ibv_post_send</code> 发起 RDMA WRITE。完成通知通过 <code>ibv_poll_cq</code> 获取。NVLink 路径不经过 proxy——GPU 直接 load/store 对端显存。</figcaption>
+  <figcaption id="fig-proxy_thread-cap"><span class="fig-label">图 5</span><b>Proxy 是 NCCL 跨节点通信的 CPU 端代理。</b>GPU ncclKernel 将数据写入通信缓冲区并更新 CPU 可见的计数器，proxy 线程据此得知有新数据。Proxy 轮询 FIFO，发现有新请求后调用 <code>ibv_post_send</code> 发起 RDMA WRITE。完成通知通过 <code>ibv_poll_cq</code> 获取。NVLink 路径不经过 proxy——GPU 直接 load/store 对端显存。</figcaption>
 </figure>
 
-<p>如<a href="#fig-proxy_thread">图 5</a>所示，Proxy 线程是 <b>NCCL 最大的延迟来源之一</b>。GPU kernel 写完数据后，需要 proxy 线程轮询 FIFO、提交 IB work request、等待完成——每一步都有 CPU 调度延迟。整个 proxy 的工作循环如下：</p>
+<p>如<a href="#fig-proxy_thread">图 5</a>所示，跨节点时 proxy 线程在关键路径上：GPU kernel 写完数据后，需要 proxy 线程发现它、提交 IB work request、等待完成。整个 proxy 的工作循环如下：</p>
 
 <ol>
-  <li>GPU kernel 把数据写入 bounce buffer（在 GPU 显存中），然后向 FIFO（一个 CPU 可见的共享内存区域）写入一条请求，包含数据地址、大小和目标 rank</li>
-  <li>Proxy 线程在 CPU 上 spin-wait FIFO 的 head 指针变化（为了低延迟，不用 sleep/poll，而是忙等待）</li>
-  <li>发现新请求后，proxy 调用 <code>ibv_post_send</code> 提交 RDMA WRITE 请求给 NIC——NIC 从 GPU bounce buffer DMA 数据到远端 GPU</li>
-  <li>Proxy 轮询 <code>ibv_poll_cq</code> 等待完成通知，然后更新 FIFO 的 tail 指针，通知 GPU 该 slot 可以复用</li>
+  <li>GPU kernel 把一个 slot 的数据写入通信缓冲区（启用 GDR 时在 GPU 显存，否则在 pinned 主机内存），然后在 CPU 可见的内存里推进计数器、记下这一步的大小</li>
+  <li>Proxy 的进度线程在 CPU 上忙轮询这些计数器</li>
+  <li>发现新数据后，proxy 调用 <code>ibv_post_send</code> 提交 RDMA WRITE 给 NIC，由 NIC 把数据搬到远端</li>
+  <li>Proxy 轮询 <code>ibv_poll_cq</code> 得到完成通知后，推进另一个计数器，通知 GPU 该 slot 可以复用</li>
 </ol>
 
-<p>Proxy 的关键性能问题是<b>CPU 忙等待的开销</b>：每个 communicator 的每个 channel 都有一个独立的 proxy 线程（或共享线程池中的一个任务），当通信密集时 CPU 核心可能被 proxy 线程占满——在 DGX H100 上 8 GPU × 32 channel = 256 个 proxy 任务，但 CPU 只有 112 核（两路 Xeon 8480+），而且其他框架代码也需要 CPU。所以 NCCL 用线程池和 epoll 优化了 proxy 调度，但本质矛盾不变：<b>CPU 参与数据路径是跨节点通信的延迟瓶颈</b>。这就是为什么 GPUDirect Async（Hopper）和自定义通信 kernel（下一篇）要消除 proxy。</p>
+<p>Proxy 的关键性能问题是<b>CPU 在控制路径上</b>：每个 GPU 的 communicator 有一个 proxy 进度线程，轮流推进所有 channel 上的网络操作；它忙轮询会占住一个 CPU 核，它被调度走或跑在远离 GPU 的核上时，跨节点延迟就会抖动。<b>GPU→CPU→NIC 这一跳是小消息跨节点通信的主要额外开销</b>，这就是为什么 NVSHMEM 的 IBGDA（GPU 线程直接向 NIC 提交请求）和自定义通信 kernel（下一篇）要绕开 CPU proxy。</p>
 
-<p>NCCL 2.19+ 引入了 <b>CUDA Graph 友好</b>的 proxy：proxy 的工作可以提前录制，避免每次 launch 都重新提交 IB 请求。这对重复执行相同通信模式的训练循环特别有效——第一次执行录制 graph，后续执行只需 replay，省去了反复的 FIFO 写入和 proxy 轮询。</p>
+<p>NCCL 从 2.9 起支持被 CUDA Graph 捕获（集合、P2P 和 group 操作都可以），这能省掉 CPU 端反复 launch 的开销<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>；但图里的 NCCL kernel 跨节点通信时，网络传输仍要由 proxy 线程推进。</p>
 
-<p>Proxy 线程数量的膨胀还带来了一个隐性问题：<b>CPU cache 竞争</b>。每个 proxy 线程的 spin-wait 循环持续读取 FIFO head 指针，这些指针分布在不同的 cache line 上。当 256 个 proxy 线程同时忙等待时，CPU 的 L3 cache 中充斥着 FIFO 相关的 cache line，挤占了其他框架代码（数据预处理、梯度裁剪、学习率调度）的 cache 空间。在极端情况下，框架的 CPU 端代码的 cache miss 率可以从正常的 5% 飙升到 30% 以上，拖慢整体训练速度。NCCL 2.20+ 通过 <code>NCCL_PROXY_NTHREADS</code> 环境变量允许用户控制 proxy 线程池的大小，减少 CPU 资源竞争。</p>
 
 <h2 id="sec-group" data-short="Group API">Group API：合并多操作</h2>
 
-<pre data-code="code/cm49-nccl-internals/nccl_multi_op.cu#L9-L39"><code>void fused_tp_comm(
-    float* grad_qkv,  // AllReduce target
-    float* mlp_in,     // AllGather source
-    float* mlp_out,    // ReduceScatter source
-    size_t n_qkv, size_t n_mlp,
-    int nranks,
+<pre data-code="code/cm49-nccl-internals/nccl_multi_op.cu#L10-L33"><code>// Three gradient buckets with no data dependency
+// between them (e.g. data-parallel gradient sync).
+void grouped_grad_sync(
+    float* bucket0, size_t n0,
+    float* bucket1, size_t n1,
+    float* bucket2, size_t n2,
     ncclComm_t comm, cudaStream_t stream) {
   ncclGroupStart();
 
-  ncclAllReduce(grad_qkv, grad_qkv, n_qkv,
+  // In-place AllReduce: sendbuff == recvbuff
+  ncclAllReduce(bucket0, bucket0, n0,
+                ncclFloat32, ncclSum,
+                comm, stream);
+  ncclAllReduce(bucket1, bucket1, n1,
+                ncclFloat32, ncclSum,
+                comm, stream);
+  ncclAllReduce(bucket2, bucket2, n2,
                 ncclFloat32, ncclSum,
                 comm, stream);
 
-  ncclAllGather(mlp_in, mlp_in, n_mlp / nranks,
-                ncclFloat32, comm, stream);
-
-  ncclReduceScatter(mlp_out, mlp_out,
-                    n_mlp / nranks,
-                    ncclFloat32, ncclSum,
-                    comm, stream);
-
   ncclGroupEnd();
+  // The launch overhead is paid once for the
+  // whole group instead of once per call.
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cm49-nccl-internals/nccl_multi_op.cu</code>（未在 GPU 上运行）</p>
 
-<p><code>ncclGroupStart()</code> 和 <code>ncclGroupEnd()</code> 之间的多个集合操作被合并为一次 kernel launch。这种融合有三个好处：减少 kernel launch 开销（每次 NCCL launch 约 10 μs，合并 3 个操作省 20 μs）、共享 proxy 提交（多个操作的 IB 请求可以批量提交）、以及内部流水线（不同操作的不同 chunk 可以交错执行，当 AllReduce 的 chunk 0 在传输时，AllGather 的 chunk 1 可以同时进行）。</p>
+<p>NCCL 文档把 group 的用途归为三类：单线程管理多个 GPU（避免死锁）、聚合多个通信操作以提升性能、合并多个 send/recv 点对点操作<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。其中&ldquo;聚合&rdquo;（2.2 起）就是这里的用法：<code>ncclGroupStart()</code> 和 <code>ncclGroupEnd()</code> 之间的多个集合操作可以在<b>一次 NCCL launch</b> 中完成，launch 开销只付一次。注意 NCCL 的 in-place 约定：AllReduce 传 <code>sendbuff == recvbuff</code> 即可；AllGather / ReduceScatter 的 in-place 则要求输入恰好位于输出缓冲区中本 rank 那一段（如 AllGather 的 <code>sendbuff == recvbuff + rank * sendcount</code>）。</p>
 
-<p>Group API 在 Transformer 训练中特别有用。一个典型的 Megatron-LM Transformer layer 包含：attention 输出的 AllReduce（张量并行归约）、MLP 输入的 AllGather（序列并行恢复）、MLP 输出的 ReduceScatter（序列并行分片）。这三个操作之间没有数据依赖（作用于不同的 tensor），所以可以放进同一个 Group 中一次 launch。Group 内部 NCCL 会用一个统一的 kernel 函数处理所有操作——这个 kernel 有一个操作列表，按顺序执行每个集合操作的 chunk，但不同操作之间共享 channel 资源，避免了重复的 kernel 启动和 proxy 初始化。</p>
+<p>能放进同一个 group 的前提是这些操作之间<b>没有数据依赖</b>。数据并行里反向结束后同步的多个梯度桶就是典型例子；而张量并行里 attention 和 MLP 的通信夹在计算之间、前后相依，不能合并成一组。</p>
 
-<p>值得注意的是，Group API 还有一个重要的多 communicator 用途：当同一进程管理多个 communicator（例如 TP comm 和 EP comm 分别对应不同的 GPU 子集）时，把不同 communicator 的操作放在同一个 Group 中可以避免死锁——因为 NCCL 在 GroupEnd 时会按固定顺序提交所有 communicator 的操作，保证全局一致的提交顺序。如果不用 Group，两个 communicator 的操作在不同进程中的提交顺序可能不同，导致循环等待死锁。</p>
+<p>多个 communicator 并存时还要注意<b>顺序</b>：NCCL 文档说明，2.26 之前在同一设备上并发使用多个 communicator，必须把所有通信操作串成一个全局一致的顺序（通过 stream 依赖或同步），否则可能死锁；2.26 引入 <code>NCCL_LAUNCH_ORDER_IMPLICIT</code>，按主机端发起的顺序隐式建立这个顺序，但仍要求各设备上主机端的发起顺序一致<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。</p>
 
-<p>下面是 NCCL 多线程初始化的另一个常见模式——在单进程多 GPU 场景下，用多线程并行初始化所有 rank：</p>
+<p>下面是示例程序的入口。它只是示意：真实运行时<b>每个</b> rank 都要调用 <code>ncclCommInitRank</code>（每 GPU 一个进程），或者在单进程里用 <code>ncclCommInitAll</code> 一次建好所有 rank：</p>
 
-<pre data-code="code/cm49-nccl-internals/nccl_allreduce_example.cu#L53-L62"><code>int main() {
+<pre data-code="code/cm49-nccl-internals/nccl_allreduce_example.cu#L57-L68"><code>int main() {
   int nranks = 4;
   ncclUniqueId id;
   ncclGetUniqueId(&amp;id);
 
-  // In practice, use MPI or threads to launch
-  // multiple ranks. Here we just show rank 0.
+  // Sketch only: every rank must call
+  // ncclCommInitRank (one process per GPU via
+  // MPI, or ncclCommInitAll in one process).
+  // Calling it for rank 0 alone would block.
   run_allreduce(0, nranks, id);
   return 0;
 }</code></pre>
 <p class="src-note">code/cm49-nccl-internals/nccl_allreduce_example.cu · 单进程初始化入口</p>
 
-<p>在实际部署中，通常用 MPI（<code>mpirun -np 8</code>）或 <code>torch.distributed.launch</code> 来启动多个进程，每个进程管理一个 GPU。<code>ncclGetUniqueId</code> 只在 rank 0 调用，生成的 ID 通过 MPI_Bcast 或环境变量（<code>NCCL_UNIQUE_ID</code>）传递给其他 rank。</p>
+<p>在实际部署中，通常用 MPI（<code>mpirun -np 8</code>）或 <code>torchrun</code> 来启动多个进程，每个进程管理一个 GPU。<code>ncclGetUniqueId</code> 只在 rank 0 调用，生成的 ID 再通过 <code>MPI_Bcast</code> 或框架自己的键值存储（如 PyTorch 的 TCPStore）传给其他 rank。</p>
 
 <h2 id="sec-nvls" data-short="NVLS">NVLS：NVLink SHARP</h2>
 
 <figure id="fig-nvls_sharp" data-kind="diagram">
   <img aria-labelledby="fig-nvls_sharp-cap" src="figs/nvls_sharp.svg" alt="NVLS In-Network Reduction vs Ring AllReduce">
-  <figcaption id="fig-nvls_sharp-cap"><span class="fig-label">图 6</span><b>NVLS 用 NVSwitch 的硬件归约引擎替代多步 Ring 传输。</b>传统 Ring AllReduce 需要 2(N-1) 步逐跳传递和归约。NVLS 只需每 GPU 向 NVSwitch 写一次数据，NVSwitch 在硬件上完成 FP32/FP16/BF16 的归约，然后每 GPU 读回结果——总共 2 步，延迟从 O(N) 降到 O(1)。</figcaption>
+  <figcaption id="fig-nvls_sharp-cap"><span class="fig-label">图 6</span><b>NVLS 把归约交给 NVSwitch。</b>传统 Ring AllReduce 需要 2(N-1) 步逐跳传递和归约。NVLS 中每个 GPU 负责 1/N 的数据：先用 <code>multimem.ld_reduce</code> 从所有 GPU 读回已在交换芯片上归约好的那一段，再用 <code>multimem.st</code> 把结果广播写回所有 GPU。步数与 N 无关，每卡的收发量都约为 D。</figcaption>
 </figure>
 
-<p><a href="#fig-nvls_sharp">图 6</a>展示了 NVLS 和传统 Ring 的对比。Hopper 引入的 <b>NVLS（NVLink SHARP）</b><span class="cite">[<a href="#ref-nvls" title="NVIDIA (2022). NVSwitch 3.0 SHARP. NVLink SHARP (NVLS) 的 in-network reduction 架构说明。">4</a>]</span>是 NCCL 最重要的新特性：NVSwitch 3.0 内置了归约引擎，8 个 GPU 做 AllReduce 不需要 ring 算法的多步传输。每个 GPU 向 NVSwitch 的多播地址（multicast address）写入自己的数据，NVSwitch 在硬件上完成归约并广播结果。</p>
+<p><a href="#fig-nvls_sharp">图 6</a>展示了 NVLS 和传统 Ring 的对比。第 3 代 NVSwitch 起支持 multicast 和 SHARP 网内归约<span class="cite">[<a href="#ref-nvls" title="NVIDIA (2022). NVIDIA Hopper Architecture In-Depth. 第 3 代 NVSwitch：64 个 NVLink 4 端口，支持 multicast 与 SHARP 网内归约。">3</a>]</span>，NCCL 2.17 起以 <b>NVLS（NVLink SHARP）</b>算法使用它，把 <code>ncclAllReduce</code> 等集合操作卸载到 NVSwitch 域<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。GPU 通过一个 multicast 地址同时访问所有 GPU 上的对应缓冲区，归约在交换芯片里完成。</p>
 
-<p>NVLS 使用 PTX 的 <code>multimem.ld_reduce</code> 和 <code>multimem.st</code> 指令。<code>multimem.st</code> 将本地数据写入 NVSwitch 的归约缓冲区——NVSwitch 累加所有 GPU 写入的值（支持 FP32/FP16/BF16 的 sum 和 min/max）。当所有 GPU 都写完后，<code>multimem.ld_reduce</code> 从 NVSwitch 读取归约结果。这把 AllReduce 从 \(2(N-1)\) 步降到 2 步（一次写 + 一次读），延迟从微秒级降到亚微秒级。</p>
+<p>NVLS 使用 PTX 的 <code>multimem.*</code> 指令<span class="cite">[<a href="#ref-ptx_multimem" title="NVIDIA. PTX ISA. “Data Movement and Conversion Instructions: multimem.ld_reduce, multimem.st, multimem.red”：语义、支持的类型与算子。">4</a>]</span>：<code>multimem.ld_reduce</code> 从 multimem 地址指向的所有内存位置读数据并归约，结果返回到寄存器；<code>multimem.st</code> 把一个值写到所有这些位置；<code>multimem.red</code> 则对所有位置做归约写入。AllReduce 因此可以拆成&ldquo;ld_reduce 做 ReduceScatter + st 做 AllGather&rdquo;两段，步数从 \(2(N-1)\) 降到与 N 无关。</p>
 
-<p>但 NVLS 有限制：NVSwitch 的归约引擎只支持 FP32、FP16、BF16 的 sum/min/max——不支持 INT8 或自定义归约函数。而且 NVLS 只在节点内 NVSwitch 拓扑下可用（不支持跨节点 IB）。Blackwell 的 NVSwitch 4.0 将 NVLS 扩展到 MNNVL 跨节点拓扑，使得 72 GPU 都可以用硬件归约。NCCL 在检测到 NVSwitch 3.0+ 硬件时自动使用 NVLS——对用户透明，不需要手动设置环境变量。但 NVLS 需要 CUDA 12.1+ 和驱动 530+，如果驱动版本不够会自动回退到 Ring/Tree。可以通过 <code>NCCL_ALGO=NVLS</code> 强制尝试——如果硬件不支持，NCCL 会报错。</p>
+<p>但 NVLS 有限制：<code>multimem</code> 归约支持的类型和算子有限——整数只有 32/64 位，浮点有 f16/bf16/f32/f64（较新的目标还支持 FP8），算子只有 add/min/max（整数另有位运算）<span class="cite">[<a href="#ref-ptx_multimem" title="NVIDIA. PTX ISA. “Data Movement and Conversion Instructions: multimem.ld_reduce, multimem.st, multimem.red”：语义、支持的类型与算子。">4</a>]</span>，没有 8 位整数，也不支持自定义归约函数。它只在 NVLink Switch 构成的域内可用，跨 IB 的部分仍要靠 Ring/Tree（或 NVLSTree）。在默认的代价常数里，NVLS 只有 Simple 协议的条目<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。<code>NCCL_NVLS_ENABLE</code> 默认开启，系统不支持时不会导致初始化失败<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。</p>
 
 <h2 id="sec-tuning" data-short="调优">NCCL 关键环境变量</h2>
+
+<p>下表各项的含义与默认值取自 NCCL 环境变量文档<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>：</p>
 
 <table>
   <thead>
     <tr><th>变量</th><th>默认值</th><th>说明</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>NCCL_ALGO</code></td><td>auto</td><td>强制 Ring / Tree / CollnetDirect / CollnetChain / NVLS</td></tr>
-    <tr><td><code>NCCL_PROTO</code></td><td>auto</td><td>强制 Simple / LL / LL128</td></tr>
-    <tr><td><code>NCCL_NCHANNELS</code></td><td>平台相关</td><td>最大 channel 数（H100 默认 32）</td></tr>
-    <tr><td><code>NCCL_MIN_NCHANNELS</code></td><td>1</td><td>最小 channel 数</td></tr>
-    <tr><td><code>NCCL_P2P_LEVEL</code></td><td>auto</td><td>P2P 使用级别（NVL/PIX/PHB/SYS/LOC）</td></tr>
-    <tr><td><code>NCCL_NET_GDR_LEVEL</code></td><td>auto</td><td>GPUDirect RDMA 使用条件</td></tr>
-    <tr><td><code>NCCL_BUFFSIZE</code></td><td>4 MB</td><td>每 channel 的缓冲区大小</td></tr>
-    <tr><td><code>NCCL_DEBUG</code></td><td>WARN</td><td>日志级别（INFO 可看到选择的 algo/proto/channel）</td></tr>
+    <tr><td><code>NCCL_ALGO</code></td><td>自动</td><td>限定可用算法：Ring / Tree / CollnetDirect / CollnetChain / NVLS / NVLSTree / PAT</td></tr>
+    <tr><td><code>NCCL_PROTO</code></td><td>自动</td><td>限定可用协议：LL / LL128 / Simple；文档不建议设置</td></tr>
+    <tr><td><code>NCCL_MAX_CTAS</code>（旧名 <code>NCCL_MAX_NCHANNELS</code>）</td><td>自动</td><td>最多使用的 CTA（channel）数，上限 64（2.25 之前为 32）</td></tr>
+    <tr><td><code>NCCL_MIN_CTAS</code>（旧名 <code>NCCL_MIN_NCHANNELS</code>）</td><td>自动</td><td>最少使用的 CTA 数</td></tr>
+    <tr><td><code>NCCL_P2P_LEVEL</code></td><td>自动</td><td>允许使用 P2P 传输的最大 GPU 间距离（LOC/NVL/PIX/PXB/PHB/SYS）</td></tr>
+    <tr><td><code>NCCL_NET_GDR_LEVEL</code></td><td>自动</td><td>允许使用 GPUDirect RDMA 的最大 NIC–GPU 距离</td></tr>
+    <tr><td><code>NCCL_BUFFSIZE</code></td><td>4 MiB</td><td>一对 GPU 之间通信缓冲区的大小</td></tr>
+    <tr><td><code>NCCL_DEBUG</code></td><td>—</td><td>日志级别（VERSION / WARN / INFO / TRACE；INFO 可看到拓扑、channel 和 transport）</td></tr>
   </tbody>
 </table>
 
 <p>NCCL 性能问题的系统化诊断从拓扑检查开始——确认 GPU 的 NUMA 节点、NVLink 状态和 IB 设备位置：</p>
 
-<pre data-code="code/cm49-nccl-internals/nccl_multi_comm.cu#L29-L47"><code>void diagnose_nccl_topology(int rank) {
-  // Key diagnostics for NCCL performance:
-  // 1. Check NUMA affinity
+<pre data-code="code/cm49-nccl-internals/nccl_multi_comm.cu#L29-L48"><code>void diagnose_nccl_topology(int rank) {
+  // NUMA node of the GPU. The BDF below is a
+  // placeholder: get the real one from
+  // cudaDeviceGetPCIBusId().
   char numa_path[256];
   snprintf(numa_path, sizeof(numa_path),
     "/sys/bus/pci/devices/0000:%02x:00.0"
@@ -471,18 +483,18 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   printf("GPU %d NUMA node: %d\n",
          rank, numa_node);
 
-  // 2. Check NVLink status via nvidia-smi
+  // Also check NVLink status:
   // nvidia-smi topo -m
-  // 3. Verify IB device locality
+  // and the NUMA node of each IB device:
   // cat /sys/class/infiniband/*/device/numa_node
 }</code></pre>
 <p class="src-note">code/cm49-nccl-internals/nccl_multi_comm.cu · 读取 sysfs 确认 GPU NUMA 亲和性</p>
 
-<p>这段代码展示了如何通过读取 <code>/sys/bus/pci/devices/</code> 下的 <code>numa_node</code> 文件确认 GPU 的 NUMA 归属。如果返回值为 -1，说明系统的 NUMA 信息不可用（通常是 BIOS 中 NUMA interleaving 被开启或 ACPI SRAT 表缺失）——这种情况下 NCCL 无法正确做 proxy 线程绑定和 GDR 决策。修复方法是在 BIOS 中确认 SNC（Sub-NUMA Clustering）设置为 enabled、NUMA interleaving 为 disabled。</p>
+<p>这段代码展示了如何通过读取 <code>/sys/bus/pci/devices/</code> 下的 <code>numa_node</code> 文件确认 GPU 的 NUMA 归属。如果返回值为 -1，说明固件没有向操作系统报告这个设备的 NUMA 信息（常见于 BIOS 的 NUMA 相关设置或 ACPI 表问题）——这种情况下 NCCL 的 CPU 亲和性和 GDR 决策可能不准，应先在 BIOS 层面修正。</p>
 
-<p>调优的第一步永远是 <code>NCCL_DEBUG=INFO</code><span class="cite">[<a href="#ref-nccl_tests" title="NVIDIA. nccl-tests. 官方性能基准测试工具与 bus bandwidth 计算方法。">5</a>]</span>，看 NCCL 选择了什么算法、协议和 channel 数。如果带宽明显低于预期，依次检查：(1) channel 数是否足够——如果只有 2-4 个 channel，可能是拓扑检测出了问题，用 <code>NCCL_MIN_NCHANNELS=32</code> 强制；(2) 是否走了 GDR——如果 INFO 日志显示 <code>NET/Socket</code> 而不是 <code>NET/IB</code>，说明 IB 没被检测到；(3) ring 路径是否均衡——如果某些 channel 的 ring 经过了 PCIe 而不是 NVLink，性能会大幅下降；(4) NUMA 亲和性是否正确——用 <code>nvidia-smi topo -m</code> 确认 GPU 和 NIC 的拓扑关系，用 <code>numactl -H</code> 确认 CPU 核心和内存分布，检查训练进程是否绑定到了 GPU 所在的 NUMA 节点（<code>taskset -p &lt;pid&gt;</code> 查看 CPU 亲和掩码）。NUMA 错配是跨节点通信带宽低于预期的最常见原因——proxy 线程跑在错误的 NUMA 节点上会导致每次 FIFO 轮询和 IB 提交都跨 UPI 访问内存，累积延迟可达每次操作 2-5 μs。修复方法：启动训练脚本时加 <code>numactl --cpunodebind=&lt;node&gt; --membind=&lt;node&gt;</code>，或设置 <code>NCCL_SOCKET_IFNAME</code> 确保 NCCL 选择正确的 NIC。</p>
+<p>调优的第一步是 <code>NCCL_DEBUG=INFO</code>，看 NCCL 建了多少 channel、每对 rank 之间走什么 transport；再用 nccl-tests 测 busbw，与链路峰值对比<span class="cite">[<a href="#ref-nccl_tests" title="NVIDIA. nccl-tests. 官方性能基准测试工具；algbw / busbw 的定义见 <code>doc/PERFORMANCE.md</code>。">5</a>]</span>。如果带宽明显低于预期，依次检查：(1) channel 数是否明显偏少——可能是拓扑检测出了问题，可以先用 <code>NCCL_MIN_CTAS</code> 做对照实验；(2) 是否走了 GDR——如果 INFO 日志显示 <code>NET/Socket</code> 而不是 <code>NET/IB</code>，说明 IB 没被检测到；(3) ring 路径是否均衡——如果某些 channel 的 ring 经过了 PCIe 而不是 NVLink，性能会大幅下降；(4) NUMA 亲和性是否正确——用 <code>nvidia-smi topo -m</code> 确认 GPU 和 NIC 的拓扑关系，用 <code>numactl -H</code> 确认 CPU 核心和内存分布，检查训练进程是否绑定到了 GPU 所在的 NUMA 节点（<code>taskset -p &lt;pid&gt;</code> 查看 CPU 亲和掩码）。NUMA 错配会让 proxy 线程的轮询和 IB 提交都跨 socket 访问内存。修复方法：启动训练脚本时加 <code>numactl --cpunodebind=&lt;node&gt; --membind=&lt;node&gt;</code>；如果 NCCL 选错了 IB 设备，用 <code>NCCL_IB_HCA</code> 指定（<code>NCCL_SOCKET_IFNAME</code> 只决定 bootstrap 和 socket 传输用哪个 IP 接口）<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。</p>
 
-<p>另一个常见的调优场景是<b>多 communicator</b>。当训练框架同时使用 TP comm 和 DP comm（如 Megatron-LM 的 tensor parallel + data parallel），两个 communicator 各自独立选择 channel 数，可能导致总 channel 数超过硬件支持的上限。此时可以用 <code>NCCL_NCHANNELS</code> 限制每个 communicator 的 channel 数，让两组通信共享 NVLink 带宽而不互相饿死。</p>
+<p>另一个常见的调优场景是<b>多 communicator</b>。当训练框架同时使用 TP comm 和 DP comm（如 Megatron-LM 的 tensor parallel + data parallel），每个 communicator 各自启动通信 kernel、各占一批 SM。如果通信和计算重叠时计算 kernel 被挤得太厉害，可以用 <code>NCCL_MAX_CTAS</code> 或 <code>ncclConfig_t</code> 的 <code>maxCTAs</code> 限制某个 communicator 的 CTA 数<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。</p>
 
 <p>以下示例展示了 TP + DP 双 communicator 的初始化模式——这是大规模训练中最常见的通信拓扑：</p>
 
@@ -506,7 +518,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cm49-nccl-internals/nccl_multi_comm.cu</code>（未在 GPU 上运行）</p>
 
-<p>多 communicator 初始化的关键是<b>正确计算 rank 映射</b>。在 TP=8、DP=4 的 32 GPU 集群中，global_rank 0-7 属于同一个 TP group（共享一个 TP communicator），同时 rank 0、8、16、24 属于同一个 DP group。每个 communicator 独立执行拓扑检测和 channel 分配——TP comm 的 ring 路径走节点内 NVLink（延迟低、带宽高），DP comm 的路径走跨节点 IB（延迟高、带宽低）。两个 communicator 的 proxy 线程池独立——如果不做限制，TP 的 32 个 channel + DP 的 32 个 channel = 64 个 proxy 任务同时竞争 CPU 核心，导致 proxy 响应延迟增大。实践中通常把 TP 的 channel 数设为 32（利用全部 NVLink 带宽），DP 的 channel 数设为 8-16（IB 带宽有限，更多 channel 带来的收益递减）。</p>
+<p>多 communicator 初始化的关键是<b>正确计算 rank 映射</b>。在 TP=8、DP=4 的 32 GPU 集群中，global_rank 0-7 属于同一个 TP group（共享一个 TP communicator），同时 rank 0、8、16、24 属于同一个 DP group。每个 communicator 独立执行拓扑检测和 channel 分配——TP comm 的 ring 路径走节点内 NVLink（延迟低、带宽高），DP comm 的路径走跨节点 IB（延迟高、带宽低）。两者的 channel 数各自由 NCCL 决定，一般无需手动设置；只有在实测发现资源争用时才去限制。</p>
 
 <h2 id="sec-hb" data-short="H/B 对比">Hopper vs Blackwell NCCL 增强</h2>
 
@@ -515,40 +527,38 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     <tr><th>特性</th><th>Hopper</th><th>Blackwell</th></tr>
   </thead>
   <tbody>
-    <tr><td>NVLink 带宽</td><td>900 GB/s</td><td>1800 GB/s</td></tr>
-    <tr><td>NVLS（NVLink SHARP）</td><td>引入：NVSwitch 上做 in-network AllReduce</td><td>增强 + 跨节点 MNNVL SHARP</td></tr>
-    <tr><td>Channel 数</td><td>默认 32</td><td>默认可更多（带宽翻倍）</td></tr>
-    <tr><td>LL128</td><td>NVLink 4.0 支持</td><td>NVLink 5.0 支持，效率不变</td></tr>
-    <tr><td>多 comm 支持</td><td>多 communicator 各自独立</td><td>改进的 communicator 资源共享</td></tr>
+    <tr><td>NVLink 每卡带宽</td><td>900 GB/s</td><td>1.8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 NVLink 4.0 每卡 900 GB/s、B200 NVLink 5.0 每卡 1.8 TB/s 等硬件规格。">6</a>]</span></td></tr>
+    <tr><td>NVLS（NVLink SHARP）</td><td>第 3 代 NVSwitch 起可用（NCCL 2.17+）</td><td>NVLink 5 Switch 同样支持</td></tr>
+    <tr><td>NVLink 域</td><td>8 GPU（HGX/DGX）</td><td>8 GPU 或 NVL72 的 72 GPU；跨 tray 需要 MNNVL（IMEX 域）<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span></td></tr>
+    <tr><td>LL128</td><td>默认在 NVLink 路径启用</td><td>同左（效率仍是 120/128）</td></tr>
   </tbody>
 </table>
 
 <h2 id="sec-interview" data-short="面试 Q&amp;A">面试 Q&amp;A</h2>
 
-<p id="sec-q1" class="interview-q">Q1：NCCL 的 LL128 协议为什么只能用于 NVLink 而不能用于 InfiniBand？</p>
-<p>LL128 依赖 NVLink 128B 原子传输的硬件保证：128B 的写入要么完全可见、要么完全不可见。这是 NVLink 协议层面的保证——128B 作为一个事务（4 个 32B flit）被原子地提交到接收方的 L2 cache。InfiniBand 的 RDMA WRITE 没有这个粒度的原子性保证——IB 规范只保证 8B（一个 double word）的原子性，更大的写入可能被拆成多个 DMA 事务，接收方看到的数据可能是部分更新的。所以 IB 只能用 LL 协议（8B 原子）或 Simple 协议。</p>
+<p id="sec-q1" class="interview-q">Q1：NCCL 的 LL128 协议依赖什么前提？它只能用于节点内 NVLink 吗？</p>
+<p>这个问题的前提需要修正。LL128 的正确性依赖一个平台性质：一个 warp 写出的 128 字节行（120B 数据 + 8B flag）到达对端时不会被拆开、乱序可见，接收方看到 flag 就能确信同一行的数据也到了。NCCL 只在验证过的组合上默认启用它——节点内要求 NVLink 路径，文档也警告在不支持的平台上强开会导致数据损坏<span class="cite">[<a href="#ref-nccl_doc" title="NVIDIA. NCCL User Guide. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。">2</a>]</span>。但 LL128 并非&ldquo;只能用于节点内&rdquo;：NCCL 的代价模型给网络路径也列了 LL128 的延迟参数，在 Hopper 及以后的 GPU 上、GPU–NIC 路径足够近时，跨节点同样会启用 LL128（数据经 proxy 走网络）<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>。</p>
 
 <p id="sec-q2" class="interview-q">Q2：NCCL 的 proxy 线程为什么是性能瓶颈？有什么替代方案？</p>
-<p>Proxy 线程在 CPU 上运行，受 CPU 调度延迟影响（一次上下文切换 ~5 μs）。对于小消息的 IB 通信，proxy 的 FIFO 轮询 + IB 提交 + 完成等待可能占总延迟的 50% 以上。更严重的是 proxy 与 GPU kernel 之间的同步：GPU 写完数据后必须通过 PCIe MMIO 写入通知 CPU，CPU 处理后又要通过 PCIe 更新 GPU 可见的状态——每次跨 PCIe 的同步至少 1-2 μs。替代方案有：(1) GPUDirect Async（Hopper）让 GPU 通过 TMA 引擎直接触发 NIC 的 DMA，完全绕过 CPU 控制路径；(2) 自定义 AllReduce kernel 用 IPC 共享内存 + flag 同步（下一篇），完全绕过 NCCL 和 proxy。</p>
+<p>Proxy 线程在 CPU 上运行，一次跨节点传输要经过&ldquo;GPU 推进计数器 → CPU 轮询发现 → CPU 提交 work request → NIC 完成 → CPU 轮询完成队列 → CPU 更新 GPU 可见的计数器&rdquo;这条链，每一跳都跨 PCIe，还受 CPU 调度和 NUMA 位置影响；对小消息，这些固定开销占比很高。替代方案有：(1) GPUDirect Async 家族中的 IBGDA：NVSHMEM 让 GPU 线程直接构造 work request 并敲 NIC 的 doorbell，CPU 退出控制路径<span class="cite">[<a href="#ref-ibgda_blog" title="Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async. NVIDIA Technical Blog（IBGDA）。">7</a>]</span>；(2) 节点内用 IPC 共享缓冲区 + flag 同步的自定义 AllReduce kernel（下一篇），完全绕过 NCCL 和 proxy。</p>
 
 <p id="sec-q3" class="interview-q">Q3：NCCL_DEBUG=INFO 的输出中，怎么判断通信是否正常？</p>
-<p>关键看三行：(1) <code>Ring</code> 或 <code>Tree</code> 告诉你选择了什么算法；(2) <code>Channel</code> 数量——H100 上应该是 32，如果只有几个说明拓扑检测有问题；(3) <code>transport</code> 类型——<code>P2P/IPC</code> 表示 NVLink 直连（最优），<code>NET/IB</code> 表示走 IB，<code>P2P/CUMEM</code> 表示用 cuMem API（EGM/NVLS）。如果看到 <code>SHM</code> 表示降级到了 CPU 共享内存——通常意味着 NVLink/P2P 检测失败，需要检查 CUDA_VISIBLE_DEVICES 和 nvidia-smi topo -m。</p>
+<p>关键看三类信息：(1) 建了哪些 ring / tree，以及 channel 数——明显少于同类机器的正常值，往往说明拓扑检测有问题；(2) 每对 rank 之间的 transport——<code>P2P/IPC</code> 或 <code>P2P/CUMEM</code> 表示 GPU 间 P2P 直连（后者用 cuMem VMM 句柄交换缓冲区），<code>NET/IB</code> 表示走 IB（带 <code>GDRDMA</code> 字样说明启用了 GPUDirect RDMA），<code>NET/Socket</code> 说明 IB 没被用上；(3) 如果节点内出现 <code>SHM</code>，表示 GPU 间退化成经 CPU 共享内存中转——通常意味着 P2P 不可用，需要检查 <code>CUDA_VISIBLE_DEVICES</code>、容器设置和 <code>nvidia-smi topo -m</code>。</p>
 
-<p id="sec-q4" class="interview-q">Q4：NVLS 和传统 Ring AllReduce 的延迟差距有多大？</p>
-<p>在 H100 DGX 上的 8 GPU AllReduce，Ring 算法需要 2×7=14 步（每步约 1-2 μs 的 NVLink 传输延迟），总延迟约 15-30 μs。NVLS 只需要 2 步（一次 multimem.st + 一次 multimem.ld_reduce），延迟约 3-5 μs——降低了 3-5 倍。对于大消息（带宽主导），差距缩小，因为 Ring 的带宽利用率更高（(N-1)/N ≈ 87.5%），而 NVLS 的 NVSwitch 归约引擎带宽有限。所以 NCCL 对小到中等消息用 NVLS，大消息仍用 Ring。</p>
+<p id="sec-q4" class="interview-q">Q4：NVLS 和传统 Ring AllReduce 的差距主要在延迟还是带宽？</p>
+<p>本篇不给具体微秒数——那需要在具体机器上用 nccl-tests 测。可以确定的是结构上的差别：8 GPU 的 Ring 需要 \(2 \times 7 = 14\) 步，每卡发送 \(2 \times \frac{7}{8} D = 1.75D\)；NVLS 的步数与卡数无关，每卡发送和接收都约为 \(D\)。所以 NVLS 的收益主要在<b>带宽</b>侧：每卡的传输量从 \(1.75D\) 降到约 \(D\)。反过来，在 NCCL 的默认代价常数里 NVLS 的固定延迟比 Ring 的 LL/LL128 大<span class="cite">[<a href="#ref-nccl_src" title="NVIDIA. NCCL GitHub Repository（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。">1</a>]</span>，所以很小的消息通常仍走 Ring/Tree + LL。</p>
 
 <h2 id="sec-limits" data-short="局限">局限性</h2>
 
 <ul>
-  <li>本篇基于 NCCL 2.x 源码分析；NCCL 3.x（随 CUDA 13 发布）可能有重大架构变化。</li>
-  <li>协议的消息大小阈值（8 KB、256 KB）是近似值，实际阈值取决于 GPU 数量、拓扑和 NCCL 版本。</li>
-  <li>NVLS/SHARP 的性能数据基于 NVIDIA 公开材料，非独立测试。</li>
+  <li>本篇对照的是 NCCL 2.x 的 master 分支源码与当前文档；NCCL 版本迭代快，函数名、默认值和代价常数都可能变化。</li>
+  <li>本篇不含任何实测延迟或带宽数字；算法/协议的实际选择请以 <code>NCCL_DEBUG=INFO</code> 和 nccl-tests 的结果为准。</li>
   <li>代码示例中 NCCL 的类型声明是 stub，不能直接编译链接 NCCL——需要安装 NCCL 库并用 <code>-lnccl</code> 链接。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>本篇从 NCCL 的初始化流水线（Bootstrap → 拓扑检测 → 图搜索 → Channel 建立）讲到运行时的 enqueue 流程（算法选择 → 协议选择 → kernel 模板实例化）、三种传输协议（Simple 的 proxy + DMA 流水线、LL 的 8B flag inline、LL128 的 128B 原子传输）、proxy 线程模型（FIFO 通知 → IB 提交 → CQ 轮询的四步循环和 CPU 瓶颈）、Group API（合并多操作降低 launch 开销）、以及 NVLS（NVSwitch 硬件归约替代多步 Ring）。核心 takeaway：NCCL 是一个高度自动化的系统，它根据拓扑、消息大小和硬件能力自动选择最优的算法、协议和通信路径，但理解它的选择逻辑和数据路径是诊断性能问题和设计更高效的自定义通信方案的前提。</p>
+<p>本篇从 NCCL 的初始化流水线（Bootstrap → 拓扑检测 → 图搜索 → Channel 建立）讲到运行时的 enqueue 流程（算法选择 → 协议选择 → kernel 模板实例化）、三种传输协议（Simple 的大块数据 + 屏障/计数器同步、LL 的 4B 数据 + 4B flag、LL128 的 120B 数据 + 8B flag）、proxy 线程模型（计数器通知 → IB 提交 → CQ 轮询的循环和 CPU 瓶颈）、Group API（聚合独立操作降低 launch 开销）、以及 NVLS（NVSwitch 硬件归约替代多步 Ring）。核心 takeaway：NCCL 是一个高度自动化的系统，它根据拓扑、消息大小和硬件能力自动选择最优的算法、协议和通信路径，但理解它的选择逻辑和数据路径是诊断性能问题和设计更高效的自定义通信方案的前提。</p>
 
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
@@ -566,17 +576,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-nccl_src">NVIDIA. <a href="https://github.com/NVIDIA/nccl">NCCL GitHub Repository</a>. 源码级参考：bootstrap、topo、graph、channel、kernel、proxy 模块。</li>
-  <li id="ref-nccl_doc">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/">NCCL User Guide</a>. 集合操作 API、环境变量、性能调优。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。</li>
-  <li id="ref-nvls">NVIDIA (2022). <a href="https://developer.nvidia.com/blog/upgrading-multi-gpu-interconnectivity-with-the-third-generation-nvidia-nvswitch/">NVSwitch 3.0 SHARP</a>. NVLink SHARP (NVLS) 的 in-network reduction 架构说明。</li>
-  <li id="ref-nccl_tests">NVIDIA. <a href="https://github.com/NVIDIA/nccl-tests">nccl-tests</a>. 官方性能基准测试工具与 bus bandwidth 计算方法。</li>
+  <li id="ref-nccl_src">NVIDIA. <a href="https://github.com/NVIDIA/nccl">NCCL GitHub Repository</a>（master 分支，2026-11 查阅）。本篇引用：<code>src/include/nccl_device/impl/ll__types.h</code>、<code>ll128__types.h</code>（LL / LL128 行格式）、<code>src/include/device.h</code>（<code>NCCL_STEPS</code>）、<code>src/tuning/cost_model.cc</code>（延迟常数、LL128 启用条件）、<code>src/tuning/model.h</code>（协议效率）、<code>src/graph/xml.cc</code>（NVML 探测 NVLink）、<code>src/graph/trees.cc</code>（双二叉树）、<code>src/device/generate.py</code>（设备函数生成）。</li>
+  <li id="ref-nccl_doc">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/">NCCL User Guide</a>. 尤其是 Environment Variables、Group Calls（Aggregated Operations）、Using multiple NCCL communicators concurrently、Using NCCL with CUDA Graphs、In-place Operations 各节。</li>
+  <li id="ref-nvls">NVIDIA (2022). <a href="https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/">NVIDIA Hopper Architecture In-Depth</a>. 第 3 代 NVSwitch：64 个 NVLink 4 端口，支持 multicast 与 SHARP 网内归约。</li>
+  <li id="ref-ptx_multimem">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">PTX ISA</a>. &ldquo;Data Movement and Conversion Instructions: multimem.ld_reduce, multimem.st, multimem.red&rdquo;：语义、支持的类型与算子。</li>
+  <li id="ref-nccl_tests">NVIDIA. <a href="https://github.com/NVIDIA/nccl-tests">nccl-tests</a>. 官方性能基准测试工具；algbw / busbw 的定义见 <code>doc/PERFORMANCE.md</code>。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 NVLink 4.0 每卡 900 GB/s、B200 NVLink 5.0 每卡 1.8 TB/s 等硬件规格。</li>
+  <li id="ref-ibgda_blog">Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). <a href="https://developer.nvidia.com/blog/improving-network-performance-of-hpc-systems-using-nvidia-magnum-io-nvshmem-and-gpudirect-async/">Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async</a>. NVIDIA Technical Blog（IBGDA）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 49 篇。文中代码完整版在系列目录的 <code>code/cm49-nccl-internals/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。协议阈值（8 KB / 256 KB）为近似值，取决于 GPU 数量和 NCCL 版本；NVLS 性能数据来自 NVIDIA 官方材料。
+  本文是「从零精通 GPU Kernel」系列第 49 篇。文中代码完整版在系列目录的 <code>code/cm49-nccl-internals/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。源码细节对照 NCCL master 分支（2026-11）；本篇不含实测数字。
 </footer>
 
 </div>

@@ -11,21 +11,21 @@
 <!-- A operand: 16x16 FP16 -->
 <rect x="20" y="35" width="160" height="160" rx="4" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
 <text x="100" y="52" text-anchor="middle" class="title" fill="#2563eb">A: 16&#xd7;16 (FP16)</text>
-<text x="100" y="68" text-anchor="middle" class="label">4 regs/thread (frag_a[0..3])</text>
+<text x="100" y="68" text-anchor="middle" class="label">4 regs/thread, row = lane/4</text>
 
 <!-- A matrix grid 4x4 -->
 <rect x="35" y="78" width="60" height="50" rx="2" fill="#bfdbfe" stroke="#93c5fd"/>
-<text x="65" y="105" text-anchor="middle" class="sm">T0-T3</text>
-<text x="65" y="118" text-anchor="middle" class="sm">rows 0-7</text>
+<text x="65" y="105" text-anchor="middle" class="sm">reg0 (a0,a1)</text>
+<text x="65" y="118" text-anchor="middle" class="sm">r0-7, c0-7</text>
 <rect x="105" y="78" width="60" height="50" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
-<text x="135" y="105" text-anchor="middle" class="sm">T0-T3</text>
-<text x="135" y="118" text-anchor="middle" class="sm">cols 8-15</text>
+<text x="135" y="105" text-anchor="middle" class="sm">reg2 (a4,a5)</text>
+<text x="135" y="118" text-anchor="middle" class="sm">r0-7, c8-15</text>
 <rect x="35" y="138" width="60" height="50" rx="2" fill="#dbeafe" stroke="#93c5fd"/>
-<text x="65" y="165" text-anchor="middle" class="sm">T16-T19</text>
-<text x="65" y="178" text-anchor="middle" class="sm">rows 8-15</text>
+<text x="65" y="165" text-anchor="middle" class="sm">reg1 (a2,a3)</text>
+<text x="65" y="178" text-anchor="middle" class="sm">r8-15, c0-7</text>
 <rect x="105" y="138" width="60" height="50" rx="2" fill="#bfdbfe" stroke="#93c5fd"/>
-<text x="135" y="165" text-anchor="middle" class="sm">T16-T19</text>
-<text x="135" y="178" text-anchor="middle" class="sm">cols 8-15</text>
+<text x="135" y="165" text-anchor="middle" class="sm">reg3 (a6,a7)</text>
+<text x="135" y="178" text-anchor="middle" class="sm">r8-15, c8-15</text>
 
 <!-- Multiply sign -->
 <text x="200" y="120" text-anchor="middle" font-size="24" fill="#6b7280">&#xd7;</text>
@@ -36,9 +36,9 @@
 <text x="270" y="88" text-anchor="middle" class="label">2 regs/thread</text>
 <text x="270" y="102" text-anchor="middle" class="label">(frag_b[0..1])</text>
 
-<rect x="235" y="112" width="70" height="50" rx="2" fill="#bbf7d0" stroke="#86efac"/>
-<text x="270" y="138" text-anchor="middle" class="sm">T0-T3: 8 rows</text>
-<text x="270" y="152" text-anchor="middle" class="sm">each 8 FP16</text>
+<rect x="222" y="112" width="96" height="50" rx="2" fill="#bbf7d0" stroke="#86efac"/>
+<text x="270" y="138" text-anchor="middle" class="sm">n = lane/4</text>
+<text x="270" y="152" text-anchor="middle" class="sm">k = 2(lane%4)+i</text>
 
 <!-- Equals sign -->
 <text x="340" y="120" text-anchor="middle" font-size="24" fill="#6b7280">=</text>
@@ -56,11 +56,11 @@
 <text x="475" y="98" text-anchor="middle" class="sm">T1: (0,2)(0,3)</text>
 <text x="475" y="112" text-anchor="middle" class="sm">(8,2)(8,3)</text>
 <rect x="375" y="138" width="60" height="50" rx="2" fill="#fef3c7" stroke="#fcd34d"/>
-<text x="405" y="158" text-anchor="middle" class="sm">T16: (8,0)(8,1)</text>
-<text x="405" y="172" text-anchor="middle" class="sm">(16,0)(16,1)</text>
+<text x="405" y="158" text-anchor="middle" class="sm">T16: (4,0)(4,1)</text>
+<text x="405" y="172" text-anchor="middle" class="sm">(12,0)(12,1)</text>
 <rect x="445" y="138" width="60" height="50" rx="2" fill="#fde68a" stroke="#fcd34d"/>
-<text x="475" y="158" text-anchor="middle" class="sm">T17: (8,2)(8,3)</text>
-<text x="475" y="172" text-anchor="middle" class="sm">(16,2)(16,3)</text>
+<text x="475" y="158" text-anchor="middle" class="sm">T17: (4,2)(4,3)</text>
+<text x="475" y="172" text-anchor="middle" class="sm">(12,2)(12,3)</text>
 
 <!-- Annotation box -->
 <rect x="540" y="45" width="150" height="140" rx="5" fill="#f8fafc" stroke="#e2e8f0"/>
@@ -77,7 +77,7 @@
 <!-- FLOP annotation -->
 <rect x="30" y="210" width="660" height="40" rx="4" fill="#fef2f2" stroke="#fca5a5"/>
 <text x="360" y="228" text-anchor="middle" class="code">mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32</text>
-<text x="360" y="243" text-anchor="middle" class="label">= 2 &#xd7; 16 &#xd7; 8 &#xd7; 16 = 4096 FP16 FMA per instruction per warp</text>
+<text x="360" y="243" text-anchor="middle" class="label">16 &#xd7; 8 &#xd7; 16 = 2048 FMA = 4096 FLOP per warp instruction</text>
 
 <text x="350" y="315" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: PTX ISA 9.4 &#xa7;9.7.17</text>
 </svg>

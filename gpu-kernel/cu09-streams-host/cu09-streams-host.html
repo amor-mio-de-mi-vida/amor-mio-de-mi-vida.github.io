@@ -6934,11 +6934,11 @@ scale&lt;&lt;&lt;256, 256, 0, s&gt;&gt;&gt;(x, n, 2.0f);  // no page faults
 CHECK(cudaMemPrefetchAsync(x, bytes, cudaCpuDeviceId, s));
 CHECK(cudaStreamSynchronize(s));
 std::printf("x[0] = %f\n", x[0]);  // back on the CPU</code></pre>
-<p class="src-note">完整代码：<code>code/cu09-streams-host/managed.cu</code> 第 9–20 行（未在 GPU 上运行）。注释“no page faults”是预取的目的，实际是否完全没有缺页取决于预取是否在 kernel 访问前完成。</p>
+<p class="src-note">完整代码：<code>code/cu09-streams-host/managed.cu</code> 第 9–20 行（未在 GPU 上运行）。注释“no page faults”是预取的目的，实际是否完全没有缺页取决于预取是否在 kernel 访问前完成。这里用的是 CUDA 12 的签名（目标位置是一个 <code>int</code> 设备号）；当前的 CUDA 13 运行时文档中，<code>cudaMemAdvise</code> 与 <code>cudaMemPrefetchAsync</code> 改为接收 <code>struct cudaMemLocation</code>，后者还多了一个 <code>flags</code> 参数 <span class="cite">[<a href="#ref-rtmem" title="NVIDIA. CUDA Runtime API, Memory Management（v13.5；<code>cudaMemAdvise</code>、<code>cudaMemPrefetchAsync</code> 的 <code>cudaMemLocation</code> 签名）。">11</a>]</span>。</p>
 
 <p><b>映射内存（mapped memory）</b>，旧文档里叫零拷贝（zero-copy），是另一回事：数据始终留在主机内存里，kernel 通过 PCIe 或 NVLink-C2C 直接读写它 <span class="cite">[<a href="#ref-cpgum" title="NVIDIA. CUDA Programming Guide, §2.6 Unified and System Memory（UVA、统一内存范式、prefetch/advise、页锁定内存、映射内存）。">7</a>]</span>。每次访问都要穿过这条比显存慢得多的链路，所以编程指南说它不应被当作显存访问的高性能替代品；最佳实践指南也建议在独立 GPU 上只对“读一次或写一次”的数据使用它，而在 CPU 和 GPU 共享物理内存的集成 GPU 上，它总是划算的 <span class="cite">[<a href="#ref-bpg" title="NVIDIA. CUDA C++ Best Practices Guide. §10.1 Data Transfer Between Host and Device（10.1.1 Pinned Memory、10.1.2 Asynchronous and Overlapping Transfers with Computation、10.1.3 Zero Copy）。">1</a>]</span>。另外，映射内存上的原子操作，从主机或其他 GPU 的角度看并不是原子的 <span class="cite">[<a href="#ref-cpgum" title="NVIDIA. CUDA Programming Guide, §2.6 Unified and System Memory（UVA、统一内存范式、prefetch/advise、页锁定内存、映射内存）。">7</a>]</span>。</p>
 
-<p><b>P2P（点对点）</b>是多 GPU 之间的直连。<code>cudaDeviceCanAccessPeer</code> 查询两块 GPU 能否直接互访，<code>cudaDeviceEnablePeerAccess</code> 打开之后，一块 GPU 的 kernel 可以直接读写另一块的显存，<code>cudaMemcpyPeerAsync</code> 也不必经过主机中转。在 NVLink 连接的机器上，这条路径的带宽远高于 PCIe：H100 SXM 每卡 NVLink 是双向 900 GB/s，B200 是双向 1.8 TB/s <span class="cite">[<a href="#ref-h100ds" title="NVIDIA. NVIDIA H100 Tensor Core GPU. 产品页 Specifications 表（H100 SXM）。">2</a>, <a href="#ref-hgx" title="NVIDIA. NVIDIA HGX Platform. HGX B200 规格表（NVLink 每卡 1.8 TB/s）。">11</a>]</span>。多卡集合通信的 kernel 放到第 48 篇讲。</p>
+<p><b>P2P（点对点）</b>是多 GPU 之间的直连。<code>cudaDeviceCanAccessPeer</code> 查询两块 GPU 能否直接互访，<code>cudaDeviceEnablePeerAccess</code> 打开之后，一块 GPU 的 kernel 可以直接读写另一块的显存，<code>cudaMemcpyPeerAsync</code> 也不必经过主机中转。在 NVLink 连接的机器上，这条路径的带宽远高于 PCIe：H100 SXM 每卡 NVLink 是双向 900 GB/s，B200 是双向 1.8 TB/s <span class="cite">[<a href="#ref-h100ds" title="NVIDIA. NVIDIA H100 Tensor Core GPU. 产品页 Specifications 表（H100 SXM）。">2</a>, <a href="#ref-hgx" title="NVIDIA. NVIDIA HGX Platform. HGX B200 规格表（NVLink 每卡 1.8 TB/s）。">12</a>]</span>。多卡集合通信的 kernel 放到第 48 篇讲。</p>
 
 <h2 id="sec-hb" data-short="Hopper 与 Blackwell">Hopper 与 Blackwell：依赖的 kernel 提前启动，CPU 内存变成一致的</h2>
 
@@ -6946,7 +6946,7 @@ std::printf("x[0] = %f\n", x[0]);  // back on the CPU</code></pre>
 
 <p>回到同一个 stream 里两个有依赖的 kernel。按 stream 的规则，后一个（secondary）要等前一个（primary）完全结束、写的数据全部可见才能启动。但几乎每个 kernel 开头都有一段不依赖前一个 kernel 的“前置”工作，比如清零缓冲区、读入常量或权重；primary 的末尾也常有一段“收尾”，后一个 kernel 并不需要它的结果。再加上 secondary 本身的启动延迟，这些时间都白白串在了一起。</p>
 
-<p>计算能力 9.0（Hopper）起，CUDA 提供了 Programmatic Dependent Launch（PDL，程序化依赖启动）来消除这段空隙 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>。primary 在所有 block 都执行了 <code>cudaTriggerProgrammaticLaunchCompletion()</code> 之后，驱动就可以启动 secondary；如果 primary 没有调用它，触发会在 block 退出时隐式发生。secondary 先做不依赖 primary 的前置工作，然后调用 <code>cudaGridDependencySynchronize()</code>，它会一直阻塞到 primary 完成、并把结果刷新到全局内存为止。<a href="#fig-pdl">图 6</a> 画出了时间上的变化。</p>
+<p>计算能力 9.0（Hopper）起，CUDA 提供了 Programmatic Dependent Launch（PDL，程序化依赖启动）来消除这段空隙 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>。primary 在所有 block 都执行了 <code>cudaTriggerProgrammaticLaunchCompletion()</code> 之后，驱动就可以启动 secondary；如果 primary 没有调用它，触发会在 block 退出时隐式发生。secondary 先做不依赖 primary 的前置工作，然后调用 <code>cudaGridDependencySynchronize()</code>，它会一直阻塞到 primary 完成、并把结果刷新到全局内存为止。<a href="#fig-pdl">图 6</a> 画出了时间上的变化。</p>
 
 <figure id="fig-pdl" data-kind="diagram">
   <div class="fig-body"><svg aria-labelledby="fig-pdl-cap" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 352" font-family="sans-serif" role="img" id="s6-root" style="max-width:560px;">
@@ -6986,7 +6986,7 @@ std::printf("x[0] = %f\n", x[0]);  // back on the CPU</code></pre>
 <path class="d-arrow muted" d="M112 336 H540" marker-end="url(#s6-ahm)"/>
 <text class="d-label" x="100" y="340" text-anchor="end">时间</text>
 </svg></div>
-  <figcaption id="fig-pdl-cap"><span class="fig-label">图 6</span><b>PDL 让 secondary 在 primary 触发后就启动，用 primary 的收尾时间做自己的前置工作。</b>(a) 普通的同一 stream：secondary 等 primary 完全结束后才启动。(b) PDL：primary 调用 <code>cudaTriggerProgrammaticLaunchCompletion</code>（虚线）后 secondary 即可启动；它的前置工作与 primary 的收尾重叠，进入依赖部分前用 <code>cudaGridDependencySynchronize</code> 等待（橙色短条）。示意图，长度不按比例，依据 CUDA 编程指南 §4.5 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>；重叠是否发生由驱动和硬件决定，不保证。</figcaption>
+  <figcaption id="fig-pdl-cap"><span class="fig-label">图 6</span><b>PDL 让 secondary 在 primary 触发后就启动，用 primary 的收尾时间做自己的前置工作。</b>(a) 普通的同一 stream：secondary 等 primary 完全结束后才启动。(b) PDL：primary 调用 <code>cudaTriggerProgrammaticLaunchCompletion</code>（虚线）后 secondary 即可启动；它的前置工作与 primary 的收尾重叠，进入依赖部分前用 <code>cudaGridDependencySynchronize</code> 等待（橙色短条）。示意图，长度不按比例，依据 CUDA 编程指南 §4.5 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>；重叠是否发生由驱动和硬件决定，不保证。</figcaption>
 </figure>
 
 <pre data-code="code/cu09-streams-host/pdl.cu#L7-L23"><code>__global__ void primary(float* y, float* sq, const float* x,
@@ -7008,7 +7008,7 @@ __global__ void secondary(float* z, const float* y,
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cu09-streams-host/pdl.cu</code> 第 7–23 行（未在 GPU 上运行）</p>
 
-<p>主机端，secondary 必须用可扩展的发射接口 <code>cudaLaunchKernelEx</code> 发射，并带上 <code>cudaLaunchAttributeProgrammaticStreamSerialization</code> 属性，告诉驱动可以不等 primary 完成和内存刷新就提前启动它 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>：</p>
+<p>主机端，secondary 必须用可扩展的发射接口 <code>cudaLaunchKernelEx</code> 发射，并带上 <code>cudaLaunchAttributeProgrammaticStreamSerialization</code> 属性，告诉驱动可以不等 primary 完成和内存刷新就提前启动它 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>：</p>
 
 <pre data-code="code/cu09-streams-host/pdl.cu#L30-L42"><code>cudaLaunchAttribute attr[1];
 attr[0].id =
@@ -7025,14 +7025,14 @@ const float* wc = w;
 CHECK(cudaLaunchKernelEx(&amp;cfg, secondary, z, yc, wc, n));</code></pre>
 <p class="src-note">完整代码：<code>code/cu09-streams-host/pdl.cu</code> 第 30–42 行（未在 GPU 上运行）</p>
 
-<p>两条规则必须遵守。第一，secondary 可能在 primary 的数据可见之前就开始运行，所以凡是读 primary 结果的地方，前面都必须有 <code>cudaGridDependencySynchronize()</code>。第二，并发是“机会主义”的，不保证发生；编程指南明确警告，依赖这种并发来保证正确性是不安全的，可能导致死锁 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>。PDL 也能用在 CUDA Graph 里：在两个 kernel 节点之间使用 <code>cudaGraphDependencyTypeProgrammatic</code> 类型的边，或者在捕获时带上同样的发射属性 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>。在 PTX 层，对应的指令是 <code>griddepcontrol.launch_dependents</code> 和 <code>griddepcontrol.wait</code>，要求 sm_90 及以上 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4（<code>griddepcontrol</code>）。">13</a>]</span>。PDL 与 CUDA Graph 互补：Graph 降低 CPU 发射开销，PDL 降低 GPU 上相邻 kernel 之间的空隙，两者在 LLM 推理这种“很多短 kernel 首尾相接”的场景里常常一起用。</p>
+<p>两条规则必须遵守。第一，secondary 可能在 primary 的数据可见之前就开始运行，所以凡是读 primary 结果的地方，前面都必须有 <code>cudaGridDependencySynchronize()</code>。第二，并发是“机会主义”的，不保证发生；编程指南明确警告，依赖这种并发来保证正确性是不安全的，可能导致死锁 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>。PDL 也能用在 CUDA Graph 里：在两个 kernel 节点之间使用 <code>cudaGraphDependencyTypeProgrammatic</code> 类型的边，或者在捕获时带上同样的发射属性 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>。在 PTX 层，对应的指令是 <code>griddepcontrol.launch_dependents</code> 和 <code>griddepcontrol.wait</code>，要求 sm_90 及以上 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4（<code>griddepcontrol</code>）。">14</a>]</span>。PDL 与 CUDA Graph 互补：Graph 降低 CPU 发射开销，PDL 降低 GPU 上相邻 kernel 之间的空隙，两者在 LLM 推理这种“很多短 kernel 首尾相接”的场景里常常一起用。</p>
 
 <h3 id="sec-4">主机与 GPU 之间的链路</h3>
 
 <p>在 Grace Hopper 和 Grace Blackwell 这类系统上，NVIDIA 的 Grace CPU 与 GPU 之间用 NVLink-C2C 连接，双向 900 GB/s，而且是内存一致的 <span class="cite">[<a href="#ref-bwublog" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra: The Chip Powering the AI Factory Era. NVIDIA Technical Blog（Table 1 互连对比，单位为双向 GB/s）。">3</a>]</span>。这时地址转换服务（ATS）可用：所有主机内存天然就是统一内存，驻留在 GPU 上的托管内存可以被 CPU 直接访问而不必迁移，链路支持原生原子操作；不过，用 <code>cudaMalloc</code> 分配的纯 GPU 内存依然不能被主机直接访问 <span class="cite">[<a href="#ref-cpgum" title="NVIDIA. CUDA Programming Guide, §2.6 Unified and System Memory（UVA、统一内存范式、prefetch/advise、页锁定内存、映射内存）。">7</a>]</span>。我们的理解是，在这样的机器上，“统一内存靠缺页迁移、很慢”的经验不再完全适用，<a href="#sec-pinned">pinned 内存</a> 里 pinned 与 pageable 的区别也没有那么关键了；具体收益取决于访问模式，本文没有数据。这只对 Grace 系统成立；x86 主机加 PCIe 的 GPU 服务器仍然遵循前面几节的规则。<a href="#tab-hb">表 1</a> 汇总了本文涉及的主机侧特性在三代 GPU 上的情况。</p>
 
 <figure id="tab-hb" class="table" data-source="paper">
-  <figcaption id="tab-hb-cap"><span class="fig-label">表 1</span><b>从 Hopper 起，主机侧的变化集中在两处：PDL 减少相邻 kernel 之间的空隙，Grace 系统用一致的 NVLink-C2C 取代 PCIe。</b>带宽一律为 NVIDIA 给出的双向值，单向约为一半。PDL 的计算能力要求来自 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">12</a>]</span>；PCIe 与 NVLink-C2C 带宽来自 <span class="cite">[<a href="#ref-bwublog" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra: The Chip Powering the AI Factory Era. NVIDIA Technical Blog（Table 1 互连对比，单位为双向 GB/s）。">3</a>, Table 1]</span>；NVLink 每卡带宽来自 <span class="cite">[<a href="#ref-h100ds" title="NVIDIA. NVIDIA H100 Tensor Core GPU. 产品页 Specifications 表（H100 SXM）。">2</a>, <a href="#ref-hgx" title="NVIDIA. NVIDIA HGX Platform. HGX B200 规格表（NVLink 每卡 1.8 TB/s）。">11</a>, <a href="#ref-a100ds" title="NVIDIA. NVIDIA A100 Tensor Core GPU. 产品页 Specifications 表（NVLink 600 GB/s）。">14</a>]</span>；ATS 来自 <span class="cite">[<a href="#ref-cpgum" title="NVIDIA. CUDA Programming Guide, §2.6 Unified and System Memory（UVA、统一内存范式、prefetch/advise、页锁定内存、映射内存）。">7</a>]</span>。“—”表示该代没有此特性或本文未核对其数值。</figcaption>
+  <figcaption id="tab-hb-cap"><span class="fig-label">表 1</span><b>从 Hopper 起，主机侧的变化集中在两处：PDL 减少相邻 kernel 之间的空隙，Grace 系统用一致的 NVLink-C2C 取代 PCIe。</b>带宽一律为 NVIDIA 给出的双向值，单向约为一半。PDL 的计算能力要求来自 <span class="cite">[<a href="#ref-cpgpdl" title="NVIDIA. CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization.">13</a>]</span>；PCIe 与 NVLink-C2C 带宽来自 <span class="cite">[<a href="#ref-bwublog" title="NVIDIA (2025). Inside NVIDIA Blackwell Ultra: The Chip Powering the AI Factory Era. NVIDIA Technical Blog（Table 1 互连对比，单位为双向 GB/s）。">3</a>, Table 1]</span>；NVLink 每卡带宽来自 <span class="cite">[<a href="#ref-h100ds" title="NVIDIA. NVIDIA H100 Tensor Core GPU. 产品页 Specifications 表（H100 SXM）。">2</a>, <a href="#ref-hgx" title="NVIDIA. NVIDIA HGX Platform. HGX B200 规格表（NVLink 每卡 1.8 TB/s）。">12</a>, <a href="#ref-a100ds" title="NVIDIA. NVIDIA A100 Tensor Core GPU. 产品页 Specifications 表（NVLink 600 GB/s）。">15</a>]</span>；ATS 来自 <span class="cite">[<a href="#ref-cpgum" title="NVIDIA. CUDA Programming Guide, §2.6 Unified and System Memory（UVA、统一内存范式、prefetch/advise、页锁定内存、映射内存）。">7</a>]</span>。“—”表示该代没有此特性或本文未核对其数值。</figcaption>
   <div class="table-wrap"><table>
     <thead><tr><th></th><th>Ampere（A100）</th><th>Hopper（H100）</th><th>Blackwell（B200）</th></tr></thead>
     <tbody>
@@ -7045,7 +7045,7 @@ CHECK(cudaLaunchKernelEx(&amp;cfg, secondary, z, yc, wc, n));</code></pre>
   </table></div>
 </figure>
 
-<p>对 PCIe 服务器来说，Blackwell 的 PCIe Gen6 把主机链路带宽翻了一倍，但 HGX B200 每卡显存带宽是 8 TB/s（第 1 篇），按单向 128 GB/s 算，两者之比约为 62，比 H100 上的约 52 还大。换句话说，主机链路相对显存反而更慢了，本文的这些技巧在新硬件上只会更重要。</p>
+<p>对 PCIe 服务器来说，Blackwell 的 PCIe Gen6 把主机链路带宽翻了一倍，但 HGX B200 每卡显存带宽是 8 TB/s（第 1 篇），按单向 128 GB/s 算，两者之比约为 62.5（8000 / 128），比 H100 上的约 52（3350 / 64）还大。换句话说，主机链路相对显存反而更慢了，本文的这些技巧在新硬件上只会更重要。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
@@ -7131,6 +7131,7 @@ CHECK(cudaLaunchKernelEx(&amp;cfg, secondary, z, yc, wc, n));</code></pre>
   <li id="ref-rtevent">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html">CUDA Runtime API, Event Management</a>（<code>cudaEventElapsedTime</code> 的分辨率）。</li>
   <li id="ref-cpggraph">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html">CUDA Programming Guide, §4.2 CUDA Graphs</a>（节点类型、捕获限制、图的更新）。</li>
   <li id="ref-vllm">vLLM Project. <a href="https://docs.vllm.ai/en/latest/design/cuda_graphs.html">CUDA Graphs</a>. vLLM 设计文档（<code>cudagraph_capture_sizes</code>）。</li>
+  <li id="ref-rtmem">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html">CUDA Runtime API, Memory Management</a>（v13.5；<code>cudaMemAdvise</code>、<code>cudaMemPrefetchAsync</code> 的 <code>cudaMemLocation</code> 签名）。</li>
   <li id="ref-hgx">NVIDIA. <a href="https://www.nvidia.com/en-us/data-center/hgx/">NVIDIA HGX Platform</a>. HGX B200 规格表（NVLink 每卡 1.8 TB/s）。</li>
   <li id="ref-cpgpdl">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/programmatic-dependent-launch.html">CUDA Programming Guide, §4.5 Programmatic Dependent Launch and Synchronization</a>.</li>
   <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>（<code>griddepcontrol</code>）。</li>

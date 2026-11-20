@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-30</span>
-    <span data-reading-time>约 19 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -230,11 +230,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>PyTorch C++/CUDA 扩展有两条构建路径：<b>AOT</b>（<code>setup.py</code> + <code>CUDAExtension</code>，适合正式发布）和 <b>JIT</b>（<code>load_inline</code>，适合快速原型），两者最终都生成通过 <code>pybind11</code> 暴露给 Python 的 <code>.so</code> 动态库。</li>
-<li><code>torch.library.custom_op</code> 把自定义 kernel 注册到 PyTorch 的<b>调度器</b>（dispatcher）。注册三件套：schema（输入输出类型声明）、<code>register_fake</code>（meta kernel，让 <code>torch.compile</code> 能在不执行 CUDA 的情况下追踪计算图的形状和类型）、<code>register_autograd</code>（前向/反向包装，让自定义 op 能参与自动微分）。</li>
+<li>PyTorch C++/CUDA 扩展有两条构建路径：<b>AOT</b>（<code>setup.py</code> + <code>CUDAExtension</code>，适合正式发布）和 <b>JIT</b>（<code>load_inline</code>，适合快速原型），两者都编译出 <code>.so</code> 动态库，函数通常经 <code>pybind11</code> 暴露给 Python（也可以只用 <code>TORCH_LIBRARY</code> 注册算子）。</li>
+<li><code>torch.library.custom_op</code> 把自定义 kernel 注册到 PyTorch 的<b>调度器</b>（dispatcher）。注册三件套：schema（输入输出类型声明）、<code>register_fake</code>（FakeTensor kernel，让 <code>torch.compile</code> 能在不执行 CUDA 的情况下追踪计算图的形状和类型）、<code>register_autograd</code>（前向/反向包装，让自定义 op 能参与自动微分）。</li>
 <li>安全检查清单：<b>dtype 匹配</b>（kernel 期望 FP16 就不要传 FP32）、<b>contiguous</b>（非连续张量先 <code>.contiguous()</code>）、<b>stride 检查</b>（转置后 stride 可能不满足 kernel 假设）、<b>stream 安全</b>（在调用 kernel 的 CUDA stream 上执行，不硬编码默认 stream）。</li>
-<li>正确性测试：用<b>纯 PyTorch 参考实现</b>作为 ground truth，覆盖随机 shape + 边界 shape + 多 dtype，误差阈值随精度调整（FP32: atol=1e-5；FP16: atol=1e-2）。性能基准用 <b>CUDA event</b> 计时（不用 <code>time.time()</code>），warmup 后多次重复取平均。</li>
-<li>部署到推理框架（vLLM、SGLang、TensorRT-LLM）的核心路径：把 kernel 打包为 Python 包 → 通过框架的 custom op 接口注册 → 在框架的 model runner 中替换默认算子。Triton kernel 可以直接用 <code>torch.compile</code> 的 Triton backend 集成，无需 C++ 绑定。</li>
+<li>正确性测试：用<b>纯 PyTorch 参考实现</b>作为 ground truth，覆盖随机 shape + 边界 shape + 多 dtype，误差阈值随精度调整；再用 <code>torch.library.opcheck</code> 检查注册、<code>gradcheck</code> 检查梯度。性能基准用 <b>CUDA event</b> 计时（不用 <code>time.time()</code>），warmup 后多次重复取平均。</li>
+<li>部署到推理框架（vLLM、SGLang、TensorRT-LLM）的核心路径：把 kernel 打包为 Python 包 → 通过框架的 custom op 接口注册 → 在框架的 model runner 中替换默认算子。Triton kernel 不需要 C++ 绑定，<code>torch.compile</code> 可以直接追踪用户写的 Triton kernel（需要算子语义时再用 <code>torch.library.triton_op</code> 包装）。</li>
   </ul>
 </div>
 
@@ -269,7 +269,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p><b>AOT（Ahead-of-Time）构建 <span class="cite">[<a href="#ref-torch_ext" title="PyTorch. Custom C++ and CUDA Extensions. PyTorch Tutorials.">1</a>]</span></b>（<a href="#fig-aot_vs_jit">图 3</a> 左）：通过 <code>setup.py</code> 配合 <code>torch.utils.cpp_extension.CUDAExtension</code>。这种方式把 <code>.cu</code> 和 <code>.cpp</code> 文件编译成 <code>.so</code>（Linux）或 <code>.pyd</code>（Windows）动态库，可以用 <code>pip install</code> 安装。编译只在安装时发生一次，导入时直接加载编译好的二进制文件。AOT 适合正式发布的包——用户安装后不需要 nvcc 或 CUDA 工具链（除非需要从源码重新编译）。编译参数（GPU 架构、优化级别、额外的 include 路径）在 <code>setup.py</code> 中指定。常见的做法是通过 <code>TORCH_CUDA_ARCH_LIST</code> 环境变量指定目标 GPU 架构（如 <code>"8.0 9.0"</code>），让一次编译同时生成多个架构的代码——这样编译出的 <code>.so</code> 可以在 A100 和 H100 上都运行。对于需要同时支持 Ampere 和 Hopper 的生产部署，一次编译生成 fat binary（包含两种架构的 cubin），运行时 CUDA driver 自动选择匹配的版本。</p>
 
-<p><b>JIT（Just-in-Time）构建</b>：通过 <code>torch.utils.cpp_extension.load</code> 或 <code>load_inline</code>。<code>load</code> 接受 <code>.cu</code>/<code>.cpp</code> 文件路径，<code>load_inline</code> 接受 C++/CUDA 源码字符串。两者在第一次调用时执行编译——调用 nvcc 把代码编译成 <code>.so</code>，缓存在 <code>~/.cache/torch_extensions/</code> 下。后续导入如果源码和编译参数没变，直接加载缓存的二进制文件，不重新编译。JIT 适合开发阶段——修改 kernel 代码后只需重新导入（或删除缓存），不需要重新 <code>pip install</code>。但 JIT 有两个常见陷阱：编译缓存不感知 CUDA 头文件的变化（如果你修改了一个被 include 的 <code>.h</code> 文件，缓存可能不会失效——需要手动删除缓存目录）；多进程环境下（如 DDP 的多 worker），多个进程同时触发 JIT 编译可能导致 race condition（缓解方法是在第一次训练前用单独的 warmup 脚本触发编译）。</p>
+<p><b>JIT（Just-in-Time）构建</b>：通过 <code>torch.utils.cpp_extension.load</code> 或 <code>load_inline</code>。<code>load</code> 接受 <code>.cu</code>/<code>.cpp</code> 文件路径，<code>load_inline</code> 接受 C++/CUDA 源码字符串。两者在第一次调用时执行编译——调用 nvcc 把代码编译成 <code>.so</code>，缓存在 <code>~/.cache/torch_extensions/</code> 下。后续导入如果源码和编译参数没变，直接加载缓存的二进制文件，不重新编译。JIT 适合开发阶段——修改 kernel 代码后只需重新导入（或删除缓存），不需要重新 <code>pip install</code>。JIT 有两点值得知道：扩展的版本号按源码内容和编译参数计算，实际构建交给 ninja 增量完成；多进程环境下（如 DDP 的多个 worker）同时触发 JIT 编译时，PyTorch 在构建目录上加锁，一个进程编译、其余等待——较早的版本用的是&ldquo;锁文件存在即阻塞&rdquo;，编译进程被杀后残留的锁文件会让后续进程一直等待，当前版本已改为操作系统级文件锁，持有者被杀时锁自动释放（见 <code>torch/utils/cpp_extension.py</code> 中的注释）<span class="cite">[<a href="#ref-torch_ext_src" title="PyTorch. torch/utils/cpp_extension.py（main 分支，2026-11 查阅）：JIT 扩展的版本号计算与构建锁（<code>FileLock</code>）的注释。">2</a>]</span>。生产环境里，常见做法仍是在训练开始前用单独的脚本先触发一次编译。</p>
 
 <pre data-code="code/tl47-pytorch-integration/rms_norm_ext.cu#L8-L18"><code>__global__ void rms_norm_kernel(
     const float* __restrict__ x,
@@ -284,9 +284,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     // step 1: compute sum of squares</code></pre>
 <p class="src-note">完整代码：<code>code/tl47-pytorch-integration/rms_norm_ext.cu</code> 第 8&ndash;18 行</p>
 
-<p>kernel 的核心计算是两级归约。先在 warp 内通过 <code>__shfl_xor_sync</code> 完成 32 个线程的部分和——这一步完全在寄存器中完成，不需要 shared memory，延迟极低。然后通过 shared memory 在 block 内汇总各 warp 的结果：每个 warp 的 lane 0 把部分和写入 <code>sdata[wid]</code>，warp 0 再对这些部分和做一次 warp shuffle 归约得到最终结果。这种&ldquo;warp-first&rdquo;的两级归约是从<a href="../op17-softmax-norm/op17-softmax-norm.html">第 17 篇</a>就反复使用的经典模式——warp shuffle 在寄存器间直接交换数据，比 shared memory 路径快约 3 倍，因此第一级归约总是优先使用 shuffle：</p>
+<p>kernel 的核心计算是两级归约。先在 warp 内通过 <code>__shfl_xor_sync</code> 完成 32 个线程的部分和——这一步完全在寄存器中完成，不需要 shared memory，延迟极低。然后通过 shared memory 在 block 内汇总各 warp 的结果：每个 warp 的 lane 0 把部分和写入 <code>sdata[wid]</code>，warp 0 再对这些部分和做一次 warp shuffle 归约，并把总和写回 <code>sdata[0]</code>，<code>__syncthreads()</code> 之后全 block 都从那里读。这种&ldquo;warp-first&rdquo;的两级归约是从<a href="../op17-softmax-norm/op17-softmax-norm.html">第 17 篇</a>就反复使用的经典模式——warp shuffle 在寄存器间直接交换数据，省掉了每一轮的 shared memory 读写和 block 级同步。注意这里的 shuffle 用的是全 32 位掩码，所以 host 端把 block 大小取整到 32 的倍数，保证每个 warp 都是完整的：</p>
 
-<pre data-code="code/tl47-pytorch-integration/rms_norm_ext.cu#L23-L38"><code>    // warp-level reduction
+<pre data-code="code/tl47-pytorch-integration/rms_norm_ext.cu#L23-L40"><code>    // warp-level reduction
     for (int mask = 16; mask &gt; 0; mask &gt;&gt;= 1)
         ss += __shfl_xor_sync(0xffffffff, ss, mask);
 
@@ -301,8 +301,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
         ss = (lane &lt; blockDim.x / 32) ? sdata[lane] : 0.f;
         for (int mask = 16; mask &gt; 0; mask &gt;&gt;= 1)
             ss += __shfl_xor_sync(0xffffffff, ss, mask);
-    }</code></pre>
-<p class="src-note">完整代码：<code>code/tl47-pytorch-integration/rms_norm_ext.cu</code> 第 23&ndash;38 行</p>
+        if (lane == 0) sdata[0] = ss;  // block total
+    }
+    __syncthreads();</code></pre>
+<p class="src-note">完整代码：<code>code/tl47-pytorch-integration/rms_norm_ext.cu</code> 第 23&ndash;40 行</p>
 
 <p>C++ 端的绑定层负责 PyTorch 张量到 CUDA 指针的转换。核心步骤：从 <code>torch::Tensor</code> 获取 <code>data_ptr&lt;float&gt;()</code>（返回指向张量底层 CUDA 内存的原始指针）、获取当前 CUDA stream（<code>at::cuda::getCurrentCUDAStream()</code>）、根据输入张量的 shape 计算 grid 和 block 维度、launch kernel。绑定层通常还需要分配输出张量——用 <code>torch::empty_like(input)</code> 或 <code>torch::empty({M, N}, input.options())</code> 创建与输入相同 dtype 和设备的输出。</p>
 
@@ -310,13 +312,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-custom-op">注册 Custom Op 与 torch.compile</h2>
 
-<p>PyTorch 2.x 引入了 <code>torch.compile</code>——通过 TorchDynamo 追踪 Python 代码生成 FX 计算图，然后用 Inductor 后端把计算图编译成优化的 Triton 或 C++ 代码。但 <code>torch.compile</code> 遇到自定义 CUDA 扩展时会遇到问题：它不知道你的 <code>rms_norm_cuda</code> 函数的输入输出类型、不知道它是否有副作用、不知道输出的 shape 和 dtype 是什么。如果不做任何处理，TorchDynamo 会在遇到自定义扩展调用时&ldquo;graph break&rdquo;——打断计算图的连续性，阻止编译器对自定义 op 前后的代码做跨 op 优化（如算子融合）。</p>
+<p>PyTorch 2.x 引入了 <code>torch.compile</code>——通过 TorchDynamo 追踪 Python 代码生成 FX 计算图，然后用 Inductor 后端把计算图编译成优化的 Triton 或 C++ 代码。但 <code>torch.compile</code> 遇到自定义 CUDA 扩展时会遇到问题：它不知道你的 <code>rms_norm_cuda</code> 函数的输入输出类型、不知道它是否有副作用、不知道输出的 shape 和 dtype 是什么。如果不做任何处理，TorchDynamo 无法追踪进一个 pybind 暴露的 C++ 函数，只能在这里&ldquo;graph break&rdquo;——打断计算图的连续性，阻止编译器对自定义 op 前后的代码做跨 op 优化（如算子融合）。</p>
 
 <p><code>torch.library.custom_op</code> 解决了这个问题（<a href="#fig-torch_compile_flow">图 5</a> 和 <a href="#fig-op_dispatch_stack">图 4</a>）。它提供了三个注册接口，让自定义 op 成为 PyTorch 调度器的&ldquo;一等公民&rdquo;：</p>
 
 <figure id="fig-op_dispatch_stack" data-kind="diagram">
 <img aria-labelledby="fig-op_dispatch_stack-cap" src="figs/op_dispatch_stack.svg" alt="Custom op dispatch stack"/>
-<figcaption id="fig-op_dispatch_stack-cap"><span class="fig-label">图 4</span><b>Custom Op 的三条执行路径。</b>常规调用经过 Dispatcher 路由到 CUDA 实现；torch.compile <span class="cite">[<a href="#ref-torch_compile" title="Ansel et al. (2024). torch.compile — PyTorch 2.x Compiler. PyTorch Documentation.">2</a>]</span> 路径用 fake kernel 追踪图；autograd 路径支持反向传播。三者缺一不可。</figcaption>
+<figcaption id="fig-op_dispatch_stack-cap"><span class="fig-label">图 4</span><b>Custom Op 的三条执行路径。</b>常规调用经过 Dispatcher 路由到 CUDA 实现；torch.compile <span class="cite">[<a href="#ref-torch_compile" title="PyTorch. torch.compiler. PyTorch Documentation（TorchDynamo / AOTAutograd / Inductor）。">3</a>]</span> 路径用 fake kernel 追踪图；autograd 路径支持反向传播。三者缺一不可。</figcaption>
 </figure>
 
 <figure id="fig-torch_compile_flow" data-kind="diagram">
@@ -326,8 +328,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <pre data-code="code/tl47-pytorch-integration/custom_op_register.py#L9-L21"><code># torch.library.custom_op defines the op in the
 # "mylib" namespace.
-# The schema string declares input/output types
-# for the dispatcher.
+# The schema is inferred from the type hints
+# (type hints are required).
 
 @torch.library.custom_op("mylib::rms_norm", mutates_args=())
 def rms_norm(x: torch.Tensor, weight: torch.Tensor,
@@ -339,25 +341,30 @@ def rms_norm(x: torch.Tensor, weight: torch.Tensor,
     return out</code></pre>
 <p class="src-note">完整代码：<code>code/tl47-pytorch-integration/custom_op_register.py</code> 第 9&ndash;21 行</p>
 
-<p><b>Schema 注册</b>：<code>@torch.library.custom_op("mylib::rms_norm", mutates_args=())</code> 声明了算子的命名空间（<code>mylib</code>）、算子名、输入参数的类型注解（<code>torch.Tensor</code>、<code>float</code>）、输出类型（<code>torch.Tensor</code>）和副作用声明（<code>mutates_args=()</code> 表示不修改任何输入——这让编译器可以安全地重排和消除死代码）。注册后，<code>torch.ops.mylib.rms_norm</code> 成为一个可调用的 op——TorchDynamo 可以在 FX 图中用一个节点表示它，而不需要 graph break。</p>
+<p><b>Schema 注册</b>：<code>@torch.library.custom_op("mylib::rms_norm", mutates_args=())</code>（PyTorch 2.4 起提供）声明了算子的命名空间（<code>mylib</code>）和算子名；schema 由函数的类型注解推出（类型注解是必需的）<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>，包括输入（<code>torch.Tensor</code>、<code>float</code>）、输出（<code>torch.Tensor</code>）和副作用声明（<code>mutates_args=()</code> 表示不修改任何输入——这让编译器可以安全地重排和消除死代码）。注册后，<code>torch.ops.mylib.rms_norm</code> 成为一个可调用的 op——TorchDynamo 可以在 FX 图中用一个节点表示它，而不需要 graph break。</p>
 
-<p><b>Fake（Meta）kernel</b>：<code>@rms_norm.register_fake</code> 注册一个只计算输出 shape 和 dtype 的&ldquo;假&rdquo;实现——它在 meta tensor（只有 shape/stride/dtype 信息、没有实际数据的张量）上运行。<code>torch.compile</code> 在追踪阶段用 fake kernel 推断每个 op 的输出形状，而不需要实际执行 CUDA 代码。如果你的 op 的输出 shape 完全由输入 shape 决定（如 <code>empty_like(x)</code>），fake kernel 就很简单；如果输出 shape 依赖于数据值（如 <code>torch.nonzero</code>），fake kernel 需要用 <code>torch.library.get_ctx().create_unbacked_symint()</code> 声明一个符号整数来表达动态 shape。</p>
+<p><b>Fake（Meta）kernel</b>：<code>@rms_norm.register_fake</code> 注册一个只计算输出 shape 和 dtype 的&ldquo;假&rdquo;实现——它在 FakeTensor（只有 shape/stride/dtype/device 信息、没有实际数据的张量）上运行。<code>torch.compile</code> 在追踪阶段用 fake kernel 推断每个 op 的输出形状，而不需要实际执行 CUDA 代码；文档说明 FakeTensor kernel 是 op 能用于 torch.compile/export 的必要条件（但不充分）<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>。（这个接口在 2.4 之前叫 <code>impl_abstract</code>。）如果你的 op 的输出 shape 完全由输入 shape 决定（如 <code>empty_like(x)</code>），fake kernel 就很简单；如果输出 shape 依赖于数据值（如 <code>torch.nonzero</code>），fake kernel 需要用 <code>torch.library.get_ctx().new_dynamic_size()</code> 创建一个符号整数来表达这个数据相关的尺寸<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>。</p>
 
-<p><b>Autograd 注册</b>：<code>rms_norm.register_autograd</code> 让自定义 op 能参与 PyTorch 的自动微分系统。你需要提供一个 <code>setup_context</code> 函数（决定在前向传播时保存哪些张量用于反向传播——相当于传统 <code>autograd.Function</code> 的 <code>save_for_backward</code> 方法）和一个 <code>backward</code> 函数（接收输出梯度，计算并返回每个输入的梯度）。关键考量是显存和计算的权衡：backward 中保存的张量会占用 GPU 显存直到反向传播执行完成——对于大张量（如 attention 的中间结果，shape 可能是 <code>[batch, heads, seq_len, seq_len]</code>，序列长度 8192 时一个注意力头就占几百 MB），优先保存输入并在 backward 中重新计算中间结果，用额外的计算换取显存的节省。这个重计算与保存之间的权衡和 activation checkpointing 的思路完全一致——区别在于这里是在单个 kernel 的粒度上做选择，而 checkpointing 是在 layer 的粒度上。如果 kernel 只用于推理（不需要梯度），可以跳过 autograd 注册——这样 kernel 在被调用时如果有梯度上下文（<code>torch.no_grad()</code> 之外），PyTorch 会报错而非静默地不计算梯度。</p>
+<p><b>Autograd 注册</b>：<code>rms_norm.register_autograd</code> 让自定义 op 能参与 PyTorch 的自动微分系统。你需要提供一个 <code>setup_context</code> 函数（决定在前向传播时保存哪些张量用于反向传播——相当于传统 <code>autograd.Function</code> 的 <code>save_for_backward</code> 方法）和一个 <code>backward</code> 函数（接收输出梯度，计算并返回每个输入的梯度）。关键考量是显存和计算的权衡：backward 中保存的张量会占用 GPU 显存直到反向传播执行完成——对于大张量（如 attention 的中间结果，shape 可能是 <code>[batch, heads, seq_len, seq_len]</code>，序列长度 8192 时一个注意力头的 FP32 分数矩阵就是 \(8192^2 \times 4\) B = 256 MiB），优先保存输入并在 backward 中重新计算中间结果，用额外的计算换取显存的节省。这个重计算与保存之间的权衡和 activation checkpointing 的思路完全一致——区别在于这里是在单个 kernel 的粒度上做选择，而 checkpointing 是在 layer 的粒度上。如果 kernel 只用于推理（不需要梯度），可以跳过 autograd 注册——此时对它做 backward 会抛出 RuntimeError，提示没有注册 autograd 公式<span class="cite">[<a href="#ref-torch_autograd_src" title="PyTorch. torch/_library/autograd.py（main 分支，2026-11 查阅）：未注册 autograd 时 backward 抛出 “no autograd formula was registered”。">5</a>]</span>；要用于训练就必须注册，并用 <code>torch.autograd.gradcheck</code> 验证梯度在数学上是对的<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>。</p>
 
-<p>下面的代码展示了完整的 autograd 注册模式。<code>setup_context</code> 在前向传播时把反向传播需要的张量保存到 <code>ctx</code>——这里保存了输入 <code>x</code>、权重 <code>weight</code> 和前向输出 <code>output</code>（保存输出而非中间的 <code>rms</code> 值，是因为从输出可以反推 <code>rms</code>，避免额外保存一个中间张量增加显存占用）。<code>backward</code> 函数根据链式法则计算 <code>dx</code> 和 <code>dw</code> 的梯度——注意这里的简化实现用纯 PyTorch 算子计算反向梯度，实际生产代码应当调用专门的反向 CUDA kernel 以获得更高的性能和更低的显存峰值：</p>
+<p>下面的代码展示了完整的 autograd 注册模式。<code>setup_context</code> 在前向传播时把反向传播需要的张量保存到 <code>ctx</code>——这里只保存输入 <code>x</code> 和权重 <code>weight</code>，每行的 \(r = 1/\sqrt{\text{mean}(x^2) + \epsilon}\) 在反向时重算，这是一次很便宜的归约。<code>backward</code> 按链式法则计算梯度：记 \(g\) 为输出梯度、\(g_w = g \odot w\)，则 \(dx = r\,(g_w - x\, r^2\, \text{mean}(g_w \odot x))\)，\(dw = \sum_{\text{rows}} g \odot x\, r\)。第二项来自 \(r\) 对 \(x\) 的依赖，漏掉它是手写 RMSNorm 反向最常见的错误。这里用纯 PyTorch 算子计算反向，实际生产代码应当调用专门的反向 CUDA kernel：</p>
 
-<pre data-code="code/tl47-pytorch-integration/custom_op_register.py#L34-L51"><code>def rms_norm_setup_context(ctx, inputs, output):
+<pre data-code="code/tl47-pytorch-integration/custom_op_register.py#L34-L56"><code>def rms_norm_setup_context(ctx, inputs, output):
     x, weight, eps = inputs
-    ctx.save_for_backward(x, weight, output)
+    ctx.save_for_backward(x, weight)
     ctx.eps = eps
 
 def rms_norm_backward(ctx, grad_output):
-    x, weight, y = ctx.saved_tensors
-    # simplified: real impl calls a backward CUDA kernel
+    x, weight = ctx.saved_tensors
+    # Pure-PyTorch backward (2-D x); a real impl would
+    # call a backward CUDA kernel. With r = rsqrt(
+    # mean(x^2) + eps) and gw = g * w:
+    # dx = r * (gw - x * r^2 * mean(gw * x))
     rms = ((x * x).mean(dim=-1, keepdim=True)
            .add(ctx.eps).rsqrt())
-    dx = grad_output * weight * rms
+    gw = grad_output * weight
+    dx = rms * (gw - x * rms * rms
+                * (gw * x).mean(dim=-1, keepdim=True))
     dw = (grad_output * x * rms).sum(dim=0)
     return dx, dw, None
 
@@ -365,7 +372,7 @@ rms_norm.register_autograd(
     rms_norm_backward,
     setup_context=rms_norm_setup_context,
 )</code></pre>
-<p class="src-note">完整代码：<code>code/tl47-pytorch-integration/custom_op_register.py</code> 第 34&ndash;51 行</p>
+<p class="src-note">完整代码：<code>code/tl47-pytorch-integration/custom_op_register.py</code> 第 34&ndash;56 行</p>
 
 <h2 id="sec-safety">安全检查与防御性编程</h2>
 
@@ -386,7 +393,7 @@ rms_norm.register_autograd(
 
 <p><b>参考实现</b>：用纯 PyTorch 写一个功能等价但不做任何优化的版本——它的正确性可以通过数学定义直接验证。例如 RMSNorm 的参考实现：<code>rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps); return x * rms * weight</code>。参考实现应当尽可能简单——越简单越不容易有 bug，即使它的性能很差也没关系（它只在测试时运行，不影响生产性能）。对于更复杂的 kernel（如 FlashAttention），参考实现可以是朴素的三重循环注意力计算——O(N&sup2;d) 的内存和计算开销在小 shape 上完全可以接受，而且其正确性显然可以从数学公式直接推导。</p>
 
-<p><b>容差设定</b>：<code>torch.testing.assert_close(out, ref, atol=atol, rtol=rtol)</code> 检查 <code>|out - ref| &le; atol + rtol * |ref|</code>。FP32 的典型阈值：<code>atol=1e-5, rtol=1e-5</code>。FP16（half）精度较低，典型阈值：<code>atol=1e-2, rtol=1e-2</code>。BF16 的尾数比 FP16 更短（7 bit vs 10 bit），阈值需要进一步放宽到 <code>atol=5e-2, rtol=5e-2</code>。这些阈值不是精确的——需要根据 kernel 的具体计算（累加的轮数、归约的规模）调整。一个经验法则：如果 kernel 内部做了 N 次累加，误差会按 O(&radic;N) 增长（随机舍入误差的统计特性）。</p>
+<p><b>容差设定</b>：<code>torch.testing.assert_close(out, ref, atol=atol, rtol=rtol)</code> 检查 <code>|out - ref| &le; atol + rtol * |ref|</code>。不传 atol/rtol 时它按 dtype 取默认值（如 float32 为 rtol 1.3e-6、atol 1e-5；float16 为 rtol 1e-3、atol 1e-5；bfloat16 为 rtol 1.6e-2、atol 1e-5）<span class="cite">[<a href="#ref-torch_testing" title="PyTorch. torch.testing. PyTorch Documentation：<code>assert_close</code> 按 dtype 的默认 rtol / atol 表。">6</a>]</span>。对含归约的自定义 kernel，本文示例代码选得更宽：FP32 用 <code>atol=rtol=1e-5</code>，FP16 用 <code>1e-2</code>；BF16 的尾数比 FP16 更短（7 bit vs 10 bit），还要再放宽。这些阈值不是精确的——需要根据 kernel 的具体计算（累加的轮数、归约的规模）调整。一个经验法则：如果 kernel 内部做了 N 次累加，误差会按 O(&radic;N) 增长（随机舍入误差的统计特性）。</p>
 
 <pre data-code="code/tl47-pytorch-integration/test_benchmark.py#L15-L31"><code>def test_correctness(custom_fn, shapes, dtype=torch.float32):
     """Compare custom kernel against PyTorch reference."""
@@ -407,13 +414,15 @@ rms_norm.register_autograd(
                                    atol=atol, rtol=rtol)</code></pre>
 <p class="src-note">完整代码：<code>code/tl47-pytorch-integration/test_benchmark.py</code> 第 15&ndash;31 行</p>
 
+<p>除了数值对比，PyTorch 文档还建议两项检查：<code>torch.library.opcheck</code> 检查 schema、autograd 注册和 FakeTensor kernel 是否正确；需要训练的 op 再用 <code>torch.autograd.gradcheck</code> 检查梯度的数学正确性<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>——它正好能抓住上面提到的那类漏项错误。</p>
+
 <p><b>Shape 覆盖</b>：测试应覆盖四类 shape——典型场景（batch=32, hidden=4096）、边界情况（M=1 单行、N=1 单列、M=N=1 最小输入）、非二的幂（N=13, M=37——这些会触发 kernel 中的 mask 分支和余数处理逻辑）、大规模（M=8192, N=8192——测试 block 数量超过 SM 数量时的调度）。随机 shape 测试（从合理范围内随机采样 M 和 N）可以补充手动指定的 shape，提高覆盖率。</p>
 
 <h2 id="sec-bench">性能基准</h2>
 
 <p>GPU kernel 的性能基准不能用 Python 的 <code>time.time()</code>——CPU 端的计时包含了 kernel launch 的开销和 CPU-GPU 之间的同步延迟，不反映 kernel 在 GPU 上的实际执行时间。正确的方式是用 <b>CUDA event</b> 计时：在 kernel launch 前后分别记录一个 CUDA event，然后用 <code>start.elapsed_time(end)</code> 获取两个 event 之间的 GPU 时间。CUDA event 在 GPU 的命令队列中标记时间点——它测量的是 GPU 上从 start event 到 end event 之间所有操作的总时间，精度可达微秒级。</p>
 
-<p>基准测试的标准流程：<b>warmup</b>——先运行 25 次丢弃结果（让 JIT 编译完成、CUDA context 初始化完成、GPU 频率稳定到 boost clock）；<b>重复</b>——运行 100 次取平均（减少随机波动——GPU 的时钟频率、内存控制器的排队延迟、系统中断等都会引入微小波动）；<b>同步</b>——在 warmup 后和计时结束后都调用 <code>torch.cuda.synchronize()</code> 确保所有 GPU 操作完成。Triton 生态中 <code>triton.testing.do_bench</code> 封装了这些步骤，是更方便的选择。如果想要在 CUDA Graph 下测试——先 capture 整个 kernel launch 成一个 graph，然后重放 graph——graph 消除了每次 launch 的 CPU 开销，测量的是 kernel 的纯 GPU 执行时间。</p>
+<p>基准测试的标准流程：<b>warmup</b>——先运行 25 次丢弃结果（让 JIT 编译完成、CUDA context 初始化完成、GPU 频率稳定到 boost clock）；<b>重复</b>——运行 100 次取平均（减少随机波动——GPU 的时钟频率、内存控制器的排队延迟、系统中断等都会引入微小波动）；<b>同步</b>——在 warmup 后和计时结束后都调用 <code>torch.cuda.synchronize()</code> 确保所有 GPU 操作完成。Triton 生态中 <code>triton.testing.do_bench</code> 封装了这些步骤，是更方便的选择——注意它的 <code>warmup=25, rep=100</code> 指的是毫秒数而不是次数，而且每次计时前都会清一遍 L2 cache<span class="cite">[<a href="#ref-triton_bench" title="Triton. python/triton/testing.py（main 分支，2026-11 查阅）：<code>do_bench(fn, warmup=25, rep=100, ..., return_mode="mean")</code>，warmup / rep 以毫秒计，每次计时前清 L2。">7</a>]</span>。下面的简单循环没有清 L2：对 RMSNorm 这种小输入、访存受限的 kernel，数据可能留在 L2 里，测出的&ldquo;带宽&rdquo;会偏高。如果想要在 CUDA Graph 下测试——先 capture 整个 kernel launch 成一个 graph，然后重放 graph——graph 消除了每次 launch 的 CPU 开销，测量的是 kernel 的纯 GPU 执行时间。</p>
 
 <p>下面的 <code>bench_kernel</code> 函数封装了 CUDA event 计时的完整模式。注意 <code>start.record()</code> 和 <code>end.record()</code> 之间不调用 <code>synchronize()</code>——record 操作是异步的，它在 GPU 的命令队列中插入一个时间戳标记而不阻塞 CPU。只有在读取 <code>elapsed_time</code> 之前才需要 <code>synchronize()</code>，确保 end event 已经被 GPU 执行：</p>
 
@@ -434,51 +443,51 @@ rms_norm.register_autograd(
     return start.elapsed_time(end) / rep  # ms</code></pre>
 <p class="src-note">完整代码：<code>code/tl47-pytorch-integration/test_benchmark.py</code> 第 44&ndash;58 行</p>
 
-<p>基准比较的对象通常是两个：PyTorch 的原生实现（如 <code>torch.nn.functional.rms_norm</code>——如果存在的话；或者 PyTorch 内置算子的等价组合如 <code>x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * weight</code>）和理论性能上限（通过 roofline 模型计算——对于 bandwidth-bound 的 kernel 如 RMSNorm，理论上限是 <code>数据量(字节) / HBM 带宽</code>；对于 A100，2.0 TB/s 的 HBM 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>意味着处理 1 MB 数据的理论下限约 0.5 微秒）。如果 kernel 达到了理论上限的 80% 以上，进一步优化的空间已经很小——通常意味着你需要换算法（如把两个 kernel 融合成一个来减少 HBM 读写次数）而非优化当前 kernel 的实现细节；如果远低于理论上限，需要用 Nsight Compute 分析具体的瓶颈——是 bank conflict、是 occupancy 不足还是 L2 cache 命中率低。</p>
+<p>基准比较的对象通常是两个：PyTorch 的原生实现（较新的 PyTorch 提供 <code>torch.nn.functional.rms_norm</code>；或者 PyTorch 内置算子的等价组合如 <code>x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * weight</code>）和理论性能上限（通过 roofline 模型计算——对于 bandwidth-bound 的 kernel 如 RMSNorm，理论上限是 <code>数据量(字节) / HBM 带宽</code>；对于 A100 80GB，约 2.0 TB/s 的 HBM 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">8</a>]</span>意味着搬运 1 MB 数据的理论下限约 0.5 微秒）。如果 kernel 已经接近这个上限，进一步优化的空间就很小——通常意味着你需要换算法（如把两个 kernel 融合成一个来减少 HBM 读写次数）而非优化当前 kernel 的实现细节；如果远低于理论上限，需要用 Nsight Compute 分析具体的瓶颈——是 bank conflict、是 occupancy 不足还是 L2 cache 命中率低。</p>
 
 <h2 id="sec-deploy">部署到推理框架</h2>
 
 <p>推理框架（vLLM、SGLang、TensorRT-LLM）有各自的 kernel 接入机制，但核心流程相似：把 kernel 打包成 Python 包 → 在框架的 model definition 中替换默认算子 → 框架的 model runner 在推理时调用自定义 kernel。</p>
 
-<p>vLLM 的自定义 op 接入方式最为直接——它有一个 <code>vllm._custom_ops</code> 模块，使用 <code>torch.library</code> 注册自定义 op。你的 kernel 只需要遵循 <code>torch.library</code> 的注册协议（schema + CUDA 实现 + fake kernel），就可以被 vLLM 的模型代码直接调用。vLLM 会在 model runner 中自动处理 tensor 的设备放置、KV cache 的分页管理和连续 batch scheduling——你的 kernel 不需要关心这些调度层面的复杂性，只需要对传入的张量做正确的计算。SGLang 的接入方式类似——通过 Python 包导入自定义 kernel 模块，在模型的 forward 方法中替换对应的算子调用。两个框架都支持在模型配置中指定使用哪个 kernel 实现——这让你可以为同一个算子提供多个实现（如 FP16 版本和 FP8 版本），由框架根据硬件和精度配置自动选择。</p>
+<p>以 vLLM 为例：它的 C++/CUDA kernel 注册成 <code>torch.ops._C</code> 下的算子，再由 <code>vllm/_custom_ops.py</code> 包一层 Python 函数（例如 <code>rms_norm</code> 直接调用 <code>torch.ops._C.rms_norm</code>），并用 <code>register_fake</code> 补上 fake 实现<span class="cite">[<a href="#ref-vllm_ops" title="vLLM Project. vllm/_custom_ops.py（main 分支，2026-11 查阅）：<code>torch.ops._C.*</code> 的 Python 包装与 <code>register_fake</code>。">9</a>]</span>。你的 kernel 只要遵循同样的注册协议（schema + CUDA 实现 + fake kernel），就可以被模型代码像内置算子一样调用。vLLM 会在 model runner 中自动处理 tensor 的设备放置、KV cache 的分页管理和连续 batch scheduling——你的 kernel 不需要关心这些调度层面的复杂性，只需要对传入的张量做正确的计算。SGLang 的接入方式类似——通过 Python 包导入自定义 kernel 模块，在模型的 forward 方法中替换对应的算子调用。</p>
 
-<p>Triton kernel 的部署更简单——因为 Triton kernel 本身就是 Python 函数（用 <code>@triton.jit</code> 装饰器标记），不需要 C++ 绑定和编译步骤。<code>torch.compile</code> 的 Triton backend 可以直接处理 Triton kernel——在计算图中保留 Triton kernel 的调用，编译时生成对 Triton 编译产物（PTX/cubin）的直接调用。对于推理框架，Triton kernel 只需要作为 Python 函数被 model 的 forward 调用即可——框架不需要知道它是 Triton 实现的。这也是 Triton 在推理框架中流行的原因之一——部署的工程开销远小于 CUDA 扩展。但 Triton 的编译发生在首次调用时（JIT 编译），首次调用会有几秒到几十秒的编译延迟——在推理场景中需要预热（warmup）来避免第一个请求的高延迟。编译产物会被缓存到磁盘（<code>~/.triton/cache/</code>），后续调用直接加载缓存的二进制文件。在容器化部署中，最佳实践是在 Docker 镜像构建阶段用 warmup 脚本触发所有 Triton kernel 的编译，把编译产物固化到镜像中——这样每个容器实例启动后无需等待编译即可立即服务请求。如果 kernel 使用了 <code>autotune</code>，warmup 还需要覆盖所有可能出现的输入 shape 组合，否则首次遇到新 shape 时仍然会触发即时编译和 autotuning 搜索。</p>
+<p>Triton kernel 的部署更简单——因为 Triton kernel 本身就是 Python 函数（用 <code>@triton.jit</code> 装饰器标记），不需要 C++ 绑定和编译步骤。<code>torch.compile</code> 可以直接追踪用户写的 Triton kernel；PyTorch 文档甚至建议优先这样用，只有需要让它表现得像内置算子时才用 <code>torch.library.triton_op</code> 包装<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>。对于推理框架，Triton kernel 只需要作为 Python 函数被 model 的 forward 调用即可——框架不需要知道它是 Triton 实现的。这也是 Triton 在推理框架中流行的原因之一——部署的工程开销远小于 CUDA 扩展。但 Triton 的编译发生在首次调用时（JIT 编译），首次调用要付编译开销——在推理场景中需要预热（warmup）来避免第一个请求的高延迟。编译产物会被缓存到磁盘（<code>~/.triton/cache/</code>），后续调用直接加载缓存的二进制文件。在容器化部署中，最佳实践是在 Docker 镜像构建阶段用 warmup 脚本触发所有 Triton kernel 的编译，把编译产物固化到镜像中——这样每个容器实例启动后无需等待编译即可立即服务请求。如果 kernel 使用了 <code>autotune</code>，warmup 还需要覆盖所有可能出现的输入 shape 组合，否则首次遇到新 shape 时仍然会触发即时编译和 autotuning 搜索。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
 <p>PyTorch 扩展的构建和注册机制在 Hopper 和 Blackwell 上没有本质变化——<code>torch.library</code> 的注册协议和 <code>cpp_extension</code> 的构建流程是架构无关的。变化主要在编译参数和 kernel 内部的硬件特性使用方面。</p>
 
-<p>编译参数：需要通过 <code>TORCH_CUDA_ARCH_LIST</code> 或 <code>setup.py</code> 中的 <code>extra_compile_args</code> 指定目标架构。Hopper 对应 <code>sm_90</code>（或 <code>sm_90a</code> 以启用 wgmma 等架构特有指令），Blackwell 对应 <code>sm_100</code>（或 <code>sm_100a</code>）。如果 kernel 使用了特定架构的指令（如 Hopper 的 TMA 或 wgmma），需要在代码中用 <code>#if __CUDA_ARCH__ >= 900</code> 做条件编译，为不同架构提供不同的实现路径——否则在旧 GPU 上会触发 illegal instruction 错误。</p>
+<p>编译参数：需要通过 <code>TORCH_CUDA_ARCH_LIST</code> 或 <code>setup.py</code> 中的 <code>extra_compile_args</code> 指定目标架构。Hopper 对应 <code>sm_90</code>（或 <code>sm_90a</code> 以启用 wgmma 等架构特有指令），Blackwell 对应 <code>sm_100</code>（或 <code>sm_100a</code>）。如果 kernel 使用了特定架构的指令（如 Hopper 的 TMA 或 wgmma），需要用 <code>__CUDA_ARCH__</code> 等宏做条件编译，为不同架构提供不同的实现路径——否则面向旧架构的那一份编译就会失败；而如果 fat binary 里压根没有某块 GPU 能用的代码，运行时会报&ldquo;no kernel image is available&rdquo;。</p>
 
-<p>FP8 支持：Hopper 和 Blackwell 原生支持 FP8 数据类型（E4M3 和 E5M2）。PyTorch 2.x 通过 <code>torch.float8_e4m3fn</code> 和 <code>torch.float8_e5m2</code> 暴露这些类型。如果你的 kernel 处理 FP8 输入（如 FP8 GEMM 的 epilogue），绑定层需要处理这些新的 dtype——确保 <code>data_ptr</code> 的类型转换正确（FP8 没有 C++ 原生类型，通常用 <code>uint8_t</code> 指针加 <code>reinterpret_cast</code>）。</p>
+<p>FP8 支持：Hopper 和 Blackwell 原生支持 FP8 数据类型（E4M3 和 E5M2）。PyTorch 2.x 通过 <code>torch.float8_e4m3fn</code> 和 <code>torch.float8_e5m2</code> 暴露这些类型。如果你的 kernel 处理 FP8 输入（如 FP8 GEMM 的 epilogue），绑定层需要处理这些新的 dtype——确保 <code>data_ptr</code> 的类型转换正确（C++ 标准里没有 FP8 类型；PyTorch 侧有 <code>c10::Float8_e4m3fn</code> 等类型，CUDA 侧有 <code>cuda_fp8.h</code> 里的 <code>__nv_fp8_e4m3</code>，也常见直接按字节用 <code>uint8_t</code> 指针 <code>reinterpret_cast</code>）。</p>
 
-<p>CUDA Graph 兼容性：Hopper 和 Blackwell 上越来越多的推理框架使用 CUDA Graph 来消除 kernel launch 开销。你的自定义 kernel 需要确保 CUDA Graph 兼容——不能在 kernel launch 之间做 host-device 同步（<code>cudaMemcpy</code> 等会打断 graph capture）、不能在 kernel 中使用 host-pinned 内存做动态分支、kernel launch 的 grid/block 维度在 graph capture 和 replay 之间不能变化。如果 kernel 的 grid 维度依赖于输入 shape（这很常见），需要在 capture 时使用固定的&ldquo;最大&rdquo;shape，或者使用 CUDA Graph 的 kernel parameter update 机制在 replay 前更新 launch 参数。</p>
+<p>CUDA Graph 兼容性：Hopper 和 Blackwell 上越来越多的推理框架使用 CUDA Graph 来消除 kernel launch 开销。你的自定义 kernel 需要确保 CUDA Graph 兼容——捕获区间内不能做 host-device 同步（同步的 <code>cudaMemcpy</code>、<code>cudaDeviceSynchronize</code> 等会让捕获失败）、kernel launch 的 grid/block 维度和参数在 replay 时就是 capture 时的值。如果 kernel 的 grid 维度依赖于输入 shape（这很常见），需要在 capture 时使用固定的&ldquo;最大&rdquo;shape，或者使用 CUDA Graph 的 kernel parameter update 机制在 replay 前更新 launch 参数。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：如何把自定义 CUDA kernel 集成到 PyTorch？</b></p>
-<p>两种构建方式：AOT（setup.py + CUDAExtension，编译成 .so 安装为 Python 包）和 JIT（load_inline，第一次导入时编译并缓存）。通过 pybind11 或 nanobind 暴露 C++ 函数给 Python。C++ 端从 torch::Tensor 获取 data_ptr 和 stream，launch kernel。关键是不硬编码默认 stream——用 at::cuda::getCurrentCUDAStream()。追问：JIT 构建有什么坑？头文件变更不触发重编译（缓存基于 .cu 内容的 hash，不追踪 include 依赖）、多进程同时 JIT 编译有 race condition。</p>
+<p>两种构建方式：AOT（setup.py + CUDAExtension，编译成 .so 安装为 Python 包）和 JIT（load_inline，第一次导入时编译并缓存）。通过 pybind11 或 nanobind 暴露 C++ 函数给 Python。C++ 端从 torch::Tensor 获取 data_ptr 和 stream，launch kernel。关键是不硬编码默认 stream——用 at::cuda::getCurrentCUDAStream()。追问：JIT 构建有什么坑？首次调用要等编译；多进程同时触发编译时靠构建目录上的锁串行化，旧版本里编译进程被杀会留下锁文件、让后续进程一直等待；生产环境最好提前编译好。</p>
 
 <p id="sec-q2"><b>Q2：如何让自定义 op 支持 torch.compile？</b></p>
-<p>注册三件套：(1) torch.library.custom_op <span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library — Custom Operators. PyTorch Documentation.">4</a>]</span> 定义 schema（输入输出类型和副作用声明）；(2) register_fake 注册 meta kernel（只计算输出 shape/dtype，不执行 CUDA，让 TorchDynamo 能追踪）；(3) register_autograd 注册前向保存和反向计算（让 AOTAutograd 能生成包含自定义 op 的反向图）。不注册 fake kernel 会导致 graph break——编译器无法追踪通过自定义 op 的数据流。追问：什么是 graph break？TorchDynamo 把 Python 代码追踪成连续的 FX 计算图（可以被整体优化），当遇到无法追踪的操作时打断图——前后变成独立的子图，中间回到 Python 解释器，损失了跨 op 优化的机会。</p>
+<p>注册三件套：(1) torch.library.custom_op <span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span> 定义 schema（输入输出类型和副作用声明）；(2) register_fake 注册 meta kernel（只计算输出 shape/dtype，不执行 CUDA，让 TorchDynamo 能追踪）；(3) register_autograd 注册前向保存和反向计算（让 AOTAutograd 能生成包含自定义 op 的反向图）。不注册 fake kernel，torch.compile 就无法在追踪时推断这个 op 的输出——文档把 FakeTensor kernel 列为用于编译的必要条件<span class="cite">[<a href="#ref-torch_library" title="PyTorch. torch.library. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。">4</a>]</span>。追问：什么是 graph break？TorchDynamo 把 Python 代码追踪成连续的 FX 计算图（可以被整体优化），当遇到无法追踪的操作时打断图——前后变成独立的子图，中间回到 Python 解释器，损失了跨 op 优化的机会。</p>
 
 <p id="sec-q3"><b>Q3：测试自定义 kernel 的数值正确性时怎么定阈值？</b></p>
-<p>用纯 PyTorch 写一个参考实现做 ground truth。torch.testing.assert_close 用绝对容差（atol）+ 相对容差（rtol）组合判定。阈值取决于数据类型和计算复杂度：FP32 通常 1e-5、FP16 通常 1e-2、BF16 通常 5e-2。如果 kernel 内部做了大规模归约（如 N=8192 的 sum），误差会按 O(&radic;N) 增长——此时需要放宽阈值或使用 Kahan summation 减少累积误差。追问：为什么不能用精确相等？浮点加法不满足结合律——kernel 的归约顺序（warp shuffle → block reduce）和 PyTorch 的归约顺序（顺序累加或 pairwise）不同，产生不同的舍入误差。</p>
+<p>用纯 PyTorch 写一个参考实现做 ground truth。torch.testing.assert_close 用绝对容差（atol）+ 相对容差（rtol）组合判定。阈值取决于数据类型和计算复杂度：<code>assert_close</code> 有按 dtype 的默认值，含大规模归约的 kernel 往往需要自己放宽（本文示例 FP32 用 1e-5、FP16 用 1e-2），BF16 还要更宽。如果 kernel 内部做了大规模归约（如 N=8192 的 sum），误差会按 O(&radic;N) 增长——此时需要放宽阈值或使用 Kahan summation 减少累积误差。追问：为什么不能用精确相等？浮点加法不满足结合律——kernel 的归约顺序（warp shuffle → block reduce）和 PyTorch 的归约顺序（顺序累加或 pairwise）不同，产生不同的舍入误差。</p>
 
 <p id="sec-q4"><b>Q4：如何准确测量 GPU kernel 的执行时间？</b></p>
-<p>用 CUDA event 而非 Python 的 time.time()。Python 计时包含 kernel launch 延迟和 CPU-GPU 同步开销，不反映 GPU 上的实际执行时间。标准流程：warmup（25+ 次，让 JIT 完成、GPU boost clock 稳定）→ 用 CUDA event 包裹重复执行（100 次取平均）→ synchronize 后读取 elapsed_time。在 CUDA Graph 下测时，kernel launch 开销被消除——测量的是纯 kernel 执行时间。追问：triton.testing.do_bench 做了什么额外的事？自动 warmup、自动确定重复次数以达到统计稳定、返回中位数而非均值以抵抗离群值。</p>
+<p>用 CUDA event 而非 Python 的 time.time()。Python 计时包含 kernel launch 延迟和 CPU-GPU 同步开销，不反映 GPU 上的实际执行时间。标准流程：warmup（25+ 次，让 JIT 完成、GPU boost clock 稳定）→ 用 CUDA event 包裹重复执行（100 次取平均）→ synchronize 后读取 elapsed_time。在 CUDA Graph 下测时，kernel launch 开销被消除——测量的是纯 kernel 执行时间。追问：triton.testing.do_bench 做了什么额外的事？先跑几次估计单次耗时，再按毫秒预算（默认 warmup 25 ms、rep 100 ms）算出 warmup 和重复次数；每次计时前清空 L2 cache；返回值默认是均值，也可以选中位数、最小/最大值或分位数<span class="cite">[<a href="#ref-triton_bench" title="Triton. python/triton/testing.py（main 分支，2026-11 查阅）：<code>do_bench(fn, warmup=25, rep=100, ..., return_mode="mean")</code>，warmup / rep 以毫秒计，每次计时前清 L2。">7</a>]</span>。</p>
 
 <p id="sec-q5"><b>Q5：Triton kernel 和 CUDA 扩展在部署方式上有什么区别？</b></p>
 <p>Triton kernel 是 Python 函数——不需要 C++ 绑定、不需要 nvcc 编译步骤、不需要 .so 文件。部署时直接在 model 的 forward 中调用即可。torch.compile 的 Triton backend 可以直接处理 Triton kernel。CUDA 扩展需要 C++ 绑定层（pybind11）、编译成 .so、注册为 custom op。CUDA 扩展的优势是可以使用所有 CUDA 特性（inline PTX、warp specialization、TMA）；Triton 的优势是部署工程量更小。实际中核心路径（attention、GEMM）倾向于 CUDA/CUTLASS，辅助算子（fused norm、activation）倾向于 Triton。</p>
 
 <p id="sec-q6"><b>Q6：自定义 kernel 如何保证 CUDA Graph 兼容性？</b></p>
-<p>CUDA Graph 通过 capture-replay 机制消除 kernel launch 开销——capture 阶段录制所有 CUDA 操作（kernel launch、内存拷贝、同步）到一个图中，replay 阶段一次性提交整个图给 GPU 执行。自定义 kernel 的兼容性要求：不能在 capture 区间内做 host-device 同步（<code>cudaDeviceSynchronize</code>、<code>cudaMemcpy</code> D2H 会打断 capture——D2H 内存拷贝需要等待 GPU 完成操作，这和 graph 的异步录制模型冲突）、不能在 capture 区间内用 <code>cudaMalloc</code>/<code>cudaFree</code>（动态内存分配在 capture 时确定大小，replay 时不能改变——必须提前分配好 workspace 缓冲区）、kernel launch 的 grid/block 维度在 capture 时确定后不能改变（如果维度依赖输入 shape，需要使用 graph 的 kernel node update API 在 replay 前修改 launch 参数，或者 capture 时使用最大 shape 并在 kernel 内部用 mask 处理实际边界）。追问：如果 kernel 需要动态 workspace 怎么办？在 capture 前分配一块足够大的持久 workspace（根据最大输入 shape 预估大小），kernel 每次使用这块固定缓冲区的不同区域——这样 workspace 地址在 capture 和 replay 之间保持不变。vLLM 和 SGLang 都使用这种 pre-allocated workspace 策略来保证自定义 kernel 的 CUDA Graph 兼容性。</p>
+<p>CUDA Graph 通过 capture-replay 机制消除 kernel launch 开销——capture 阶段录制所有 CUDA 操作（kernel launch、内存拷贝、同步）到一个图中，replay 阶段一次性提交整个图给 GPU 执行。自定义 kernel 的兼容性要求：不能在 capture 区间内做 host-device 同步（<code>cudaDeviceSynchronize</code>、<code>cudaMemcpy</code> D2H 会打断 capture——D2H 内存拷贝需要等待 GPU 完成操作，这和 graph 的异步录制模型冲突）、不要在 capture 区间内临时 <code>cudaMalloc</code>/<code>cudaFree</code>（replay 时用的就是 capture 时的地址，workspace 必须提前分配、在整个 graph 生命周期内保持有效）、kernel launch 的 grid/block 维度在 capture 时确定后不能改变（如果维度依赖输入 shape，需要使用 graph 的 kernel node update API 在 replay 前修改 launch 参数，或者 capture 时使用最大 shape 并在 kernel 内部用 mask 处理实际边界）。追问：如果 kernel 需要动态 workspace 怎么办？在 capture 前分配一块足够大的持久 workspace（根据最大输入 shape 预估大小），kernel 每次使用这块固定缓冲区的不同区域——这样 workspace 地址在 capture 和 replay 之间保持不变。推理框架的通常做法是为若干个 batch size 分别 capture graph，并让输入输出使用预先分配的静态缓冲区。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本文的代码是<b>简化演示</b>——实际 PyTorch C++ 扩展需要处理更多细节：多 GPU 设备管理（<code>at::cuda::set_device</code>）、CUDA 错误检查（<code>C10_CUDA_CHECK</code>）、线程安全的全局状态（如全局 workspace 缓冲区的分配）。</li>
-<li><code>torch.library</code> 的 API 仍在快速演进中（PyTorch 2.1 到 2.4 之间有多次接口变更），具体用法以 <a href="https://pytorch.org/docs/stable/library.html">官方文档</a>为准。</li>
+<li>本文的代码是<b>简化演示</b>——实际 PyTorch C++ 扩展需要处理更多细节：多 GPU 设备管理（用 <code>c10::cuda::CUDAGuard</code> 切到输入所在的设备）、CUDA 错误检查（<code>C10_CUDA_CHECK</code>）、线程安全的全局状态（如全局 workspace 缓冲区的分配）。</li>
+<li><code>torch.library</code> 的 API 仍在演进（例如 <code>impl_abstract</code> 在 2.4 改名为 <code>register_fake</code>，<code>custom_op</code> 也是 2.4 才有），具体用法以 <a href="https://docs.pytorch.org/docs/stable/library.html">官方文档</a>为准。</li>
 <li>TensorRT-LLM 的 plugin 机制与 PyTorch 的 custom op 机制不同——它有自己的 plugin API 和 plugin registry，需要额外的集成工作。</li>
 <li>nanobind（pybind11 的现代替代品）在性能和编译速度上有优势，但在 PyTorch 生态中还不是默认选择——torch.utils.cpp_extension 仍然使用 pybind11。</li>
 <li>多 GPU 和分布式场景下的自定义 op（如 all-reduce 中间结果的处理、tensor parallel 下的 column-parallel linear 包装）属于下一篇多卡通信的范畴。</li>
@@ -503,9 +512,14 @@ rms_norm.register_autograd(
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-torch_ext">PyTorch. <a href="https://pytorch.org/tutorials/advanced/cpp_extension.html">Custom C++ and CUDA Extensions</a>. PyTorch Tutorials.</li>
-  <li id="ref-torch_compile">Ansel et al. (2024). <a href="https://pytorch.org/docs/stable/torch.compiler.html">torch.compile &mdash; PyTorch 2.x Compiler</a>. PyTorch Documentation.</li>
+  <li id="ref-torch_ext_src">PyTorch. <a href="https://github.com/pytorch/pytorch/blob/main/torch/utils/cpp_extension.py">torch/utils/cpp_extension.py</a>（main 分支，2026-11 查阅）：JIT 扩展的版本号计算与构建锁（<code>FileLock</code>）的注释。</li>
+  <li id="ref-torch_compile">PyTorch. <a href="https://docs.pytorch.org/docs/stable/torch.compiler.html">torch.compiler</a>. PyTorch Documentation（TorchDynamo / AOTAutograd / Inductor）。</li>
+  <li id="ref-torch_library">PyTorch. <a href="https://docs.pytorch.org/docs/stable/library.html">torch.library</a>. PyTorch Documentation：<code>custom_op</code>（schema 由类型注解推出）、<code>register_fake</code>（2.4 前名为 <code>impl_abstract</code>）、<code>get_ctx().new_dynamic_size()</code>、<code>triton_op</code>、<code>opcheck</code> 与 <code>gradcheck</code> 的建议。</li>
+  <li id="ref-torch_autograd_src">PyTorch. <a href="https://github.com/pytorch/pytorch/blob/main/torch/_library/autograd.py">torch/_library/autograd.py</a>（main 分支，2026-11 查阅）：未注册 autograd 时 backward 抛出 &ldquo;no autograd formula was registered&rdquo;。</li>
+  <li id="ref-torch_testing">PyTorch. <a href="https://docs.pytorch.org/docs/stable/testing.html">torch.testing</a>. PyTorch Documentation：<code>assert_close</code> 按 dtype 的默认 rtol / atol 表。</li>
+  <li id="ref-triton_bench">Triton. <a href="https://github.com/triton-lang/triton/blob/main/python/triton/testing.py">python/triton/testing.py</a>（main 分支，2026-11 查阅）：<code>do_bench(fn, warmup=25, rep=100, ..., return_mode="mean")</code>，warmup / rep 以毫秒计，每次计时前清 L2。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-torch_library">PyTorch. <a href="https://pytorch.org/docs/stable/library.html">torch.library &mdash; Custom Operators</a>. PyTorch Documentation.</li>
+  <li id="ref-vllm_ops">vLLM Project. <a href="https://github.com/vllm-project/vllm/blob/main/vllm/_custom_ops.py">vllm/_custom_ops.py</a>（main 分支，2026-11 查阅）：<code>torch.ops._C.*</code> 的 Python 包装与 <code>register_fake</code>。</li>
 </ol>
 
 </article>

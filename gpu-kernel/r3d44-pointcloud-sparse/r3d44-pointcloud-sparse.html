@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-30</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 22 分钟阅读</span>
   </div>
 </header>
 
@@ -230,10 +230,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>点云处理的第一步是<b>体素化</b>——把无序点云映射到规则 3D 网格。GPU 哈希表用开放寻址 + <code>atomicCAS</code> 插入，线性探测处理碰撞，一次 kernel 完成百万级点的体素化。</li>
+<li>点云处理的第一步是<b>体素化</b>——把无序点云映射到规则 3D 网格。GPU 哈希表用开放寻址 + <code>atomicCAS</code> 插入，线性探测处理碰撞，一次 kernel 完成所有点的插入。</li>
 <li><b>最远点采样</b>（FPS）是点云下采样的标准方法：每轮选距离已选集合最远的点。GPU 实现每轮两个 kernel——距离更新（O(N) 并行）+ argmax 归约（O(N) 并行），但 M 轮迭代之间是串行依赖。</li>
 <li><b>暴力 kNN</b> 用 smem tiling 加载参考点 + 寄存器 top-k 排序：每个 query 线程维护 K 个最近邻候选，扫描所有参考点后输出。</li>
-<li><b>稀疏卷积</b>（spconv / MinkowskiEngine <span class="cite">[<a href="#ref-minkowski" title="Choy, Gwak &amp; Savarese (2019). 4D Spatio-Temporal ConvNets: Minkowski Convolutional Neural Networks. CVPR 2019.">1</a>]</span>）只在活跃体素上计算：kernel map 记录每个卷积偏移的（输入,输出）索引对，然后 gather-GEMM-scatter 三步完成。</li>
+<li><b>稀疏卷积</b>（spconv / MinkowskiEngine <span class="cite">[<a href="#ref-minkowski" title="Choy, Gwak &amp; Savarese (2019). 4D Spatio-Temporal ConvNets: Minkowski Convolutional Neural Networks. CVPR 2019.">1</a>]</span> / TorchSparse）只在活跃体素上计算：kernel map 记录每个卷积偏移的（输入,输出）索引对，然后用 gather-GEMM-scatter 或 implicit GEMM 数据流完成。</li>
 <li>子流形稀疏卷积（submanifold）限制输出只出现在输入已有的位置——避免活跃体素扩散导致的稀疏度下降。</li>
   </ul>
 </div>
@@ -244,7 +244,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-overview">从点云到体素</h2>
 
-<p>点云是 3D 感知的基础数据结构——LiDAR 每帧产生 10 万到 200 万个无序 3D 点，每个点带三维坐标 \((x,y,z)\) 和可选的反射强度、颜色等属性。和图像的规则网格不同，点云是非结构化的：点之间没有固定的邻接关系，无法直接用标准卷积。点云处理的两大流派是：PointNet 系列 <span class="cite">[<a href="#ref-pointnet2" title="Qi, Yi, Su &amp; Gupta (2017). PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space. NeurIPS 2017.">2</a>]</span>（直接在原始点上做逐点 MLP + 全局池化）和体素化方法（把点映射到规则 3D 网格，然后用 3D 卷积或稀疏卷积处理）。自动驾驶中主流的 3D 检测网络（CenterPoint、VoxelNet、SECOND）几乎都用体素化 + 稀疏卷积。</p>
+<p>点云是 3D 感知的基础数据结构——一帧 LiDAR 扫描就是大量无序 3D 点，每个点带三维坐标 \((x,y,z)\) 和可选的反射强度、颜色等属性。和图像的规则网格不同，点云是非结构化的：点之间没有固定的邻接关系，无法直接用标准卷积。点云处理的两大流派是：PointNet 系列 <span class="cite">[<a href="#ref-pointnet2" title="Qi, Yi, Su &amp; Gupta (2017). PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space. NeurIPS 2017.">2</a>]</span>（直接在原始点上做逐点 MLP + 全局池化）和体素化方法（把点映射到规则 3D 网格，然后用 3D 卷积或稀疏卷积处理）。自动驾驶的 LiDAR 3D 检测中，SECOND <span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span> 在 VoxelNet 的体素化框架上把密集 3D 卷积换成了稀疏卷积，CenterPoint 等后续检测器也常用这类体素 + 稀疏卷积 backbone。SECOND 论文中，KITTI 的一帧体素化后约有 5k&ndash;8k 个非空体素，稀疏度约 0.005<span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span>。</p>
 
 <p>本篇覆盖点云处理中四个核心 GPU kernel：哈希体素化、最远点采样、kNN 近邻搜索、稀疏卷积。它们的共同特点是：数据结构稀疏（只有少数体素是活跃的）、访存不规则（索引由空间哈希或 kernel map 间接寻址）、计算密度低但并行度高。这和前面的 3DGS、NeRF 形成了有趣的对比——3DGS/NeRF 的核心是渲染和可微分，点云处理的核心是空间索引和稀疏计算。</p>
 
@@ -259,18 +259,18 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <figcaption id="fig-hash_table_insert-cap"><span class="fig-label">图 1</span><b>GPU 哈希表的开放寻址插入。</b>用 <code>atomicCAS</code> 原子地检查并插入 key，碰撞时线性探测下一个 slot。</figcaption>
 </figure>
 
-<p>实现方法是开放寻址（open addressing）+ <code>atomicCAS</code>（<a href="#fig-open_addressing_probe">图 2</a>）。哈希表是两个并行数组：<code>keys[]</code>（初始化为 EMPTY = -1）和 <code>vals[]</code>。插入流程：计算 key 的哈希值得到起始 slot，然后用 <code>atomicCAS(&amp;keys[slot], EMPTY, key)</code> 原子地尝试写入——如果 slot 为 EMPTY 则写入成功，如果已被其他 key 占据则线性探测（slot + 1）继续尝试。</p>
+<p>实现方法是开放寻址（open addressing）+ <code>atomicCAS</code>（<a href="#fig-open_addressing_probe">图 2</a>）。哈希表是两个并行数组：<code>keys[]</code>（存体素坐标打包成的 64 位 key，初始化为全 1 的 EMPTY）和 <code>vals[]</code>。插入流程：计算 key 的哈希值得到起始 slot，然后用 <code>atomicCAS(&amp;keys[slot], EMPTY, key)</code> 原子地尝试写入——如果 slot 为 EMPTY 则写入成功，如果已被其他 key 占据则线性探测（slot + 1）继续尝试。</p>
 
 <figure id="fig-open_addressing_probe" data-kind="diagram">
 <img aria-labelledby="fig-open_addressing_probe-cap" src="figs/open_addressing_probe.svg" alt="Open addressing with linear probing"/>
-<figcaption id="fig-open_addressing_probe-cap"><span class="fig-label">图 2</span><b>开放寻址的线性探测。</b>atomicCAS 检查 slot 是否为空：失败则探测下一个 slot，成功则原子写入。装载因子低于 70% 时平均探测不超过 3 次。</figcaption>
+<figcaption id="fig-open_addressing_probe-cap"><span class="fig-label">图 2</span><b>开放寻址的线性探测（示意）。</b>atomicCAS 检查 slot 是否为空：失败则探测下一个 slot，成功则原子写入。底部是线性探测插入的期望探测次数公式（随机哈希假设下的经典结论）。</figcaption>
 </figure>
 
-<pre data-code="code/r3d44-pointcloud-sparse/hash_voxelize.cu#L14-L32"><code>__global__ void hashVoxelize(
+<pre data-code="code/r3d44-pointcloud-sparse/hash_voxelize.cu#L22-L39"><code>__global__ void hashVoxelize(
     int N,
     const float* __restrict__ points,
     float voxel_size,
-    int* __restrict__ keys,
+    u64* __restrict__ keys,
     int* __restrict__ vals,
     int* __restrict__ counter) {
 
@@ -283,17 +283,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
   int vx = (int)(px / voxel_size);
   int vy = (int)(py / voxel_size);
-  int vz = (int)(pz / voxel_size);
-</code></pre>
-<p class="src-note">完整代码：<code>code/r3d44-pointcloud-sparse/hash_voxelize.cu</code> 第 14&ndash;32 行（未在 GPU 上运行）</p>
+  int vz = (int)(pz / voxel_size);</code></pre>
+<p class="src-note">完整代码：<code>code/r3d44-pointcloud-sparse/hash_voxelize.cu</code> 第 22&ndash;39 行（未在 GPU 上运行）</p>
 
 <p><code>atomicCAS</code> 是 GPU 哈希表的核心原语——它在一条指令中完成&ldquo;比较并交换&rdquo;：读取 slot 的旧值，和期望值（EMPTY）比较，如果相等则写入新的 key 值并返回旧值。这保证了在数千个线程并发插入时不会出现两个线程同时写同一个 slot 的竞态——即使两个线程同时对同一个 slot 执行 CAS，硬件保证只有一个会成功，另一个读到的旧值不是 EMPTY 从而继续探测。</p>
 
-<p>线性探测的最坏情况是遍历整个表 O(TABLE_SIZE)，但只要装载因子低于 70%，平均探测次数小于 3。装载因子超过 80% 后探测链急剧增长——不仅浪费计算，还导致线程发散（同一 warp 中不同线程的探测长度不同，短链线程空等长链线程）。实际场景中，100 万个点映射到 128 万大小的哈希表（装载因子约 0.6），一次 kernel launch 在亚毫秒内完成体素化。需要注意的是，上面的简化代码对同一体素的重复点都会分配新 ID——实际实现需要额外逻辑判断 key 是否已存在（<code>prev == key</code> 时不分配新 ID 而是累加到已有体素中）。</p>
+<p>线性探测的最坏情况是遍历整个表 O(TABLE_SIZE)。在哈希值均匀随机的假设下，装载因子为 \(\alpha\) 时，一次插入（不成功查找）的期望探测次数约为 \(\tfrac{1}{2}\left(1 + \tfrac{1}{(1-\alpha)^2}\right)\)，成功查找约为 \(\tfrac{1}{2}\left(1 + \tfrac{1}{1-\alpha}\right)\)（Knuth 对线性探测的经典分析）：\(\alpha = 0.5\) 时插入约 2.5 次，\(\alpha = 0.7\) 时约 6 次，\(\alpha = 0.8\) 时约 13 次，\(\alpha = 0.9\) 时约 50 次。探测链变长不仅浪费计算，还导致线程发散（同一 warp 中不同线程的探测长度不同，短链线程空等长链线程）。注意装载因子按<b>非空体素数</b>而不是点数计算。上面的简化代码有两处与实际实现不同：（1）它把哈希值本身当作 key 存进表里，两个不同体素若哈希相同会被当成同一个体素——精确的实现要存体素坐标（或其无损编码）；（2）对同一体素的重复点也会分配新 ID——实际实现需要判断 key 已存在（<code>prev == key</code>）时不分配新 ID，而是累加到已有体素中。另外 <code>(int)(px / voxel_size)</code> 是向零截断，负坐标时与正文的 \(\lfloor\cdot\rfloor\) 不同，实际代码要先减去场景下界或用 <code>floorf</code>。</p>
 
-<p>量化分析线程发散的影响：装载因子 0.5 时，探测长度的分布集中在 1&ndash;2 次，warp 内最长探测与最短探测的差距通常不超过 3——发散损失约 10%。装载因子升到 0.85 时，探测长度呈指数分布，warp 内最长链可达 20+ 而最短为 1——最短链线程等待最长链线程执行 20 次探测，浪费了 95% 的算力。因此实际工程中哈希表大小取输入点数的 1.5&ndash;2 倍是黄金配置。此外，删除操作在开放寻址中特别棘手——直接置空一个 slot 会打断探测链（后续的线性探测会在&ldquo;空隙&rdquo;处提前终止），所以 GPU 哈希表通常不支持删除，而是每帧重建整张表。对于自动驾驶的逐帧点云处理，这种&ldquo;一次性&rdquo;哈希表完全够用。</p>
+<p>按上面的公式，把表开到非空体素数的 2 倍左右（\(\alpha \approx 0.5\)）时期望探测次数仍很小，这是常见的取法；但 warp 的耗时由 32 个线程里最长的那条链决定，均值小不代表没有长尾。此外，删除操作在开放寻址中特别棘手——直接置空一个 slot 会打断探测链（后续的线性探测会在&ldquo;空隙&rdquo;处提前终止），所以 GPU 哈希表通常不支持删除，而是每帧重建整张表。对于自动驾驶的逐帧点云处理，这种&ldquo;一次性&rdquo;哈希表完全够用。</p>
 
-<p>哈希函数的选择和 NeRF 的哈希编码类似——用质数乘法的 XOR 组合 \(h = x \cdot 73856093 \oplus y \cdot 19349669 \oplus z \cdot 83492791 \mod T\)，目的是让空间相邻的体素均匀分散到哈希表中。如果用简单取模，空间相邻体素会聚集在相邻 slot——碰撞率飙升，线性探测链变长。</p>
+<p>哈希函数的选择和 NeRF 的哈希编码类似——用质数乘法的 XOR 组合 \(h = x \cdot 73856093 \oplus y \cdot 19349669 \oplus z \cdot 83492791 \mod T\)（Teschner et al. 2003 空间哈希中的三个质数），目的是让空间相邻的体素均匀分散到哈希表中。如果用简单取模，空间相邻体素会聚集在相邻 slot——碰撞率飙升，线性探测链变长。</p>
 
 <h2 id="sec-fps">最远点采样</h2>
 
@@ -337,15 +336,15 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/r3d44-pointcloud-sparse/fps_kernel.cu</code> 第 4–25 行</p>
 
-<p>这个 kernel 有一个微妙的性能问题：所有线程都读同一个 <code>last_idx</code> 点的三个坐标——这是广播读（broadcast），在 L1 cache 中命中后不产生额外带宽压力。但每个线程还要读自己的点坐标 <code>points[3*tid]</code>——这是连续的合并读取（coalesced read），一个 warp 读 32&times;12 B = 384 B。对 N = 100 万，每轮距离更新的 HBM 读取量约 12 MB（每点 12 B），加上 <code>min_dist</code> 的读写各 4 MB——总计 20 MB/轮。A100 的 HBM 带宽 2 TB/s 下仅需 0.01 ms/轮。因此 FPS 的瓶颈不在单轮的带宽，而在 M 轮迭代之间的 kernel launch 串行开销。</p>
+<p>这个 kernel 有一个微妙的性能问题：所有线程都读同一个 <code>last_idx</code> 点的三个坐标——这是广播读（broadcast），在 L1 cache 中命中后不产生额外带宽压力。但每个线程还要读自己的点坐标 <code>points[3*tid]</code>——这是连续的合并读取（coalesced read），一个 warp 读 32&times;12 B = 384 B。对 N = 100 万，每轮距离更新的 HBM 读取量约 12 MB（每点 12 B），加上 <code>min_dist</code> 的读写各 4 MB——总计 20 MB/轮。按 A100 的 2.04 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span> 约 0.01 ms/轮（若点坐标能留在 40 MB 的 L2 里还会更快）。因此 FPS 的难点不在单轮的带宽，而在 M 轮之间的串行依赖和每轮的固定开销。</p>
 
-<p>FPS 的根本瓶颈是 M 轮迭代之间的串行依赖——每轮的 argmax 结果决定下一轮的距离更新对象。N = 100 万、M = 4096 时，总共需要 4096 次 kernel launch（距离更新和 argmax 可以合并为一个 kernel，但轮间依赖无法消除）。每次 kernel launch 的开销约 5 微秒，4096 轮就是约 20 毫秒的纯 launch 开销——在总运行时间中占比可观。</p>
+<p>FPS 的根本瓶颈是 M 轮迭代之间的串行依赖——每轮的 argmax 结果决定下一轮的距离更新对象。N = 100 万、M = 4096 时，每轮至少一次 kernel launch（距离更新和 argmax 可以合并为一个 kernel，但轮间依赖无法消除），共 4096 次。每次 launch 有微秒量级的固定开销，乘以 4096 就到了毫秒量级，与上面每轮约 0.01 ms 的数据搬运相比不可忽视。</p>
 
-<p>加速方法有多种：（1）用 CUDA Graph 把多轮 kernel launch 录制成一个 graph（<a href="../cu08-sync-atomics/cu08-sync-atomics.html">第 8 篇</a>）——消除 CPU 端的 launch 调度和同步开销。一次录制后重放 M 轮，每轮只替换 last_idx 参数。（2）把距离更新和 argmax 合并到一个 kernel，用 cooperative launch 保证 grid 级别的全局同步——减少一半的 launch 次数。（3）近似 FPS——随机选子集再在子集上做精确 FPS，或者用 bucket-based 的分区近似方案。精度损失通常可以接受，因为下游网络对精确的下采样模式不敏感。PointNet++ 用精确 FPS，近年来更多的三维检测方法转向体素网格下采样或均匀随机采样来绕过 FPS 的串行瓶颈。</p>
+<p>加速方法有多种：（1）用 CUDA Graph 把多轮 kernel launch 录制成一个 graph（<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）——减少 CPU 端的 launch 开销。由于 <code>last_idx</code> 是上一轮在 GPU 上算出来的，应让 kernel 从 device 内存读取它，而不是作为 launch 参数逐轮替换。（2）把距离更新和 argmax 合并到一个 kernel，用 cooperative launch 保证 grid 级别的全局同步——减少一半的 launch 次数。（3）近似 FPS——随机选子集再在子集上做精确 FPS，或者用 bucket-based 的分区近似方案。近似带来的影响要按任务评估。PointNet++ 用的是 FPS<span class="cite">[<a href="#ref-pointnet2" title="Qi, Yi, Su &amp; Gupta (2017). PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space. NeurIPS 2017.">2</a>]</span>；也有方法改用体素网格下采样或随机采样来绕过 FPS 的串行依赖。</p>
 
 <h2 id="sec-knn">kNN 近邻搜索</h2>
 
-<p>kNN（k-Nearest Neighbors）找每个 query 点的 K 个最近参考点。暴力方法对 N_query 个 query、N_ref 个参考点的复杂度是 O(N_query &times; N_ref)——当 N 在万级以下时，暴力法在 GPU 上反而比树结构（kd-tree）快，因为暴力法的访存规则、并行度高。</p>
+<p>kNN（k-Nearest Neighbors）找每个 query 点的 K 个最近参考点。暴力方法对 N_query 个 query、N_ref 个参考点的复杂度是 O(N_query &times; N_ref)——规模不大时，暴力法在 GPU 上往往比树结构（kd-tree）更合适，因为它的访存规则、并行度高、没有分支繁多的树遍历。</p>
 
 <p>GPU 暴力 kNN 的核心优化是 smem tiling + 寄存器 top-k。每个线程处理一个 query 点：在寄存器中维护 K 个最近邻候选（距离 + 索引），然后分批把参考点加载到 smem——每批 TILE 个参考点被整个 block 共享。每个线程扫描 smem 中的参考点，更新自己的 top-k。</p>
 
@@ -360,27 +359,27 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   __shared__ float stile[TILE * 3];
 
   int qid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (qid &gt;= N_query) return;
-
-  float qx = query[3 * qid + 0];
-  float qy = query[3 * qid + 1];
-  float qz = query[3 * qid + 2];
+  bool active = qid &lt; N_query;  // no early return:
+  // every thread must reach the __syncthreads below
+  float qx = active ? query[3 * qid + 0] : 0.0f;
+  float qy = active ? query[3 * qid + 1] : 0.0f;
+  float qz = active ? query[3 * qid + 2] : 0.0f;
 
   float topk_d[K_NN];
   int topk_i[K_NN];</code></pre>
 <p class="src-note">完整代码：<code>code/r3d44-pointcloud-sparse/knn_bruteforce.cu</code> 第 7&ndash;25 行（未在 GPU 上运行）</p>
 
-<p>寄存器 top-k 用插入排序维护：当新距离小于第 K 近的距离时，替换最后一个并冒泡排序到正确位置。K 通常很小（8、16、32），每次插入的排序开销 O(K) 远小于距离计算本身。top-k 的 K 个元素（距离 + 索引共 2K 个 float/int）全部在寄存器中——不需要 smem 或全局内存的中间存储。K = 16 时占 32 个寄存器，对于 256 个寄存器/线程的限额来说完全可接受。</p>
+<p>寄存器 top-k 用插入排序维护：当新距离小于第 K 近的距离时，替换最后一个并冒泡排序到正确位置。K 通常很小（8、16、32），每次插入的排序开销 O(K) 远小于距离计算本身。top-k 的 K 个元素（距离 + 索引共 2K 个 float/int）<b>只有在编译器能把所有下标确定为常数时</b>（循环完全展开）才会留在寄存器里；否则局部数组会被放到 local memory（物理上在显存，经 L1/L2 缓存）。K = 16 时需要 32 个寄存器，在每线程最多 255 个寄存器的限制下没有问题，关键是写法要让编译器能展开。</p>
 
-<p>smem tiling 的设计和 GEMM 的 tiling 思路一致：每个 block 处理若干 query 点，参考点分批加载到 smem 被全体线程共享。每批 TILE = 128 个参考点，3 个坐标 &times; 4 字节 = 1536 字节——smem 开销极低。block 中的每个线程扫描同一个 tile 中的所有参考点，计算距离并更新 top-k。这种模式让全局内存的每个参考点只被读一次（每批），通过 smem 被 blockDim 个线程复用，有效带宽放大 128&ndash;256 倍。</p>
+<p>smem tiling 的设计和 GEMM 的 tiling 思路一致：每个 block 处理若干 query 点，参考点分批加载到 smem 被全体线程共享。每批 TILE = 128 个参考点，3 个坐标 &times; 4 字节 = 1536 字节——smem 开销极低。block 中的每个线程扫描同一个 tile 中的所有参考点，计算距离并更新 top-k。这种模式让每个 block 对每个参考点只从全局内存读一次，通过 smem 被 blockDim 个线程复用，全局读取量减少到 1/blockDim。</p>
 
-<p>性能建模：N_query = N_ref = 10000，K = 16，block 大小 256 线程。每个 block 256 个 query 点，共 40 个 block。每个 block 扫描 10000 / 128 = 79 个 tile。每个 tile 内每线程做 128 次距离计算（3 次减法 + 3 次乘法 + 2 次加法 = 8 FLOP），总 FLOP 约 \(10000 \times 10000 \times 8 = 8 \times 10^8\)。数据量：参考点 \(10000 \times 12\,\mathrm{B} = 120\,\mathrm{KB}\)，每个 block 读一遍。算术密度 \(8 \times 10^8 / (40 \times 120\,\mathrm{KB}) \approx 163\,\mathrm{FLOP/B}\)——看上去 compute-bound，但每次距离计算只有简单的减法乘法，单线程 IPC 不高，且 top-k 插入排序引入分支——实际中 smem 带宽和指令吞吐交替成为瓶颈。当 N_ref 超过 5 万时，即使 smem tiling 也需要数百个 tile，每个 query 的总循环次数太多——这时切换到网格加速更有效。</p>
+<p>性能建模：N_query = N_ref = 10000，K = 16，block 大小 256 线程。每个 block 256 个 query 点，共 40 个 block。每个 block 扫描 10000 / 128 = 79 个 tile。每个 tile 内每线程做 128 次距离计算（3 次减法 + 3 次乘法 + 2 次加法 = 8 FLOP），总 FLOP 约 \(10000 \times 10000 \times 8 = 8 \times 10^8\)。数据量：参考点 \(10000 \times 12\,\mathrm{B} = 120\,\mathrm{KB}\)，每个 block 读一遍。算术密度 \(8 \times 10^8 / (40 \times 120\,\mathrm{KB}) \approx 163\,\mathrm{FLOP/B}\)——相对 HBM 是 compute-bound。但还要注意两点：只有 40 个 block，在 108 个 SM 的 A100 上大半 SM 空闲，需要更小的 block 或让多个 block 分担同一批 query；而内循环里每算一个距离都要读 3 个 smem 值、还有 top-k 的比较与插入分支，实际吞吐受 smem 读取和指令发射限制。N_ref 很大时，总工作量 \(O(N_\text{query} N_\text{ref})\) 本身成为问题，这时改用网格加速。</p>
 
-<p>当 N_ref 很大（&gt; 10 万）时，暴力法变慢。空间网格加速是常用的替代方案：先把参考点体素化到 3D 网格（复用上面的哈希表），查询时只搜索 query 点所在体素及其邻居（3&times;3&times;3 = 27 个体素）——把搜索范围从 N_ref 缩小到局部的几百个点。Ball query（半径搜索）是 kNN 的变体：找所有距离小于 r 的邻居，常和 K 上限结合使用。PointNet++ 中 ball query + grouping 是构建局部邻域特征的标准操作。</p>
+<p>当 N_ref 很大时，暴力法变慢。空间网格加速是常用的替代方案：先把参考点体素化到 3D 网格（复用上面的哈希表），查询时只搜索 query 点所在体素及其邻居（3&times;3&times;3 = 27 个体素）——把搜索范围从 N_ref 缩小到局部的少量点。Ball query（半径搜索）是 kNN 的变体：找所有距离小于 r 的邻居，常和 K 上限结合使用。PointNet++ 中 ball query + grouping 是构建局部邻域特征的标准操作。</p>
 
 <h2 id="sec-sparse-conv">稀疏卷积</h2>
 
-<p>标准 3D 卷积在整个体素网格上计算——对于自动驾驶场景，128&times;128&times;10 的体素网格中可能只有 1%&ndash;5% 的体素是活跃的（含有 LiDAR 点）。在所有体素上做密集 3D 卷积浪费 95%+ 的计算。稀疏卷积只在活跃体素上计算——关键数据结构是 <b>kernel map</b>（<a href="#fig-kernel_map">图 4</a>）。</p>
+<p>标准 3D 卷积在整个体素网格上计算——而在 LiDAR 场景中，绝大多数体素是空的（SECOND 论文给出 KITTI 上稀疏度约 0.005<span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span>）。在所有体素上做密集 3D 卷积，大部分计算都花在空体素上。稀疏卷积只在活跃体素上计算——关键数据结构是 <b>kernel map</b>（<a href="#fig-kernel_map">图 4</a>）。</p>
 
 <figure id="fig-kernel_map" data-kind="diagram">
 <img aria-labelledby="fig-kernel_map-cap" src="figs/kernel_map.svg" alt="Kernel map"/>
@@ -395,12 +394,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-gather_gemm_scatter" data-kind="diagram">
 <img aria-labelledby="fig-gather_gemm_scatter-cap" src="figs/gather_gemm_scatter.svg" alt="Gather-GEMM-Scatter"/>
-<figcaption id="fig-gather_gemm_scatter-cap"><span class="fig-label">图 5</span><b>Gather-GEMM-Scatter 数据流。</b>Gather 按 in_map 收集输入特征到密集矩阵，cuBLAS GEMM 做矩阵乘，Scatter 用 atomicAdd 把结果散布到输出体素。</figcaption>
+<figcaption id="fig-gather_gemm_scatter-cap"><span class="fig-label">图 5</span><b>Gather-GEMM-Scatter 数据流（示意）。</b>Gather 按 in_map 收集输入特征到密集矩阵，cuBLAS GEMM 做矩阵乘，Scatter 用 atomicAdd 把结果散布到输出体素。SECOND 论文的 rule book 正是这样存储的：一部分存 gather 用的输入索引，一部分存 scatter 用的输出索引<span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span>。</figcaption>
 </figure>
 
 <ol>
 <li><b>Gather</b>：按 kernel map 的 in_map 索引，把输入特征收集到一个连续的密集矩阵 <code>gathered[nnz, C_in]</code>。</li>
-<li><b>GEMM</b>：对 gathered 矩阵和该偏移的权重矩阵 \(W_k\)[C_in, C_out] 做 cuBLAS GEMM——这是标准的密集矩阵乘，GPU 利用率高。</li>
+<li><b>GEMM</b>：对 gathered 矩阵和该偏移的权重矩阵 \(W_k\)[C_in, C_out] 做 cuBLAS GEMM——这是标准的密集矩阵乘，但 nnz 小、通道数小时矩阵也小，利用率未必高。</li>
 <li><b>Scatter</b>：按 out_map 索引，用 <code>atomicAdd</code> 把 GEMM 结果累加到输出特征数组中。多个偏移的结果可能写同一个输出体素（一个输出体素最多被 27 个偏移贡献），需要原子操作。</li>
 </ol>
 
@@ -438,21 +437,21 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 }</code></pre>
 <p class="src-note">完整代码：<code>code/r3d44-pointcloud-sparse/sparse_conv.cu</code> 第 20–34 行</p>
 
-<p>Scatter 和 Gather 形成完美的镜像——Gather 是读间接地址、写连续地址（gather = indirect read），Scatter 是读连续地址、写间接地址（scatter = indirect write + atomic）。Scatter 的 <code>atomicAdd</code> 争用程度取决于卷积核大小和体素密度：3&times;3&times;3 核的 27 个偏移中，一个输出体素最多被 27 个偏移贡献——但由于稀疏性，实际平均贡献数通常在 5&ndash;10 个。争用程度远轻于 3DGS 的 256 路 tile 内争用。</p>
+<p>Scatter 和 Gather 形成完美的镜像——Gather 是读间接地址、写连续地址（gather = indirect read），Scatter 是读连续地址、写间接地址（scatter = indirect write + atomic）。Scatter 的 <code>atomicAdd</code> 争用程度取决于卷积核大小和体素密度：3&times;3&times;3 核的 27 个偏移中，一个输出体素最多被 27 个偏移贡献；实际平均贡献数取决于邻域里有多少活跃体素。另外，如果按偏移逐个执行，同一时刻只有一个偏移的结果在写，同一偏移内每个输出体素最多出现一次，争用比 3DGS 的 tile 内争用轻得多。</p>
 
-<p>Gather-GEMM-Scatter 的优势是 GEMM 部分完全规则——gathered 矩阵是连续存储的密集矩阵，可以直接调用 cuBLAS 的 Tensor Core 路径。劣势有两个：（1）额外的 gathered 缓冲区（nnz &times; C_in 个 float），当 nnz 很大时内存开销可观。（2）27 个偏移需要 27 组 kernel launch——每组包含 gather + GEMM + scatter 三次 launch，总共 81 次 kernel launch。对于小规模的稀疏卷积，launch 开销可能占总时间的相当比例。spconv <span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span> 2.x 通过把多个偏移的 gather 合并到一次 kernel launch 来缓解这个问题——但 GEMM 部分仍需按偏移分别调用（每个偏移的权重矩阵不同）。</p>
+<p>Gather-GEMM-Scatter 的优势是 GEMM 部分完全规则——gathered 矩阵是连续存储的密集矩阵，可以直接调用 cuBLAS 的 Tensor Core 路径。劣势有两个：（1）额外的 gathered 缓冲区（nnz &times; C_in 个 float），当 nnz 很大时内存开销可观。（2）27 个偏移需要 27 组 kernel launch——每组包含 gather + GEMM + scatter 三次 launch，总共 81 次 kernel launch。对于小规模的稀疏卷积，launch 开销可能占总时间的相当比例。工程上可以把多个偏移的 gather/scatter 合并成一次 launch、用 batched/grouped GEMM 一次处理多个偏移，或者干脆转向下面的隐式 GEMM。</p>
 
 <h3 id="sec-implicit-gemm">隐式 GEMM</h3>
 
 <p>隐式 GEMM（implicit GEMM）是稀疏卷积的另一种实现——把 gather 和 GEMM 融合在一个 kernel 中。矩阵乘的行索引不是连续的，而是通过 kernel map 间接寻址。好处是不需要 gathered 缓冲区，减少内存占用；坏处是访存不规则，无法直接用 cuBLAS，需要手写 GEMM kernel。</p>
 
-<p>TorchSparse <span class="cite">[<a href="#ref-torchsparse" title="Tang et al. (2023). TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs. MICRO 2023.">4</a>]</span> v2 和 spconv 2.x 的选择策略是动态决定的：当 nnz 较大（&gt; 几千）且通道数也大（C_in、C_out &geq; 64）时，gather-GEMM-scatter 更快——cuBLAS 的 Tensor Core 利用率高于手写的间接寻址 GEMM kernel。当 nnz 小或通道数少时，隐式 GEMM 更快——省去了 gather/scatter 的额外内存拷贝和缓冲区分配开销。具体的切换阈值取决于硬件和稀疏模式——spconv 内部有基于 nnz 和通道数的启发式规则来自动选择路径。从性能分析角度，gather-GEMM-scatter 的 roofline 分析可以拆成三部分：gather 和 scatter 是纯带宽操作，GEMM 的计算密度取决于 nnz 和通道数——只有当 GEMM 的矩阵足够大时，Tensor Core 才能充分利用。</p>
+<p>TorchSparse++<span class="cite">[<a href="#ref-torchsparse" title="Tang et al. (2023). TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs. MICRO 2023.">5</a>]</span> 把这个选择交给自动调优：论文指出 gather-GEMM-scatter 易实现但性能不是最优，访存与计算重叠的数据流（如 implicit GEMM）性能高但工程成本高；它用 Sparse Kernel Generator 以较低的工程成本生成稀疏卷积 kernel，再用 Sparse Autotuner 为训练和推理工作负载搜索最佳的数据流配置。论文报告在 A100 上推理端到端比 MinkowskiEngine、SpConv 1.2、TorchSparse、SpConv v2 分别快 2.9&times;、3.3&times;、2.2&times;、1.7&times;，混合精度训练比 SpConv v2 快 1.2&ndash;1.3&times;<span class="cite">[<a href="#ref-torchsparse" title="Tang et al. (2023). TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs. MICRO 2023.">5</a>]</span>。最优数据流随层的 nnz、通道数和硬件变化，没有放之四海皆准的阈值。从性能分析角度，gather-GEMM-scatter 的 roofline 分析可以拆成三部分：gather 和 scatter 是纯带宽操作，GEMM 的计算密度取决于 nnz 和通道数——只有当 GEMM 的矩阵足够大时，Tensor Core 才能充分利用。</p>
 
 <h3 id="sec-submanifold">子流形稀疏卷积</h3>
 
 <p>标准稀疏卷积的输出位置是所有输入活跃体素经过卷积核偏移后能到达的位置——这会让活跃体素数量膨胀：每层的活跃体素数最多增加 27 倍（3&times;3&times;3 核）。几层之后，&ldquo;稀疏&rdquo;网格变得接近密集，失去稀疏卷积的效率优势。</p>
 
-<p>子流形稀疏卷积（submanifold sparse convolution，Graham &amp; van der Maaten 2017）的解法直观而有效（<a href="#fig-submanifold_vs_standard">图 6</a>）：限制输出位置只能出现在输入已经活跃的位置上。</p>
+<p>子流形稀疏卷积（submanifold sparse convolution，Graham &amp; van der Maaten 2017<span class="cite">[<a href="#ref-graham17" title="Graham &amp; van der Maaten (2017). Submanifold Sparse Convolutional Networks. arXiv:1706.01307.">6</a>]</span>）的解法直观而有效（<a href="#fig-submanifold_vs_standard">图 6</a>）：限制输出位置只能出现在输入已经活跃的位置上。</p>
 
 <figure id="fig-submanifold_vs_standard" data-kind="diagram">
 <img aria-labelledby="fig-submanifold_vs_standard-cap" src="figs/submanifold_vs_standard.svg" alt="Standard vs submanifold sparse convolution"/>
@@ -461,13 +460,13 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 
 <p>kernel map 构建时增加一个条件——只有当输出位置 \(v + \Delta\) 本身就是输入活跃体素时才生成索引对。这严格保持了活跃体素数量不变——层间不膨胀、不收缩。代价是感受野增长更慢——标准卷积每层感受野扩大 kernel_size - 1 个体素，子流形卷积的感受野只通过已有的活跃体素传播，增长取决于体素的空间密度和连通性。</p>
 
-<p>实际的 3D 检测网络中采用混合策略：中间层用子流形卷积保持稀疏性（活跃体素数不变，计算量和内存可预测），下采样层（stride = 2）用标准稀疏卷积压缩空间分辨率——下采样会引入新的活跃输出体素，但同时分辨率减半，总体素数仍然可控。SECOND 和 CenterPoint 的 backbone 就是这种模式：4 个分辨率层，每层内若干子流形卷积 + 一个 stride-2 标准稀疏卷积。</p>
+<p>实际的 3D 检测网络中采用混合策略：中间层用子流形卷积保持稀疏性（活跃体素数不变，计算量和内存可预测），下采样层（stride = 2）用标准稀疏卷积压缩空间分辨率——下采样会引入新的活跃输出体素，但同时分辨率减半，总体素数仍然可控。SECOND 的稀疏中间层就是这种模式：论文写道&ldquo;每个阶段包含若干子流形卷积层和一个普通稀疏卷积&rdquo;，后者负责下采样<span class="cite">[<a href="#ref-spconv" title="Yan, Mao &amp; Li (2018). SECOND: Sparsely Embedded Convolutional Detection. Sensors 18(10).">3</a>]</span>。</p>
 
 <h2 id="sec-bev">BEV 池化</h2>
 
-<p>BEV（Bird&rsquo;s Eye View）池化是自动驾驶中从多相机图像生成俯视特征图的关键操作。LSS（Lift-Splat-Shoot）及后续方法（BEVDet、BEVFormer）的流程是：对每个像素沿深度方向预测概率分布，生成若干 3D 点（每个带特征向量），然后把这些 3D 点投影到 BEV 网格上做 sum 池化。</p>
+<p>BEV（Bird&rsquo;s Eye View）池化是自动驾驶中从多相机图像生成俯视特征图的关键操作。LSS（Lift-Splat-Shoot）<span class="cite">[<a href="#ref-lss" title="Philion &amp; Fidler (2020). Lift, Splat, Shoot: Encoding Images From Arbitrary Camera Rigs by Implicitly Unprojecting to 3D. ECCV 2020; arXiv:2008.05711. §4.2 Cumulative Sum Trick。">7</a>]</span> 及沿用其范式的方法（如 BEVDet）的流程是：对每个像素沿深度方向预测概率分布，生成若干 3D 点（每个带特征向量），然后把这些 3D 点&ldquo;splat&rdquo;到 BEV 网格上做 sum 池化。（BEVFormer 走的是另一条路——用可变形注意力从图像特征查询 BEV，不属于这种池化。）</p>
 
-<p>GPU 实现的核心技巧是空间排序 + 前缀和（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）：先计算每个 3D 点落在哪个 BEV 格子，然后按格子 ID 排序（radix sort），再用 prefix sum 确定每个格子在排序后数组中的起止位置，最后每个格子对自己范围内的点独立归约求和。这和 3DGS 的 tile 排序如出一辙——不同的应用场景，同样的&ldquo;空间索引 + 排序 + 前缀和 + 分区归约&rdquo;模式。反向传播同样简洁——sum 池化的梯度是 scatter（把 BEV 格子的梯度分发回每个贡献点），和稀疏卷积的 scatter 操作完全一致。</p>
+<p>GPU 实现的核心技巧是空间排序 + 前缀和（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）：先计算每个 3D 点落在哪个 BEV 格子，然后按格子 ID 排序（radix sort），再用 prefix sum 确定每个格子在排序后数组中的起止位置，最后每个格子对自己范围内的点独立归约求和。LSS 原文的&ldquo;cumulative sum trick&rdquo;是同一思路的另一种写法：按格子 ID 排序后对全部特征做一次前缀和，再在格子边界处相减得到每格的和，并为整个模块推导了解析梯度<span class="cite">[<a href="#ref-lss" title="Philion &amp; Fidler (2020). Lift, Splat, Shoot: Encoding Images From Arbitrary Camera Rigs by Implicitly Unprojecting to 3D. ECCV 2020; arXiv:2008.05711. §4.2 Cumulative Sum Trick。">7</a>]</span>。这和 3DGS 的 tile 排序如出一辙——不同的应用场景，同样的&ldquo;空间索引 + 排序 + 前缀和 + 分区归约&rdquo;模式。反向传播同样简洁——sum 池化的梯度是 scatter（把 BEV 格子的梯度分发回每个贡献点），和稀疏卷积的 scatter 操作完全一致。</p>
 
 <h2 id="sec-perf">性能特征</h2>
 
@@ -478,13 +477,13 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 <tbody>
 <tr><td>哈希体素化</td><td>elementwise + atomicCAS</td><td>原子操作吞吐（碰撞率决定）</td></tr>
 <tr><td>FPS（每轮）</td><td>O(N) 距离 + O(N) 归约</td><td>kernel launch 开销、迭代串行</td></tr>
-<tr><td>暴力 kNN</td><td>O(N&times;M) 距离计算</td><td>计算密集但低 FLOP/B（只做减法和乘法）</td></tr>
+<tr><td>暴力 kNN</td><td>O(N&times;M) 距离计算</td><td>smem tiling 后对 HBM 是高 FLOP/B；实际受 smem 读取、top-k 分支和 block 数限制</td></tr>
 <tr><td>稀疏卷积 GEMM</td><td>cuBLAS GEMM</td><td>Tensor Core 利用率（取决于 nnz 大小）</td></tr>
 <tr><td>稀疏卷积 gather/scatter</td><td>间接寻址 load/store</td><td>L2 cache 命中率（scatter 的 atomicAdd）</td></tr>
 </tbody>
 </table>
 
-<p>总体来说，点云处理的 kernel 都是 memory-bound 或 latency-bound——计算量不大但访存高度不规则。这和 GEMM、卷积这类 compute-bound kernel 形成鲜明对比。以稀疏卷积为例，gather/scatter 阶段是纯访存操作（间接寻址的 load/store），GEMM 阶段虽然是 compute-bound，但每次 GEMM 的规模通常较小（nnz 是活跃体素数，远小于密集网格大小），Tensor Core 不一定能充分利用。优化的关键不是提高峰值计算吞吐，而是减少原子争用（体素化的 CAS 探测链、scatter 的 atomicAdd）、减少 kernel launch 次数（FPS 迭代、稀疏卷积多偏移）、提高 cache 利用率（kNN tiling、kernel map 查询的哈希表驻留 L2）。</p>
+<p>总体来说，点云处理的 kernel 大多是 memory-bound 或 latency-bound——计算量不大但访存高度不规则（tiling 后的暴力 kNN 是例外）。这和 GEMM、卷积这类 compute-bound kernel 形成鲜明对比。以稀疏卷积为例，gather/scatter 阶段是纯访存操作（间接寻址的 load/store），GEMM 阶段虽然是 compute-bound，但每次 GEMM 的规模通常较小（nnz 是活跃体素数，远小于密集网格大小），Tensor Core 不一定能充分利用。优化的关键不是提高峰值计算吞吐，而是减少原子争用（体素化的 CAS 探测链、scatter 的 atomicAdd）、减少 kernel launch 次数（FPS 迭代、稀疏卷积多偏移）、提高 cache 利用率（kNN tiling、kernel map 查询的哈希表驻留 L2）。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
@@ -493,30 +492,29 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 <tr><th>特性</th><th>影响</th></tr>
 </thead>
 <tbody>
-<tr><td>L2 容量增大（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>哈希表更可能驻留 L2，体素化和 kernel map 查询的探测链更快</td></tr>
-<tr><td>atomicCAS 吞吐提升</td><td>哈希表插入和 scatter 的原子操作直接受益</td></tr>
-<tr><td>Tensor Core 代际提升</td><td>稀疏卷积的 GEMM 部分直接加速（gather/scatter 不受影响）</td></tr>
-<tr><td>CUDA Graph 改进</td><td>FPS 多轮迭代的 launch 开销进一步降低</td></tr>
-<tr><td>smem 容量（A100 164 KB → H100 228 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>kNN 的 tile 可以更大，减少分批次数</td></tr>
+<tr><td>L2 容量增大（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>哈希表更可能驻留 L2，体素化和 kernel map 查询的探测链更快</td></tr>
+<tr><td>Tensor Core 代际（稠密 FP16：A100 312 &rarr; H100 989 TFLOP/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>稀疏卷积的 GEMM 部分加速（前提是矩阵够大）；gather/scatter 只受带宽和 cache 影响</td></tr>
+<tr><td>HBM 带宽（A100 2.0 &rarr; H100 3.35 &rarr; B200 8.0 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>gather/scatter、FPS 距离更新等带宽受限的部分加速</td></tr>
+<tr><td>smem 容量（A100 164 KB → H100 228 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）</td><td>kNN 的 tile 可以更大，减少分批次数</td></tr>
 </tbody>
 </table>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：GPU 上怎么实现哈希表？</b></p>
-<p>开放寻址 + <code>atomicCAS</code>。每个 slot 存一个 key，初始化为 EMPTY（-1）。插入时计算空间哈希得到起始 slot，用 <code>atomicCAS(&amp;keys[slot], EMPTY, key)</code> 尝试写入——成功则用 <code>atomicAdd</code> 给全局计数器加一分配唯一 ID，失败说明该 slot 已被占据，线性探测下一个 slot 重试。追问：装载因子的影响？70% 以下平均探测不超过 3 次，90% 以上探测链急剧增长，性能断崖式下降。追问：为什么不用链表（chaining）？链表需要在 device 上动态内存分配（device <code>malloc</code> 很慢且碎片化严重），而且链表的指针追逐导致不连续访存、cache 极不友好。开放寻址的探测是连续地址，cache line 预取有效，更适合 GPU 的大规模并行访存模式。</p>
+<p>开放寻址 + <code>atomicCAS</code>。每个 slot 存一个 key，初始化为 EMPTY（-1）。插入时计算空间哈希得到起始 slot，用 <code>atomicCAS(&amp;keys[slot], EMPTY, key)</code> 尝试写入——成功则用 <code>atomicAdd</code> 给全局计数器加一分配唯一 ID，失败说明该 slot 已被占据，线性探测下一个 slot 重试。追问：装载因子的影响？线性探测插入的期望探测次数约 \(\tfrac{1}{2}(1 + 1/(1-\alpha)^2)\)：\(\alpha = 0.5\) 时约 2.5 次，0.8 时约 13 次，0.9 时约 50 次——高装载因子下急剧恶化，还会放大 warp 内的发散。追问：为什么不用链表（chaining）？链表需要在 device 上动态内存分配（device <code>malloc</code> 很慢且碎片化严重），而且链表的指针追逐导致不连续访存、cache 极不友好。开放寻址的探测是连续地址，cache line 预取有效，更适合 GPU 的大规模并行访存模式。</p>
 
 <p id="sec-q2"><b>Q2：FPS 为什么难并行？</b></p>
-<p>因为每轮的选点依赖上一轮的结果——第 k 轮必须知道第 k-1 轮选了哪个点才能更新距离数组。这是本质的串行依赖，不能通过增加 GPU 并行度消除。每轮内部的距离更新 O(N) 和 argmax 归约 O(N) 都是完全并行的，但 M 轮之间必须严格串行执行。M = 4096 时需要 4096 次 GPU 全局同步——kernel launch 的固定开销（约 5 微秒/次）累积成数十毫秒的不可压缩延迟，这是 FPS 在大规模点云上运行缓慢的根本原因。追问：替代方案？体素网格下采样不需要迭代、复杂度 O(N)；随机采样 O(N) 但均匀性差；bucket 近似 FPS 先分桶再桶内精确选取。</p>
+<p>因为每轮的选点依赖上一轮的结果——第 k 轮必须知道第 k-1 轮选了哪个点才能更新距离数组。这是本质的串行依赖，不能通过增加 GPU 并行度消除。每轮内部的距离更新 O(N) 和 argmax 归约 O(N) 都是完全并行的，但 M 轮之间必须严格串行执行。M = 4096 时需要 4096 次 GPU 全局同步（kernel 边界或 grid 级同步），每次都有微秒量级的固定开销，累积起来远超每轮真正的数据搬运时间，这是 FPS 在大规模点云上运行缓慢的根本原因。追问：替代方案？体素网格下采样不需要迭代、复杂度 O(N)；随机采样 O(N) 但均匀性差；bucket 近似 FPS 先分桶再桶内精确选取。</p>
 
 <p id="sec-q3"><b>Q3：稀疏卷积的 gather-GEMM-scatter 和 implicit GEMM 怎么选？</b></p>
-<p>gather-GEMM-scatter 的优势是 GEMM 部分是规则的密集矩阵乘，直接用 cuBLAS 的 Tensor Core——对大 nnz 和大通道数效率高。劣势是需要额外 gathered 缓冲区，且 27 个偏移需要多次 kernel launch。implicit GEMM 把 gather 融合进矩阵乘，省缓冲区和 launch 次数，但访存不规则需要手写 kernel——对小 nnz 更快。实际框架（spconv 2.x）动态选择：大问题走 gather-GEMM-scatter，小问题走 implicit。</p>
+<p>gather-GEMM-scatter 的优势是 GEMM 部分是规则的密集矩阵乘，直接用 cuBLAS 的 Tensor Core——实现简单。劣势是需要额外 gathered 缓冲区、gather/scatter 的显存往返，且 27 个偏移需要多次 kernel launch。implicit GEMM 把 gather 融合进矩阵乘、让访存与计算重叠，省缓冲区和 launch 次数，但需要手写（或生成）带间接寻址的 GEMM kernel。哪种更快取决于层的规模和硬件：TorchSparse++ 用 Sparse Autotuner 按工作负载搜索数据流配置，而不是用固定阈值<span class="cite">[<a href="#ref-torchsparse" title="Tang et al. (2023). TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs. MICRO 2023.">5</a>]</span>。</p>
 
 <p id="sec-q4"><b>Q4：子流形稀疏卷积为什么重要？</b></p>
 <p>标准稀疏卷积每层的活跃体素数可能膨胀 27 倍（3&times;3&times;3 核），连续几层之后原本稀疏的 3D 空间变得接近密集——完全失去稀疏卷积的效率优势，退化为比密集 3D 卷积更慢的操作（因为还有 kernel map 和 gather/scatter 的额外开销）。子流形卷积限制输出只出现在输入已有的位置，严格保持活跃体素数量不变。代价是感受野增长慢——需要堆更多层才能达到相同的空间覆盖范围。实际 3D 检测网络采用混合策略：中间层用子流形卷积保持稀疏度，stride-2 的下采样层用标准稀疏卷积扩展输出并压缩空间分辨率。</p>
 
 <p id="sec-q5"><b>Q5：稀疏卷积的 kernel map 构建本身需要多少时间？有什么优化空间？</b></p>
-<p>kernel map 构建是稀疏卷积的隐藏开销——对每个卷积核偏移（3&times;3&times;3 = 27 个），需要遍历所有活跃输入体素并查哈希表确认输出位置是否存在。假设有 \(M\) 个活跃体素，27 个偏移，构建需要 \(27 \times M\) 次哈希表查询。对于 \(M = 5 \times 10^4\)（自动驾驶典型值），这是约 135 万次随机访存——在 A100 上约需 0.1&ndash;0.2 毫秒。相对于 GEMM 本身（通常 0.5&ndash;2 毫秒），构建开销并非微不足道。优化方法有三个：（1）缓存 kernel map——当网络中多个层的活跃体素集合相同时（子流形卷积保证了这一点），只需构建一次。SECOND 的 backbone 中，同分辨率层的子流形卷积共享 kernel map，可以节省 60%&ndash;70% 的构建时间。（2）把 27 个偏移的查询合并到一个 kernel——每个线程处理一个输入体素的全部 27 个偏移，减少 kernel launch 次数。（3）提前分配输出空间——用 prefix sum 先统计每个偏移的有效对数，一次分配所有内存，避免反复的动态分配和 resize。追问：子流形卷积的 kernel map 有什么特殊性质？因为输入和输出的活跃位置集合相同，kernel map 是对称的——偏移 \(\Delta\) 的 (in, out) 对恰好是偏移 \(-\Delta\) 的 (out, in) 对。这意味着只需构建一半的偏移（14 个而非 27 个），另一半通过交换索引得到。</p>
+<p>kernel map 构建是稀疏卷积的隐藏开销——对每个卷积核偏移（3&times;3&times;3 = 27 个），需要遍历所有活跃输入体素并查哈希表确认输出位置是否存在。假设有 \(M\) 个活跃体素，27 个偏移，构建需要 \(27 \times M\) 次哈希表查询。例如 \(M = 5 \times 10^4\) 时约 135 万次随机查表；其耗时与 GEMM 的相对比例取决于通道数和硬件，本文没有测量数据。优化方法有三个：（1）缓存 kernel map——当网络中多个层的活跃体素集合与卷积核相同时（同一分辨率的子流形卷积层保证了这一点），只需构建一次；spconv 的 <code>indice_key</code> 就是用来让这些层共享索引的。（2）把 27 个偏移的查询合并到一个 kernel——每个线程处理一个输入体素的全部 27 个偏移，减少 kernel launch 次数。（3）提前分配输出空间——用 prefix sum 先统计每个偏移的有效对数，一次分配所有内存，避免反复的动态分配和 resize。追问：子流形卷积的 kernel map 有什么特殊性质？因为输入和输出的活跃位置集合相同，kernel map 是对称的——偏移 \(\Delta\) 的 (in, out) 对恰好是偏移 \(-\Delta\) 的 (out, in) 对。这意味着只需构建一半的偏移（14 个而非 27 个），另一半通过交换索引得到。</p>
 
 <p id="sec-q6"><b>Q6：BEV 池化和 3DGS 的 tile 排序在 GPU 实现上有什么共同模式？它们的差异在哪里？</b></p>
 <p>共同模式是&ldquo;空间索引 + radix sort + prefix sum + 分区归约&rdquo;。两者都需要把非结构化的数据（3D 点或 Gaussian splats）分配到 2D 网格（BEV 格子或图像 tile），然后在每个网格内独立处理。都用 radix sort 按格子 ID 排序，prefix sum 确定每个格子的起止位置，然后每个格子对自己的数据做归约。差异在于：（1）3DGS 的 tile 处理需要深度排序（front-to-back alpha blending），BEV 池化是 sum 池化不需要排序。（2）3DGS 的一个 Gaussian 可以跨多个 tile（需要 per-Gaussian-per-tile 的复制），BEV 中每个点只属于一个格子。（3）3DGS 的反向需要保存中间透射率状态做 back-to-front 重放，BEV 的 sum 池化反向只需简单 scatter——梯度从格子均匀分发回每个贡献点。</p>
@@ -526,6 +524,7 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 <ul>
 <li>本文代码<b>未在 GPU 上运行</b>，仅通过 host-only 语法检查。实际 spconv / TorchSparse 的实现有大量工程优化。</li>
 <li>kernel map 构建的详细实现（并行哈希表查询 + 变长数组追加）从简——实际涉及复杂的并行前缀和和原子追加。</li>
+<li>哈希体素化假设体素坐标落在 \([0, 2^{21})\) 内（每轴 21 位打包成 64 位 key）；负坐标需要先平移。暴力 kNN 要求 <code>blockDim.x</code> 不小于 TILE，超出范围的线程不提前返回，而是继续参与 smem 加载和 <code>__syncthreads()</code>。</li>
 <li>implicit GEMM 的具体 kernel 实现未展示——它本质上是一个带间接寻址的 GEMM，细节和 CUTLASS 的 implicit GEMM（用于标准卷积）类似。</li>
 <li>BEV 池化只做了概念介绍，具体的 prefix sum + 区间归约 kernel 未展示代码。</li>
 <li>PointNet / PointTransformer 等不依赖体素化的方法未覆盖——它们的 GPU 优化思路不同（逐点 MLP 和注意力机制而非稀疏卷积），kernel 设计以 grouping 和全局池化为核心。</li>
@@ -551,15 +550,17 @@ atomicAdd(&amp;output[dst * C_out + c], gemm_out[pair * C_out + c]);
 <ol class="references">
   <li id="ref-minkowski">Choy, Gwak &amp; Savarese (2019). <a href="https://arxiv.org/abs/1904.08755">4D Spatio-Temporal ConvNets: Minkowski Convolutional Neural Networks</a>. CVPR 2019.</li>
   <li id="ref-pointnet2">Qi, Yi, Su &amp; Gupta (2017). <a href="https://arxiv.org/abs/1706.02413">PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space</a>. NeurIPS 2017.</li>
-  <li id="ref-spconv">Yan, Mao &amp; Li (2018). <a href="https://arxiv.org/abs/1801.02108">SECOND: Sparsely Embedded Convolutional Detection</a>. Sensors 18(10).</li>
-  <li id="ref-torchsparse">Tang et al. (2023). <a href="https://arxiv.org/abs/2302.14014">TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs</a>. MICRO 2023.</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-spconv">Yan, Mao &amp; Li (2018). <a href="https://doi.org/10.3390/s18103337">SECOND: Sparsely Embedded Convolutional Detection</a>. Sensors 18(10).</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-torchsparse">Tang et al. (2023). <a href="https://doi.org/10.1145/3613424.3614303">TorchSparse++: Efficient Training and Inference Framework for Sparse Convolution on GPUs</a>. MICRO 2023.</li>
+  <li id="ref-graham17">Graham &amp; van der Maaten (2017). <a href="https://arxiv.org/abs/1706.01307">Submanifold Sparse Convolutional Networks</a>. arXiv:1706.01307.</li>
+  <li id="ref-lss">Philion &amp; Fidler (2020). <a href="https://arxiv.org/abs/2008.05711">Lift, Splat, Shoot: Encoding Images From Arbitrary Camera Rigs by Implicitly Unprojecting to 3D</a>. ECCV 2020; arXiv:2008.05711. &sect;4.2 Cumulative Sum Trick。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 44 篇。文中代码完整版在系列目录的 <code>code/r3d44-pointcloud-sparse/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 44 篇。文中代码完整版在系列目录的 <code>code/r3d44-pointcloud-sparse/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图均为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

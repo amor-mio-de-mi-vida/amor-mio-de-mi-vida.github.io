@@ -45,13 +45,13 @@
 
   <rect x="270" y="75" width="60" height="40" rx="3" fill="#C8E6C9" stroke="#388E3C"/>
   <text x="300" y="99" text-anchor="middle" class="sublabel">W<tspan baseline-shift="super" style="font-size:7px">T</tspan></text>
-  <text x="270" y="125" class="sublabel">[C_in, C_out]</text>
+  <text x="270" y="125" class="sublabel">[C_in, K]</text>
 
   <text x="335" y="99" text-anchor="middle" class="sublabel">&times;</text>
 
   <rect x="345" y="75" width="60" height="40" rx="3" fill="#F3E5F5" stroke="#7B1FA2"/>
   <text x="375" y="99" text-anchor="middle" class="sublabel">dOut</text>
-  <text x="345" y="125" class="sublabel">[C_out, N&middot;P]</text>
+  <text x="345" y="125" class="sublabel">[K, N&middot;H&middot;W]</text>
 
   <text x="410" y="99" class="sublabel">=</text>
 
@@ -59,7 +59,7 @@
   <text x="300" y="155" text-anchor="middle" class="sublabel">dInput</text>
   <text x="270" y="175" class="sublabel">[C_in, N&middot;H&middot;W]</text>
 
-  <text x="270" y="200" class="sublabel" fill="#1976D2">K = C_out</text>
+  <text x="270" y="200" class="sublabel" fill="#1976D2">K = C_out&middot;R&middot;S</text>
   <text x="270" y="215" class="sublabel" fill="#1976D2">stride &gt; 1 时</text>
   <text x="270" y="230" class="sublabel" fill="#1976D2">需要&ldquo;散射&rdquo;写</text>
   <text x="270" y="245" class="sublabel" fill="#1976D2">或转置卷积处理</text>
@@ -87,6 +87,6 @@
 
   <text x="505" y="200" class="sublabel" fill="#7B1FA2">K_gemm = N&middot;P（很大）</text>
   <text x="505" y="215" class="sublabel" fill="#7B1FA2">M, N 小 (C_out, C_in&middot;R&middot;S)</text>
-  <text x="505" y="230" class="sublabel" fill="#D55E00">Split-K 必需</text>
+  <text x="505" y="230" class="sublabel" fill="#D55E00">常用 Split-K</text>
   <text x="505" y="245" class="sublabel" fill="#7B1FA2">（见第 28 篇）</text>
 </svg>

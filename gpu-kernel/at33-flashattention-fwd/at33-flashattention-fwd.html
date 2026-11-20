@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 33 篇</div>
   <h1>Attention 基础与<br>FlashAttention 前向</h1>
-  <p class="subtitle">标准 attention 的 O(N²) HBM 流量是瓶颈——FlashAttention 用 tiling + online softmax 把它降到 O(Nd)，FA2 进一步把外层循环改成 Q，O 只写回一次。</p>
+  <p class="subtitle">标准 attention 的 O(N²) HBM 流量是瓶颈——FlashAttention 用 tiling + online softmax 去掉其中的 N² 项，FA2 进一步把外层循环改成 Q，O 只写回一次。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 24 分钟阅读</span>
+    <span data-reading-time>约 25 分钟阅读</span>
   </div>
 </header>
 
@@ -231,9 +231,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <p class="tldr-title">TL;DR</p>
   <ul>
 <li>标准 attention 物化 N&times;N 的 S 和 P 矩阵——HBM 流量 O(N&sup2;)，显存 O(N&sup2;)，序列长度一长就爆。对 N=4096、d=128，单个 head 的 S 就需要 32 MB HBM。</li>
-<li>FlashAttention 的核心是 tiling + online softmax：把 Q/K/V 分块加载到 SRAM，在片上完成 softmax 和 S&middot;V 累加，S 和 P 永远不写回 HBM——流量降到 O(Nd)，减少约 N/d 倍。</li>
+<li>FlashAttention 的核心是 tiling + online softmax：把 Q/K/V 分块加载到 SRAM，在片上完成 softmax 和 S&middot;V 累加，S 和 P 永远不写回 HBM。HBM 访问量从标准实现的 \(\Theta(Nd+N^2)\) 降到 \(\Theta(N^2d^2/M)\)（M 为 SRAM 大小），d&sup2; 远小于 M 时少很多倍<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。</li>
 <li>Online softmax 使分块计算成为可能：每处理一个新 KV block，用 rescale 因子 exp(m_old - m_new) 修正之前的累加值。数学上等价于看到全部 S 后再做 softmax，数值上同样稳定（exp 参数总 &le; 0）。</li>
-<li>FA2 把外层循环从 KV 改成 Q——每个 CTA 产出一块完整的 O，O 只写回 HBM 一次，非 matmul FLOP 减半，warp 间不再需要共享 m/l。A100 上 FA2 比 FA1 快约 2&times;。</li>
+<li>FA2 把外层循环从 KV 改成 Q——每个 CTA 产出一块完整的 O，O 只写回 HBM 一次；同时减少非 matmul FLOP、在序列维度上也做并行、warp 间改切 Q 而不再经 shared memory 合并结果。A100 上 FA2 比 FA1 快约 2&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</li>
 <li>Causal mask 在块级跳过：j &gt; i 的整块不计算，对角块内部用 -inf mask——平均省一半 FLOP。</li>
   </ul>
 </div>
@@ -244,13 +244,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-motivation">为什么 attention 需要 kernel 级优化</h2>
 
-<p>Transformer 中的 self-attention 是最核心的算子之一——在 LLM 和视觉 Transformer 中占据大量计算和内存。标准实现的问题不在于 FLOP 多（attention 的 FLOP 是 \(O(N^2 d)\)，d 通常只有 64 或 128，远小于 GEMM 的 M&times;N&times;K），而在于<b>内存效率极差</b>：中间矩阵 S 和 P 的大小是 \(N \times N\)，HBM 流量被 \(N^2\) 项主导，而有效计算量只有 \(O(N^2 d)\)——算术强度约为 d/4（对 FP16），远低于 GPU 的平衡点。attention 在标准实现下是严重的 memory-bound 算子。</p>
+<p>Transformer 中的 self-attention 是最核心的算子之一——在 LLM 和视觉 Transformer 中占据大量计算和内存。标准实现的问题不在于 FLOP 多（attention 的 FLOP 是 \(O(N^2 d)\)，d 通常只有 64 或 128，远小于 GEMM 的 M&times;N&times;K），而在于<b>内存效率极差</b>：中间矩阵 S 和 P 的大小是 \(N \times N\)，HBM 流量被 \(N^2\) 项主导，而有效计算量只有 \(O(N^2 d)\)——两个 GEMM 共 \(4N^2d\) FLOP，S、P 各写一次读一次共 \(8N^2\) 字节（FP16），整条链的算术强度约 d/2 FLOP/B，d=128 时约 64，低于 A100 约 153 FLOP/B 的平衡点<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>。attention 在标准实现下是严重的 memory-bound 算子。</p>
 
-<p>这个问题在长序列场景下尤其严重。当序列长度从 1024 增长到 8192（8&times;），HBM 流量增长 64&times;（\(N^2\) 项），FLOP 也增长 64&times;，但由于 HBM 带宽没有变化，wall-clock time 远超 64&times;——因为 memory-bound 的 softmax 步骤成为了瓶颈。PyTorch 的标准 attention（torch.nn.functional.scaled_dot_product_attention 的朴素实现）在 N=8192 时可能比 N=1024 慢 100&times; 以上，因为 softmax 步骤的 HBM 流量 \(\propto N^2\) 而 GPU 带宽固定。FlashAttention 通过消除这个 \(N^2\) 的 HBM 流量，让 attention 的 wall-clock time 真正按 \(O(N^2)\) 的 FLOP 来缩放——不被内存带宽的墙拖慢。</p>
+<p>这个问题在长序列场景下尤其严重。序列长度从 1024 增长到 8192（8&times;）时，S、P 的 HBM 流量和显存都增长 64&times;；显存先撞墙，而 memory-bound 的 softmax 一类逐元素步骤让时间被带宽而不是 Tensor Core 决定。FlashAttention 消除这个 \(N^2\) 的 HBM 流量后，attention 的耗时主要由 \(O(N^2 d)\) 的矩阵乘决定，显存只随 N 线性增长<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。</p>
 
-<p>FlashAttention 的洞察是：S 和 P 是&ldquo;中间结果&rdquo;，最终只有 O 和（反向需要的）LSE 需要写回 HBM。如果能在片上完成 S → softmax → P → PV 的整个计算链，S 和 P 就不需要落地到 HBM——HBM 流量从 O(N&sup2;) 降到 O(Nd)。</p>
+<p>FlashAttention 的洞察是：S 和 P 是&ldquo;中间结果&rdquo;，最终只有 O 和（反向需要的）LSE 需要写回 HBM。如果能在片上完成 S → softmax → P → PV 的整个计算链，S 和 P 就不需要落地到 HBM——HBM 流量里就不再有 N&sup2; 项。</p>
 
-<p>挑战在于 SRAM（shared memory）太小——A100 只有 192 KB，远不够放下完整的 S（N=4096 时 32 MB）。解决方案是 tiling——把 Q 和 KV 各分成若干 block（Q 分 \(T_r = N/B_r\) 块，KV 分 \(T_c = N/B_c\) 块），每次只在片上处理一个 \(B_r \times B_c\) 大小的 S tile。对 Br=Bc=128、d=128、FP16，一个 K tile（128&times;128&times;2 = 32 KB）+ V tile（32 KB）+ Q tile（32 KB）加上 S tile（128&times;128&times;4 = 64 KB for FP32 累加器）= 160 KB——刚好塞进 A100 的 192 KB shared memory。</p>
+<p>挑战在于 SRAM（shared memory）太小——A100 每个 SM 的 L1/shared memory 合计 192 KB，其中最多 164 KB 可配给 shared memory<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>，远不够放下完整的 S（N=4096 时 32 MB）。解决方案是 tiling——把 Q 和 KV 各分成若干 block（Q 分 \(T_r = N/B_r\) 块，KV 分 \(T_c = N/B_c\) 块），每次只在片上处理一个 \(B_r \times B_c\) 大小的 S tile。对 Br=Bc=128、d=128、FP16，一个 K tile（128&times;128&times;2 = 32 KB）+ V tile（32 KB）+ Q tile（32 KB）如果连 S tile（128&times;128&times;4 = 64 KB，FP32）也放进 shared memory，合计 160 KB——刚好低于 A100 每个 block 163 KB 的 shared memory 上限<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>。实际的 FA2 把 S 留在寄存器里，不占这 64 KB。</p>
 
 <p>但 softmax 是跨行全局操作——标准 softmax \(\text{softmax}(x)_i = e^{x_i} / \sum_j e^{x_j}\) 需要看到整行 S 才能计算分母中的 \(\sum_j\)。如果只看到 S 的一部分就做 softmax，得到的概率分布是错误的——因为缺少了未见部分的贡献。这就需要 online softmax——一种增量算法，可以在逐块扫描的过程中不断修正之前的结果，最终得到与看到全部 S 完全一致的输出。</p>
 
@@ -266,7 +266,7 @@ S = QK^T / \sqrt{d}, \quad P = \text{softmax}(S), \quad O = PV
 
 <figure id="fig-standard_attention_flow" data-kind="diagram">
 <img aria-labelledby="fig-standard_attention_flow-cap" src="figs/standard_attention_flow.svg" alt="Standard attention HBM traffic"/>
-<figcaption id="fig-standard_attention_flow-cap"><span class="fig-label">图 1</span><b>标准 attention 的 HBM 流量分析。</b>S 和 P 都是 N&times;N 矩阵，在 HBM 和 SRAM 之间反复搬运。对 N=4096、d=128、FP16，总 HBM 流量约 160 MB（单头），而 FlashAttention 只有 ~4 MB。</figcaption>
+<figcaption id="fig-standard_attention_flow-cap"><span class="fig-label">图 1</span><b>标准 attention 的 HBM 流量分析。</b>S 和 P 都是 N&times;N 矩阵，在 HBM 和 SRAM 之间反复搬运。按 FA1 论文的 Algorithm 0 计（S、P 各写一次读一次），N=4096、d=128、FP16 单头约 132 MB，几乎全是 N&sup2; 项；FlashAttention 没有这些项。</figcaption>
 </figure>
 
 <p>标准实现中，QK&#x1D40; 乘法用一个朴素 GEMM kernel 完成——每个线程负责 S 矩阵的一个元素：</p>
@@ -288,29 +288,29 @@ S = QK^T / \sqrt{d}, \quad P = \text{softmax}(S), \quad O = PV
 }</code></pre>
 <p class="src-note">完整代码：<code>code/at33-flashattention-fwd/standard_attention.cu</code> 第 7&ndash;21 行</p>
 
-<p>这段代码暴露了标准实现的根本问题：每个线程做 d=128 次 FMA 只需几十个时钟周期，但输出 S 是 \(N \times N\) 矩阵——N=4096 时有 1680 万个元素，占 64 MB（FP32）。这 64 MB 写回 HBM 后还要被 softmax kernel 读两遍（第一遍找行最大值，第二遍算 exp 和归一化），再被 PV 乘法 kernel 读一遍——S 矩阵在 HBM 中被反复搬运 4 次以上。如果 S 能留在片上不落地到 HBM，这些冗余流量就不存在了——这正是 FlashAttention 的核心洞察。即使把 QK&#x1D40; 和 softmax 两个 kernel 用 graph capture 融合调度，S 仍然必须写回 HBM 再读回——因为 softmax 需要看到整行 S 才能计算分母的求和，而 QK&#x1D40; kernel 的一个 tile 只产出 S 矩阵的一个子块。只有 online softmax（增量算法）才能打破这个数据依赖——在看到 S 的一部分时就开始 softmax 计算，随着新数据到来不断修正之前的结果。</p>
+<p>这段代码暴露了标准实现的根本问题：每个线程做 d=128 次 FMA 只需几十个时钟周期，但输出 S 是 \(N \times N\) 矩阵——N=4096 时有 1680 万个元素，占 64 MB（FP32）。这 64 MB 写回 HBM 后还要被 softmax kernel 读两遍（第一遍找行最大值，第二遍算 exp 和归一化），再被 PV 乘法 kernel 读一遍——S 矩阵在 HBM 中被反复搬运 4 次以上。如果 S 能留在片上不落地到 HBM，这些冗余流量就不存在了——这正是 FlashAttention 的核心洞察。即使把 QK&#x1D40; 和 softmax 两个 kernel 放进同一个 CUDA Graph 消掉 launch 开销，S 仍然必须写回 HBM 再读回——因为 softmax 需要看到整行 S 才能计算分母的求和，而 QK&#x1D40; kernel 的一个 tile 只产出 S 矩阵的一个子块。只有 online softmax（增量算法）才能打破这个数据依赖——在看到 S 的一部分时就开始 softmax 计算，随着新数据到来不断修正之前的结果。</p>
 
 <p>问题有两个维度：</p>
 
 <ul>
-<li><b>显存</b>：S 和 P 都是 \(N \times N\)。对 N=4096、FP16，S 需要 \(4096^2 \times 2\) B = 32 MB——对 N=16384 就是 512 MB，而 batch&middot;head 还要乘上去。一个典型配置（batch=4、head=32、N=8192）需要 \(4 \times 32 \times 8192^2 \times 2 = 16\) GB 来存 S——超过了 A100 的 80 GB 显存。</li>
-<li><b>HBM 流量</b>：写出 S（\(2N^2\) B）、读回做 softmax（\(4N^2\) B，两 pass：找 max 和计算 exp/sum）、写出 P（\(2N^2\) B）、读回乘 V（\(2N^2\) B）——总计 \(\sim 10N^2\) 字节的 HBM 流量。</li>
-<li><b>算术强度极低</b>：QK&#x1D40; 的 FLOP 是 \(2N^2 d\)，而 HBM 流量为 \(O(N^2)\) 字节。算术强度 \(\approx 2d\) FLOP/byte——对 d=128 约 256 FLOP/byte。看起来不低？但问题是 softmax 那一步：softmax 只有 \(O(N^2)\) FLOP（逐元素 exp + 归约），却需要读写整个 N&times;N 矩阵——算术强度接近 1 FLOP/byte，远低于 GPU 的平衡点（A100 约 208 FLOP/byte for FP16 MMA）。softmax 拖垮了整个 pipeline 的效率。</li>
+<li><b>显存</b>：S 和 P 都是 \(N \times N\)。对 N=4096、FP16，S 需要 \(4096^2 \times 2\) B = 32 MB——对 N=16384 就是 512 MB，而 batch&middot;head 还要乘上去。一个典型配置（batch=4、head=32、N=8192）需要 \(4 \times 32 \times 8192^2 \times 2\) B = 16 GiB 来存 S——一层就占掉 A100 80 GB 显存的五分之一，而训练时每层的 P 还要留到反向。</li>
+<li><b>HBM 流量</b>：写出 S（\(2N^2\) B）、读回做 softmax（\(2N^2\) B）、写出 P（\(2N^2\) B）、读回乘 V（\(2N^2\) B）——总计约 \(8N^2\) 字节（FP16），即 FA1 论文所说的 \(\Theta(Nd+N^2)\) 次 HBM 访问<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。如果 softmax 分两趟读 S，还要再加 \(2N^2\) B。</li>
+<li><b>算术强度极低</b>：QK&#x1D40; 的 FLOP 是 \(2N^2 d\)，写出 S 要 \(2N^2\) 字节，算术强度约 d FLOP/B——d=128 时约 128，已经低于 A100 80GB 约 153 FLOP/B 的平衡点（312 TFLOPS &divide; 2.039 TB/s）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>。softmax 那一步更糟：每个元素只有几次运算，却要读写整个 N&times;N 矩阵，算术强度只有约 1 FLOP/B 的量级。</li>
 </ul>
 
-<p>softmax 的两趟（two-pass）实现进一步加剧了 HBM 流量问题：第一趟遍历 S 的每一行找 max（需要读一遍 S），第二趟遍历做 exp 和 sum（又读一遍 S），然后归一化还要读一遍 P——S 的每一行被读了至少两遍。cuDNN 的 fused multi-head attention 可以用 online 算法把 softmax 减到一趟，但中间结果 S 仍然存在 HBM 中——根本问题没有解决。FlashAttention 的根本创新是让 S 永远不出现在 HBM 中——它只在 SRAM 的寄存器和 shared memory 中短暂存在，用完即丢。</p>
+<p>softmax 的两趟（two-pass）实现进一步加剧了 HBM 流量问题：第一趟遍历 S 的每一行找 max（需要读一遍 S），第二趟遍历做 exp 和 sum（又读一遍 S），然后归一化还要读一遍 P——S 的每一行被读了至少两遍。用 online 算法可以把 softmax 本身减到一趟，但只要 S 还落在 HBM 里，根本问题就没有解决。FlashAttention 的根本创新是让 S 永远不出现在 HBM 中——它只在 SRAM 的寄存器和 shared memory 中短暂存在，用完即丢。</p>
 
-<pre data-code="code/at33-flashattention-fwd/standard_attention.cu#L62-L69"><code>// HBM traffic analysis (N &gt;&gt; d):
-//   Standard: read Q,K (2Nd) + write S (N^2) + read S twice for
-//   softmax (2N^2) + write P (N^2)
-//   + read P,V (N^2+Nd) + write O (Nd)
-//   = ~4N^2 + 4Nd  (dominated by N^2 terms)
-//   FlashAttention: read Q,K,V (3Nd)
-//   + write O,LSE (Nd+N) = ~4Nd
-//   Ratio: ~N/d (e.g. N=4096, d=128 -&gt; 32x less HBM traffic)</code></pre>
+<pre data-code="code/at33-flashattention-fwd/standard_attention.cu#L62-L69"><code>// HBM accesses in elements (N &gt;&gt; d), cf. FA1 Theorem 2:
+//   Standard: read Q,K (2Nd) + write S (N^2) + read S (N^2)
+//   + write P (N^2) + read P,V (N^2+Nd) + write O (Nd)
+//   = 4N^2 + 4Nd  -&gt; Theta(Nd + N^2)
+//   FlashAttention (Br-row Q tile on chip): read Q once,
+//   K,V once per Q tile (2Nd * N/Br), write O and LSE
+//   = Nd*(2 + 2N/Br) + N -&gt; Theta(N^2 d^2 / M), Br ~ M/d
+//   No N^2 term: S and P never touch HBM.</code></pre>
 <p class="src-note">完整代码：<code>code/at33-flashattention-fwd/standard_attention.cu</code> 第 62–69 行</p>
 
-<p>对 N=4096、d=128：标准 attention 的 HBM 流量约 \(4 \times 4096^2 \times 2 = 128\) MB（FP16，单头），FlashAttention 只有 \(4 \times 4096 \times 128 \times 2 = 4\) MB——差 32&times;。这就是为什么 FlashAttention 在 A100 上比标准实现快 2&ndash;4&times;<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">1</a>]</span>——FLOP 没变，但 HBM 流量降了一个数量级。</p>
+<p>注意 FlashAttention 的流量并不是简单的 \(O(Nd)\)：Q tile 留在片上时，K 和 V 要被每个 Q tile 重读一遍，总量是 \(Nd(2 + 2N/B_r)\)，而 \(B_r\) 受 SRAM 大小 M 限制，于是得到 FA1 定理 2 的 \(\Theta(N^2d^2/M)\)<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。论文的论证是：d 取 64&ndash;128、M 约 100 KB 时 d&sup2; 比 M 小很多倍，所以 HBM 访问少很多倍。实测例子：GPT-2 medium（N=1024、d=64、16 头、batch 64）在 A100 上前向加反向，标准实现 HBM 读写 40.3 GB、耗时 41.7 ms，FlashAttention 为 4.4 GB、7.3 ms，FLOP 反而从 66.6 增加到 75.2 GFLOP（反向重计算）<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。FA2 论文把 FA1 概括为比标准实现快 2&ndash;4&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。（实际 GPU 上同一个 head 的多个 Q tile 并发读同一份 K/V，部分重读会命中 L2；两级模型不计 L2，论文也没有量化这一点。）</p>
 
 <h2 id="sec-tiling">FlashAttention：tiling + online softmax</h2>
 
@@ -318,7 +318,7 @@ S = QK^T / \sqrt{d}, \quad P = \text{softmax}(S), \quad O = PV
 
 <figure id="fig-fa_tiling" data-kind="diagram">
 <img aria-labelledby="fig-fa_tiling-cap" src="figs/fa_tiling.svg" alt="FlashAttention tiling"/>
-<figcaption id="fig-fa_tiling-cap"><span class="fig-label">图 2</span><b>FlashAttention 前向的数据流：</b>Q/K/V 从 HBM 分块加载到 SRAM，S 和 P 只存在于片上——HBM 流量从 O(N&sup2;) 降到 O(Nd)。每个 CTA 维护 running max 和 running sum 做 online softmax。</figcaption>
+<figcaption id="fig-fa_tiling-cap"><span class="fig-label">图 2</span><b>FlashAttention 前向的数据流：</b>Q/K/V 从 HBM 分块加载到 SRAM，S 和 P 只存在于片上——HBM 流量里不再有 N&sup2; 项。每个 CTA 维护 running max 和 running sum 做 online softmax。</figcaption>
 </figure>
 
 <figure id="fig-hbm_vs_sram" data-kind="diagram">
@@ -349,7 +349,7 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 
 <p><b>正确性证明</b>（直觉版）：考虑两个 block 的情况。第一个 block 后有 \(O_1 = \text{diag}(e^{S_1 - m_1}) \cdot V_1\)，\(\ell_1 = \sum e^{S_1 - m_1}\)。处理第二个 block 时，\(m_2 = \max(m_1, \max(S_2))\)。rescale 后：\(O_2 = e^{m_1 - m_2} \cdot O_1 + \text{diag}(e^{S_2 - m_2}) \cdot V_2\)。归一化后 \(O = O_2 / \ell_2\)。展开：分子 = \(\sum_j e^{S_{1,j} - m_2} V_{1,j} + \sum_k e^{S_{2,k} - m_2} V_{2,k}\) = \(\sum_{\text{all}} e^{S_i - m_2} V_i\)，分母 = \(\sum_{\text{all}} e^{S_i - m_2}\)——与标准 softmax 完全一致。归纳到任意多个 block 同理。</p>
 
-<p><b>Online softmax 的历史</b>：这个增量算法最早由 Milakov 和 Gimelshein 在 2018 年提出（Online normalizer calculation for softmax），原始动机是把两趟 softmax（第一趟找 max，第二趟计算 exp 和 sum）合并为一趟。FlashAttention 把这个想法推广到矩阵块级别——不仅合并 softmax 的两趟，还把后续的 PV 乘法也融合进来，实现了整个 attention 的单趟（single-pass）计算。</p>
+<p><b>Online softmax 的历史</b>：这个增量算法由 Milakov 和 Gimelshein 在 2018 年提出<span class="cite">[<a href="#ref-milakov" title="Milakov &amp; Gimelshein (2018). Online normalizer calculation for softmax. arXiv:1805.02867。">4</a>]</span>，原始动机是把两趟 softmax（第一趟找 max，第二趟计算 exp 和 sum）合并为一趟。FlashAttention 把这个想法推广到矩阵块级别——不仅合并 softmax 的两趟，还把后续的 PV 乘法也融合进来，实现了整个 attention 的单趟（single-pass）计算。</p>
 
 <h2 id="sec-fa2">FA2：外层循环从 KV 改成 Q</h2>
 
@@ -357,18 +357,19 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 
 <figure id="fig-fa1_vs_fa2" data-kind="diagram">
 <img aria-labelledby="fig-fa1_vs_fa2-cap" src="figs/fa1_vs_fa2.svg" alt="FA1 vs FA2"/>
-<figcaption id="fig-fa1_vs_fa2-cap"><span class="fig-label">图 5</span><b>FA1 vs FA2 的循环顺序。</b>FA2 外层遍历 Q block——Q 加载一次后常驻寄存器，O 只在所有 KV block 处理完后写回 HBM 一次。三个改进：减少 HBM 写、减少非 matmul FLOP、warp 间不共享统计量。</figcaption>
+<figcaption id="fig-fa1_vs_fa2-cap"><span class="fig-label">图 5</span><b>FA1 vs FA2 的循环顺序。</b>FA2 外层遍历 Q block——Q 加载一次后常驻片上，O 只在所有 KV block 处理完后写回 HBM 一次。FA2 论文列出的三项改进：减少非 matmul FLOP、在序列维度上并行、warp 间改为 split-Q<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</figcaption>
 </figure>
 
-<p>FA2 的三个关键改进：</p>
+<p>FA2 的关键改进（FA2 论文第 3 节）<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>：</p>
 
 <ol>
 <li><b>O 只写回 HBM 一次</b>：FA1 的 O 在内层循环每步都要读+写 HBM（因为不同 KV block 更新同一个 Q block 的 O）。FA2 的 O 在寄存器中累加——从第一个 KV block 开始，到最后一个 KV block 结束，O 始终在寄存器里，只在所有 KV block 处理完后一次性写出。这省掉了 \(T_c - 1\) 次 O 的 HBM 读写（\(T_c\) 是 KV block 数）。对 N=4096、Bc=64，\(T_c = 64\)——FA1 每个 Q tile 的 O 要写 63 次多余的 HBM 往返。</li>
-<li><b>非 matmul FLOP 减半</b>：FA1 的 rescale 需要在 warp 之间共享 running max 和 running sum——因为外层循环 KV，不同 warp 处理同一个 Q block 的不同行，统计量需要全 block 可见。每个 warp 先算自己那几行的局部 max，然后通过 shared memory 做全 block 归约得到全局 max，再通知所有 warp 做 rescale。FA2 每个 warp 独立维护自己负责的 Q 行的 m 和 l，rescale 只在 warp 内部做——不需要 shared memory 通信。这减少了约 50% 的非 matmul 指令。在 A100 上，non-matmul FLOP 和 matmul FLOP 的比例决定了 Tensor Core 利用率——non-matmul 越少，MMA 管线越不会被标量运算拖慢。</li>
-<li><b>Grid 并行度更好</b>：grid 维度是 (batch, head, Q_block)，Q block 数 = N/Br。对 N=4096、Br=128，有 32 个 Q block——比 FA1 的 KV block 数更多（KV block 通常更少因为 Bc 可以更大），给 GPU 更多的 CTA 来调度。在 A100 上 108 个 SM 需要至少 108 个 CTA 才能占满——对 batch=4、head=32，共 \(4 \times 32 \times 32 = 4096\) 个 CTA，SM 利用率很高。</li>
+<li><b>减少非 matmul FLOP</b>：FA1 每处理一个 KV block 都把 O 除以新的 \(\ell\)（Algorithm 1 第 12 行）。FA2 改为只维护未归一化的 \(\tilde O\)，循环结束后才乘一次 \(\text{diag}(\ell)^{-1}\)；反向也只存 logsumexp \(L = m + \log \ell\)，不再分别存 m 和 \(\ell\)。这一点重要是因为 A100 的 FP16/BF16 矩阵乘峰值 312 TFLOPS，而非 matmul 的 FP32 只有 19.5 TFLOPS——每个非 matmul FLOP 约贵 16 倍<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</li>
+<li><b>warp 间改为 split-Q</b>：FA1 在一个 block 内把 K、V 切给 4 个 warp（&ldquo;split-K&rdquo;），每个 warp 算出部分结果后要写 shared memory、同步、再相加。FA2 改为把 Q 切给各 warp，K、V 对所有 warp 可见，每个 warp 直接得到自己那几行的输出，warp 之间不需要通信<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</li>
+<li><b>在序列维度上并行</b>：FA1 一个 thread block 处理一个 head，共 batch &times; head 个 block；A100 有 108 个 SM，batch &times; head 小时占不满。FA2 的外层 Q 循环彼此独立，于是 grid 变成 (batch, head, Q_block)，长序列、小 batch 时并行度明显变好<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。例如 batch=1、head=16、N=4096、Br=128 时，FA1 只有 16 个 block，FA2 有 16 &times; 32 = 512 个。</li>
 </ol>
 
-<p>综合效果：FA2 在 A100 上 attention 前向达到约 230 TFLOP/s，对比 FA1 的约 120 TFLOP/s，接近理论峰值（312 TFLOP/s for FP16 MMA）的 73%<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">2</a>]</span>。剩余 gap 主要来自 softmax 的标量计算和 K/V 加载的 HBM 延迟。</p>
+<p>综合效果：FA2 论文报告 FA1 只能达到 A100 理论峰值的 25&ndash;40%，FA2 前向最高约 230 TFLOP/s，即 312 TFLOP/s 峰值的 73%，约为 FA1 的 2&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</p>
 
 <h2 id="sec-impl">FA2 前向实现</h2>
 
@@ -388,7 +389,7 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
   float o_acc[128];</code></pre>
 <p class="src-note">完整代码：<code>code/at33-flashattention-fwd/flash_attn_fwd.cu</code> 第 29&ndash;41 行（未在 GPU 上运行）</p>
 
-<p>q_reg 在整个内层循环中不再变化——d=128 个 float 占 512 字节即 128 个 32-bit 寄存器。row_max 初始化为极小的负数（代替 \(-\infty\)），row_sum 初始化为 0——它们是 online softmax 的两个运行状态：running max 和 running sum。o_acc 是 O 的累加器，同样 d 个 float 常驻寄存器。总共每个线程至少需要 \(2 \times 128 + 2 = 258\) 个寄存器——这就是为什么 FlashAttention 的 occupancy 通常只有 1（每 SM 一个 CTA）：A100 每 SM 有 65536 个寄存器，block size 为 256 线程时每线程只能分到 256 个——刚好在边界上。实际的 FA2 Tensor Core 实现用更大的 tile（Br=64, Bc=64）和 128 个线程，每线程的寄存器需求超过 200 个——SM 只能容纳 1 个 CTA，但这不影响性能，因为单 CTA 已经能用满 MMA 吞吐和 HBM 带宽。低 occupancy 反而有好处：可以把更多 shared memory 分配给 K/V 的双缓冲——同时缓存当前和下一个 KV block 的 tile，在计算和加载之间实现流水线重叠。</p>
+<p>q_reg 在整个内层循环中不再变化——d=128 个 float 占 512 字节即 128 个 32-bit 寄存器。row_max 初始化为极小的负数（代替 \(-\infty\)），row_sum 初始化为 0——它们是 online softmax 的两个运行状态：running max 和 running sum。o_acc 是 O 的累加器，同样 d 个 float。光这两个数组就要 256 个 32-bit 值，超过每线程最多 255 个寄存器的上限<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>，所以这个教学版一定会把数组溢出到 local memory——它只用来展示算法，不代表性能。真正的 FA2 用 Tensor Core 让一个 warp 合作持有一块 tile，每个线程只拿其中一小片（见下文的寄存器预算）。</p>
 
 <p>每个 KV block 的处理分为三步：协作加载 K/V tile 到 shared memory、计算 S 的子列（dot product）、online softmax rescale 并累加 PV：</p>
 
@@ -440,12 +441,12 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 <ul>
 <li><b>K/V 协作加载</b>：block 中所有线程协作把当前 KV block 的 K 和 V 加载到 shared memory，然后 __syncthreads()。之后每个线程从 shared memory 读取 K/V tile，做自己 Q 行的 dot product——这保证了 K/V 的 HBM 读取是合并的（coalesced）。</li>
 <li><b>在线 rescale</b>：每个新 KV block 处理前，先计算 new_max，然后 rescale 之前的 row_sum 和 o_acc。rescale 因子 = exp(row_max - new_max)，总是 &le; 1。</li>
-<li><b>S 不落地</b>：s_local 数组存在每个线程的寄存器中（大小 Bc，最多 32 个 float = 128 字节），softmax 在寄存器中完成后直接与 V tile 相乘——S 永远不写回 shared memory 或 HBM。这就是 FlashAttention 省内存的核心：如果 S 写回 shared memory，光一个 128&times;128 的 FP32 tile 就是 64 KB，几乎占满 A100 的 shared memory。让 S 只存在于寄存器中，SRAM 就可以留给 K/V 的双缓冲。</li>
+<li><b>S 不落地</b>：s_local 数组存在每个线程的寄存器中（大小 Bc，最多 32 个 float = 128 字节），softmax 在寄存器中完成后直接与 V tile 相乘——S 永远不写回 shared memory 或 HBM。这就是 FlashAttention 省内存的核心：如果 S 写回 shared memory，光一个 128&times;128 的 FP32 tile 就是 64 KB，占去 A100 每 SM 164 KB shared memory 上限的近四成。让 S 只存在于寄存器中，SRAM 就可以留给 K/V 的双缓冲。</li>
 </ul>
 
-<p>实际的 FA2 用 Tensor Core（mma.sync），Q 的 tile 存寄存器（作为 MMA 的 A 操作数），K/V 通过 shared memory 流水。S 矩阵在寄存器中算出后直接做 softmax（不写 shared memory），再作为下一个 MMA 的 A 操作数乘以 V。关键技巧是 MMA 累加器的 layout 可以直接复用为 A 操作数的 layout——不需要过 shared memory 中转<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">2</a>]</span>。</p>
+<p>实际的 FA2 用 Tensor Core（mma.sync），Q 的 tile 存寄存器（作为 MMA 的 A 操作数），K/V 通过 shared memory 流水。S 矩阵在寄存器中算出后直接做 softmax（不写 shared memory），再作为下一个 MMA 的 A 操作数乘以 V。关键技巧是 16 位输入时 MMA 累加器的 layout 可以直接复用为 A 操作数的 layout——不需要过 shared memory 中转；FA3 论文指出 FP8 时两者不一致，需要额外的寄存器重排<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>。</p>
 
-<p><b>寄存器预算分析</b>：以 Br=64、Bc=64、d=128 为例，每个线程需要：Q tile 占用的寄存器（64&times;128 / 128 threads = 64 FP32 寄存器）、O 累加器（同样 64 个）、S tile（64&times;64 / 128 = 32 个）、running max 和 sum（2 个）——共约 162 个 FP32 寄存器。A100 每个 SM 最多 65536 个 32-bit 寄存器，128 threads 需要 128 &times; 162 = 20736 个——占用率约 32%。这限制了每个 SM 只能跑 1 个 CTA（occupancy = 1），但对 FlashAttention 来说足够，因为瓶颈在 MMA 和 HBM 带宽，不在 occupancy。实际上低 occupancy 反而可以用更多的 shared memory 做双缓冲流水。</p>
+<p><b>寄存器预算分析</b>（按公式估算，不是编译结果）：以 Br=64、Bc=64、d=128、4 个 warp（128 线程）为例，tile 平均分给 128 个线程：O 累加器 64&times;128 个 FP32 / 128 = 64 个寄存器；S tile 64&times;64 个 FP32 / 128 = 32 个；如果 Q 也放寄存器，64&times;128 个 FP16 / 128 = 64 个 FP16，打包后 32 个寄存器；再加 m、\(\ell\) 和地址等标量。合计一百多个寄存器，低于 255 的上限。按寄存器算，65536 / (128 &times; 每线程寄存器数) 决定每 SM 能放几个这样的 CTA；实际 occupancy 还受 shared memory 用量限制。FA2 论文只说明块大小在 {64,128}&times;{64,128} 中按 head dim 和 shared memory 大小手工选择，块太大会寄存器溢出或 shared memory 不够<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</p>
 
 <h2 id="sec-causal">Causal Mask 的块级跳过</h2>
 
@@ -466,9 +467,9 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 
 <p>对角块的处理需要特别注意：对角块内部，Q 的第 r 行只能看到 K 的第 0 到 r 行。实现上，在计算 S 之后、做 softmax 之前，把 S 中 col &gt; row 的位置设为 \(-\infty\)（实践中用 -1e20f）。这样 \(\exp(-\infty) = 0\)，不可见位置对 O 的贡献为零。这个 masking 操作是逐元素的——对 Br&times;Bc 大小的 tile，只需要对角块执行，计算量是 \(O(B_r \cdot B_c)\)，相比 GEMM 的 \(O(B_r \cdot B_c \cdot d)\) 可以忽略。</p>
 
-<p>Causal mask 的块级跳过不仅减少了计算量，还改善了负载均衡问题。考虑 N=4096、Bc=64 的例子：总共 64 个 KV block。第 0 个 Q block 只需处理 1 个 KV block（j=0），而第 63 个 Q block 需要处理全部 64 个。如果朴素地一个 Q block 一个 CTA，不同 CTA 的工作量差 64 倍——SM 利用率极低。FA2 让 GPU 的硬件调度器自然处理这个不均衡：先完成短 block 的 CTA 被立即回收处理下一个 Q block。更高级的实现（如 FA3）引入了 persistent kernel 和显式的 tile 调度器（类似 StreamK 的思路——参见<a href="../gm28-gemm-variants/gm28-gemm-variants.html">第 28 篇</a>），把所有需要计算的 (Q block, KV block) 对展开成一维任务列表，线程块按序领取任务，进一步消除长短 block 之间的空闲等待。</p>
+<p>Causal mask 的块级跳过不仅减少了计算量，还改善了负载均衡问题。考虑 N=4096、Bc=64 的例子：总共 64 个 KV block。第 0 个 Q block 只需处理 1 个 KV block（j=0），而第 63 个 Q block 需要处理全部 64 个。如果朴素地一个 Q block 一个 CTA，不同 CTA 的工作量差 64 倍——SM 利用率极低。FA2 让 GPU 的硬件调度器自然处理这个不均衡：先完成短 block 的 CTA 被立即回收处理下一个 Q block。更新的实现改用 persistent kernel 加显式的 tile 调度器（与 GEMM 中的 persistent 调度同类思路，参见<a href="../gm28-gemm-variants/gm28-gemm-variants.html">第 28 篇</a>）：FA3 的 FP16 前向带有 persistent kernel 和负载均衡<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>；FA4 论文对 causal 采用 LPT（最长任务先做）的调度顺序，在 H200 上测得 MHA 4&ndash;8%、MQA 7&ndash;14% 的提升<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§2.2、§3.1、§3.3、§5.1。">6</a>]</span>。</p>
 
-<p>这个调度问题在长序列上尤为重要。对 N=128K 的长文本场景，KV block 数达到 2048，最后一个 Q block 要遍历全部 2048 个 KV block——单 CTA 计算可达毫秒级。如果前面的 CTA 全部提前完成但最后一个还在运行，GPU 大部分 SM 处于空闲——这是 causal attention 的&ldquo;长尾问题&rdquo;。FA3 的 tile scheduler 把大 Q block 拆分成更细粒度的子任务来缓解这个问题，确保所有 SM 始终有任务可执行。对非 causal 的双向 attention（如 BERT），这个问题不存在——所有 Q block 遍历相同数量的 KV block，负载天然均衡。</p>
+<p>这个调度问题在长序列上尤为重要。对 N=128K 的长文本场景，KV block 数达到 2048（Bc=64），最后一个 Q block 要遍历全部 2048 个 KV block，工作量是第一个 Q block 的 2048 倍。如果前面的 CTA 全部提前完成但最后一个还在运行，GPU 大部分 SM 处于空闲——这是 causal attention 的&ldquo;长尾问题&rdquo;。先发长任务、再用短任务填空，就是上面 LPT 调度的出发点。对非 causal 的双向 attention（如 BERT），这个问题不存在——所有 Q block 遍历相同数量的 KV block，负载天然均衡。</p>
 
 <p>值得注意的是，causal mask 的跳过是<b>精确的</b>，不是近似。被跳过的块中所有 \(P_{ij} = 0\)（因为 \(S_{ij} = -\infty\) 后 softmax 输出为 0），对 O 的贡献为零。跳过与不跳过在数学上完全等价——没有精度损失。</p>
 
@@ -478,25 +479,25 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 
 <ul>
 <li><b>Q 常驻寄存器</b>：Q tile 作为 GEMM0（QK&#x1D40;）的 A 操作数，加载一次后在内层循环中反复使用——Q 的每一行与每个 KV block 的 K 做 dot product，所以 Q tile 被复用 T_c 次。这正是外层循环选 Q 的好处——如果外层是 KV，那么 K tile 常驻寄存器，但 K 只被复用 T_r 次（Q block 数），不一定更多。</li>
-<li><b>S &rarr; P 的寄存器转换</b>：S = QK&#x1D40; 的结果在 MMA 的累加器寄存器（FP32 格式）中。要做 softmax（逐行 max + exp + sum），然后 P 作为 GEMM1（PV）的 A 操作数使用。关键是累加器的 layout 可以直接复用为 A 操作数的 layout——不需要过 shared memory 中转<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">2</a>]</span>。这个&ldquo;免转换&rdquo;是 FA2 性能的关键——否则 S 要写 shared memory 再读回来，增加一次完整 tile 的 SMEM 流量。</li>
+<li><b>S &rarr; P 的寄存器转换</b>：S = QK&#x1D40; 的结果在 MMA 的累加器寄存器（FP32 格式）中。要做 softmax（逐行 max + exp + sum），然后 P 作为 GEMM1（PV）的 A 操作数使用。关键是 16 位输入时累加器的 layout 可以直接复用为 A 操作数的 layout——不需要过 shared memory 中转（FP8 时不成立，见 FA3 论文 &sect;3.3<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>）。这个&ldquo;免转换&rdquo;——否则 S 要写 shared memory 再读回来，增加一次完整 tile 的 SMEM 流量。</li>
 <li><b>K/V 流水</b>：当前 block 的 S 在计算时，下一个 block 的 K/V 已经通过 cp.async 在加载——双缓冲流水线（参考 <a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）。这使得 GEMM 和内存加载重叠，隐藏了 HBM 延迟。</li>
-<li><b>Head dim 的影响</b>：d=64 时寄存器压力小——Q tile 只占 Br&times;64/32 = 2&times;Br 个 FP32 寄存器（每个线程），Br/Bc 可以大（128/64）。d=128 时 Q tile 的寄存器占用翻倍，Br 必须缩小（通常 64/64）。d=256 可能需要 split-d——把 d 拆成两半，分两轮做 GEMM，中间合并部分结果。</li>
-<li><b>GEMM0 vs GEMM1 的不对称性</b>：GEMM0（QK&#x1D40;，形状 Br&times;d &times; d&times;Bc = Br&times;Bc）和 GEMM1（PV，形状 Br&times;Bc &times; Bc&times;d = Br&times;d）的 K 维度不同——GEMM0 沿 d 归约，GEMM1 沿 Bc 归约。当 d &ne; Bc 时，两个 GEMM 的循环次数和 tile 形状不同。FA2 通常选择 Bc = d 来让两个 GEMM 对称，简化实现。但 d 越大，Bc 也越大，SRAM 中 K/V tile 的大小增加——可能需要更多 shared memory 或减小 Br。</li>
+<li><b>Head dim 的影响</b>：O 累加器和 Q tile 的大小都与 d 成正比，d 越大，同样的寄存器和 shared memory 能放下的 Br、Bc 越小。FA2 按 head dim 手工从 {64,128}&times;{64,128} 中选块大小<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</li>
+<li><b>GEMM0 vs GEMM1 的不对称性</b>：GEMM0（QK&#x1D40;，形状 Br&times;d &times; d&times;Bc = Br&times;Bc）和 GEMM1（PV，形状 Br&times;Bc &times; Bc&times;d = Br&times;d）的 K 维度不同——GEMM0 沿 d 归约，GEMM1 沿 Bc 归约。当 d &ne; Bc 时，两个 GEMM 的 k 步数和 tile 形状不同，但两者的 FLOP 都是 \(2B_rB_cd\)。</li>
 </ul>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
-<p>FlashAttention 的每一代都利用了最新硬件的特性来进一步加速。Ampere 上 FA2 约 230 TFLOP/s（FP16），Hopper 上 FA3 约 400 TFLOP/s（FP16）或约 750 TFLOP/s（FP8）。每一代硬件不仅提升了 MMA 吞吐，还提供了更好的数据搬运原语和更多的片上存储，让 FlashAttention 能够使用更大的 tile、更深的流水线：</p>
+<p>FlashAttention 的每一代都利用了最新硬件的特性来进一步加速。Ampere 上 FA2 最高约 230 TFLOP/s（FP16）<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>；Hopper 上 FA3 的 FP16 前向最高约 740 TFLOP/s（75% 利用率），FP8 接近 1.2 PFLOP/s<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>。每一代硬件不仅提升了 MMA 吞吐，还提供了更好的数据搬运原语和更多的片上存储，让 FlashAttention 能够使用更大的 tile、更深的流水线：</p>
 
 <table>
 <thead><tr><th>特性</th><th>对 FlashAttention 前向的影响</th></tr></thead>
 <tbody>
-<tr><td>TMA<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA）。">3</a>]</span></td><td>K/V 的 tile 加载从 cp.async 升级到 TMA——一条指令完成 2D tile 的搬运和 swizzle，省去了手写地址计算（节省几十条指令和对应的寄存器）。FlashAttention-3 全面使用 TMA，加载效率更高。</td></tr>
-<tr><td>WGMMA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">4</a>]</span></td><td>QK&#x1D40; 和 PV 都是 GEMM——WGMMA 的异步发射和更大的 tile（64&times;N&times;16 vs mma.sync 的 16&times;8&times;16）提高 MMA 利用率。异步发射意味着 softmax 计算可以和下一个 WGMMA 重叠。</td></tr>
+<tr><td>TMA<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA（查阅时为 9.5 版）. §9.7.10.28.5.3（cp.async.bulk.tensor / TMA）、§9.7.16（mma.sync）、§9.7.17（wgmma.mma_async）。">7</a>]</span></td><td>K/V 的 tile 加载从 cp.async 升级到 TMA——一条指令完成 2D tile 的搬运和 swizzle，省去了线程手写的地址计算。FlashAttention-3 用 TMA 加载 Q、K、V<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>。</td></tr>
+<tr><td>WGMMA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">8</a>]</span></td><td>QK&#x1D40; 和 PV 都是 GEMM——WGMMA 的异步发射和更大的 tile（64&times;N&times;16 vs mma.sync 的 16&times;8&times;16）提高 MMA 利用率。异步发射意味着 softmax 计算可以和下一个 WGMMA 重叠。</td></tr>
 <tr><td>Warp specialization</td><td>Producer warp 专做 TMA 加载（K/V tile），consumer warp 专做 MMA + softmax——自然适合 FA 的加载/计算交替模式。不同于 Ampere 上所有 warp 做同样的事，Hopper 上不同 warp 做不同的事（类似流水线的不同阶段），利用率更高。</td></tr>
-<tr><td>更大 L1/L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span></td><td>H100 256 KB L1（vs A100 192 KB）：可以分配更多 shared memory 给 K/V 双缓冲，或使用更大的 tile。更大的 tile 意味着更少的内层循环次数和更少的 rescale 操作。</td></tr>
-<tr><td>FP8 MMA</td><td>FA3 支持 FP8 attention——QK&#x1D40; 用 FP8 MMA（吞吐翻倍），PV 也可以用 FP8 MMA——但 softmax 仍需 FP32。精度用 block quantization + incoherent processing（随机旋转 Q/K 让量化误差分散）补偿。</td></tr>
-<tr><td>Blackwell tcgen05</td><td>tcgen05 MMA 指令操作 TMEM（Tensor Memory），数据路径从 HBM → SMEM → REG → MMA 缩短为 HBM → TMEM → MMA——消除了寄存器文件的读写瓶颈。FA4 在 Blackwell 上用 2-CTA 协作（两个 CTA 共享一个 SM，一个负责 GEMM0 一个负责 GEMM1）和 CLC（Cross-Lane Communication）进一步优化了 softmax 的跨 warp 归约。B200 预计 MMA 吞吐再翻倍，FlashAttention 的收益将持续放大。</td></tr>
+<tr><td>更大 L1/L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span></td><td>H100 每 SM 256 KB L1、最多 228 KB shared memory（A100 为 192 KB 和 164 KB）：可以分配更多 shared memory 给 K/V 多级缓冲，或使用更大的 tile。更大的 tile 意味着更少的内层循环次数和更少的 rescale 操作。</td></tr>
+<tr><td>FP8 MMA</td><td>FA3 支持 FP8 attention——QK&#x1D40; 用 FP8 MMA（吞吐翻倍），PV 也可以用 FP8 MMA——但 softmax 仍需 FP32。精度用 block quantization + incoherent processing（用随机正交矩阵同时乘 Q 和 K，把离群值摊开）补偿<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>。</td></tr>
+<tr><td>Blackwell tcgen05</td><td>tcgen05 MMA 的累加器写在 TMEM（每 SM 256 KB 的 Tensor Memory）里，不占寄存器；操作数仍从 shared memory 读（A 也可以来自 TMEM，FA4 让 P 经 TMEM 进入第二个 GEMM）。B200 每 SM 每周期的 BF16 Tensor Core 吞吐是 H100 的两倍，exp 单元（MUFU）却仍是每周期 16 次，于是 FA4 把一部分 exp2 改用 FMA 上的多项式计算，并只在 max 涨幅超过阈值时才 rescale；B200 上 BF16 前向最高约 1613 TFLOP/s（71% 利用率）<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§2.2、§3.1、§3.3、§5.1。">6</a>]</span>。详见<a href="../at36-flashattention4/at36-flashattention4.html">第 36 篇</a>。</td></tr>
 </tbody>
 </table>
 
@@ -505,11 +506,11 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 <dl>
 <dt id="sec-q1">Q1：FlashAttention 为什么能同时省显存和加速？（最高频）</dt>
 <dd>省显存：不物化 N&times;N 的 S 和 P 矩阵——它们只在 SRAM 中存在一个 block 大小（Br&times;Bc）。显存从 O(N&sup2;) 降到 O(N)（只存 O 和 LSE）。<br>
-加速：HBM 流量从 O(N&sup2;) 降到 O(Nd)——对 N=4096、d=128，减少 32&times;。attention 在标准实现中是 memory-bound（大量 HBM 读写），FlashAttention 消除了中间矩阵的 HBM 流量，使计算更接近 compute-bound。<br>
+加速：HBM 访问从 \(\Theta(Nd+N^2)\) 降到 \(\Theta(N^2d^2/M)\)；FA1 论文的 GPT-2 medium 例子中 HBM 读写从 40.3 GB 降到 4.4 GB<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。attention 在标准实现中是 memory-bound（大量 HBM 读写），FlashAttention 消除了中间矩阵的 HBM 流量，使计算更接近 compute-bound。<br>
 <b>追问</b>：FLOP 变了吗？答：没变——仍然是 \(O(N^2 d)\)。实际上 online softmax 的 rescale 还增加了少量 FLOP：每行每个 KV block 需要一次 exp（rescale 因子）、d 次乘法（rescale O 的每个元素）和 1 次乘法（rescale l）。总共多出 \(O(N^2 d / B_c)\) 的额外 FLOP——但这些都是非 matmul 的标量操作，相比 \(O(N^2 d)\) 的 matmul FLOP 可以忽略。加速完全来自减少 HBM 流量——把 memory-bound 变成了 compute-bound。</dd>
 
 <dt id="sec-q2">Q2：FA2 相比 FA1 改了什么？</dt>
-<dd>三点：(1) 外层循环从 KV 改成 Q——O 只写回 HBM 一次（FA1 每步都写），省了 T_c-1 次 O 的 HBM 往返；(2) 每个 warp 独立维护统计量（m, l），不需要 warp 间通过 shared memory 共享——减少 non-matmul FLOP 约 2&times;；(3) grid 维度是 (batch, head, Q_block)，Q block 数更多，GPU 并行度更好。FA2 在 A100 上比 FA1 快约 2&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">2</a>]</span>。<br>
+<dd>FA2 论文列的三点：(1) 减少非 matmul FLOP——O 不再每步除以 \(\ell\)，最后才归一化一次，反向只存 logsumexp；(2) 外层循环改成 Q，并在序列维度上并行，grid 变成 (batch, head, Q_block)，O 也因此只写回 HBM 一次；(3) block 内 warp 改为 split-Q，不再像 FA1 的 split-K 那样经 shared memory 合并部分结果。FA2 在 A100 上比 FA1 快约 2&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。<br>
 <b>追问</b>：FA2 的 Tensor Core 实现中，S 怎么变成 P 再乘 V？答：S 在 MMA 累加器寄存器中（FP32），直接在寄存器中做 row max + exp + sum（softmax），然后 P 的 layout 与下一个 MMA 的 A 操作数兼容（layout 免转换），直接送入 PV GEMM——不过 shared memory。这避免了一次完整 tile 的 SMEM 写+读往返。</dd>
 
 <dt id="sec-q3">Q3：Online softmax 的 rescale 是怎么保证正确性的？</dt>
@@ -521,33 +522,33 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 <b>追问</b>：这个省略是精确的还是近似的？答：精确的。被跳过的块中所有 \(P_{ij} = 0\)（因为 \(S_{ij} = -\infty\)），对 O 的贡献为零，跳过与不跳过在数学上完全等价。没有精度损失，没有近似误差。这与稀疏 attention 方法（如 Longformer、BigBird 等用 sliding window 或 random pattern 近似完整 attention）本质不同——FlashAttention 计算的是精确的完整 attention，只是用了更高效的计算方式。</dd>
 
 <dt id="sec-q5">Q5：FlashAttention 的 IO 复杂度是多少？</dt>
-<dd>设 SRAM 容量为 M 字节（A100 上约 192 KB 可用）。FlashAttention 的 HBM 访问次数是 \(\Theta(N^2 d^2 M^{-1})\)<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">1</a>]</span>。直觉：每个 Q tile（Br&times;d）与每个 KV tile（Bc&times;d）配对，tile 大小受 M 限制（\(B_r \cdot d + 2 B_c \cdot d \le M\)），总的 tile pair 数是 \((N/B_r)(N/B_c)\)，每个 pair 加载 \(B_c \cdot d\) 字节的 K+V。优化 Br 和 Bc 后得到上述复杂度。FA1 论文证明了这是下界——在 SRAM 容量 M 和 HBM 容量无限的假设下，没有更好的算法。<br>
-<b>追问</b>：增大 SRAM（比如 Hopper 的 256 KB vs A100 的 192 KB）有什么影响？答：M 增大，\(N^2 d^2 / M\) 减小——HBM 访问次数更少。实际上更大的 M 允许更大的 tile（Br 和 Bc 更大），每个 KV tile 的加载被更多 Q 行复用。但收益是次线性的：M 翻倍只减少约一半的 HBM 访问，并且受限于寄存器数量（更大的 tile = 更多寄存器压力）。</dd>
+<dd>设 SRAM 容量为 M 字节（A100 上约 192 KB 可用）。FlashAttention 的 HBM 访问次数是 \(\Theta(N^2 d^2 M^{-1})\)，标准实现是 \(\Theta(Nd+N^2)\)<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。直觉：每个 Q tile（Br&times;d）与每个 KV tile（Bc&times;d）配对，tile 大小受 M 限制（\(B_r \cdot d + 2 B_c \cdot d \le M\)），总的 tile pair 数是 \((N/B_r)(N/B_c)\)，每个 pair 加载 \(B_c \cdot d\) 字节的 K+V。优化 Br 和 Bc 后得到上述复杂度。FA1 论文还给了一个下界（命题 3）：不存在对 \([d, Nd]\) 中所有 M 都只需 \(o(N^2d^2M^{-1})\) 次 HBM 访问的精确 attention 算法；证明只用了 \(M=\Theta(Nd)\) 这一端，此时任何算法至少要 \(\Omega(Nd)\) 次访问。论文明确说按 M 参数化的更强下界留作将来工作。<br>
+<b>追问</b>：增大 SRAM（比如 Hopper 的 256 KB vs A100 的 192 KB）有什么影响？答：M 增大，\(N^2 d^2 / M\) 减小——HBM 访问次数更少。实际上更大的 M 允许更大的 tile（Br 和 Bc 更大），每个 KV tile 的加载被更多 Q 行复用。按公式，访问量与 M 成反比，M 翻倍访问量减半；但 tile 能放多大还受寄存器数量限制，FA1 论文的实验也显示块大小超过某一点后，运行时间转而由其他因素（如算术运算）决定<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。">1</a>]</span>。</dd>
 
 <dt id="sec-q6">Q6：FlashAttention 能否用于 cross-attention（Q 和 KV 长度不同）？</dt>
-<dd>可以。设 Q 长度为 \(N_q\)，KV 长度为 \(N_{kv}\)。Tiling 方式不变——Q 分 \(N_q / B_r\) 个 block，KV 分 \(N_{kv} / B_c\) 个 block，每个 Q block 遍历所有 KV block。HBM 流量为 \(O(N_q \cdot N_{kv} \cdot d^2 / M)\)。Cross-attention 没有 causal mask（encoder-decoder 场景中 decoder 可以看到 encoder 所有 token），所以不能做块级跳过——每个 Q block 必须处理所有 KV block。对于 KV cache 场景（生成阶段 \(N_q = 1\)），FlashAttention 退化为 flash-decoding——不再需要 online softmax，因为单 query 行只有一个 softmax 归约，可以并行做。</dd>
+<dd>可以。设 Q 长度为 \(N_q\)，KV 长度为 \(N_{kv}\)。Tiling 方式不变——Q 分 \(N_q / B_r\) 个 block，KV 分 \(N_{kv} / B_c\) 个 block，每个 Q block 遍历所有 KV block。HBM 流量为 \(O(N_q \cdot N_{kv} \cdot d^2 / M)\)。Cross-attention 没有 causal mask（encoder-decoder 场景中 decoder 可以看到 encoder 所有 token），所以不能做块级跳过——每个 Q block 必须处理所有 KV block。对于 KV cache 场景（生成阶段 \(N_q = 1\)），Q 方向只剩一个 block，并行度要靠把 KV 切成多段来补——这就是 Flash-Decoding：每段各自做 online softmax，输出局部 O 和 LSE，最后再按 LSE 合并（见<a href="../at37-inference-attention/at37-inference-attention.html">第 37 篇</a>）。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。FlashAttention 的正确性未经数值验证——实际中 online softmax 的 FP32 累加与标准 softmax 的结果应在 1e-5 以内。</li>
-<li>示例代码是 FP32 + CUDA core 的教学版本——每个线程处理一行，没有使用 Tensor Core。实际 FA2 使用 mma.sync（Ampere）或 WGMMA（Hopper），性能差距在一个数量级以上。教学版每个线程做标量 dot product，而 Tensor Core 版本每个 warp 做 16&times;8&times;16 的矩阵乘法——吞吐差距是基础性的。</li>
+<li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。FlashAttention 的正确性未经数值验证。</li>
+<li>示例代码是 FP32 + CUDA core 的教学版本——每个线程处理一行，没有使用 Tensor Core。实际 FA2 使用 mma.sync（Ampere），FA3 使用 WGMMA（Hopper）。A100 上 FP16/BF16 Tensor Core 峰值 312 TFLOPS，非 matmul 的 FP32 只有 19.5 TFLOPS<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>，差距是基础性的。</li>
 <li>未展示 mma.sync 版本的实现——涉及寄存器 layout 转换（累加器 → A 操作数）、warp tiling（4 个 warp 分工 Br&times;Bc 的 tile）、ldmatrix 加载（从 shared memory 到寄存器的高效搬运）等技术（参考 <a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>）。</li>
 <li>未覆盖多头 attention（MHA）的头间并行和 batch&middot;head 的 grid 划分——实际上每个 CTA 处理一个 (batch, head, Q_block) 组合。GQA（Grouped Query Attention）中多个 Q head 共享一组 KV head，FlashAttention 对此有专门的实现路径。</li>
 <li>未覆盖 dropout 在 FlashAttention 中的处理。传统实现存一个 N&times;N 的 dropout mask，FlashAttention 不存储它——改用 Philox 计数器根据 (row, col) 位置确定性地重放 RNG 状态，反向传播时用相同的 seed + offset 重新生成相同的 mask。</li>
-<li>IO 复杂度的证明（FA1 论文 Theorem 5）未展开——涉及 red-blue pebble game 模型的下界证明，类似矩阵乘法的 IO 下界证明。</li>
+<li>IO 复杂度的证明（FA1 论文定理 2、反向的定理 5、下界命题 3，证明在附录 C）未展开。</li>
 <li>未覆盖 Variable-length attention（不同序列长度的 batch 打包到一个连续 tensor，用 cu_seqlens 标记边界）的实现细节——它改变了 grid 划分和 block 边界的处理逻辑，需要在运行时根据 cu_seqlens 动态确定每个 CTA 对应的序列和偏移。这也是支持 paged attention 和 prefix caching 的基础。</li>
-<li>反向传播在下一篇（<a href="../at34-flashattention-bwd/at34-flashattention-bwd.html">第 34 篇</a>）——包括重计算策略（只存 O 和 LSE，反向时重算 S 和 P）、dQ 的跨 block 累加问题（atomic 与 workspace 两种方案的取舍）、以及确定性与性能的平衡。反向的 FLOP 是前向的 2.5 倍。</li>
+<li>反向传播在下一篇（<a href="../at34-flashattention-bwd/at34-flashattention-bwd.html">第 34 篇</a>）——包括重计算策略（只存 O 和 LSE，反向时重算 S 和 P）、dQ 的跨 block 累加问题（atomic 与 workspace 两种方案的取舍）、以及确定性与性能的平衡。反向的 matmul FLOP 是前向的 2.5 倍（5 个 GEMM 对 2 个）<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>FlashAttention 的核心是一个 IO 优化：通过 tiling 让 N&times;N 的中间矩阵（S 和 P）永远不离开 SRAM，HBM 流量从 O(N&sup2;) 降到 O(Nd)——对 N=4096、d=128 减少 32&times;。这个优化同时带来了显存和速度的双重收益：显存从 O(N&sup2;) 降到 O(N)（只存 O 和 LSE），速度提升 2&ndash;4&times;（因为消除了 memory-bound 瓶颈）。</p>
+<p>FlashAttention 的核心是一个 IO 优化：通过 tiling 让 N&times;N 的中间矩阵（S 和 P）永远不离开 SRAM，HBM 访问从 \(\Theta(Nd+N^2)\) 降到 \(\Theta(N^2d^2/M)\)，没有了 N&sup2; 项。这个优化同时带来了显存和速度的双重收益：额外显存从 O(N&sup2;) 降到 O(N)（只存 LSE 等统计量），速度比标准实现快 2&ndash;4&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。</p>
 
-<p>Online softmax 是使这一切成立的算法基础——它让 softmax 可以分块增量计算，每个新 block 通过 rescale 因子 \(e^{m_{\text{old}} - m_{\text{new}}}\) 修正之前的结果，数学上等价且数值稳定（所有 exp 参数非正）。FA2 进一步优化了循环顺序——外层遍历 Q（Q 常驻寄存器），O 只写回一次，非 matmul FLOP 减半——在 A100 上达到 73% 的 MMA 利用率。Causal mask 通过块级跳过省约一半 FLOP——跳过是精确的，不损失任何精度。在 Ampere 上，FA2 用 mma.sync + cp.async 双缓冲（参考 <a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）；在 Hopper 上，FA3 用 WGMMA + TMA + warp specialization 进一步加速，在 H100 上达到约 750 TFLOP/s（FP8 模式）。</p>
+<p>Online softmax 是使这一切成立的算法基础——它让 softmax 可以分块增量计算，每个新 block 通过 rescale 因子 \(e^{m_{\text{old}} - m_{\text{new}}}\) 修正之前的结果，数学上等价且数值稳定（所有 exp 参数非正）。FA2 进一步优化了循环顺序——外层遍历 Q（Q 常驻片上），O 只写回一次，并减少了非 matmul FLOP——在 A100 上前向最高达到 73% 的峰值利用率<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。">2</a>]</span>。Causal mask 通过块级跳过省约一半 FLOP——跳过是精确的，不损失任何精度。在 Ampere 上，FA2 用 mma.sync + cp.async 双缓冲（参考 <a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）；在 Hopper 上，FA3 用 WGMMA + TMA + warp specialization 进一步加速，H100 上 FP16 前向最高约 740 TFLOP/s，FP8 接近 1.2 PFLOP/s<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。">5</a>]</span>。</p>
 
-<p>FlashAttention 的成功对整个 GPU kernel 设计领域有更广泛的启示和深远的影响：当一个算子链（如 GEMM → elementwise → GEMM）的中间结果比输入输出大得多时，fusing 整个链到一个 kernel、让中间结果只存在于 SRAM 中，往往能带来数量级的加速。这不是编译器能自动完成的优化——它需要算法层面的重新设计（如 online softmax 使得分块计算成为可能），以及对硬件内存层级的深入理解和充分利用。下一篇将讲反向传播：重计算 S/P、dQ 的跨 block 累加、以及为什么反向比前向慢 2.5&times;。</p>
+<p>FlashAttention 的成功对整个 GPU kernel 设计领域有更广泛的启示和深远的影响：当一个算子链（如 GEMM → elementwise → GEMM）的中间结果比输入输出大得多时，fusing 整个链到一个 kernel、让中间结果只存在于 SRAM 中，往往能带来数量级的加速。这不是编译器能自动完成的优化——它需要算法层面的重新设计（如 online softmax 使得分块计算成为可能），以及对硬件内存层级的深入理解和充分利用。下一篇将讲反向传播：重计算 S/P、dQ 的跨 block 累加、以及为什么反向的 matmul FLOP 是前向的 2.5&times;。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -561,11 +562,14 @@ O_i^{\text{new}} = e^{m_i - m_i^{\text{new}}} \cdot O_i + \text{diag}(e^{S_{ij} 
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-fa1">Dao, Fu, Ermon, Rudra &amp; R&eacute; (2022). <a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>. arXiv:2205.14135。</li>
-  <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16.19（TMA）、§9.7.17（MMA）。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
+  <li id="ref-fa1">Dao, Fu, Ermon, Rudra &amp; R&eacute; (2022). <a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>. arXiv:2205.14135。Algorithm 0/1、定理 2、命题 3、图 2。</li>
+  <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。§3.1–3.3（非 matmul FLOP、序列并行、warp 划分）、§4.1。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-milakov">Milakov &amp; Gimelshein (2018). <a href="https://arxiv.org/abs/1805.02867">Online normalizer calculation for softmax</a>. arXiv:1805.02867。</li>
+  <li id="ref-fa3">Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). <a href="https://arxiv.org/abs/2407.08608">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08608。摘要、§3.3（FP8 layout、block 量化、incoherent processing）。</li>
+  <li id="ref-fa4">Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). <a href="https://arxiv.org/abs/2603.05451">FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling</a>. arXiv:2603.05451。§2.2、§3.1、§3.3、§5.1。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA</a>（查阅时为 9.5 版）. §9.7.10.28.5.3（cp.async.bulk.tensor / TMA）、§9.7.16（mma.sync）、§9.7.17（wgmma.mma_async）。</li>
+  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
 </ol>
 
 </article>

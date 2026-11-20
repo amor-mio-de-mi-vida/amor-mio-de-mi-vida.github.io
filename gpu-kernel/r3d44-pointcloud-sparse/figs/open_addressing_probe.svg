@@ -56,7 +56,7 @@
 <!-- Legend -->
 <rect x="50" y="160" width="600" height="45" class="box" fill="#f9fafb" stroke="#d1d5db"/>
 <text x="350" y="178" text-anchor="middle" class="code" font-size="10">atomicCAS(&amp;keys[slot], EMPTY, 55): if keys[slot]==EMPTY, write 55 and return EMPTY</text>
-<text x="350" y="196" text-anchor="middle" class="label">Load factor &lt; 70%: avg probes &lt; 3 | &gt; 80%: probe chains explode, warp divergence</text>
+<text x="350" y="196" text-anchor="middle" class="label">Expected insert probes &#x2248; &#xBD;(1 + 1/(1&#x2212;&#x3B1;)&#xB2;): &#x3B1;=0.5 &#x2192; 2.5, &#x3B1;=0.8 &#x2192; 13</text>
 
 <defs><marker id="arx" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
   <path d="M0,0 L8,3 L0,6" fill="#888"/>

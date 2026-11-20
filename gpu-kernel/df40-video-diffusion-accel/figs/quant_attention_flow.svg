@@ -1,5 +1,5 @@
 <svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="13">
-  <text x="350" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">量化 Attention 数据流（SageAttention 思路）</text>
+  <text x="350" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">量化 Attention 数据流（SageAttention2-8b 思路）</text>
 
   <!-- Stage 1: INT8 QK^T -->
   <text x="180" y="55" text-anchor="middle" font-size="12" fill="#e17055" font-weight="bold">Stage 1: INT8 QK^T</text>
@@ -10,7 +10,7 @@
   <text x="115" y="85" text-anchor="middle" font-size="11" fill="#888">&rarr;</text>
 
   <rect x="130" y="65" width="100" height="32" rx="4" fill="#ffeaa7" stroke="#fdcb6e"/>
-  <text x="180" y="85" text-anchor="middle" font-size="11">per-row quant</text>
+  <text x="180" y="85" text-anchor="middle" font-size="11">per-block quant</text>
 
   <text x="245" y="85" text-anchor="middle" font-size="11" fill="#888">&rarr;</text>
 
@@ -24,7 +24,7 @@
   <text x="115" y="130" text-anchor="middle" font-size="11" fill="#888">&rarr;</text>
 
   <rect x="130" y="110" width="100" height="32" rx="4" fill="#55efc4" stroke="#00b894"/>
-  <text x="180" y="130" text-anchor="middle" font-size="11">smooth + quant</text>
+  <text x="180" y="130" text-anchor="middle" font-size="11">−mean(K) + quant</text>
 
   <text x="245" y="130" text-anchor="middle" font-size="11" fill="#888">&rarr;</text>
 
@@ -76,5 +76,5 @@
   <text x="625" y="219" text-anchor="middle" font-size="11">O (FP16)</text>
 
   <!-- Annotation -->
-  <text x="350" y="270" text-anchor="middle" font-size="11" fill="#888">INT8 和 FP8 Tensor Core 吞吐是 FP16 的 2 倍（Hopper/Blackwell）</text>
+  <text x="350" y="270" text-anchor="middle" font-size="11" fill="#888">H100 / HGX B200 稠密峰值：INT8 = FP8 = 2 × FP16 Tensor Core</text>
 </svg>

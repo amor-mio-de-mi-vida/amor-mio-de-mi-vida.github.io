@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-28</span>
-    <span data-reading-time>约 20 分钟阅读</span>
+    <span data-reading-time>约 21 分钟阅读</span>
   </div>
 </header>
 
@@ -230,7 +230,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-    <li>逐元素算子的算术强度只有零点几 FLOP/字节，比任何 GPU 的拐点低三个数量级以上；它的速度只由“搬了多少字节、带宽用满没有”决定。</li>
+    <li>逐元素算子的算术强度只有零点几 FLOP/字节，比 GPU 的拐点（一两百 FLOP/字节以上）低两到三个数量级；它的速度只由“搬了多少字节、带宽用满没有”决定。</li>
     <li>一个好的通用模板只做三件事：16 字节向量访存、对不齐时用标量补头尾、grid-stride 循环配上恰好填满 GPU 的 grid。</li>
     <li>广播本质上是“这一维 stride 为 0”，代价落在逐维的除法和取模上；用乘高位代替除法、或者用二维 grid 直接拿到列号，都能把它去掉。</li>
     <li>融合的收益几乎全来自省掉中间张量的读写：本文的 epilogue 因此只需搬运原来约三分之一的字节，小张量上还省掉了多次 kernel 启动。</li>
@@ -513,7 +513,7 @@ for (int row = blockIdx.y; row &lt; M; row += gridDim.y) {
 
 <p>其中 \(\sigma\) 是 sigmoid 函数。同一篇论文把 \(x\,\sigma(x)\) 称为 SiLU（Sigmoid Linear Unit），也就是后来常说的 Swish-1。SwiGLU 则来自 GLU 的变体：把输入做两个线性投影，一个过 Swish、一个不过，再逐元素相乘 <span class="cite">[<a href="#ref-swiglu" title="Shazeer, N. (2020). GLU Variants Improve Transformer. arXiv:2002.05202.">4</a>]</span>。在实现上，两个投影通常合成一个宽度为 \(2N\) 的 GEMM，随后的 SwiGLU 就是一个“读两个半行、写一个半行”的逐元素 kernel。</p>
 
-<p>两个 GELU 近似差多少？<a href="#fig-gelu">图 3</a> 在 float64 下计算了它们和精确值的绝对误差。tanh 近似的最大误差约为 \(4.7\times10^{-4}\)（在 \(x \approx -2.7\) 处），sigmoid 近似约为 \(2.0\times10^{-2}\)（在 \(x \approx 2.3\) 处）。作为参照，bf16 在 1.0 附近两个相邻可表示数的间距是 \(2^{-7} \approx 7.8\times10^{-3}\)。也就是说，以 bf16 存储输出时，tanh 近似的误差基本被舍入淹没，sigmoid 近似则会在一部分区间内改变输出的 bf16 值。</p>
+<p>两个 GELU 近似差多少？<a href="#fig-gelu">图 3</a> 在 float64 下计算了它们和精确值的绝对误差。tanh 近似的最大误差约为 \(4.7\times10^{-4}\)（在 \(x \approx -2.7\) 处），sigmoid 近似约为 \(2.0\times10^{-2}\)（在 \(x \approx 2.3\) 处）。作为参照，bf16 在 1.0 附近两个相邻可表示数的间距是 \(2^{-7} \approx 7.8\times10^{-3}\)。但这个比较只在输出接近 1 的量级时成立，要按输出本身的 bf16 间距分两侧看（<code>plots/gelu_bf16.py</code> 计算）：\(x &gt; 0\) 时输出接近 \(x\)，tanh 近似的误差不到该处 bf16 间距的 1/20，被舍入完全淹没，sigmoid 近似则在 \(x \in (0, 8]\) 的均匀采样点中约四成超过半个间距、会改变输出的 bf16 值；\(x &lt; 0\) 时 GELU 输出本身很小（\(x \approx -2.7\) 处精确值约 \(-0.0094\)，bf16 间距只有 \(2^{-14}\)），tanh 近似在那里会偏离多个 bf16 间距（该处约 8 个），相对误差约 5%，只是绝对值很小。</p>
 
 <figure id="fig-gelu" data-kind="data" data-source="computed" data-script="plots/gelu_err.py">
   <div class="fig-body"><svg aria-labelledby="fig-gelu-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 428.39952 260.39952" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s3-root" style="max-width:571px;">
@@ -3203,7 +3203,7 @@ z
   </clipPath>
  </defs>
 </svg></div>
-  <figcaption id="fig-gelu-cap"><span class="fig-label">图 3</span><b>tanh 近似的误差比 bf16 的舍入间距小一个数量级以上，sigmoid 近似则在部分区间超过它。</b>纵轴是近似值与精确 GELU 之差的绝对值（对数轴），横轴 \(x \in [-8, 8]\)；向下的尖刺是误差恰好过零的位置。虚线是 bf16 在 1.0 附近的间距 \(2^{-7}\)，只用来对比量级（输出越大，bf16 间距越大）。由 <code>plots/gelu_err.py</code> 在 float64 下计算。</figcaption>
+  <figcaption id="fig-gelu-cap"><span class="fig-label">图 3</span><b>tanh 近似的绝对误差比 bf16 在 1.0 附近的舍入间距小一个数量级以上，sigmoid 近似则在部分区间超过它。</b>纵轴是近似值与精确 GELU 之差的绝对值（对数轴），横轴 \(x \in [-8, 8]\)；向下的尖刺是误差恰好过零的位置。虚线是 bf16 在 1.0 附近的间距 \(2^{-7}\)，只用来对比量级（输出越大，bf16 间距越大）。由 <code>plots/gelu_err.py</code> 在 float64 下计算。</figcaption>
 </figure>
 
 <p>写成代码，三个激活函数都只有一两行。注意 SiLU 里用了 <code>__expf</code> 而不是 <code>expf</code>：</p>
@@ -6923,7 +6923,7 @@ z
   </clipPath>
  </defs>
 </svg></div>
-  <figcaption id="fig-fusion-cap"><span class="fig-label">图 4</span><b>大张量上融合的收益来自少搬字节（19 → 6 字节，约 3.2 倍），小张量上则来自少启动 kernel。</b>(a) 每个元素搬运的字节数，灰色分段是分开执行时的 4 个 kernel。(b) H100 SXM 上的时间下界，横纵轴均为对数：下界 = 字节数 ÷ 3.35 TB/s + kernel 数 × \(L\)，其中每次启动的固定开销 \(L\) 取 3 μs，这是一个示意参数（第 9 篇引用的 V100 测量中，去掉同步后每个 kernel 约 3.8 μs，同一量级 <span class="cite">[<a href="#ref-gray19" title="Gray, A. (2019). Getting Started with CUDA Graphs. NVIDIA Technical Blog（V100 上的 kernel 启动开销测量）。">6</a>]</span>）。虚线是正文的例子。由 <code>plots/fusion.py</code> 计算，不是实测。</figcaption>
+  <figcaption id="fig-fusion-cap"><span class="fig-label">图 4</span><b>大张量上融合的收益来自少搬字节（19 → 6 字节，约 3.2 倍），小张量上则来自少启动 kernel。</b>(a) 每个元素搬运的字节数，灰色分段是分开执行时的 4 个 kernel。(b) H100 SXM 上的时间下界，横纵轴均为对数：下界 = 字节数 ÷ 3.35 TB/s + kernel 数 × \(L\)，其中每次启动的固定开销 \(L\) 取 3 μs，这是一个示意参数（第 9 篇引用的 V100 测量中，一个小 kernel 连续启动、不逐个同步时每个约 3.8 μs，其中 kernel 本身执行 2.9 μs <span class="cite">[<a href="#ref-gray19" title="Gray, A. (2019). Getting Started with CUDA Graphs. NVIDIA Technical Blog（V100 上的 kernel 启动开销测量）。">6</a>]</span>；3 μs 只取其量级）。虚线是正文的例子。由 <code>plots/fusion.py</code> 计算，不是实测。</figcaption>
 </figure>
 
 <p><a href="#fig-fusion">图 4</a>(b) 有两个区域。元素数在 \(10^6\) 以下时，两条曲线都几乎是水平线，时间由启动次数决定：\(10^5\) 个元素时，分开执行约 12.6 μs、融合约 3.2 μs，差 4 倍，正好是 kernel 数之比。元素数在 \(10^7\) 以上时，两条线平行上升，差距趋近字节数之比 19/6。正文的例子（约 6,711 万个元素）落在后一个区域，H100 上的下界从 0.381 ms 降到 0.120 ms。小张量区域也是<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>讲 CUDA Graph 的出发点：Graph 能降低每次启动的开销，但不能减少搬运的字节；融合两者都能减少。</p>
@@ -7095,7 +7095,7 @@ out[i] = in[off];   // coalesced write, gathered read</code></pre>
 <ul>
   <li><code>expf</code> 最大误差 2 ULP；<code>__expf</code> 是 intrinsic，更快，误差为 \(2 + \lfloor|1.173x|\rfloor\) ULP，随 \(|x|\) 增长。</li>
   <li><code>--use_fast_math</code> 会把 <code>expf</code> 等自动换成 intrinsic，并打开 ftz、近似除法等，影响全局。</li>
-  <li><i>追问</i>：GELU 的 tanh 近似误差多大？（本文在 float64 下算得最大约 \(4.7\times10^{-4}\)，比 bf16 在 1 附近的舍入间距小一个数量级以上。）</li>
+  <li><i>追问</i>：GELU 的 tanh 近似误差多大？（本文在 float64 下算得最大绝对误差约 \(4.7\times10^{-4}\)，比 bf16 在 1 附近的舍入间距小一个数量级以上；但 \(x&lt;0\) 一侧输出很小，相对误差可达约 5%。）</li>
 </ul>
 
 <h3 id="sec-q4">dropout 的反向怎么拿到前向的 mask？</h3>
@@ -7136,7 +7136,7 @@ out[i] = in[off];   // coalesced write, gathered read</code></pre>
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-bpg">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html">CUDA C++ Best Practices Guide</a>. §12.1.4 Division Modulo Operations。</li>
-  <li id="ref-gm94">Granlund, T., Montgomery, P. L. (1994). <a href="https://gmplib.org/~tege/divcnst-pldi94.pdf">Division by Invariant Integers using Multiplication</a>. <i>PLDI ’94 / ACM SIGPLAN Notices</i> 29(6):61–72（Figure 4.1）。</li>
+  <li id="ref-gm94">Granlund, T., Montgomery, P. L. (1994). <a href="https://doi.org/10.1145/178243.178249">Division by Invariant Integers using Multiplication</a>. <i>PLDI ’94 / ACM SIGPLAN Notices</i> 29(6):61–72（Figure 4.1）。</li>
   <li id="ref-gelu">Hendrycks, D., Gimpel, K. (2016). <a href="https://arxiv.org/abs/1606.08415">Gaussian Error Linear Units (GELUs)</a>. <i>arXiv:1606.08415</i>.</li>
   <li id="ref-swiglu">Shazeer, N. (2020). <a href="https://arxiv.org/abs/2002.05202">GLU Variants Improve Transformer</a>. <i>arXiv:2002.05202</i>.</li>
   <li id="ref-pgmath">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/mathematical-functions.html">CUDA Programming Guide, §5.5 Mathematical Functions</a>. Tables 48–52、59、60。</li>

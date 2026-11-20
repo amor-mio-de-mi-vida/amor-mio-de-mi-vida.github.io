@@ -36,7 +36,7 @@
 <rect x="20" y="185" width="640" height="70" rx="5" fill="#f3f4f6" stroke="#d1d5db"/>
 <text x="340" y="205" text-anchor="middle" class="title">Layout Composition: Thread &rarr; Element Mapping</text>
 <text x="40" y="225" class="code" font-size="10">ThreadLayout = ((4,8), (8,1))  &times;  ValueLayout = ((2,2), (1,2))</text>
-<text x="40" y="245" class="code" font-size="10">= each of 32 threads owns a 2&times;2 fragment of the 4&times;8 tile</text>
+<text x="40" y="245" class="code" font-size="10">= each of 32 threads owns a 2&times;2 fragment of an 8&times;16 tile</text>
 
 <text x="340" y="275" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after CuTe documentation)</text>
 </svg>

@@ -62,7 +62,7 @@
   <line x1="642" y1="150" x2="520" y2="90" class="nvl-link" opacity="0.3"/>
 
   <!-- "..." for other GPUs' connections -->
-  <text x="360" y="130" text-anchor="middle" class="d-note" style="font-size:9px;fill:#009E73">每个 GPU ↔ 全部 4 个 NVSwitch（各 18 条 NVLink）</text>
+  <text x="360" y="130" text-anchor="middle" class="d-note" style="font-size:9px;fill:#009E73">每个 GPU 的 18 条 NVLink 分接到 4 个 NVSwitch</text>
 
   <!-- InfiniBand NICs below GPUs -->
   <g transform="translate(0, 220)">
@@ -86,7 +86,7 @@
 
   <!-- Bandwidth labels -->
   <text x="360" y="370" text-anchor="middle" class="d-note" style="font-size:10px">节点内：8 GPU × 900 GB/s NVLink 4.0 全互联（via NVSwitch）</text>
-  <text x="360" y="386" text-anchor="middle" class="d-note" style="font-size:10px">节点间：8× NDR 400 Gb/s InfiniBand = 400 GB/s 双向</text>
+  <text x="360" y="386" text-anchor="middle" class="d-note" style="font-size:10px">节点间：8× NDR 400 Gb/s = 3.2 Tb/s（每方向 400 GB/s）</text>
 
   <!-- Legend -->
   <line x1="130" y1="410" x2="160" y2="410" class="nvl-link"/>

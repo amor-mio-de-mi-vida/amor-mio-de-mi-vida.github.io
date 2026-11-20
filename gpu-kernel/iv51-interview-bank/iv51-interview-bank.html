@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>面试题库：概念、估算与系统设计</title>
-<meta name="description" content="从零精通 GPU Kernel 第 51 篇：GPU kernel 方向面试题库——按 14 个主题组织概念题，roofline 估算训练，系统设计五步框架，行为面试 STAR 模板。">
+<meta name="description" content="从零精通 GPU Kernel 第 51 篇：GPU kernel 方向面试题库——按主题组织的代表性概念题，roofline 估算训练，系统设计五步框架，行为面试 STAR 模板。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 51 篇</div>
   <h1>GPU Kernel 面试题库<br>概念 &middot; 估算 &middot; 系统设计 &middot; STAR</h1>
-  <p class="subtitle">14 主题概念题（硬件与执行模型、内存层次、Tensor Core、GEMM、attention 等）、roofline 估算题训练（FLOP/Byte → AI → 判断 bound 类型 → 理论时间）、系统设计五步答题框架（Clarify → Estimate → Design → Optimize → Verify）、行为面试 STAR 模板。</p>
+  <p class="subtitle">分主题的代表性概念题（硬件与执行模型、内存层次、Tensor Core、GEMM、attention 等）、roofline 估算题训练（FLOP/Byte → AI → 判断 bound 类型 → 理论时间）、系统设计五步答题框架（Clarify → Estimate → Design → Optimize → Verify）、行为面试 STAR 模板。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-30</span>
-    <span data-reading-time>约 21 分钟阅读</span>
+    <span data-reading-time>约 23 分钟阅读</span>
   </div>
 </header>
 
@@ -230,7 +230,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>本篇按<b>14 个主题</b>（硬件与执行模型、内存层次、同步与原子操作、并行原语、profiling、Tensor Core、GEMM、卷积、attention、量化、Diffusion、3D、通信与互联、工具链）组织 GPU kernel 方向的面试题库，每题给出&ldquo;30 秒要点 + 深入追问 + 对应篇目链接&rdquo;。</li>
+<li>本篇按主题（硬件与执行模型、内存层次、GEMM 与 attention、量化等）挑出 GPU kernel 方向的代表性面试题，每题给出&ldquo;30 秒要点 + 深入追问 + 对应篇目链接&rdquo;。</li>
 <li><b>估算题</b>专区：给定 GPU 参数（峰值算力、HBM 带宽）和问题规模（矩阵 shape、序列长度），用 roofline 模型快速判断瓶颈类型（compute-bound 还是 memory-bound）并估算理论执行时间。</li>
 <li><b>系统设计题</b>：&ldquo;设计一个 decode attention kernel&rdquo;&ldquo;优化一个 3DGS 训练 step&rdquo;&ldquo;设计一个 8 卡 AllReduce&rdquo;——用五步答题框架（Clarify → Estimate → Design → Optimize → Verify）系统地组织回答。</li>
 <li><b>行为面试</b>的 STAR 模板：Situation（什么 kernel、什么 GPU、什么差距）→ Task（目标延迟、约束条件）→ Action（profiling 定位瓶颈、优化步骤、权衡决策）→ Result（加速比数字、对系统的影响、学到了什么）。</li>
@@ -248,7 +248,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-topic_distribution" data-kind="diagram">
 <img aria-labelledby="fig-topic_distribution-cap" src="figs/topic_distribution.svg" alt="Topic distribution"/>
-<figcaption id="fig-topic_distribution-cap"><span class="fig-label">图 1</span><b>题库按主题分布。</b>硬件与执行模型占比最大，其次是内存层次和 Tensor Core / GEMM。数量为示意分布。</figcaption>
+<figcaption id="fig-topic_distribution-cap"><span class="fig-label">图 1</span><b>一个完整题库可以按哪些主题划分。</b>示意图：各主题后的题数是假设的，只表示一种可能的分配，不是统计结果；本篇正文只收录其中的代表题。</figcaption>
 </figure>
 
 <p>面试题大致分为四类：<b>概念题</b>（解释一个概念、比较两种机制）、<b>估算题</b>（给参数算时间或判断瓶颈）、<b>手撕题</b>（白板写 kernel，见下一篇）、<b>系统设计题</b>（设计一个完整的 kernel 或优化方案）。概念题靠理解——读对应篇目并用自己的语言复述，面试官追问时能展开细节而不只是重复关键词；估算题靠方法——熟练掌握 roofline 和 Little 定律的计算流程，面试时在白板上写出每一步数字；手撕题靠练习——背诵模板并多次手写直到流畅，不看参考也能写对核心循环；系统设计题靠框架——用结构化的五步法组织回答，展示系统性思考能力而不是跳到代码细节。以下按主题列举代表性问题。</p>
@@ -259,45 +259,45 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p><b>30 秒要点</b>：SM（Streaming Multiprocessor）包含多个 warp scheduler、CUDA core（FP32/INT32 ALU）、Tensor Core、load/store unit、shared memory / L1 cache、寄存器文件。一个 warp 是 32 个连续 threadIdx 的线程组，是 GPU 的最小调度单位——warp 内的线程执行相同指令（SIMT）。<b>深入</b>：Ampere SM 有 4 个 warp scheduler（每 cycle 可发射 4 条 warp 指令）、64 个 FP32 core（A100）、4 个 Tensor Core、192 KB 可配置的 L1/smem。<b>对应篇目</b>：<a href="../hw01-gpu-architecture/hw01-gpu-architecture.html">第 1 篇</a>、<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>。</p>
 
 <p><b>Q2：什么是 warp divergence？它对性能有什么影响？</b></p>
-<p><b>30 秒要点</b>：当 warp 内的线程走不同的 if/else 分支时，GPU 必须串行执行两个分支——先执行一个分支（另一部分线程 mask 掉），再执行另一个分支。最坏情况下，有 N 个分支的代码执行时间是无分支版本的 N 倍。<b>深入</b>：Volta 及之后的 Independent Thread Scheduling 允许 warp 内的线程在分支后独立前进，但仍然需要在汇合点（<code>__syncwarp</code>）重新收拢。<b>追问</b>：如何在不改算法的情况下减轻 divergence？常见手段是把 divergent 的分支条件按 warp 对齐——例如 TopK 中对不同行分配不同 warp（而非同一 warp 处理多行），保证同一 warp 内所有线程走相同路径。<b>对应篇目</b>：<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>。</p>
+<p><b>30 秒要点</b>：当 warp 内的线程走不同的 if/else 分支时，GPU 必须串行执行两个分支——先执行一个分支（另一部分线程 mask 掉），再执行另一个分支。耗时约等于各条分支路径执行时间之和；N 条路径全部走到时，最坏是串行执行 N 遍。<b>深入</b>：Volta 及之后的 Independent Thread Scheduling 允许 warp 内的线程在分支后独立前进，但仍然需要在汇合点（<code>__syncwarp</code>）重新收拢。<b>追问</b>：如何在不改算法的情况下减轻 divergence？常见手段是把 divergent 的分支条件按 warp 对齐——例如 TopK 中对不同行分配不同 warp（而非同一 warp 处理多行），保证同一 warp 内所有线程走相同路径。<b>对应篇目</b>：<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>。</p>
 
 <p><b>Q3：什么是 occupancy？它越高越好吗？</b></p>
-<p><b>30 秒要点</b>：Occupancy = SM 上实际活跃的 warp 数 / SM 支持的最大 warp 数。受三个资源限制：寄存器、shared memory 和 block 数量上限。Occupancy 越高意味着更多 warp 可以交替执行来隐藏延迟，但不一定越高越好——如果 kernel 是 compute-bound 且每个线程的寄存器使用量大，降低 occupancy（用更多寄存器）可能反而更快，因为减少了 register spill 到 local memory 的开销。<b>深入</b>：典型的平衡点是 50%&ndash;75% occupancy。低于 25% 通常有延迟隐藏问题。<b>对应篇目</b>：<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>。</p>
+<p><b>30 秒要点</b>：Occupancy = SM 上实际活跃的 warp 数 / SM 支持的最大 warp 数。受三个资源限制：寄存器、shared memory 和 block 数量上限。Occupancy 越高意味着更多 warp 可以交替执行来隐藏延迟，但不一定越高越好——如果 kernel 是 compute-bound 且每个线程的寄存器使用量大，降低 occupancy（用更多寄存器）可能反而更快，因为减少了 register spill 到 local memory 的开销。<b>深入</b>：没有通用的&ldquo;最佳 occupancy&rdquo;。Volkov 的报告展示了更低 occupancy 反而更快的例子：靠每线程更多的独立指令（ILP）同样能隐藏延迟 <span class="cite">[<a href="#ref-volkov2010" title="Volkov (2010). Better Performance at Lower Occupancy. GTC 2010.">2</a>]</span>；Hopper/Blackwell 上的 warp 特化 kernel 也有意运行在低 occupancy 下。<b>对应篇目</b>：<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>。</p>
 
 <p><b>Q4：解释 GPU 的延迟隐藏机制。</b></p>
-<p><b>30 秒要点</b>：GPU 不像 CPU 那样用缓存和乱序执行隐藏延迟——它用大量并行线程（thread-level parallelism, TLP）。当一个 warp 等待内存访问（~400 cycles for HBM）时，warp scheduler 切换到另一个准备好的 warp 执行——切换是零开销的（每个 warp 有自己的寄存器状态，不需要上下文保存/恢复）。需要足够多的活跃 warp 才能完全隐藏延迟——Little 定律：所需 warp 数 = 延迟 &times; 吞吐率。<b>对应篇目</b>：<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>、<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>。</p>
+<p><b>30 秒要点</b>：GPU 不像 CPU 那样用缓存和乱序执行隐藏延迟——它用大量并行线程（thread-level parallelism, TLP）。当一个 warp 等待内存访问（微基准在 A100 PCIe 上测得全局内存延迟约 466 个周期 <span class="cite">[<a href="#ref-luo2024" title="Luo, Fan, Li, Du, Wang &amp; Chu (2024). Benchmarking and Dissecting the Nvidia Hopper GPU Architecture. arXiv:2402.13499（Table IV：A100 PCIe 各级访存延迟，第三方微基准）。">3</a>]</span>）时，warp scheduler 切换到另一个准备好的 warp 执行——切换是零开销的（每个 warp 有自己的寄存器状态，不需要上下文保存/恢复）。需要足够多的活跃 warp 才能完全隐藏延迟——Little 定律：所需 warp 数 = 延迟 &times; 吞吐率。<b>对应篇目</b>：<a href="../hw02-execution-model/hw02-execution-model.html">第 2 篇</a>、<a href="../cu07-occupancy-registers/cu07-occupancy-registers.html">第 7 篇</a>。</p>
 
 <p><b>Q5：Hopper 相比 Ampere 有哪些关键的新特性？</b></p>
-<p><b>30 秒要点</b>：TMA（Tensor Memory Accelerator，硬件张量搬运）、WGMMA（warp group 级矩阵乘指令，直接从 smem 读操作数）、warp specialization（producer-consumer 模式）、cluster（多 SM 组成 cluster 共享 smem）、<code>mbarrier</code>（异步 barrier）。这些特性让 GEMM 的流水线可以更高效地重叠计算与搬运。<b>对应篇目</b>：<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>。</p>
+<p><b>30 秒要点</b>：TMA（Tensor Memory Accelerator，硬件张量搬运）、WGMMA（warp group 级异步矩阵乘指令，B 操作数直接从 smem 读）、thread block cluster 与分布式共享内存（同一 GPC 内的一组 block 可以读写彼此的 smem）、<code>mbarrier</code> 的事务计数（<code>expect_tx</code>，按到达字节数完成，用来等 TMA）、<code>setmaxnreg</code>、FP8 Tensor Core。warp specialization（producer-consumer）本身是一种写法，正是靠 TMA、事务计数 mbarrier 和 <code>setmaxnreg</code> 才变得好用。这些特性让 GEMM 的流水线可以更高效地重叠计算与搬运。<b>对应篇目</b>：<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>。</p>
 
 <p><b>Q5a：什么是 warp specialization？它和传统的 homogeneous kernel 有什么区别？</b></p>
-<p><b>30 秒要点</b>：传统 kernel 中所有 warp 执行相同的代码路径（homogeneous），而 warp specialization 把不同的 warp 分配到不同的角色——典型的是 producer-consumer 模式：producer warp 负责从 HBM 搬数据到 smem（通过 TMA 发起异步搬运），consumer warp 负责从 smem 读数据做计算（WGMMA）。两组 warp 通过 <code>mbarrier</code> 同步——producer 完成一个 tile 的搬运后通知 consumer，consumer 消费完后通知 producer 可以覆盖 buffer。好处是搬运和计算可以完美重叠——producer 在搬运下一个 tile 的同时，consumer 在计算当前 tile。这种模式在 Hopper 的 FlashAttention-3 和 CUTLASS 3.x 的 GEMM kernel 中广泛使用。<b>对应篇目</b>：<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>、<a href="../at35-flashattention3/at35-flashattention3.html">第 35 篇</a>。</p>
+<p><b>30 秒要点</b>：传统 kernel 中所有 warp 执行相同的代码路径（homogeneous），而 warp specialization 把不同的 warp 分配到不同的角色——典型的是 producer-consumer 模式：producer warp 负责从 HBM 搬数据到 smem（通过 TMA 发起异步搬运），consumer warp 负责从 smem 读数据做计算（WGMMA）。两组 warp 通过 <code>mbarrier</code> 同步——producer 完成一个 tile 的搬运后通知 consumer，consumer 消费完后通知 producer 可以覆盖 buffer。好处是搬运和计算可以重叠起来——producer 在搬运下一个 tile 的同时，consumer 在计算当前 tile。这种模式在 Hopper 的 FlashAttention-3 和 CUTLASS 3.x 的 GEMM kernel 中广泛使用。<b>对应篇目</b>：<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>、<a href="../at35-flashattention3/at35-flashattention3.html">第 35 篇</a>。</p>
 
 <h2 id="sec-memory">内存层次</h2>
 
 <p><b>Q6：GPU 的内存层次结构是什么？各层的带宽和延迟大致是多少？</b></p>
-<p><b>30 秒要点</b>：从快到慢：寄存器（~0 cycle 延迟、~数十 TB/s 带宽）→ shared memory（~20&ndash;30 cycles、~数十 TB/s）→ L1 cache（与 smem 共享物理 SRAM）→ L2 cache（~200 cycles、~数 TB/s）→ HBM（~400&ndash;600 cycles、A100 2.0 TB/s / H100 3.35 TB/s）。优化的核心是让数据尽可能停留在高层——smem tiling 减少 HBM 访问次数，寄存器分块减少 smem 访问次数（<a href="#fig-memory_hierarchy">图 2</a>）。<b>深入</b>：A100 每个 SM 有 256 KB 寄存器文件（65536 个 32-bit 寄存器），可配置的 192 KB L1/smem，全局共享 40 MB L2。注意 L1 和 smem 是同一块 SRAM 的两种使用方式——<code>cudaFuncSetAttribute</code> 可以配置 smem 占比（最多 164 KB），剩余留给 L1 cache。选择策略：如果 kernel 的 smem 用量大（如 tiled GEMM），给 smem 分更多空间；如果 kernel 靠 L1 cache hit（如纹理读取），则相反。<b>对应篇目</b>：<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>、<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>。</p>
+<p><b>30 秒要点</b>：从快到慢：寄存器 → shared memory / L1（同一块 SRAM）→ L2 → HBM。NVIDIA 不公布各级延迟；一篇微基准论文在 A100 PCIe 上测得 shared memory 约 29 个周期、L1 约 38、L2 约 262、全局内存约 466 <span class="cite">[<a href="#ref-luo2024" title="Luo, Fan, Li, Du, Wang &amp; Chu (2024). Benchmarking and Dissecting the Nvidia Hopper GPU Architecture. arXiv:2402.13499（Table IV：A100 PCIe 各级访存延迟，第三方微基准）。">3</a>]</span>。HBM 带宽是官方规格：A100 80GB SXM 2.039 TB/s、H100 SXM 3.35 TB/s <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>。A100 的 L2 读带宽按白皮书的每周期 5120 字节和 1410 MHz 推算约 7.2 TB/s（见<a href="../hw03-performance-model/hw03-performance-model.html">第 3 篇</a>）。优化的核心是让数据尽可能停留在高层——smem tiling 减少 HBM 访问次数，寄存器分块减少 smem 访问次数（<a href="#fig-memory_hierarchy">图 2</a>）。<b>深入</b>：A100 每个 SM 有 256 KB 寄存器文件（65536 个 32-bit 寄存器），可配置的 192 KB L1/smem，全局共享 40 MB L2。注意 L1 和 smem 是同一块 SRAM 的两种使用方式——<code>cudaFuncSetAttribute</code> 可以配置 smem 占比（最多 164 KB），剩余留给 L1 cache。选择策略：如果 kernel 的 smem 用量大（如 tiled GEMM），给 smem 分更多空间；如果 kernel 靠 L1 cache hit（如纹理读取），则相反。<b>对应篇目</b>：<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>、<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>。</p>
 
 <figure id="fig-memory_hierarchy" data-kind="diagram" data-source="illustrative">
 <img aria-labelledby="fig-memory_hierarchy-cap" src="figs/memory_hierarchy.svg" alt="GPU memory hierarchy"/>
-<figcaption id="fig-memory_hierarchy-cap"><span class="fig-label">图 2</span><span class="badge illustrative">示意数据</span><b>GPU 内存层次：带宽与延迟。</b>从寄存器到 HBM，容量增大但速度逐级降低。优化目标是让热数据尽可能停留在高层。</figcaption>
+<figcaption id="fig-memory_hierarchy-cap"><span class="fig-label">图 2</span><span class="badge illustrative">示意数据</span><b>GPU 内存层次：容量与延迟。</b>从寄存器到 HBM，容量增大但速度逐级降低。容量和 HBM 带宽来自 NVIDIA 规格 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>；延迟是第三方微基准在 A100 PCIe 上的测量值 <span class="cite">[<a href="#ref-luo2024" title="Luo, Fan, Li, Du, Wang &amp; Chu (2024). Benchmarking and Dissecting the Nvidia Hopper GPU Architecture. arXiv:2402.13499（Table IV：A100 PCIe 各级访存延迟，第三方微基准）。">3</a>]</span>，不是官方数字。优化目标是让热数据尽可能停留在高层。</figcaption>
 </figure>
 
 <p><b>Q7：什么是内存合并访问（coalesced access）？</b></p>
-<p><b>30 秒要点</b>：当一个 warp 的 32 个线程访问连续的内存地址时，硬件可以把这些请求合并成少量的内存事务（transaction）——一个 128 字节的事务可以服务 32 个连续的 4 字节 FP32 读取。如果访问不连续（stride 访问或随机访问），每个线程的请求可能需要独立的事务——最坏情况下 32 个事务 vs 合并后的 1 个事务，带宽浪费 32 倍。<b>深入</b>：合并的粒度是 32 字节（一个 sector）。即使地址不完全连续，只要落在同一个 sector 内就可以合并。<b>对应篇目</b>：<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>。</p>
+<p><b>30 秒要点</b>：当一个 warp 的 32 个线程访问连续的内存地址时，硬件可以把这些请求合并成少量的内存事务（transaction）——32 个连续的 4 字节 FP32 读取共 128 字节，正好落在 4 个 32 字节的 sector 里。如果访问不连续（stride 访问或随机访问），每个线程的请求可能各自落在不同的 sector——最坏情况下要传 32 个 sector，为同样 128 字节的有用数据搬了 8 倍的字节（见<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>的字节账）。<b>深入</b>：合并的粒度是 32 字节（一个 sector）。即使地址不完全连续，只要落在同一个 sector 内就可以合并。<b>对应篇目</b>：<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>。</p>
 
 <p><b>Q8：什么是 bank conflict？如何避免？</b></p>
-<p><b>30 秒要点</b>：Shared memory 被分为 32 个 bank，每个 bank 宽 4 字节。当同一个 warp 的多个线程同时访问同一 bank 的不同地址时，这些访问必须串行化——称为 bank conflict。N-way bank conflict 意味着延迟是无 conflict 时的 N 倍。避免方法：padding（在 smem 数组每行末尾加一个元素，错开 bank 映射）或 swizzle（用 XOR 变换地址的低位）。<b>对应篇目</b>：<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>。</p>
+<p><b>30 秒要点</b>：Shared memory 被分为 32 个 bank，每个 bank 宽 4 字节。当同一个 warp 的多个线程同时访问同一 bank 的不同地址时，这些访问必须串行化——称为 bank conflict。N-way bank conflict 意味着这次访问被拆成 N 次串行完成。避免方法：padding（在 smem 数组每行末尾加一个元素，错开 bank 映射）或 swizzle（用 XOR 变换地址的低位）。<b>对应篇目</b>：<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>。</p>
 
 <p><b>Q8a：什么是 async copy（cp.async）？它和普通的 load 有什么区别？</b></p>
-<p><b>30 秒要点</b>：<code>cp.async</code> 是从 Ampere 开始引入的异步内存拷贝指令，可以直接把数据从 global memory 搬到 shared memory，不经过寄存器。传统做法是先用 <code>LDG</code> 从 global memory 加载到寄存器，再用 <code>STS</code> 从寄存器写到 smem——占用寄存器且无法与计算重叠。<code>cp.async</code> 的好处有两点：一是节省寄存器（数据绕过寄存器直达 smem），二是可以用 <code>cp.async.commit_group</code> 和 <code>cp.async.wait_group</code> 实现异步流水线——在等待搬运完成的同时做计算。Hopper 的 TMA 进一步将这种异步搬运扩展到了张量级别（可以按 2D/3D tile 的形式搬运），并由专门的硬件单元完成地址计算和数据搬运，进一步减少了 warp 的负担。<b>对应篇目</b>：<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>、<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>。</p>
+<p><b>30 秒要点</b>：<code>cp.async</code> 是从 Ampere 开始引入的异步内存拷贝指令，可以直接把数据从 global memory 搬到 shared memory，不经过寄存器。传统做法是先用 <code>LDG</code> 从 global memory 加载到寄存器，再用 <code>STS</code> 从寄存器写到 smem——占用寄存器且无法与计算重叠。<code>cp.async</code> 的好处有两点：一是节省寄存器（数据绕过寄存器直达 smem），二是可以用 <code>cp.async.commit_group</code> 和 <code>cp.async.wait_group</code> 实现异步流水线——在等待搬运完成的同时做计算。Hopper 的 TMA 进一步将这种异步搬运扩展到了张量级别（按 1D&ndash;5D 的 tile 搬运，由一个线程发起），并由专门的硬件单元完成地址计算和数据搬运，进一步减少了 warp 的负担。<b>对应篇目</b>：<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>、<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>。</p>
 
 <p><b>Q9：Roofline 模型的核心思想是什么？</b></p>
-<p><b>30 秒要点</b>：Kernel 的性能受两个上限约束：峰值算力（compute ceiling）和峰值带宽（memory ceiling）。算术强度（AI = FLOPs / Bytes）决定哪个上限更紧：AI 低于&ldquo;脊点&rdquo;（ridge point = 峰值算力 / 峰值带宽）时是 memory-bound，高于脊点时是 compute-bound。A100 的 FP16 Tensor Core 脊点约 156 FLOP/B（312 TFLOPS / 2.0 TB/s），FP32 CUDA core 脊点约 9.75 FLOP/B（<a href="#fig-roofline_annotated">图 3</a>）。<b>深入</b>：实际 kernel 还受延迟约束（指令延迟、内存延迟）——roofline 只给出了吞吐上限。常见 kernel 的 AI 分布：Softmax ~0.6、LayerNorm ~1.3、GEMV ~0.25（全部 memory-bound），FlashAttention ~d/4 ~32（接近脊点），大方阵 GEMM &gt;1000（compute-bound）。面试中快速判断 bound 类型比精确计算更重要。<b>对应篇目</b>：<a href="../hw03-performance-model/hw03-performance-model.html">第 3 篇</a>。</p>
+<p><b>30 秒要点</b>：Kernel 的性能受两个上限约束：峰值算力（compute ceiling）和峰值带宽（memory ceiling）。算术强度（AI = FLOPs / Bytes）决定哪个上限更紧：AI 低于&ldquo;脊点&rdquo;（ridge point = 峰值算力 / 峰值带宽）时是 memory-bound，高于脊点时是 compute-bound。A100 80GB 的 FP16 Tensor Core 脊点约 153 FLOP/B（312 TFLOPS / 2.039 TB/s），FP32 CUDA core 脊点约 9.6 FLOP/B（19.5 / 2.039）（<a href="#fig-roofline_annotated">图 3</a>）。<b>深入</b>：实际 kernel 还受延迟约束（指令延迟、内存延迟）——roofline 只给出了吞吐上限。几个按公式算出的 AI：FP32 Softmax 约 0.6（5 FLOP / 8 字节）、FP16 LayerNorm 约 1.25（5 FLOP / 4 字节）、FP16 GEMV 约 1（每个权重 2 字节、一次乘加），都是 memory-bound；4096&sup3; 的 FP16 GEMM 约 1365（compute-bound）。FlashAttention 的强度取决于 Q 块大小和 K/V 能否命中 L2，不是一个固定值（见第 3 篇）。面试中快速判断 bound 类型比精确计算更重要。<b>对应篇目</b>：<a href="../hw03-performance-model/hw03-performance-model.html">第 3 篇</a>。</p>
 
 <figure id="fig-roofline_annotated" data-kind="diagram" data-source="illustrative">
 <img aria-labelledby="fig-roofline_annotated-cap" src="figs/roofline_annotated.svg" alt="Annotated roofline model"/>
-<figcaption id="fig-roofline_annotated-cap"><span class="fig-label">图 3</span><span class="badge illustrative">示意数据</span><b>Roofline 模型标注图。</b>横轴为算术强度（FLOP/Byte），纵轴为吞吐。斜线段是 memory ceiling（斜率 = HBM 带宽），水平线是 compute ceiling（Tensor Core 峰值）。常见 kernel 按 AI 标注。</figcaption>
+<figcaption id="fig-roofline_annotated-cap"><span class="fig-label">图 3</span><span class="badge illustrative">示意数据</span><b>Roofline 模型标注图。</b>横轴为算术强度（FLOP/Byte），纵轴为吞吐。斜线段是 memory ceiling（A100 80GB 的 2.039 TB/s），水平线是 compute ceiling（FP16 Tensor Core 312 TFLOPS）。几个 kernel 按正文公式算出的 AI 标在斜线或平线上；示意图，点的位置是近似的。</figcaption>
 </figure>
 
 <h2 id="sec-gemm-attn">GEMM 与 Attention</h2>
@@ -306,20 +306,20 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p><b>30 秒要点</b>：三级 tiling——block tile（BM &times; BN，分配给一个 thread block）→ warp tile（WM &times; WN，分配给一个 warp）→ thread tile（TM &times; TN，分配给一个线程）。沿 K 维度分块：每次从 HBM 加载 A 和 B 的一个 BK-slice 到 smem，在 smem 中做内层循环，减少 HBM 访问。进一步优化：双缓冲 smem（prefetch 下一个 K-slice 的同时计算当前 slice）、寄存器分块（从 smem 加载到寄存器 tile 做外积累加）。<b>对应篇目</b>：<a href="../gm24-sgemm-ladder/gm24-sgemm-ladder.html">第 24 篇</a>、<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>。</p>
 
 <p><b>Q11：FlashAttention 解决了什么问题？核心思想是什么？</b></p>
-<p><b>30 秒要点</b>：标准 attention 需要 O(N&sup2;) 内存存 attention 矩阵（N 是序列长度），N=128K 时需要 ~64 GB——放不进 HBM。FlashAttention 用 tiling + online softmax 实现了 O(N) 内存的 exact attention——不存完整的 attention 矩阵。核心：把 Q/KV 分块，每个 Q-block 遍历所有 KV-block，用 online softmax（边扫描边更新 max 和 sum）避免两次遍历。IO 复杂度从 O(N&sup2;) 降到 O(N&sup2;d / M)，M 是 smem 容量。<b>对应篇目</b>：<a href="../at33-flashattention-fwd/at33-flashattention-fwd.html">第 33 篇</a>。</p>
+<p><b>30 秒要点</b>：标准 attention 需要 O(N&sup2;) 内存存 attention 矩阵（N 是序列长度），N=128K 时单个 head 的 FP32 分数矩阵就有 128K &times; 128K &times; 4 字节 = 64 GiB。FlashAttention 用 tiling + online softmax 实现了额外内存只随 N 线性增长的 exact attention——不存完整的 attention 矩阵。核心：把 Q/KV 分块，每个 Q-block 遍历所有 KV-block，用 online softmax（边扫描边更新 max 和 sum）避免两次遍历。按论文的分析，HBM 访问量从标准实现的 &Theta;(Nd + N&sup2;) 降到 &Theta;(N&sup2;d&sup2;/M)，M 是片上 SRAM 容量 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135（Theorem 2：HBM 访问量）。">5</a>]</span>。<b>对应篇目</b>：<a href="../at33-flashattention-fwd/at33-flashattention-fwd.html">第 33 篇</a>。</p>
 
 <p><b>Q12：Tensor Core 是什么？WMMA 和 mma.sync 有什么区别？</b></p>
-<p><b>30 秒要点</b>：Tensor Core 是专门做小矩阵乘（如 m16n8k16）的硬件单元，一个 cycle 完成一个 MMA 操作。WMMA 是 CUDA 的高级 API（<code>wmma::mma_sync</code>），编译器负责寄存器分配和数据布局。mma.sync 是 PTX 级别的指令，程序员直接控制操作数在寄存器中的分布（哪个线程持有矩阵的哪些元素）——更灵活但更复杂。Hopper 的 WGMMA 更进一步——warp group 级别（128 线程），操作数可以直接从 smem 读。<b>对应篇目</b>：<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>。</p>
+<p><b>30 秒要点</b>：Tensor Core 是专门做小矩阵乘（如 <code>mma.sync</code> 的 m16n8k16）的硬件单元，一条 MMA 指令由整个 warp 协作发射。WMMA 是 CUDA 的高级 API（<code>wmma::mma_sync</code>），编译器负责寄存器分配和数据布局。mma.sync 是 PTX 级别的指令，程序员直接控制操作数在寄存器中的分布（哪个线程持有矩阵的哪些元素）——更灵活但更复杂。Hopper 的 WGMMA 更进一步——warp group 级别（128 线程），操作数可以直接从 smem 读。<b>对应篇目</b>：<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>。</p>
 
 <p><b>Q13：FlashAttention-3 相比 2 有哪些关键改进？</b></p>
-<p><b>30 秒要点</b>：FlashAttention-3 利用 Hopper 特性：WGMMA（warp group 级 MMA，吞吐更高）、TMA（硬件异步搬运，替代 cp.async）、warp specialization（producer warp 搬数据、consumer warp 做计算，流水线重叠）、FP8 支持（用 FP8 做 QK 矩阵乘、FP32 做 softmax 归约，兼顾精度和吞吐）。在 H100 上比 FlashAttention-2 <span class="cite">[<a href="#ref-flash2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv 2307.08691.">2</a>]</span> 快约 1.5&ndash;2 倍。<b>对应篇目</b>：<a href="../at35-flashattention3/at35-flashattention3.html">第 35 篇</a>。</p>
+<p><b>30 秒要点</b>：FlashAttention-3 论文摘要列出三项技术 <span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608（摘要）。">6</a>]</span>：利用 Tensor Core 和 TMA 的异步性，(1) 用 warp specialization 让整体计算与数据搬运重叠（producer warp 用 TMA 搬数据、consumer warpgroup 用 WGMMA 计算），(2) 让分块的矩阵乘与 softmax 交错执行；(3) 用块量化（block quantization）和 incoherent processing 支持 FP8 低精度。论文报告在 H100 上 FP16 比 FlashAttention-2 <span class="cite">[<a href="#ref-flash2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv 2307.08691.">7</a>]</span> 快 1.5&ndash;2.0 倍，最高约 740 TFLOPs/s。<b>对应篇目</b>：<a href="../at35-flashattention3/at35-flashattention3.html">第 35 篇</a>。</p>
 
 <p><b>Q13a：INT8/INT4 量化对 GEMM 性能的影响是什么？</b></p>
-<p><b>30 秒要点</b>：量化带来两方面收益——数据量减半或更多（FP16→INT8 数据量减半，→INT4 减四分之三），以及 Tensor Core 吞吐翻倍或更多（A100 INT8 是 FP16 的两倍，624 TOPS vs 312 TFLOPS）。对于 memory-bound 的 GEMM（如 decode 阶段的小 batch），量化的主要收益来自减少内存传输量；对于 compute-bound 的 GEMM（如 prefill 阶段的大 batch），主要收益来自更高的算力吞吐。挑战在于精度——需要通过 calibration 和 scale 选择来控制量化误差，量化后的反量化（dequant）操作本身也有开销。<b>对应篇目</b>：<a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>。</p>
+<p><b>30 秒要点</b>：量化带来两方面收益——数据量减半或更多（FP16→INT8 数据量减半，→INT4 减四分之三），以及 Tensor Core 吞吐翻倍或更多（A100 稠密 INT8 是 FP16 的两倍，624 TOPS vs 312 TFLOPS <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）。对于 memory-bound 的 GEMM（如 decode 阶段的小 batch），量化的主要收益来自减少内存传输量；对于 compute-bound 的 GEMM（如 prefill 阶段的大 batch），主要收益来自更高的算力吞吐。挑战在于精度——需要通过 calibration 和 scale 选择来控制量化误差，量化后的反量化（dequant）操作本身也有开销。<b>对应篇目</b>：<a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>。</p>
 
 <h2 id="sec-estimation">估算题训练</h2>
 
-<p>估算题考察的不是精确计算——面试官关心的是你的推理过程和对数量级的直觉。标准推理流程（<a href="#fig-estimation_flow">图 4</a>）：数 FLOP → 数 Byte → 算 AI → 与脊点比较 → 判断 bound 类型 → 用对应的上限算理论时间。掌握这个五步流程后，大部分估算题可以在一分钟内完成——关键是记住几个核心参数（A100 FP16 Tensor Core 312 TFLOPS、HBM 2.0 TB/s；H100 FP16 约 1000 TFLOPS、HBM 3.35 TB/s）和常见 kernel 的 FLOP/Byte 公式。</p>
+<p>估算题考察的不是精确计算——面试官关心的是你的推理过程和对数量级的直觉。标准推理流程（<a href="#fig-estimation_flow">图 4</a>）：数 FLOP → 数 Byte → 算 AI → 与脊点比较 → 判断 bound 类型 → 用对应的上限算理论时间。掌握这个五步流程后，大部分估算题可以在一分钟内完成——关键是记住几个核心参数（A100 80GB：FP16 Tensor Core 稠密 312 TFLOPS、HBM 2.039 TB/s；H100 SXM：FP16 稠密 989.5 TFLOPS、HBM 3.35 TB/s <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）和常见 kernel 的 FLOP/Byte 公式。</p>
 
 <figure id="fig-estimation_flow" data-kind="diagram">
 <img aria-labelledby="fig-estimation_flow-cap" src="figs/estimation_flow.svg" alt="Estimation flow"/>
@@ -362,10 +362,10 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 <p class="src-note">完整代码：<code>code/iv51-interview-bank/estimation_examples.cu</code> 第 20&ndash;34 行</p>
 
 <p><b>练习 1：Softmax N=8192，FP32，A100——是 compute-bound 还是 memory-bound？</b></p>
-<p>每个元素约 5 FLOP（exp + div + add/sub）→ 总 FLOP = 5 &times; 8192 = 40960。读 N &times; 4 字节 + 写 N &times; 4 字节 = 64 KB。AI = 40960 / 65536 &asymp; 0.625 FLOP/B。A100 FP32 脊点 = 19.5 TFLOPS / 2.0 TB/s = 9.75 FLOP/B。0.625 远小于 9.75 → <b>memory-bound</b>。理论时间 = 64 KB / 2.0 TB/s &asymp; 0.032 &mu;s——实际会慢很多（kernel launch 开销、L2 延迟），但这建立了下界。</p>
+<p>每个元素约 5 FLOP（exp + div + add/sub）→ 总 FLOP = 5 &times; 8192 = 40960。读 N &times; 4 字节 + 写 N &times; 4 字节 = 64 KB。AI = 40960 / 65536 &asymp; 0.625 FLOP/B。A100 80GB 的 FP32 脊点 = 19.5 TFLOPS / 2.039 TB/s &asymp; 9.6 FLOP/B。0.625 远小于 9.6 → <b>memory-bound</b>。理论时间 = 64 KB / 2.039 TB/s &asymp; 0.032 &mu;s——这么小的数据量，实际耗时主要是 kernel launch 和访存延迟，但这建立了下界。</p>
 
 <p><b>练习 2：GEMM M=N=K=4096，FP16 Tensor Core，A100——理论执行时间是多少？</b></p>
-<p>FLOP = 2 &times; 4096&sup3; = 137.4 GFLOP。A100 FP16 Tensor Core 峰值 312 TFLOPS → 计算时间 = 137.4e9 / 312e12 = 0.44 ms。数据量 = (4096 &times; 4096) &times; 2 字节 &times; 3 矩阵 = 96 MB → 访存时间 = 96e6 / 2e12 = 0.048 ms。AI = 137.4e9 / 96e6 = 1431 FLOP/B，远大于脊点 → <b>compute-bound</b>，理论时间约 0.44 ms。cuBLAS 实际约 0.5&ndash;0.6 ms（~80% 利用率）。</p>
+<p>FLOP = 2 &times; 4096&sup3; = 137.4 GFLOP。A100 FP16 Tensor Core 峰值 312 TFLOPS → 计算时间 = 137.4e9 / 312e12 = 0.44 ms。数据量 = (4096 &times; 4096) &times; 2 字节 &times; 3 矩阵 &asymp; 100.7 MB（96 MiB）→ 访存时间 = 100.7e6 / 2.039e12 &asymp; 0.049 ms。AI = 137.4e9 / 100.7e6 &asymp; 1365 FLOP/B（即 4096/3），远大于脊点 → <b>compute-bound</b>，理论时间约 0.44 ms。实测能达到这个下界的多少，要靠测量回答，这里不给数字。</p>
 
 <pre data-code="code/iv51-interview-bank/estimation_quiz.cu#L36-L50"><code>__host__ EstimationResult estimate(
     long long flops, long long bytes,
@@ -385,10 +385,10 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 <p class="src-note">完整代码：<code>code/iv51-interview-bank/estimation_quiz.cu</code> 第 36&ndash;50 行</p>
 
 <p><b>练习 3：8 卡 A100 做 1 GB 的 Ring AllReduce，NVLink 互联——需要多长时间？</b></p>
-<p>Ring AllReduce 总通信量 = 2(N&minus;1)/N &times; M = 2 &times; 7/8 &times; 1 GB = 1.75 GB。A100 NVLink 单向带宽 300 GB/s（双向 600 GB/s），Ring AllReduce 每一步只使用一个方向 → 有效带宽取单向 300 GB/s → 时间 = 1.75e9 / 300e9 &asymp; 5.8 ms。如果换成 PCIe 4.0（~32 GB/s 双向、~16 GB/s 单向）→ 时间 = 1.75e9 / 16e9 &asymp; 109 ms——慢了约 19 倍。实际还需要加上 launch 开销和多步 pipeline 的启动延迟（约 0.5&ndash;1 ms），但面试中给出数量级正确的估算即可。H100 的 NVLink 4.0 单向带宽提升到 450 GB/s，进一步缩短通信时间。</p>
+<p>Ring AllReduce 总通信量 = 2(N&minus;1)/N &times; M = 2 &times; 7/8 &times; 1 GB = 1.75 GB。A100 的 NVLink 3 每卡 600 GB/s 是双向总和（12 条链路，每条每方向 25 GB/s），即每方向 300 GB/s <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>；Ring AllReduce 中每张卡同时向下游发、从上游收，按每方向 300 GB/s 估 → 时间 = 1.75e9 / 300e9 &asymp; 5.8 ms。如果换成 PCIe Gen4（A100 规格表写 64 GB/s，即每方向约 32 GB/s <span class="cite">[<a href="#ref-a100ds" title="NVIDIA. NVIDIA A100 Tensor Core GPU. 产品页 Specifications 表（NVLink 600 GB/s；PCIe Gen4 64 GB/s）。">8</a>]</span>）→ 时间 = 1.75e9 / 32e9 &asymp; 55 ms——慢了约 9 倍。实际还要加上每一步的启动延迟和协议开销，但面试中给出数量级正确的估算即可。H100 的 NVLink 4 为每卡 900 GB/s 双向，即每方向 450 GB/s，进一步缩短通信时间。</p>
 
 <p><b>练习 4：LayerNorm（batch=64, hidden=4096, FP16）在 A100 上——bound 类型？</b></p>
-<p>LayerNorm 对每个 token 做均值、方差、归一化三步——FLOP &asymp; 5 &times; hidden = 5 &times; 4096 = 20480 per token，总 FLOP = 64 &times; 20480 = 1.31M。数据量：读输入 + 写输出 = 2 &times; 64 &times; 4096 &times; 2 字节 = 1 MB（还有 gamma/beta 参数但远小于激活）。AI = 1.31M / 1M &asymp; 1.31 FLOP/B，远低于 A100 FP16 脊点（156 FLOP/B for Tensor Core，9.75 for FP32 CUDA core） → <b>memory-bound</b>。这解释了为什么 LayerNorm 和 RMSNorm 这类逐元素操作通常会和前后的算子做 kernel fusion——单独运行时带宽利用率太低。</p>
+<p>LayerNorm 对每个 token 做均值、方差、归一化三步——FLOP &asymp; 5 &times; hidden = 5 &times; 4096 = 20480 per token，总 FLOP = 64 &times; 20480 = 1.31M。数据量：读输入 + 写输出 = 2 &times; 64 &times; 4096 &times; 2 字节 = 1 MiB（1.05 MB；还有 gamma/beta 参数但远小于激活）。AI = 1.31M / 1.05M &asymp; 1.25 FLOP/B，远低于 A100 80GB 的脊点（Tensor Core 约 153 FLOP/B，FP32 CUDA core 约 9.6） → <b>memory-bound</b>。这解释了为什么 LayerNorm 和 RMSNorm 这类逐元素操作通常会和前后的算子做 kernel fusion——单独运行时带宽利用率太低。</p>
 
 <h2 id="sec-sysdesign">系统设计题</h2>
 
@@ -401,11 +401,11 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 
 <p><b>题目示例：设计一个 decode attention kernel（H100，FP16，序列长度 128K）。</b></p>
 
-<p><b>Step 1 — Clarify</b>：Decode 阶段 Q 是单个 token（1 &times; d），KV 已在 cache 中（seq_len &times; d）。延迟敏感（影响 TTFT）。FP16 数据类型，H100 GPU。</p>
+<p><b>Step 1 — Clarify</b>：Decode 阶段 Q 是单个 token（1 &times; d），KV 已在 cache 中（seq_len &times; d）。延迟敏感（决定每个输出 token 的间隔，而不是首 token 延迟 TTFT——后者由 prefill 决定）。FP16 数据类型，H100 GPU。</p>
 
-<p><b>Step 2 — Estimate</b>：每个 token 需要读 2 &times; seq_len &times; d &times; 2 字节的 KV 数据。seq_len=128K, d=128 → 64 MB。FLOP = 2 &times; seq_len &times; d &times; 2（Q&middot;K + score&middot;V）= 67M FLOP。AI = 67M / 64M &asymp; 1 FLOP/B → 远低于脊点 → <b>memory-bound</b>。H100 理论时间 = 64MB / 3.35 TB/s &asymp; 0.019 ms。</p>
+<p><b>Step 2 — Estimate</b>（单个 head、batch 1）：每个 token 需要读 2 &times; seq_len &times; d &times; 2 字节的 KV 数据。seq_len=128K, d=128 → 64 MiB（67.1 MB）。FLOP = 2 &times; seq_len &times; d &times; 2（Q&middot;K + score&middot;V）&asymp; 67M FLOP。AI = 67M / 67M &asymp; 1 FLOP/B → 远低于脊点 → <b>memory-bound</b>。H100 理论时间 = 67.1 MB / 3.35 TB/s &asymp; 0.020 ms。</p>
 
-<p><b>Step 3 — Design</b>：每个 block 处理 KV 的一个 chunk，在 block 内部做 partial softmax（online softmax——边扫描边更新 max 和 sum 的增量算法）。跨 block 的 partial results 通过全局归约合并。KV cache 用 PagedAttention <span class="cite">[<a href="#ref-paged" title="Kwon et al. (2023). Efficient Memory Management for Large Language Model Serving with PagedAttention. SOSP ’23.">3</a>]</span>——通过页表间接寻址，避免内存碎片化。</p>
+<p><b>Step 3 — Design</b>：每个 block 处理 KV 的一个 chunk，在 block 内部做 partial softmax（online softmax——边扫描边更新 max 和 sum 的增量算法）。跨 block 的 partial results 通过全局归约合并。KV cache 用 PagedAttention <span class="cite">[<a href="#ref-paged" title="Kwon et al. (2023). Efficient Memory Management for Large Language Model Serving with PagedAttention. SOSP ’23.">9</a>]</span>——通过页表间接寻址，避免内存碎片化。</p>
 
 <pre data-code="code/iv51-interview-bank/sysdesign_skeleton.cu#L29-L48"><code>__global__ void decode_attention_skeleton(
     const half* __restrict__ Q,
@@ -447,9 +447,9 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 }</code></pre>
 <p class="src-note">完整代码：<code>code/iv51-interview-bank/sysdesign_skeleton.cu</code> 第 49&ndash;62 行</p>
 
-<p><b>Step 4 — Optimize</b>：向量化加载（<code>float4</code> / <code>uint4</code>，每次加载 16 字节，把 32 个线程的加载请求合并为更少的 128 字节事务，显著减少内存事务数）；warp shuffle 做局部归约（32 个线程的 partial score 不写 smem 而是用 <code>__shfl_down_sync</code> 在寄存器中传递，避免 smem bank conflict 并减少同步开销）；online softmax 单 pass 完成（不需要先扫描一遍求 max 再扫描一遍做归一化——边扫描边维护 running max 和 running sum，用 rescale 因子修正之前的部分和）。</p>
+<p><b>Step 4 — Optimize</b>：向量化加载（<code>float4</code> / <code>uint4</code>，每条指令加载 16 字节，同样的字节数只需四分之一的 load 指令，也让每个 warp 同时在途的字节更多）；warp shuffle 做局部归约（32 个线程的 partial score 不写 smem 而是用 <code>__shfl_down_sync</code> 在寄存器中传递，避免 smem bank conflict 并减少同步开销）；online softmax 单 pass 完成（不需要先扫描一遍求 max 再扫描一遍做归一化——边扫描边维护 running max 和 running sum，用 rescale 因子修正之前的部分和）。</p>
 
-<p><b>Step 5 — Verify</b>：检查 HBM 利用率——理论 64 MB 读取、H100 3.35 TB/s 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span> → 期望 ~80%+ 利用率。如果低于 60%，用 Nsight Compute 检查 memory 面板——可能的问题包括 page table 的间接访问破坏了合并访存（page 边界处的 token 地址不连续）、shared memory bank conflict（可以用 padding 或 swizzle 解决）、或者 warp 数量不够导致延迟隐藏不充分（增大 block 中的线程数或降低每线程寄存器用量）。跨 block 归约的方案选择：两遍 kernel（先 partial 再 merge，简单但多一次 kernel launch 开销）vs 原子操作（一遍完成但有原子竞争，适合 block 数不太多的场景），权衡延迟和实现复杂度。</p>
+<p><b>Step 5 — Verify</b>：检查 HBM 利用率——理论 67 MB 读取、H100 3.35 TB/s 带宽 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>，目标是 DRAM 吞吐接近峰值。如果离峰值明显较远，用 Nsight Compute 检查 memory 面板——可能的问题包括 page table 的间接访问破坏了合并访存（page 边界处的 token 地址不连续）、shared memory bank conflict（可以用 padding 或 swizzle 解决）、或者 warp 数量不够导致延迟隐藏不充分（增大 block 中的线程数或降低每线程寄存器用量）。跨 block 归约的方案选择：两遍 kernel（先 partial 再 merge，简单但多一次 kernel launch 开销）vs 原子操作（一遍完成但有原子竞争，适合 block 数不太多的场景），权衡延迟和实现复杂度。</p>
 
 <h2 id="sec-star">行为面试：STAR 模板</h2>
 
@@ -464,29 +464,29 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 
 <p><b>Task</b>（15 秒）：你的目标和约束。例：&ldquo;目标是把 attention 延迟降低到 7ms 以下（产品 SLA 要求），约束是必须支持可变长度序列且不能改变 KV cache 格式（其他组件依赖当前格式）。&rdquo;</p>
 
-<p><b>Action</b>（2&ndash;3 分钟，重点部分）：你做了什么、为什么、有什么权衡。例：&ldquo;先用 ncu 定位瓶颈——主要问题是 KV cache 的非合并访问（stride=seq_len &times; d，跨 page 访问不连续）。我实现了 PagedAttention 的向量化版本——每个 warp 处理连续的 page 内 token，用 float4 加载保证合并访存；page 间的切换用 warp shuffle 共享 page table 查询结果减少内存访问。还把 online softmax 从两遍改成单遍——减少了一次完整的 score 矩阵扫描。权衡：单遍 online softmax 的数值稳定性略差（多了一次缩放操作的浮点误差），通过回归测试验证误差在 FP16 容差范围内。&rdquo;</p>
+<p><b>Action</b>（2&ndash;3 分钟，重点部分）：你做了什么、为什么、有什么权衡。例：&ldquo;先用 ncu 定位瓶颈——主要问题是 KV cache 的非合并访问（stride=seq_len &times; d，跨 page 访问不连续）。我实现了 PagedAttention 的向量化版本——每个 warp 处理连续的 page 内 token，用 float4 加载保证合并访存；page 间的切换用 warp shuffle 共享 page table 查询结果减少内存访问。还把 softmax 从两遍改成单遍的 online softmax——减少了一次完整的 score 扫描。权衡：改动了累加顺序，结果与旧实现不再逐位相同，通过回归测试确认误差在 FP16 容差范围内。&rdquo;（以上 STAR 例子中的数字都是虚构的示范，请换成你自己项目的真实数据。）</p>
 
 <p><b>Result</b>（30 秒）：数字和影响。例：&ldquo;HBM 利用率从 45% 提升到 82%，p99 延迟从 12ms 降到 6.5ms——超过了 7ms 的目标。部署到生产后，同样的 GPU 集群可以服务的 QPS 提升了 1.8 倍。这个经历让我理解了——profiling 永远是第一步，凭直觉猜测瓶颈往往是错的。&rdquo;</p>
 
 <h2 id="sec-interview">高频面试题速查</h2>
 
 <p id="sec-q1"><b>Q14：如何用一句话解释 GPU 和 CPU 的本质区别？</b></p>
-<p>CPU 优化单线程延迟（大缓存、乱序执行、分支预测），GPU 优化总吞吐（数千核心、SIMT 执行、用线程数量隐藏延迟）。CPU 是&ldquo;几个很快的工人&rdquo;，GPU 是&ldquo;几千个普通工人&rdquo;。<b>追问</b>：具体数字对比——一颗 A100 的 FP32 峰值算力（19.5 TFLOPS）是同期高端 CPU（~1 TFLOPS）的约 20 倍，但单线程浮点延迟 CPU 更低（~1 ns vs GPU ~4 ns），所以 GPU 必须靠并行度来弥补单线程劣势。</p>
+<p>CPU 优化单线程延迟（大缓存、乱序执行、分支预测），GPU 优化总吞吐（数千核心、SIMT 执行、用线程数量隐藏延迟）。CPU 是&ldquo;几个很快的工人&rdquo;，GPU 是&ldquo;几千个普通工人&rdquo;。<b>追问</b>：具体数字——A100 的 FP32 峰值 19.5 TFLOPS 来自 108 个 SM &times; 每 SM 每周期 64 次 FMA &times; 2 &times; 1.41 GHz（见<a href="../hw01-gpu-architecture/hw01-gpu-architecture.html">第 1 篇</a>）；而单个线程的一条依赖 FMA 在 A100 上要等约 4 个周期才能发下一条 <span class="cite">[<a href="#ref-abdelkhalik2022" title="Abdelkhalik, Arafa, Santhi &amp; Badawy (2022). Demystifying the Nvidia Ampere Architecture through Microbenchmarking and Instruction-level Analysis. arXiv:2208.11174（Table II：A100 上依赖的 FFMA 序列每条 4 周期）。">10</a>]</span>，GPU 必须靠大量并行的线程和独立指令来填满流水线。</p>
 
 <p id="sec-q2"><b>Q15：为什么 FlashAttention 不需要存完整的 attention 矩阵？</b></p>
 <p>Online softmax 算法允许在只看一部分 score 的情况下维护正确的 softmax 归一化——通过增量更新全局 max 和 sum。每处理一个 KV-block，用新的 max 修正之前的部分和，最终得到 exact softmax 结果。</p>
 
 <p id="sec-q3"><b>Q16：什么场景下应该用 FP8 而不是 FP16？</b></p>
-<p>推理阶段的 GEMM（权重已经量化）和 FlashAttention-3 的 QK 矩阵乘。FP8 在 H100 上的 Tensor Core 吞吐是 FP16 的两倍（~2000 TFLOPS vs ~1000 TFLOPS）。关键前提：模型经过量化感知训练或 post-training quantization，且 softmax 归约仍用 FP32 保持精度。</p>
+<p>推理阶段的 GEMM（权重已经量化）和 FlashAttention-3 的 FP8 模式（两个矩阵乘都用 FP8，配合块量化与 incoherent processing 控制误差 <span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608（摘要）。">6</a>]</span>）。FP8 在 H100 SXM 上的稠密 Tensor Core 峰值是 FP16 的两倍（1,979 vs 989.5 TFLOPS <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>）。关键前提：模型经过量化感知训练或 post-training quantization，累加和 softmax 仍用 FP32 保持精度。</p>
 
 <p id="sec-q4"><b>Q17：Ring AllReduce 和 Tree AllReduce 各适合什么场景？</b></p>
-<p>Ring AllReduce 的通信量与 GPU 数量 N 无关（约 2M(N&minus;1)/N），适合大消息、GPU 数量不太多（&le;32）的场景。Tree AllReduce 的延迟是 O(log N)，适合小消息（延迟主导）或 GPU 数量很大的场景。实际系统（如 NCCL）会根据消息大小自动选择算法。</p>
+<p>Ring AllReduce 中每张卡收发的数据量约为 2M(N&minus;1)/N，几乎与 GPU 数量 N 无关，带宽利用好，适合大消息；但它要走 2(N&minus;1) 步，延迟随 N 线性增长。Tree AllReduce 的步数是 O(log N)，适合小消息（延迟主导）或 GPU 数量很大的场景。实际系统（如 NCCL）会根据消息大小和拓扑选择算法。</p>
 
 <p id="sec-q5"><b>Q18：如何判断一个 kernel 的优化空间还有多大？</b></p>
-<p>用 roofline 比较实际吞吐和理论上限：如果是 memory-bound kernel，看 HBM 带宽利用率（&ge;80% 表示接近上限）；如果是 compute-bound kernel，看算力利用率（GEMM 能到 80%+，elementwise 通常 &lt;50%）。Nsight Compute 的 speed-of-light 面板直接给出这两个比例。差距大说明优化空间大——重点看 stall 原因（等内存还是等计算）。<b>追问</b>：具体来说，Nsight Compute 的 Memory Workload Analysis 面板会显示 L1/L2/HBM 各级的实际命中率和事务数，如果 L2 hit rate 很低（&lt;50%）而 HBM 事务数远超理论最小值，说明存在非合并访存或冗余读取；Warp State Statistics 面板则显示 warp 在不同状态（active/stalled/eligible）的时间分布——如果 stall_long_scoreboard 占比高说明等内存，stall_math_pipe 占比高说明计算管线饱和。</p>
+<p>用 roofline 比较实际吞吐和理论上限：memory-bound kernel 看 HBM 带宽占峰值的比例，compute-bound kernel 看对应计算单元（Tensor Core 或 CUDA core）占峰值的比例——一定要相对于它所在的那条屋顶来比。Nsight Compute 的 Speed Of Light 一节直接给出计算与内存两侧的比例。差距大说明优化空间大——重点看 stall 原因（等内存还是等计算）。<b>追问</b>：具体来说，Memory Workload Analysis 一节显示 L1/L2/DRAM 各级的命中率和流量，如果 DRAM 字节数远超理论最小值，说明存在非合并访存或冗余读取；Warp State Statistics 一节显示 warp 停顿原因的分布——Long Scoreboard 占比高说明在等 L1TEX（全局/局部内存），Math Pipe Throttle 占比高说明计算流水线忙不过来 <span class="cite">[<a href="#ref-ncu" title="NVIDIA. Nsight Compute Profiling Guide（Speed Of Light、Memory Workload Analysis、Warp Stall Reasons）。">11</a>]</span>。</p>
 
 <p id="sec-q6"><b>Q19：什么是 kernel fusion？为什么它对推理性能很重要？</b></p>
-<p>Kernel fusion 是把多个小 kernel 合并成一个大 kernel——减少 kernel launch 开销（每次 launch 约 5&ndash;10 &mu;s）和中间结果的 HBM 读写。典型例子：把 GEMM + bias + ReLU 合成一个 kernel（CUTLASS 的 epilogue fusion），或把 attention 的 softmax + dropout + matmul 合成一个 kernel（FlashAttention）。对推理特别重要——因为推理的 batch 通常较小，kernel 大多是 memory-bound，减少 HBM 访问次数就是在减少瓶颈时间。torch.compile 的 Triton 后端会自动做 pointwise fusion，但 GEMM + attention 级别的 fusion 仍然需要手写 kernel。</p>
+<p>Kernel fusion 是把多个小 kernel 合并成一个大 kernel——减少 kernel launch 开销（每次 launch 都有固定的驱动与调度开销，对短 kernel 尤其显著，见<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）和中间结果的 HBM 读写。典型例子：把 GEMM + bias + ReLU 合成一个 kernel（CUTLASS 的 epilogue fusion），或把 attention 的 softmax + dropout + matmul 合成一个 kernel（FlashAttention）。对推理特别重要——因为推理的 batch 通常较小，kernel 大多是 memory-bound，减少 HBM 访问次数就是在减少瓶颈时间。torch.compile 的 Triton 后端会自动做 pointwise fusion，但 GEMM 主循环、attention 这类复杂 kernel 通常仍然调用库或手写 kernel。</p>
 
 <p id="sec-q7"><b>Q20：解释 double buffering（双缓冲）在 GEMM 中的作用。</b></p>
 <p>双缓冲是指在 smem 中分配两份 tile buffer——当 kernel 在计算 buffer A 中的数据时，同时从 HBM 预取下一个 tile 到 buffer B。下一轮迭代交换角色——计算 B 的同时预取到 A。这样计算和搬运可以重叠（overlap），不需要等一个 tile 搬完再开始算、算完再开始搬下一个。代价是 smem 用量翻倍——原来只需要一份 tile 的 smem 现在需要两份，可能降低 occupancy。但对于 GEMM 这种计算密集型 kernel，重叠搬运带来的吞吐提升通常远大于 occupancy 降低的损失。</p>
@@ -497,60 +497,67 @@ __host__ KernelProfile profile_rmsnorm(int M, int N) {
 
 <table>
   <thead>
-    <tr><th>维度</th><th>Hopper (H100)</th><th>Blackwell (B200)</th><th>面试考点</th></tr>
+    <tr><th>维度</th><th>Hopper (H100 SXM)</th><th>Blackwell (HGX B200 单卡)</th><th>面试考点</th></tr>
   </thead>
   <tbody>
-    <tr><td>Tensor Core</td><td>WGMMA (128 线程)</td><td>tcgen05 MMA + TMEM</td><td>TMEM 如何消除寄存器溢出</td></tr>
-    <tr><td>数据搬运</td><td>TMA (cp.async.bulk)</td><td>TMA + UTMA (Unified TMA)</td><td>异步搬运对 warp specialization 的意义</td></tr>
-    <tr><td>FP 精度</td><td>FP8 (E4M3/E5M2)</td><td>FP4 (MXFP4) + FP6</td><td>更低精度对 roofline 脊点的影响</td></tr>
-    <tr><td>HBM 带宽</td><td>3.35 TB/s (HBM3)</td><td>8.0 TB/s (HBM3e)</td><td>memory-bound kernel 的加速比</td></tr>
-    <tr><td>NVLink</td><td>900 GB/s (NVLink 4.0)</td><td>1800 GB/s (NVLink 5.0)</td><td>AllReduce 延迟计算</td></tr>
-    <tr><td>多节点</td><td>8 GPU NVLink 域</td><td>72 GPU MNNVL 域</td><td>为什么 MoE All-to-All 受益最大</td></tr>
+    <tr><td>Tensor Core</td><td>WGMMA (128 线程)</td><td>tcgen05.mma（单线程发射）+ TMEM</td><td>累加器移出寄存器，如何减轻寄存器压力</td></tr>
+    <tr><td>数据搬运</td><td>TMA（cp.async.bulk.tensor）</td><td>TMA，新增 tile::gather4 / scatter4、im2col::w 等模式</td><td>异步搬运对 warp specialization 的意义</td></tr>
+    <tr><td>FP 精度</td><td>FP8 (E4M3/E5M2)</td><td>FP8 + FP6 / FP4（MXFP8/6/4、NVFP4 块缩放格式）</td><td>更低精度对 roofline 脊点的影响</td></tr>
+    <tr><td>HBM 带宽</td><td>3.35 TB/s (HBM3)</td><td>8 TB/s (HBM3e)</td><td>memory-bound kernel 的加速比</td></tr>
+    <tr><td>NVLink</td><td>900 GB/s (NVLink 4)</td><td>1.8 TB/s (NVLink 5)</td><td>AllReduce 延迟计算</td></tr>
+    <tr><td>NVLink 域</td><td>HGX H100：8 GPU</td><td>HGX B200：8 GPU；GB200 NVL72：72 GPU</td><td>为什么 MoE All-to-All 受益最大</td></tr>
   </tbody>
 </table>
 
-<p><b>面试中的典型追问模式</b>：面试官可能先问&ldquo;H100 上一个 memory-bound kernel 搬到 B200 能快多少？&rdquo;——正确思路是 HBM 带宽 8.0/3.35 &asymp; 2.4 倍，但如果同时用 FP4 替代 FP16（数据量减 4 倍），实际加速可以达到 2.4 &times; 4 = ~9.6 倍上限（受 compute ceiling 约束则回退到算力比）。进一步追问&ldquo;什么情况下加速比达不到理论值？&rdquo;——常见原因包括 kernel launch 开销占比增大（kernel 本身太快但 launch 固定 ~5 μs）、L2 cache 命中率变化（B200 L2 更大但 working set 可能也更大）、以及 FP4 的 dequant 开销抵消部分带宽收益。这种&ldquo;估算 → 实际差距 → 分析原因&rdquo;的追问链条是面试官判断候选人深度的标准方式。</p>
+<p><b>面试中的典型追问模式</b>：面试官可能先问&ldquo;H100 上一个 memory-bound kernel 搬到 B200 能快多少？&rdquo;——正确思路是 HBM 带宽 8/3.35 &asymp; 2.4 倍 <span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span>；如果同时用 FP4 替代 FP16（数据量约减为 1/4，再加上 scale 元数据），上限约为 2.4 &times; 4 &asymp; 9.6 倍（若因此变成 compute-bound，则改由算力比决定）。进一步追问&ldquo;什么情况下加速比达不到理论值？&rdquo;——常见原因包括 kernel launch 等固定开销占比增大（kernel 本身变快了，固定开销却不变）、L2 cache 命中率变化（Blackwell 的 L2 更大，GB200 为 126 MB，但 working set 可能也更大）、以及 FP4 的 dequant 开销抵消部分带宽收益。这种&ldquo;估算 → 实际差距 → 分析原因&rdquo;的追问链条是面试官判断候选人深度的标准方式。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本篇列举的问题是<b>代表性样本</b>，不是完整的 200 题——完整的题库需要按每个主题进一步展开。每个主题挑 3&ndash;5 道核心题深入准备即可覆盖大部分面试场景。</li>
+<li>本篇列举的问题是<b>代表性样本</b>，不是完整题库——完整的题库需要按每个主题进一步展开。每个主题挑 3&ndash;5 道核心题深入准备即可覆盖大部分面试场景。</li>
 <li>估算题的<b>参数需要记忆</b>——A100/H100/B200 的峰值算力和 HBM 带宽是面试中最常用的数字，建议直接记住而非每次推导（参见 <code>_notes/hw-facts.md</code>）。</li>
 <li>系统设计题的答案<b>因面试官而异</b>——有的面试官关注宏观架构（如何分解问题），有的关注微观优化（具体的 smem 布局和 warp 级技巧）。五步框架提供了结构，但需要根据面试官的追问方向灵活调整深度。</li>
 <li>行为面试的 STAR 模板需要<b>提前准备具体项目</b>——不能临场编造。如果没有实际的 kernel 优化经验，可以基于本系列的练习（如优化 SGEMM、实现 FlashAttention 简化版）准备一个完整的故事。</li>
-<li>手撕 kernel 的 15 道模板见<a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">下一篇</a>——本篇不包含白板手写代码。面试中手撕 kernel 和概念题是互补的：概念题展示理论深度，手撕题展示实战能力。</li>
+<li>手撕 kernel 的 13 个模板见<a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">下一篇</a>——本篇不包含白板手写代码。面试中手撕 kernel 和概念题是互补的：概念题展示理论深度，手撕题展示实战能力。</li>
 </ul>
 
 <h2 id="sec-summary" class="no-toc">小结</h2>
 
-<p>GPU kernel 面试的准备策略可以总结为四个字——&ldquo;分类击破&rdquo;。概念题按主题复习——每个主题的 3&ndash;5 道核心问题覆盖了大部分面试场景，重点是能用自己的语言清晰表达核心机制，而不是背诵定义或罗列名词。估算题练方法——掌握&ldquo;数 FLOP、数 Byte、算 AI、比脊点、取瓶颈时间&rdquo;的五步流程，记住 A100/H100 的关键参数（算力、带宽、脊点），能在面试的一分钟内在白板上完成一个完整的估算推导。系统设计题练框架——五步法（Clarify → Estimate → Design → Optimize → Verify）让你的回答有结构、有层次、有技术深度，面试官能看到你系统性分析问题的能力而非只是零散的优化技巧。行为面试练 STAR——提前准备一到两个有具体数字（加速比、带宽利用率、延迟改善）和技术决策（选择了什么优化方案、为什么排除了替代方案、有什么权衡）的项目故事。面试的本质不是比谁记得多，而是比谁能系统性地分析问题、做出合理的工程决策并清晰地表达思考过程。下一篇给出 15 道手撕 kernel 的白板模板——面试中的&ldquo;硬实力&rdquo;环节。</p>
+<p>GPU kernel 面试的准备策略可以总结为四个字——&ldquo;分类击破&rdquo;。概念题按主题复习——每个主题的 3&ndash;5 道核心问题覆盖了大部分面试场景，重点是能用自己的语言清晰表达核心机制，而不是背诵定义或罗列名词。估算题练方法——掌握&ldquo;数 FLOP、数 Byte、算 AI、比脊点、取瓶颈时间&rdquo;的五步流程，记住 A100/H100 的关键参数（算力、带宽、脊点），能在面试的一分钟内在白板上完成一个完整的估算推导。系统设计题练框架——五步法（Clarify → Estimate → Design → Optimize → Verify）让你的回答有结构、有层次、有技术深度，面试官能看到你系统性分析问题的能力而非只是零散的优化技巧。行为面试练 STAR——提前准备一到两个有具体数字（加速比、带宽利用率、延迟改善）和技术决策（选择了什么优化方案、为什么排除了替代方案、有什么权衡）的项目故事。面试的本质不是比谁记得多，而是比谁能系统性地分析问题、做出合理的工程决策并清晰地表达思考过程。下一篇给出 13 个手撕 kernel 的白板模板——面试中的&ldquo;硬实力&rdquo;环节。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
   <p class="callout-title">从零精通 GPU Kernel</p>
   <p>上一篇：<a href="../cm50-custom-comm-overlap/cm50-custom-comm-overlap.html">自定义通信与计算重叠</a>
-  ｜ 下一篇：<a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">手撕 Kernel 15 例</a>
+  ｜ 下一篇：<a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">手写 Kernel 13 个模板</a>
   ｜ <a href="../p00-overview/p00-overview.html">系列导读</a>
   ｜ <a href="../index.html">目录</a></p>
 </div>
 <nav class="series-nav">
   <a href="../cm50-custom-comm-overlap/cm50-custom-comm-overlap.html">&larr; 第 50 篇 自定义通信与计算重叠</a>
-  <a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">第 52 篇 手撕 Kernel 15 例 &rarr;</a>
+  <a href="../iv52-handwritten-kernels/iv52-handwritten-kernels.html">第 52 篇 手写 Kernel 13 个模板 &rarr;</a>
 </nav>
 
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-roofline">Williams, Waterman &amp; Patterson (2009). <a href="https://dl.acm.org/doi/10.1145/1498765.1498785">Roofline: An Insightful Visual Performance Model</a>. Communications of the ACM, 52(4).</li>
-  <li id="ref-flash2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv 2307.08691.</li>
-  <li id="ref-paged">Kwon et al. (2023). <a href="https://arxiv.org/abs/2309.06180">Efficient Memory Management for Large Language Model Serving with PagedAttention</a>. SOSP &rsquo;23.</li>
+  <li id="ref-volkov2010">Volkov (2010). <a href="https://www.nvidia.com/content/gtc-2010/pdfs/2238_gtc2010.pdf">Better Performance at Lower Occupancy</a>. GTC 2010.</li>
+  <li id="ref-luo2024">Luo, Fan, Li, Du, Wang &amp; Chu (2024). <a href="https://arxiv.org/abs/2402.13499">Benchmarking and Dissecting the Nvidia Hopper GPU Architecture</a>. arXiv:2402.13499（Table IV：A100 PCIe 各级访存延迟，第三方微基准）。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-fa1">Dao, Fu, Ermon, Rudra &amp; R&eacute; (2022). <a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>. arXiv:2205.14135（Theorem 2：HBM 访问量）。</li>
+  <li id="ref-fa3">Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). <a href="https://arxiv.org/abs/2407.08608">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08608（摘要）。</li>
+  <li id="ref-flash2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv 2307.08691.</li>
+  <li id="ref-a100ds">NVIDIA. <a href="https://www.nvidia.com/en-us/data-center/a100/">NVIDIA A100 Tensor Core GPU</a>. 产品页 Specifications 表（NVLink 600 GB/s；PCIe Gen4 64 GB/s）。</li>
+  <li id="ref-paged">Kwon et al. (2023). <a href="https://arxiv.org/abs/2309.06180">Efficient Memory Management for Large Language Model Serving with PagedAttention</a>. SOSP &rsquo;23.</li>
+  <li id="ref-abdelkhalik2022">Abdelkhalik, Arafa, Santhi &amp; Badawy (2022). <a href="https://arxiv.org/abs/2208.11174">Demystifying the Nvidia Ampere Architecture through Microbenchmarking and Instruction-level Analysis</a>. arXiv:2208.11174（Table II：A100 上依赖的 FFMA 序列每条 4 周期）。</li>
+  <li id="ref-ncu">NVIDIA. <a href="https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html">Nsight Compute Profiling Guide</a>（Speed Of Light、Memory Workload Analysis、Warp Stall Reasons）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 51 篇。文中代码完整版在系列目录的 <code>code/iv51-interview-bank/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图。代码为面试估算与系统设计概念的简化演示，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 51 篇。文中代码完整版在系列目录的 <code>code/iv51-interview-bank/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–6 为手绘示意图；STAR 例子中的数字是虚构的示范。代码为面试估算与系统设计概念的简化演示，未在 GPU 上运行。
 </footer>
 
 </div>

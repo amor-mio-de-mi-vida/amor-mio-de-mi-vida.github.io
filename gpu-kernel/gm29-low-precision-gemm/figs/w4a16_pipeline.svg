@@ -21,7 +21,7 @@
 
   <!-- Arrow to SMEM -->
   <path d="M125,80 L175,80" class="arrow" stroke="#009E73"/>
-  <text x="150" y="72" text-anchor="middle" class="sublabel">TMA</text>
+  <text x="150" y="72" text-anchor="middle" class="sublabel">cp.async</text>
 
   <!-- SMEM -->
   <rect x="180" y="50" width="80" height="60" class="box" fill="#FFF3E0" stroke="#D55E00"/>

@@ -61,7 +61,7 @@
   <rect x="520" y="40" width="185" height="195" class="box" fill="#E8F5E9" stroke="#388E3C"/>
   <text x="612" y="60" text-anchor="middle" class="label" fill="#388E3C" font-weight="600">FA2 循环顺序</text>
   <text x="530" y="82" class="sublabel" fill="#388E3C">外层：Q block i</text>
-  <text x="530" y="97" class="sublabel">&emsp;Q_i 加载一次，常驻寄存器</text>
+  <text x="530" y="97" class="sublabel">&emsp;Q_i 加载一次，常驻片上</text>
   <text x="530" y="117" class="sublabel" fill="#388E3C">内层：KV block j</text>
   <text x="530" y="132" class="sublabel">&emsp;K_j, V_j 流水加载</text>
   <text x="530" y="152" class="sublabel">&emsp;计算 S_ij, P_ij, O_i += ...</text>

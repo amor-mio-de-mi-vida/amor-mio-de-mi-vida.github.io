@@ -231,8 +231,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <p class="tldr-title">TL;DR</p>
   <ul>
 <li>FlashAttention 反向不存 N&times;N 的 S/P——从 Q, K 和前向保存的 LSE 重计算 P = exp(S - LSE)。显存仍然是 O(N)，代价是多一个 GEMM 的 FLOP。</li>
-<li>反向有 5 个 GEMM（重计算 QK&#x1D40;、dV = P&#x1D40;&middot;dO、dP = dO&middot;V&#x1D40;、dQ = dS&middot;K、dK = dS&#x1D40;&middot;Q），FLOP 约是前向的 2.5 倍——这是反向更慢的根本原因。</li>
-<li>dQ 的跨 block 累加是核心难点：atomic 方案简单但非确定性；workspace + 第二 kernel 方案确定但多用 O(Nd&middot;T_c) 显存。FA2 默认用后者保证训练可复现。</li>
+<li>反向有 5 个 GEMM（重计算 QK&#x1D40;、dV = P&#x1D40;&middot;dO、dP = dO&middot;V&#x1D40;、dQ = dS&middot;K、dK = dS&#x1D40;&middot;Q），matmul FLOP 是前向的 2.5 倍<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>——这是反向更慢的根本原因。</li>
+<li>dQ 的跨 block 累加是核心难点：FA2 用 atomicAdd 累加到一块 FP32 缓冲，简单但结果不确定；flash-attn 另有默认关闭的 <code>deterministic</code> 模式，多用显存换可复现<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span><span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>。</li>
 <li>Causal mask 下反向有负载不均衡：靠前的 KV block 被几乎所有 Q block 访问，靠后的只有少量——CTA 工作量差异可达 T_c 倍。</li>
 <li>预计算 D_i = rowsum(dO_i &odot; O_i) 是关键的分母修正项——它使 dS 不需要显式存储 P 的每一行归一化后的完整矩阵。</li>
   </ul>
@@ -244,10 +244,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-why">为什么反向更难</h2>
 
-<p>上一篇讲了 FlashAttention 前向如何用 tiling + online softmax 把 HBM 流量从 O(N&sup2;) 降到 O(Nd)。但训练需要反向传播——给定上游梯度 dO，计算 dQ、dK、dV。反向比前向困难在三个层面：</p>
+<p>上一篇讲了 FlashAttention 前向如何用 tiling + online softmax 去掉 HBM 流量中的 N&sup2; 项。但训练需要反向传播——给定上游梯度 dO，计算 dQ、dK、dV。反向比前向困难在三个层面：</p>
 
 <ol>
-<li><b>FLOP 更多</b>：前向只有 2 个 GEMM（QK&#x1D40; 和 PV），反向有 5 个——FLOP 是前向的 2.5 倍。这不是 FlashAttention 的特殊问题，而是 attention 反向的固有特性。</li>
+<li><b>FLOP 更多</b>：前向只有 2 个 GEMM（QK&#x1D40; 和 PV），反向有 5 个——matmul FLOP 是前向的 2.5 倍<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。这不是 FlashAttention 的特殊问题，而是 attention 反向的固有特性。</li>
 <li><b>数据依赖更复杂</b>：5 个 GEMM 之间有串行依赖——必须先重计算 S 才能恢复 P，先计算 dP 才能得到 dS，先得到 dS 才能算 dQ 和 dK。前向只有 S → P → O 的两步串行链，反向的依赖链更长，流水线更难排满。</li>
 <li><b>累加方向冲突</b>：dK 和 dV 可以在一个 CTA 内独立算完，但 dQ 需要跨 KV block 累加——这带来确定性问题（浮点非结合性）和原子竞争问题（多个 CTA 同时写同一行 dQ）。这是反向独有的工程挑战。</li>
 <li><b>内存压力更大</b>：反向主循环需要同时访问 Q、K、V、dO 四个张量的 tile（前向只需 Q、K、V 三个），再加上需要读 LSE 和 D——shared memory 中需要缓存的数据更多，对 tile 大小和流水线深度造成更大的压力。</li>
@@ -280,7 +280,7 @@ dS_{ij} = P_{ij} \cdot (dP_{ij} - D_i)
 
 <p>直觉上，D_i 的作用是&ldquo;减去背景梯度&rdquo;。softmax 的梯度不是简单的逐元素反向——因为 softmax 的每个输出依赖于所有输入（通过归一化常数）。D_i 精确地捕获了这个&ldquo;归一化修正&rdquo;：它衡量了当前输出 O_i 与上游梯度 dO_i 的对齐程度。当 \(D_i\) 大时，说明上游梯度和当前输出方向一致——softmax 需要更大的修正来保持归一化约束。</p>
 
-<p><b>第三步：dQ 和 dK。</b>因为 \(S = QK^T/\sqrt{d}\)，所以 \(dQ = dS \cdot K / \sqrt{d}\)，\(dK = dS^T \cdot Q / \sqrt{d}\)。</p>
+<p><b>第三步：dQ 和 dK。</b>因为 \(S = QK^T/\sqrt{d}\)，所以 \(dQ = dS \cdot K / \sqrt{d}\)，\(dK = dS^T \cdot Q / \sqrt{d}\)。下面的分块公式为简洁省略了 \(1/\sqrt{d}\)（实现时把它乘进 dQ、dK 或 dS 即可）。</p>
 
 <p>综合来看，对每个 block pair (i, j)，完整计算是：</p>
 
@@ -327,7 +327,7 @@ __global__ void compute_D(
 
 <p>具体步骤：对每个 block pair (Q block i, KV block j)，先做 GEMM 得到 \(S_{ij} = Q_i K_j^T / \sqrt{d}\)，然后用 LSE 恢复 P：\(P_{ij} = \exp(S_{ij} - \text{LSE}_i)\)。LSE 包含了前向 online softmax 的完整信息——\(\text{LSE}_i\) 是第 i 行 S 的 log-sum-exp 值，正是 softmax 分母的对数。因此 \(\exp(S_{ij} - \text{LSE}_i)\) 严格等于 \(P_{ij} = \text{softmax}(S)_{ij}\)。</p>
 
-<p>为什么不直接保存 P？对 N=4096、d=128、FP16，P 矩阵大小为 \(4096^2 \times 2 = 32\) MB——单个 head、单个 batch。一个典型的 LLM 训练配置（batch=4、heads=32、N=4096）需要 \(4 \times 32 \times 32 = 4096\) MB = 4 GB 来存 P。而 FlashAttention 只需存 O（\(4 \times 32 \times 4096 \times 128 \times 2 = 128\) MB）和 LSE（\(4 \times 32 \times 4096 \times 4 = 2\) MB），总计约 130 MB。节省了 30 倍显存。</p>
+<p>为什么不直接保存 P？对 N=4096、d=128、FP16，P 矩阵大小为 \(4096^2 \times 2 = 32\) MB——单个 head、单个 batch。一个典型的 LLM 训练配置（batch=4、heads=32、N=4096）需要 \(4 \times 32 \times 32 = 4096\) MB = 4 GB 来存 P。而 FlashAttention 只需存 O（\(4 \times 32 \times 4096 \times 128 \times 2 = 128\) MB）和 LSE（\(4 \times 32 \times 4096 \times 4 = 2\) MB），总计约 130 MB，而 O 本来就是要输出的张量，真正额外保存的只有 LSE。</p>
 
 <p>代价是什么？重计算 \(S = QK^T/\sqrt{d}\) 是一个完整的 GEMM——\(2N^2 d\) FLOP。这使得反向的 GEMM 数量从 4（如果 S/P 已知）增加到 5——额外 25% 的计算。但对于长序列来说，显存的节省远比这 25% 的计算代价重要——没有 FlashAttention 的显存优化，长序列根本无法训练。</p>
 
@@ -342,7 +342,7 @@ __global__ void compute_D(
 <li>如果<b>外层循环 Q block</b>（像前向一样）：每个 CTA 负责一个 Q block i，遍历所有 KV block j。dQ_i 在一个 CTA 中独立完成，但 dK_j 和 dV_j 需要跨 CTA 累加——而 dK 和 dV 各有 d 个元素/行，累加开销更大。</li>
 </ul>
 
-<p>FA2 选择外层 KV 是一个经过权衡的设计决策。如果外层循环 Q block（像前向一样），dQ 在一个 CTA 内独立完成——但 dK 和 dV 各自需要跨 CTA 累加，总共两个张量需要 atomic 或 workspace。选择外层 KV 后，只有 dQ 一个张量需要跨 CTA 累加。dQ 虽然也是 [N, d] 大小，但只需一份 workspace（而外层 Q 方案需要两份——dK 和 dV 各一份）。更重要的是，dQ 的每一行在不同 KV block 中的贡献可以独立计算——这使得 workspace 方案的内存开销是 \(O(N \cdot d \cdot T_c)\)，其中 \(T_c = \lceil N/B_c \rceil\) 是 KV block 数。外层 KV 还有一个好处：K 和 V 在寄存器中常驻，内层循环遍历 Q block 时反复使用——这与前向&ldquo;Q 常驻寄存器&rdquo;的设计形成互补。</p>
+<p>FA2 选择外层 KV 是一个经过权衡的设计决策。如果外层循环 Q block（像前向一样），dQ 在一个 CTA 内独立完成——但 dK 和 dV 各自需要跨 CTA 累加，总共两个张量需要 atomic 或 workspace。选择外层 KV 后，只有 dQ 一个张量需要跨 CTA 累加。dQ 虽然也是 [N, d] 大小，但只需一份 workspace（而外层 Q 方案需要两份——dK 和 dV 各一份）。更重要的是，dQ 的每一行在不同 KV block 中的贡献可以独立计算——这使得 workspace 方案的内存开销是 \(O(N \cdot d \cdot T_c)\)，其中 \(T_c = \lceil N/B_c \rceil\) 是 KV block 数。外层 KV 还有一个好处：K 和 V 在片上常驻，内层循环遍历 Q block 时反复使用——这与前向&ldquo;Q 常驻寄存器&rdquo;的设计形成互补。</p>
 
 <p>先看反向 kernel 的完整签名——与前向相比，参数列表显著更长：</p>
 
@@ -387,7 +387,7 @@ __global__ void compute_D(
   }</code></pre>
 <p class="src-note">完整代码：<code>code/at34-flashattention-bwd/flash_attn_bwd.cu</code> 第 48&ndash;61 行（未在 GPU 上运行）</p>
 
-<p>dk_acc 和 dv_acc 各有 d=128 个 float 的零初始化累加器，加上 k_reg 和 v_reg 共 \(4 \times 128 = 512\) 个寄存器——已经接近 A100 每线程的寄存器上限（256 线程的 block 需要 \(256 \times 512 = 131072\) 个寄存器，超过了 SM 的 65536 个上限，因此教学版的 block size 只有 32 个线程）。K 和 V 在 CTA 的整个生命周期中常驻寄存器，与前向中 Q 常驻寄存器的策略对称，内层循环遍历 Q block 时 K/V 被反复使用。对 N=4096、Br=32 来说，每个 KV 行被多达 128 个 Q block 共享——如果不做寄存器常驻而是每步重新从 HBM 加载，额外的读取流量会增加 \(T_r\) 倍，完全失去 FlashAttention 的 IO 优势。这个寄存器常驻策略对反向性能至关重要：它把 K/V 的 HBM 读取从 \(O(N^2 d)\) 降到了 \(O(Nd)\)，与前向保持同一量级。代价是每线程的寄存器压力极大——教学版用 Bc=32（前向的 Br 可以到 128），更小的 block 意味着内层循环步数更多、KV block 数 \(T_c\) 更大，dQ 跨 block 累加的通信开销也随之增大。实际的 FA2 Tensor Core 实现通过 warp specialization 部分缓解了这个问题——producer warp 只做加载（寄存器需求小），consumer warp 做 MMA 累加（需要大量累加器寄存器），两者的寄存器预算独立分配，使得更大的 tile 成为可能。</p>
+<p>dk_acc 和 dv_acc 各有 d=128 个 float 的累加器，加上 k_reg 和 v_reg 共 \(4 \times 128 = 512\) 个 32 位值——远超每线程最多 255 个寄存器的上限<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span>，编译器只能把这些数组放进 local memory。这个教学版只展示数据流，不代表性能。K 和 V 在 CTA 的整个生命周期中常驻，与前向中 Q 常驻片上的策略对称，内层循环遍历 Q block 时 K/V 被反复使用。对 N=4096、Br=32 来说，每个 KV 行被 128 个 Q block 用到——如果每步重新从 HBM 加载，K/V 的读取量会乘上 \(T_r\)。外层 KV 时 K、V 只读一遍，代价是 Q、dO、LSE、D 要被每个 KV block 重读一遍。真正的 FA2 用 Tensor Core 让一个 warp 合作持有 tile，每个线程只拿一小片；FA2 论文说反向同样避开了 split-K 的 warp 划分，但仍需要一些同步<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。</p>
 
 <p>设置完毕后进入主循环——对每个 Q block 中的每一行，执行重计算、梯度计算和累加：</p>
 
@@ -425,7 +425,7 @@ __global__ void compute_D(
   }</code></pre>
 <p class="src-note">完整代码：<code>code/at34-flashattention-bwd/flash_attn_bwd.cu</code> 第 99–103 行（未在 GPU 上运行）</p>
 
-<p>与 dQ 的 atomicAdd 相比，dK 和 dV 的写回完全无争用——每个 CTA 写自己负责的 KV block 的行，不同 CTA 写不同行，地址空间完全不重叠，不需要原子操作也不需要同步。这个不对称性正是 FA2 选择&ldquo;外层循环 KV block&rdquo;的根本原因：让 dK（[N,d]）和 dV（[N,d]）两个大张量的写回完全并行、无争用，只有 dQ 一个张量需要处理跨 CTA 累加问题。从内存带宽的角度看，dK 和 dV 的写回是纯顺序写（连续地址、无冲突），完全可以利用 HBM 的峰值带宽——而 dQ 的 atomic 写入会因 L2 cache 上的序列化竞争而打折扣，实际吞吐远低于峰值。</p>
+<p>与 dQ 的 atomicAdd 相比，dK 和 dV 的写回完全无争用——每个 CTA 写自己负责的 KV block 的行，不同 CTA 写不同行，地址空间完全不重叠，不需要原子操作也不需要同步。这个不对称性正是 FA2 选择&ldquo;外层循环 KV block&rdquo;的根本原因：让 dK（[N,d]）和 dV（[N,d]）两个大张量的写回完全并行、无争用，只有 dQ 一个张量需要处理跨 CTA 累加问题。从内存带宽的角度看，dK 和 dV 的写回是连续地址的普通写；dQ 的原子加则要在 L2 上做读-改-写，同一地址的并发更新会被串行化。FA4 论文也指出原子更新既引入不确定性、又因为发生在内层循环的每次迭代而代价不小<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</p>
 
 <h2 id="sec-dq">dQ 的跨 block 累加</h2>
 
@@ -433,31 +433,33 @@ __global__ void compute_D(
 
 <figure id="fig-dq_accumulation" data-kind="diagram">
 <img aria-labelledby="fig-dq_accumulation-cap" src="figs/dq_accumulation.svg" alt="dQ 累加"/>
-<figcaption id="fig-dq_accumulation-cap"><span class="fig-label">图 3</span><b>dQ 跨 block 累加的两种方案。</b>原子方案简单但非确定性；workspace 方案确定但多用显存。FA2 默认用 workspace（确定性模式）。</figcaption>
+<figcaption id="fig-dq_accumulation-cap"><span class="fig-label">图 3</span><b>dQ 跨 block 累加的两种思路。</b>原子方案简单但非确定性，是 FA2 论文的做法；按 split 分开累加再求和的方案确定但多用显存，flash-attn 的 <code>deterministic=True</code> 属于这一类（默认关闭）<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span><span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>。</figcaption>
 </figure>
 
 <p>两种方案的详细对比（<a href="#fig-determinism_compare">图 4</a>）：</p>
 
 <figure id="fig-determinism_compare" data-kind="diagram">
 <img aria-labelledby="fig-determinism_compare-cap" src="figs/determinism_compare.svg" alt="确定性对比"/>
-<figcaption id="fig-determinism_compare-cap"><span class="fig-label">图 4</span><b>Atomic vs Workspace 方案对比。</b>Workspace 方案用两个 kernel 和额外显存换取确定性——这对训练可复现性至关重要。</figcaption>
+<figcaption id="fig-determinism_compare-cap"><span class="fig-label">图 4</span><b>Atomic vs Workspace 方案对比（概念图）。</b>Workspace 方案用额外显存和一次求和换取确定性。图中按每个 KV block 一份 workspace 画，是最直白的版本；实际库实现的份数更少（见正文）。</figcaption>
 </figure>
 
-<p>Workspace 的显存开销不可忽略：对 N=4096、d=128、Bc=32，KV block 数 \(T_c = 128\)，workspace 大小 = \(128 \times 4096 \times 128 \times 2\) 字节（FP16）= 128 MB——比一个 attention 头的 QKV 本身（\(3 \times 4096 \times 128 \times 2 = 3\) MB）大两个数量级。多头 attention（H=32）时，32 个头可以共享同一套 workspace（头之间串行或流水执行），总开销不是简单的 H 倍——但仍需预留约 128 MB 的额外显存。在显存紧张的长序列训练中（如 N=32768 的预训练），workspace 可达 512 MB 以上——在 80 GB 的 A100 上看似不大，但考虑到模型权重、激活缓存和优化器状态已经占了大部分显存，这个开销可能正好让 batch size 从 2 降到 1。一个工程优化是分块 reduction：不一次性分配 \(T_c\) 份 workspace，而是分 2&ndash;4 轮执行反向——每轮只处理一部分 KV block，workspace 缩小到原来的 1/4，代价是 Q 被多读几遍。FA2 的 <code>deterministic</code> 标志控制是否启用 workspace 方案——关闭时退回 atomicAdd，显存开销为零但结果不可复现。</p>
+<p>如果按最直白的方式给每个 KV block 一份 workspace，显存开销不可忽略：对 N=4096、d=128、Bc=32，KV block 数 \(T_c = 128\)，单个 head 的 workspace = \(128 \times 4096 \times 128 \times 2\) 字节（FP16）= 128 MiB——比这个 head 的 Q、K、V 本身（\(3 \times 4096 \times 128 \times 2\) B = 3 MiB）大约 40 倍，而且每个并发执行的 head 都要一份。</p>
+
+<p>实际的 flash-attn（FA2 的 CUDA 实现）是这样做的<span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>：反向时分配一块 FP32 的 <code>dq_accum</code>（形状 [batch, seqlen_q, heads, d]），各 thread block 用 atomicAdd 往里累加，最后再转换成输出精度的 dQ——这也是 FA2 论文描述的原子方案<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。打开 <code>deterministic=True</code> 时，<code>dq_accum</code> 多出一维 nsplits = &lceil;SM 数 / (batch &times; heads)&rceil;，每个 thread block 只往自己那一份里加，最后再把各份按固定顺序相加。<code>deterministic</code> 默认是 False，接口文档说确定性模式&ldquo;稍慢、多用显存&rdquo;，前向则总是确定的<span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>。</p>
 
 <h2 id="sec-determinism">确定性：为什么训练需要 bit-exact 复现</h2>
 
-<p>浮点 atomicAdd 是非结合的：\((a + b) + c \ne a + (b + c)\) 在浮点运算中成立。举一个具体例子：假设 dQ 的某个元素在三个 CTA 中分别贡献了 \(a = 1.0\)、\(b = 10^{-8}\)、\(c = -1.0\)。如果累加顺序是 \((a + b) + c\)：\(1.0 + 10^{-8} = 1.0\)（FP32 精度不够，b 被吞掉），然后 \(1.0 + (-1.0) = 0.0\)。但如果顺序是 \(a + (b + c)\)：\(10^{-8} + (-1.0) = -1.0\)，然后 \(1.0 + (-1.0) = 0.0\)——恰好相同。但更极端的情况下，不同顺序会产生不同结果。在 FP16/BF16 训练中，精度更低，这种差异更频繁。</p>
+<p>浮点加法不满足结合律：\((a + b) + c\) 和 \(a + (b + c)\) 可能不同，而 atomicAdd 的执行顺序取决于各 CTA 谁先到。举一个具体例子：假设 dQ 的某个元素在三个 CTA 中分别贡献了 \(a = 1.0\)、\(b = 10^{-8}\)、\(c = -1.0\)。顺序 \((a + b) + c\)：\(1.0 + 10^{-8}\) 在 FP32 中仍是 1.0（b 被吞掉），结果为 0。顺序 \((a + c) + b\)：先得到 0，再加 b，结果为 \(10^{-8}\)。两次运行如果 CTA 完成顺序不同，就会得到不同的 dQ。</p>
 
-<p>这看起来微不足道，但在深度学习训练中会被指数级放大。一次反向传播中 dQ 的一个 ULP 差异，通过梯度更新改变了权重的第 23 位有效位。下一步前向传播的 activation 因此略有不同，产生了新的 ULP 差异——经过数千步迭代，这个微小扰动可能导致完全不同的训练轨迹。在调试训练不稳定（loss spike）时，如果每次运行给出不同的梯度，就无法区分是代码 bug 还是硬件调度的随机性——这使得大规模预训练的调试几乎不可能。因此，训练可复现性（bit-exact reproducibility）是 LLM 预训练的一个硬性工程需求。</p>
+<p>单次的差异只有最后几位，但训练是迭代过程：这一步梯度的微小差别会进入权重，下一步的激活和梯度又会产生新的差别，多步之后两次运行的轨迹可能明显分开。调试训练不稳定（如 loss spike）时，如果同样的输入每次给出不同的梯度，就很难区分是代码 bug 还是调度顺序造成的。FA4 论文提供确定性模式时给出的理由正是可复现性和可靠的调试，并提到强化学习训练的需求<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</p>
 
-<p><b>Workspace 方案（FA2 默认）</b>的工作方式：每个 KV block j 的 CTA 不直接写 dQ，而是把局部 dQ 贡献写到一个 workspace 缓冲区 \(\text{ws}[j, :, :]\)，大小为 \([T_c, N, d]\)。然后第二个 kernel 对每个 Q 行 i 求和所有 KV block 的贡献：\(dQ[i] = \sum_{j=0}^{T_c-1} \text{ws}[j, i, :]\)。因为第二个 kernel 的累加顺序是固定的（j=0, 1, ..., T_c-1），所以结果是确定性的——无论硬件调度顺序如何变化。</p>
+<p><b>Workspace 方案</b>的工作方式（概念版）：每个 KV block j 的 CTA 不直接写 dQ，而是把局部 dQ 贡献写到一个 workspace 缓冲区 \(\text{ws}[j, :, :]\)，大小为 \([T_c, N, d]\)。然后第二个 kernel 对每个 Q 行 i 求和所有 KV block 的贡献：\(dQ[i] = \sum_{j=0}^{T_c-1} \text{ws}[j, i, :]\)。因为第二个 kernel 的累加顺序是固定的（j=0, 1, ..., T_c-1），所以结果是确定性的——无论硬件调度顺序如何变化。</p>
 
-<p><b>Workspace 的显存代价分析</b>：对 N=4096、d=128、B_c=64，KV block 数 \(T_c = 64\)。Workspace 大小 \(= 64 \times 4096 \times 128 \times 2 = 64\) MB（FP16，单个 head）。乍看不小，但注意两点：(1) 实际实现中 workspace 在多个 head 之间<b>复用</b>——每次只分配一个 head 的 workspace，head 间串行处理 dQ 归约。(2) 相比保存完整的 P 矩阵（32 MB/head &times; 32 heads = 1024 MB），workspace 方案的显存峰值仍然低一个数量级。</p>
+<p><b>份数决定显存代价</b>：份数取 \(T_c\) 时，N=4096、d=128、B_c=64 的单个 head 需要 \(64 \times 4096 \times 128 \times 2\) B = 64 MiB（FP16），已经是这个 head 的 P 矩阵（32 MiB）的两倍。这就是为什么库实现不按 KV block 分份，而是只分 nsplits 份：batch &times; heads 已经不小于 SM 数时 nsplits = 1，只比非确定模式多出求和的开销<span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>。</p>
 
-<p><b>第二个 kernel 的实现</b>：归约 kernel 的 grid 大小是 \((N, d)\)，每个线程负责 dQ 的一个元素，从 workspace 的 T_c 个 slot 中读取并求和。这个 kernel 是 memory-bound 的（读 \(T_c \times N \times d\) 字节，写 \(N \times d\) 字节），但因为 T_c 通常只有 64&ndash;128，总数据量不大，执行时间在整个反向中占比很小（通常 &lt;5%）。</p>
+<p><b>求和这一步</b>：每个 dQ 元素从各份中读出部分和，按固定顺序相加。它是 memory-bound 的，读的字节数与份数成正比，所以份数越少越便宜。</p>
 
-<p><b>atomicAdd 方案</b>的优势是简单：只需一个 kernel，不需要分配 workspace。缺点除了非确定性之外，还有原子操作的争用问题——当多个 CTA 同时对同一行 dQ 做 atomicAdd 时，L2 cache 上会产生序列化延迟。对 d=128、FP32，每个 dQ 行有 128 个 float 需要原子累加——如果 T_c=64 个 CTA 同时写入，atomic throughput 可能成为瓶颈。实际上，在 A100 上的测试表明，对长序列（N &ge; 4096），workspace 方案通常比 atomic 方案更快——因为避免了 L2 原子争用。</p>
+<p><b>atomicAdd 方案</b>的优势是简单：主循环里直接往累加缓冲里加，不需要按份分配。缺点除了非确定性之外，还有原子操作的开销——当多个 CTA 同时对同一行 dQ 做 atomicAdd 时，L2 上的更新会串行化。FA4 在 Blackwell 上用 2-CTA MMA 重排 dQ 的计算，让每个 CTA 只写半个 dQ tile，原子归约次数减半；它的确定性模式则不用多份缓冲，而是用信号量锁让各 CTA 按预定顺序依次做归约，并调整 CTA 顺序以减少等待<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</p>
 
 <h2 id="sec-flop">为什么反向慢 2.5&times;：FLOP 精确分析</h2>
 
@@ -465,7 +467,7 @@ __global__ void compute_D(
 
 <figure id="fig-flop_breakdown" data-kind="diagram">
 <img aria-labelledby="fig-flop_breakdown-cap" src="figs/flop_breakdown.svg" alt="FLOP 分解"/>
-<figcaption id="fig-flop_breakdown-cap"><span class="fig-label">图 5</span><b>反向 FLOP 分解：5 个 GEMM 的维度和计算量。</b>红色为重计算开销，绿色为梯度 GEMM，黄色为有跨 block 累加问题的梯度 GEMM。总计 10N&sup2;d = 2.5&times; 前向。</figcaption>
+<figcaption id="fig-flop_breakdown-cap"><span class="fig-label">图 5</span><b>反向 FLOP 分解：5 个 GEMM 的维度和计算量。</b>红色为重计算开销，绿色为梯度 GEMM，黄色为有跨 block 累加问题的梯度 GEMM。总计 10N&sup2;d = 2.5&times; 前向<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。</figcaption>
 </figure>
 
 <p>反向 5 个 GEMM 的逐项分解：</p>
@@ -481,9 +483,9 @@ __global__ void compute_D(
 </tbody>
 </table>
 
-<p>总计 \(10N^2 d\) FLOP，是前向 \(4N^2 d\) 的 2.5&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">1</a>]</span>。加上 softmax 相关的 element-wise 操作（exp、乘、减——约 \(O(N^2)\) FLOP，与 GEMM 的 \(O(N^2 d)\) 相比可忽略），以及预计算 D（\(O(Nd)\) FLOP），总体倍率接近 2.5&times;。</p>
+<p>总计 \(10N^2 d\) FLOP，是前向 \(4N^2 d\) 的 2.5&times;<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。加上 softmax 相关的 element-wise 操作（exp、乘、减——约 \(O(N^2)\) FLOP，与 GEMM 的 \(O(N^2 d)\) 相比可忽略），以及预计算 D（\(O(Nd)\) FLOP），总体倍率接近 2.5&times;。</p>
 
-<p>实测（Dao 2023 论文数据）中，反向耗时约为前向的 2&ndash;3&times;——没有精确到 2.5&times; 是因为多个二阶效应叠加：(1) dQ 的 workspace 写和第二个归约 kernel 有额外开销——workspace 的 HBM 写入是 \(T_c \times N \times d\) 字节，读回和归约又是同量级的流量；(2) 反向的流水线效率不如前向——5 个 GEMM 之间有串行依赖（必须先计算 S 才能算 P，先算 dP 才能算 dS），前向只有 2 个 GEMM 的串行链；(3) 反向需要同时加载 Q、K、V、dO 四个张量的 tile，对 shared memory 的压力更大，可能需要更小的 tile 或更多的换入换出；(4) causal mask 下的 CTA 负载不均衡进一步降低了利用率。这些因素叠加后，实际倍率通常在 2.2&ndash;2.8&times; 之间。</p>
+<p>FLOP 之外，反向的硬件利用率也更低：FA2 论文报告前向最高达到 A100 理论峰值的 73%，反向最高 63%<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>。粗略按这两个最高值估算，反向耗时约为前向的 \(2.5 \times 0.73 / 0.63 \approx 2.9\) 倍（两个最高值不一定出现在同一配置，只是量级）。利用率更低的原因包括：(1) dQ 的原子累加开销；(2) 5 个 GEMM 之间有更长的串行依赖（先算 S 才有 P，先算 dP 才有 dS），FA4 论文也说这些依赖实际上把反向的计算图串行化了<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>；(3) 反向要同时加载 Q、K、V、dO 四个张量的 tile，shared memory 压力更大——FA4 的 roofline 分析显示 Blackwell 上反向的瓶颈正是 shared memory 流量<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>；(4) causal mask 下的 CTA 负载不均衡。</p>
 
 <h2 id="sec-causal-bwd">Causal 反向的负载不均衡</h2>
 
@@ -502,13 +504,12 @@ __global__ void compute_D(
 
 <p>这导致两个问题：(1) GPU 利用率低——大部分 SM 提前完成后空闲等待；(2) 总执行时间由最忙的 CTA 决定（木桶效应）。</p>
 
-<p>量化分析：对 N=4096、B_c=B_r=64，有 T_c=64 个 KV block 对应 64 个 CTA。Causal 模式下，CTA j 的内层循环次数为 \(T_r - j\)（只处理 Q block i &ge; j）。CTA j=0 做 64 次内层迭代，CTA j=63 做 1 次。总工作量 \(= \sum_{j=0}^{63}(64-j) = 2080\) 个 block pair。如果均匀分配，每个 CTA 应做 \(2080/64 = 32.5\) 个 pair——但实际上 CTA j=0 做了 64 个（是平均的 2 倍），CTA j=63 只做了 1 个（是平均的 1/32）。总执行时间由最忙的 CTA 决定（64 个 pair），效率 = 2080/(64&times;64) = 50.8%——与预期的&ldquo;causal 省一半 FLOP&rdquo;一致，但这一半的节省来自跳过计算，而<b>不是</b>来自均匀分配给更少的 CTA。</p>
+<p>量化分析：对 N=4096、B_c=B_r=64，有 T_c=64 个 KV block 对应 64 个 CTA。Causal 模式下，CTA j 的内层循环次数为 \(T_r - j\)（只处理 Q block i &ge; j）。CTA j=0 做 64 次内层迭代，CTA j=63 做 1 次。总工作量 \(= \sum_{j=0}^{63}(64-j) = 2080\) 个 block pair。如果均匀分配，每个 CTA 应做 \(2080/64 = 32.5\) 个 pair——但实际上 CTA j=0 做了 64 个（是平均的 2 倍），CTA j=63 只做了 1 个（是平均的 1/32）。如果这 64 个 CTA 恰好各占一个 SM、同时开始（实际中还有 batch &times; heads 维度的 CTA 可以填空），总执行时间由最忙的 CTA 决定（64 个 pair），效率 = 2080/(64&times;64) = 50.8%——与预期的&ldquo;causal 省一半 FLOP&rdquo;一致，但这一半的节省来自跳过计算，而<b>不是</b>来自均匀分配给更少的 CTA。</p>
 
 <p>缓解方法：</p>
 <ul>
-<li><b>调整 block 大小</b>：更小的 block 使不均衡粒度更细，但增加了 block 数量和 kernel launch 调度开销。B_c=32 vs B_c=64 使 KV block 数翻倍，不均衡比从 64 降到 128——但每个 block pair 的工作量减半，最忙 CTA 的总工作量不变。实际效果取决于 GPU 的 SM 数量和 CTA 调度效率。</li>
-<li><b>Persistent kernel + tile scheduler</b>：不按 KV block 静态分配 CTA，而是用一个全局原子计数器动态分配 tile。空闲的 CTA 从计数器拿下一个 tile——自动负载均衡。这样每个 SM 的工作量接近 2080/SM_count，利用率接近 100%。FA3 在 Hopper 上采用这种方案——配合 cluster launch 和 TMA multicast，persistent kernel 的 tile scheduler 可以同时优化负载均衡和数据复用。</li>
-<li><b>分割对角 block</b>：把 causal 对角线附近的 block 拆成更细的 tile，使对角 block 的工作量更均匀。FlashDecoding 使用类似思路——在 KV 维度上做更细粒度的并行。</li>
+<li><b>调整 block 大小</b>：更小的 block 让 CTA 数量更多、粒度更细，便于调度器填空；但最忙 CTA 的总工作量（对应整段序列）不变，而且块小了 Tensor Core 效率会下降。</li>
+<li><b>调度顺序</b>：先启动工作量大的 CTA，让短任务去填尾部的空档。FA4 的确定性反向在 causal 时按降序启动 KV block、从对角线开始升序遍历 Q block，并按降序安排 dQ 归约，保证没有 CTA 在第一次写 dQ 时就被卡住<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。Persistent kernel 加 tile 调度器是另一种做法：CTA 常驻、动态领取任务。</li>
 </ul>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
@@ -518,13 +519,13 @@ __global__ void compute_D(
 <table>
 <thead><tr><th>特性</th><th>对 FA 反向的影响</th></tr></thead>
 <tbody>
-<tr><td>WGMMA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">2</a>]</span></td><td>5 个 GEMM 都换成 WGMMA——异步发射、更大 tile（64&times;N&times;16 vs mma.sync 的 16&times;8&times;16）、更高吞吐。反向有 5 个 GEMM（vs 前向 2 个），WGMMA 的加速效果在反向上是前向的 2.5 倍数级。</td></tr>
-<tr><td>TMA<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA）。">3</a>]</span></td><td>反向需要加载 Q、K、V、dO 四个张量（前向只有 Q、K、V 三个）——TMA 的硬件地址生成和 2D tile 搬运省去了更多的地址计算指令和寄存器，使 warp 有更多的执行槽位做 MMA。</td></tr>
-<tr><td>Warp specialization</td><td>反向的加载/计算比前向更复杂，producer warp 专做 TMA、consumer warp 专做 MMA + softmax 的分工在反向中的收益更大。FA3 用 1 个 producer warpgroup + 1&ndash;2 个 consumer warpgroup。</td></tr>
-<tr><td>更大 L1<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">4</a>]</span></td><td>H100 256 KB L1（vs A100 192 KB）：反向需要同时缓存 K、V、dO 的 tile 加上 workspace 写入缓冲——更大的 shared memory 可以用更大的 tile 或更深的双缓冲流水线。</td></tr>
-<tr><td>确定性原子</td><td>Hopper 的 redux 原语可以加速 warp 内规约，但跨 CTA 的 dQ 累加仍需 workspace 方案——redux 不保证跨 CTA 的累加顺序。</td></tr>
-<tr><td>Persistent kernel</td><td>Hopper 的 cluster launch + TMA multicast 使 persistent kernel 更自然——cluster 内可共享 K/V tile，减少重复加载。FA3 用 persistent kernel + tile scheduler 彻底解决 causal 负载不均衡。</td></tr>
-<tr><td>Blackwell tcgen05</td><td>Blackwell 的 tcgen05 MMA 指令直接操作 TMEM（Tensor Memory），5 个 GEMM 中操作数的搬运进一步简化——从&ldquo;HBM→SMEM→寄存器→MMA&rdquo;缩短为&ldquo;HBM→TMEM→MMA&rdquo;，流水线深度减少。</td></tr>
+<tr><td>WGMMA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">5</a>]</span></td><td>5 个 GEMM 都换成 WGMMA——异步发射、更大 tile（m64nNk16 vs mma.sync 的 m16n8k16）。FA3 在 H100 上的反向比 FA2 快 1.5&ndash;1.75&times;<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。§4.1、附录 B.1。">6</a>]</span>。</td></tr>
+<tr><td>TMA<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA（查阅时为 9.5 版）. §9.7.10.28.5.3（cp.async.bulk.tensor / TMA）、§9.7.16（mma.sync）、§9.7.17（wgmma.mma_async）。">7</a>]</span></td><td>反向需要加载 Q、K、V、dO 四个张量（前向只有 Q、K、V 三个）——TMA 的硬件地址生成和 2D tile 搬运省去了更多的地址计算指令和寄存器，使 warp 有更多的执行槽位做 MMA。</td></tr>
+<tr><td>Warp specialization</td><td>反向的加载/计算比前向更复杂，producer 专做 TMA、consumer 专做 MMA 和逐元素运算的分工同样适用。FA3 论文附录 B.1 描述了反向的 warp specialization<span class="cite">[<a href="#ref-fa3" title="Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608。§4.1、附录 B.1。">6</a>]</span>。</td></tr>
+<tr><td>更大 L1<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。">3</a>]</span></td><td>H100 每 SM 最多 228 KB shared memory（A100 为 164 KB）：反向需要同时缓存 Q、K、V、dO 的 tile——更大的 shared memory 可以用更大的 tile 或更深的流水线。</td></tr>
+<tr><td>确定性</td><td>跨 CTA 的 dQ 累加不管在哪代硬件上都需要显式规定顺序：flash-attn 的 FA2 实现用按 split 分份的缓冲<span class="cite">[<a href="#ref-fasrc" title="Dao-AILab. flash-attention: csrc/flash_attn/flash_api.cpp（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。">2</a>]</span>，FA4 用信号量锁按预定顺序串行化归约<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</td></tr>
+<tr><td>调度</td><td>causal 反向的负载不均衡靠调度顺序缓解：FA4 在确定性模式下对 KV block 降序启动，并在 head 和 batch 维度上做 CTA swizzle<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</td></tr>
+<tr><td>Blackwell tcgen05</td><td>tcgen05 MMA 的累加器在 TMEM 里。FA4 的反向中，S&#x1D40;、dP&#x1D40;、dQ 三个 GEMM 的两个操作数都从 shared memory 读，dV、dK 两个 GEMM 的 A 操作数（P、dS）从 TMEM 读；即便如此 shared memory 流量仍比 MMA 计算多约 30%，于是 FA4 用 2-CTA MMA（一对 CTA 各存一半 B 操作数）把它压到约 5%，并顺带把 dQ 的原子归约次数减半<span class="cite">[<a href="#ref-fa4" title="Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。">4</a>]</span>。</td></tr>
 </tbody>
 </table>
 
@@ -532,24 +533,24 @@ __global__ void compute_D(
 
 <dl>
 <dt id="sec-q1">Q1：FlashAttention 反向为什么要重计算 S/P？</dt>
-<dd>前向没有保存 S 和 P（N&times;N 矩阵）——这正是 FlashAttention 省显存的关键。反向时从 Q、K 重计算 \(S = QK^T/\sqrt{d}\)，再用 LSE 恢复 \(P = \exp(S - \text{LSE})\)。代价是多一个 GEMM（\(2N^2 d\) FLOP），使反向从 4 个 GEMM 增加到 5 个。但省掉了 \(O(N^2)\) 的显存——对 N=4096、32 heads、batch=4，省了约 4 GB。<br>
-<b>追问</b>：如果显存够，存下 P 会更快吗？答：会——省掉重计算 GEMM，快约 20&ndash;25%。但 N=4096 的 P 是 32 MB/head&times;heads&times;batch，对长序列不现实。N=16k 时 P 单个 head 就要 512 MB。这是经典的时间-空间权衡——FlashAttention 选择了&ldquo;多算少存&rdquo;。在现代硬件上计算越来越便宜但显存增长缓慢，这个权衡越来越倾向于重计算。</dd>
+<dd>前向没有保存 S 和 P（N&times;N 矩阵）——这正是 FlashAttention 省显存的关键。反向时从 Q、K 重计算 \(S = QK^T/\sqrt{d}\)，再用 LSE 恢复 \(P = \exp(S - \text{LSE})\)。代价是多一个 GEMM（\(2N^2 d\) FLOP），使反向从 4 个 GEMM 增加到 5 个。但省掉了 \(O(N^2)\) 的显存——对 N=4096、32 heads、batch=4，省了约 4 GiB。<br>
+<b>追问</b>：如果显存够，存下 P 会更快吗？答：matmul FLOP 会少 20%（5 个 GEMM 变 4 个），但要从 HBM 读回 N&times;N 的 P，这正是 FlashAttention 要避免的流量；FA1 论文的 GPT-2 medium 例子中，带重计算的 FlashAttention FLOP 更多、却因 HBM 读写少而快得多<span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。图 2。">8</a>]</span>。但 N=4096 的 P 是 32 MB/head&times;heads&times;batch，对长序列不现实。N=16k 时 P 单个 head 就要 512 MB。这是经典的时间-空间权衡——FlashAttention 选择了&ldquo;多算少存&rdquo;。在现代硬件上计算越来越便宜但显存增长缓慢，这个权衡越来越倾向于重计算。</dd>
 
 <dt id="sec-q2">Q2：dQ 为什么需要跨 block 累加？dK 和 dV 呢？</dt>
 <dd>FA2 反向外层循环遍历 KV block j——每个 CTA 把该 KV block 对所有 Q block 的贡献算完。dK_j 和 dV_j 的每一行只在一个 CTA 中计算（因为只有 CTA j 处理 KV block j），不需要跨 block 累加——最后直接写回 HBM。但 dQ_i 的每一行在所有 KV block 中都有贡献（\(dQ_i = \sum_j dS_{ij} \cdot K_j\)）——必须把 T_c 个 CTA 的结果合并。<br>
 <b>追问</b>：能不能反过来，外层循环 Q block？答：可以，但那样 dQ 不需要跨 block 累加（好），而 dK 和 dV 反而需要（坏——需要累加两份，且各有 d 个元素/行）。FA2 选择外层 KV 是因为只有一个量（dQ）需要跨 block 累加。</dd>
 
 <dt id="sec-q3">Q3：反向为什么比前向慢 2.5&times;？</dt>
-<dd>前向有 2 个 GEMM（QK&#x1D40; 和 PV），共 \(4N^2 d\) FLOP。反向有 5 个 GEMM：重计算 QK&#x1D40;（\(2N^2 d\)）、dV（\(2N^2 d\)）、dP（\(2N^2 d\)）、dQ（\(2N^2 d\)）、dK（\(2N^2 d\)）= \(10N^2 d\)，比率 10/4 = 2.5。实际差距通常是 2&ndash;3&times;，因为 dQ 的 workspace 开销和 causal 负载不均衡会进一步拖慢反向。<br>
+<dd>前向有 2 个 GEMM（QK&#x1D40; 和 PV），共 \(4N^2 d\) FLOP。反向有 5 个 GEMM：重计算 QK&#x1D40;（\(2N^2 d\)）、dV（\(2N^2 d\)）、dP（\(2N^2 d\)）、dQ（\(2N^2 d\)）、dK（\(2N^2 d\)）= \(10N^2 d\)，比率 10/4 = 2.5。实际耗时比还取决于利用率：FA2 前向最高 73%、反向最高 63%<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。">1</a>]</span>，dQ 的原子累加、更长的依赖链和 causal 负载不均衡都会拖慢反向。<br>
 <b>追问</b>：如果不做重计算（存了 S/P），反向会是前向的几倍？答：\(8N^2 d / 4N^2 d = 2\)&times;——4 个 GEMM 的反向是前向的 2 倍。重计算增加了 0.5 倍。</dd>
 
 <dt id="sec-q4">Q4：Causal mask 下反向有什么额外问题？</dt>
-<dd>负载不均衡：外层循环是 KV block，靠后的 KV block（j 大）被更少的 Q block 访问。CTA j=0 处理 T_r 个 Q block，CTA j=T_c-1 只处理 1 个——不均衡比可达 T_r 倍。部分 SM 提前结束等待，GPU 利用率下降。缓解方法：persistent kernel + tile scheduler（动态分配 tile 而非静态映射 CTA），FA3 在 Hopper 上使用此方案。<br>
-<b>追问</b>：前向有这个问题吗？答：也有，但前向外层循环是 Q block（每个 Q block 遍历的 KV block 数 &le; i），不均衡方向相反——靠后的 Q block 做更多工作。影响类似但反向通常更严重，因为反向本身就更慢。</dd>
+<dd>负载不均衡：外层循环是 KV block，靠后的 KV block（j 大）被更少的 Q block 访问。CTA j=0 处理 T_r 个 Q block，CTA j=T_c-1 只处理 1 个——不均衡比可达 T_r 倍。部分 SM 提前结束等待，GPU 利用率下降。缓解方法：调整调度顺序（先启动工作量大的 CTA），或用 persistent kernel 加 tile 调度器动态分配任务。<br>
+<b>追问</b>：前向有这个问题吗？答：也有，但前向外层循环是 Q block（每个 Q block 遍历的 KV block 数 &le; i），不均衡方向相反——靠后的 Q block 做更多工作。影响类似，只是方向相反。</dd>
 
 <dt id="sec-q5">Q5：D_i 是什么，为什么要预计算？</dt>
 <dd>\(D_i = \sum_j dO_{ij} \cdot O_{ij}\)，是 softmax 反向中分母修正项。它来自 softmax Jacobian：\(dS_{ij} = P_{ij}(dP_{ij} - D_i)\)，其中 \(D_i = \sum_k P_{ik} dP_{ik} = O_i \cdot dO_i^T\)。D_i 只依赖 O 和 dO（都是已知的），且是行级的标量——预计算一次（\(O(Nd)\) FLOP），反向主循环中直接查表使用，避免每个 block pair 重复计算。<br>
-<b>追问</b>：不预计算 D_i 行不行？答：可以在每个 block pair 中在线计算——但那需要加载 O 的完整行并做归约，增加了不必要的 HBM 读取。预计算后 D 只是一个 [N] 向量（32 KB for N=4096 FP32），常驻 L2 cache，查表几乎免费。</dd>
+<b>追问</b>：不预计算 D_i 行不行？答：可以在每个 block pair 中在线计算——但那需要加载 O 的完整行并做归约，增加了不必要的 HBM 读取。预计算后 D 只是一个 [N] 向量（N=4096、FP32 时 16 KB），读取代价很小。</dd>
 
 <dt id="sec-q6">Q6：FA2 反向能否进一步减少 GEMM 数量？</dt>
 <dd>理论上不行——5 个 GEMM 是公式推导的直接结果。但可以优化单个 GEMM 的效率：(1) 用 Tensor Core 把每个 GEMM 从 CUDA core 的 O(d) 操作降到 Tensor Core 的 O(d/16) 个 mma 指令；(2) 把 dV 和 dK 的 GEMM 合并调度——两者的 A 操作数不同（P&#x1D40; vs dS&#x1D40;）但 B 操作数重叠（dO 和 Q 都在寄存器中），可以共享加载的数据；(3) 重计算的 QK&#x1D40; 和正式的 dQ = dS&middot;K 共享 K 张量的加载——只需从 SMEM 读一次 K tile，用于两个 GEMM。<br>
@@ -561,16 +562,16 @@ __global__ void compute_D(
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。反向公式的正确性未经数值验证——实际实现中需要与 PyTorch 的标准 attention 反向做数值对比。</li>
 <li>示例代码是 FP32 + CUDA core 的教学版本——每个线程处理一行，没有使用 shared memory tiling 优化 K/V 加载。实际 FA2 反向使用 Tensor Core（Ampere 上 mma.sync，Hopper 上 WGMMA），性能差距在一个数量级以上。</li>
-<li>本篇的 dQ 累加使用 atomicAdd 方案——仅用于说明跨 block 累加的概念。FA2 默认使用 workspace + 第二 kernel 的确定性方案，其完整实现涉及 workspace 的 head 间复用策略、第二归约 kernel 的并行度配置等工程细节。</li>
+<li>本篇的 dQ 累加使用 atomicAdd 方案，与 FA2 论文和 flash-attn 的默认行为一致；确定性模式的分份缓冲和最终求和未展示。</li>
 <li>未展示 Tensor Core 版本中 S 矩阵在 MMA 累加器寄存器中直接做 softmax（逐行 max、exp、sum），然后 P 的 layout 直接作为下一个 MMA 的 A 操作数——这个&ldquo;寄存器 layout 免转换&rdquo;是 FA2 的关键实现技巧（详见<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>的 MMA 累加器 layout）。</li>
 <li>未覆盖 dropout 的反向——需要重放前向的 Philox RNG 状态来重现 dropout mask，不需要存储 N&times;N 的 mask 矩阵本身。这是 FlashAttention 的另一个显存优化。</li>
 <li>未覆盖 GQA（Grouped-Query Attention）和 MQA（Multi-Query Attention）反向中 dK/dV 的 head group 累加——多个 Q head 共享一组 K/V，反向时 dK/dV 需要在共享 head 间求和。</li>
-<li>FlashAttention-3（下一篇）用 Hopper 的 WGMMA + TMA + warp specialization 实现了反向，加上 persistent kernel 和 tile scheduler 解决了 causal 负载不均衡。</li>
+<li>FlashAttention-3（下一篇）用 Hopper 的 WGMMA + TMA + warp specialization 实现了反向（论文附录 B.1），本篇不展开。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>FlashAttention 反向的核心是<b>重计算</b>——从 Q、K 和 LSE 恢复 S/P，避免存储 N&times;N 矩阵。这带来了 5 个 GEMM（约 \(10N^2 d\) FLOP），是前向 \(4N^2 d\) 的 2.5&times;。反向的三个工程难点：(1) dQ 的跨 block 累加——FA2 用 workspace + 第二 kernel 保证确定性，代价是额外的显存和一次 kernel launch；(2) causal mask 下 KV block 间的负载不均衡——最忙和最闲的 CTA 工作量差 T_r 倍，FA3 用 persistent kernel + tile scheduler 缓解；(3) 流水线效率——5 个 GEMM 的串行依赖链比前向的 2 个更长，需要更精心的 warp specialization 和双缓冲设计。</p>
+<p>FlashAttention 反向的核心是<b>重计算</b>——从 Q、K 和 LSE 恢复 S/P，避免存储 N&times;N 矩阵。这带来了 5 个 GEMM（约 \(10N^2 d\) FLOP），是前向 \(4N^2 d\) 的 2.5&times;。反向的三个工程难点：(1) dQ 的跨 block 累加——FA2 用 atomicAdd，结果不确定；需要可复现时用分份缓冲（flash-attn）或按顺序加锁（FA4），代价是显存或等待；(2) causal mask 下 KV block 间的负载不均衡——最忙和最闲的 CTA 工作量差 T_r 倍，要靠调度顺序或动态调度缓解；(3) 流水线效率——5 个 GEMM 的串行依赖链比前向的 2 个更长，需要更精心的 warp specialization 和双缓冲设计。</p>
 
 <p>理解反向的关键公式是 \(dS_{ij} = P_{ij}(dP_{ij} - D_i)\)——它把 softmax 的完整 Jacobian（O(N&sup2;) 存储和计算）简化为逐元素操作加一个预计算的标量 D_i。这个简化使得 FlashAttention 的 tiling 策略在反向中同样有效：每个 block pair 的计算只需要局部的 Q、K、V、dO tile 加上全局的 LSE 和 D 向量，不需要完整的 N&times;N 中间矩阵。下一篇将讲 FA3：Hopper 上的 WGMMA + TMA + warp specialization，以及 FP8 attention 的精度补偿策略。</p>
 
@@ -586,16 +587,20 @@ __global__ void compute_D(
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16.19（TMA）、§9.7.17（MMA）。</li>
+  <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。§3.2（dQ 用 atomic add）、§3.3、§4.1（FLOP 计法、73%/63%）。</li>
+  <li id="ref-fasrc">Dao-AILab. <a href="https://github.com/Dao-AILab/flash-attention/blob/main/csrc/flash_attn/flash_api.cpp">flash-attention: csrc/flash_attn/flash_api.cpp</a>（<code>mha_bwd</code> 中 <code>dq_accum</code> 与 nsplits 的分配）、<code>src/flash_bwd_kernel.h</code>（atomicAdd）、<code>flash_attn_interface.py</code>（<code>deterministic=False</code> 及其说明）。GitHub main 分支，2026-11 查阅。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 192 KB L1、H100 256 KB L1 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-fa4">Zadouri, Hoehnerbach, Shah, Liu, Thakkar &amp; Dao (2026). <a href="https://arxiv.org/abs/2603.05451">FlashAttention-4: Algorithm and Kernel Pipelining Co-Design for Asymmetric Hardware Scaling</a>. arXiv:2603.05451。§3.2（反向 roofline、2-CTA、确定性模式）。</li>
+  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
+  <li id="ref-fa3">Shah, Bikshandi, Zhang, Thakkar, Ramani &amp; Dao (2024). <a href="https://arxiv.org/abs/2407.08608">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08608。§4.1、附录 B.1。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA</a>（查阅时为 9.5 版）. §9.7.10.28.5.3（cp.async.bulk.tensor / TMA）、§9.7.16（mma.sync）、§9.7.17（wgmma.mma_async）。</li>
+  <li id="ref-fa1">Dao, Fu, Ermon, Rudra &amp; R&eacute; (2022). <a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>. arXiv:2205.14135。图 2。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 34 篇。文中代码完整版在系列目录的 <code>code/at34-flashattention-bwd/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–2 为手绘示意图；FLOP 分析参照 Dao 2023 原文。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 34 篇。文中代码完整版在系列目录的 <code>code/at34-flashattention-bwd/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图均为示意图；FLOP 分析参照 Dao 2023 原文，dQ 累加的实现细节见 flash-attention 源码与 FA4 论文。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

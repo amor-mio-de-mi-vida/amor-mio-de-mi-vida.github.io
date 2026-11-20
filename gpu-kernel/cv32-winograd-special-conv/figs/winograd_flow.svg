@@ -64,8 +64,7 @@
   <text x="30" y="280" class="sublabel">Winograd：m+r-1 = 4 次乘法 + 变换加法</text>
   <text x="30" y="295" class="sublabel" fill="#388E3C" font-weight="600">F(2&times;2, 3&times;3) 2D：直接 36 次 → Winograd 16 次（省 2.25&times;）</text>
 
-  <text x="250" y="245" class="sublabel" fill="#D55E00" font-weight="600">为什么 F(4,3) 不常用？</text>
+  <text x="250" y="245" class="sublabel" fill="#D55E00" font-weight="600">tile 越大，代价越大</text>
   <text x="250" y="265" class="sublabel">变换矩阵含更大系数 → 变换域误差放大</text>
-  <text x="250" y="280" class="sublabel">FP16/BF16 的精度不够 → 只安全到 F(2,3)</text>
-  <text x="250" y="295" class="sublabel">FP32 可以用 F(4,3) 或 F(6,3)</text>
+  <text x="250" y="280" class="sublabel">变换加法数随 tile 平方增长（Lavin &amp; Gray）</text>
 </svg>

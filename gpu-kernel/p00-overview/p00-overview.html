@@ -220,11 +220,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-28</span>
-    <span data-reading-time>约 17 分钟阅读</span>
+    <span data-reading-time>约 18 分钟阅读</span>
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-why-kernel">为什么 Kernel 决定端到端性能</a><li><a href="#sec-three-sources">快的三个来源</a><li><a href="#sec-three-lines">三条硬件演进线</a><li><a href="#sec-map">52 篇知识地图</a><ol><li><a href="#sec-1">最短路径（约 25 篇）</a></li></ol><li><a href="#sec-layer">从 PyTorch 到 SASS：一个算子经历了什么</a><li><a href="#sec-toolchain">工具链与语言选择</a><li><a href="#sec-code-example">优化的起点：从正确的 baseline 开始</a><li><a href="#sec-interview-types">面试四类题型</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a><li><a href="#sec-series">系列导航</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-why-kernel">为什么 Kernel 决定端到端性能</a><li><a href="#sec-three-sources">快的三个来源</a><li><a href="#sec-three-lines">三条硬件演进线</a><li><a href="#sec-map">52 篇知识地图</a><ol><li><a href="#sec-1">最短路径（约 22 篇）</a></li></ol><li><a href="#sec-layer">从 PyTorch 到 SASS：一个算子经历了什么</a><li><a href="#sec-toolchain">工具链与语言选择</a><li><a href="#sec-code-example">优化的起点：从正确的 baseline 开始</a><li><a href="#sec-interview-types">面试四类题型</a><li><a href="#sec-hb">Hopper 与 Blackwell 上的变化</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a><li><a href="#sec-series">系列导航</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
@@ -233,16 +233,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     <li>GPU kernel 决定端到端性能：LLM decode 的时间主要花在 attention 和 GEMV 上，diffusion 每步去噪主要花在 attention 和卷积上，3D Gaussian Splatting 训练主要花在光栅化的前向与反向上，少数几个 kernel 就定下了整个系统的上限。优化 kernel 不是&ldquo;锦上添花&rdquo;，而是&ldquo;决定能不能上线&rdquo;。</li>
     <li>&ldquo;快&rdquo;的三个来源：少搬数据（减少 HBM 流量）、算得满（喂饱 Tensor Core）、把等待藏起来（计算与搬运重叠）。任何一个高性能 kernel 都在同时做这三件事。</li>
     <li>硬件的三条演进线是数据布局（从寄存器到 swizzle 到 TMEM）、异步搬运（从同步 LDG 到 cp.async 到 TMA）、异步协调（从 <code>__syncthreads</code> 到 mbarrier 到 CLC），这三条线贯穿 Ampere &rarr; Hopper &rarr; Blackwell 三代硬件。它们都是还账的工具；分析任何一个 kernel 时用的主线是&ldquo;一个下界 + 五笔账&rdquo;，见<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>。</li>
-    <li>52 篇按&ldquo;硬件 &rarr; 编程基础 &rarr; 并行原语 &rarr; 方法论 &rarr; 常用算子 &rarr; Tensor Core &rarr; GEMM &rarr; 卷积 &rarr; Attention &rarr; Diffusion &rarr; 3D &rarr; 工具链 &rarr; 通信 &rarr; 面试&rdquo;排列，由浅入深。时间紧可以走&ldquo;最短路径&rdquo;（约 25 篇），跳过应用专题直达面试。</li>
+    <li>52 篇按&ldquo;硬件 &rarr; 编程基础 &rarr; 并行原语 &rarr; 方法论 &rarr; 常用算子 &rarr; Tensor Core &rarr; GEMM &rarr; 卷积 &rarr; Attention &rarr; Diffusion &rarr; 3D &rarr; 工具链 &rarr; 通信 &rarr; 面试&rdquo;排列，由浅入深。时间紧可以走&ldquo;最短路径&rdquo;（约 22 篇），只选一个应用专题再直达面试。</li>
     <li>本系列以 CUDA C++ 为主线（面试手撕用它），Triton 和 CUTLASS/CuTe 作为对照。硬件以 Ampere（A100）为基础，每篇都有 Hopper/Blackwell 新特性小节。</li>
   </ul>
 </div>
 
 <h2 id="sec-why-kernel">为什么 Kernel 决定端到端性能</h2>
 
-<p>一个大语言模型（LLM）的推理服务，从用户发出请求到返回完整回答，中间执行了几千次 kernel launch。prefill 阶段的时间几乎全在 GEMM 和 attention 上，它们是 compute-bound 的；decode 阶段每步只生成一个 token，GEMM 退化成 GEMV，变成 memory-bound，瓶颈是 HBM 带宽。把 decode 阶段的 attention kernel 从标准实现换成 FlashDecoding + PagedAttention，端到端延迟会明显下降（第 37 篇讲这两种技术各自省掉了什么）。</p>
+<p>一个大语言模型（LLM）的推理服务，从用户发出请求到返回完整回答，中间要执行大量的 kernel launch：每生成一个 token，每一层都要跑一串 kernel。prefill 阶段的时间几乎全在 GEMM 和 attention 上，它们是 compute-bound 的；decode 阶段每步只生成一个 token，GEMM 退化成 GEMV，变成 memory-bound，瓶颈是 HBM 带宽。把 decode 阶段的 attention kernel 从标准实现换成 FlashDecoding + PagedAttention，端到端延迟会明显下降（第 37 篇讲这两种技术各自省掉了什么）。</p>
 
-<p>Diffusion 模型（Stable Diffusion、FLUX、Sora）每张图要走 20&ndash;50 步去噪迭代，每步内部是一整个 UNet 或 DiT 的前向传播。当模型从 UNet 迁移到 DiT 架构后，attention 的序列长度从几千跳到了几万（视频生成可达十几万），FlashAttention 成为决定能否实时生成的关键。在 3D Gaussian Splatting <span class="cite">[<a href="#ref-3dgs" title="Kerbl, Bernhard et al. (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics, 42(4).">1</a>]</span> 场景中，光栅化的前向和反向 kernel 是非标准算子，cuDNN 里没有现成实现，必须手写 CUDA 并做 tile 级排序、原子归约等优化。</p>
+<p>Diffusion 模型（Stable Diffusion、FLUX、Sora）每张图要走几十步去噪迭代，每步内部是一整个 UNet 或 DiT 的前向传播。DiT 把整张图（视频则是整段时空 latent）切成 token 做全局 attention，序列随分辨率和帧数增长，视频生成的序列尤其长，attention 因此成为主要开销之一（第 39、40 篇）。在 3D Gaussian Splatting <span class="cite">[<a href="#ref-3dgs" title="Kerbl, Bernhard et al. (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics, 42(4).">1</a>]</span> 场景中，光栅化的前向和反向 kernel 是非标准算子，cuDNN 里没有现成实现，必须手写 CUDA 并做 tile 级排序、原子归约等优化。</p>
 
 <p>这些例子的共同点是：<b>端到端性能的天花板由少数几个 kernel 决定</b>，而这些 kernel 的性能上限由硬件参数给定（Roofline 模型 <span class="cite">[<a href="#ref-williams09" title="Williams, Samuel; Waterman, Andrew; Patterson, David (2009). Roofline: An Insightful Visual Performance Model for Multicore Architectures. Communications of the ACM, 52(4), pp. 65–76.">2</a>]</span>），能达到多少百分比取决于写 kernel 的人对硬件的理解深度。这就是本系列存在的原因。</p>
 
@@ -285,9 +285,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p><b>少搬数据</b>是最常见的优化方向。大多数深度学习算子（elementwise、softmax、LayerNorm）的算术强度远低于 Roofline 拐点，意味着计算单元大部分时间在等 HBM。减少 HBM 流量的手段包括：tiling（把数据搬到片上复用多次）、算子融合（避免中间结果写回 HBM）、向量化加载（减少事务数）和合并访存（coalescing） <span class="cite">[<a href="#ref-bpg" title="NVIDIA. CUDA C++ Best Practices Guide. 官方最佳实践指南（性能优化、访存模式、occupancy）。">4</a>]</span>。FlashAttention 的核心贡献就是通过在线 softmax 避免了 \(O(N^2)\) 大小的中间矩阵写回 HBM，把 attention 从 memory-bound 拉向 compute-bound。</p>
 
-<p><b>算得满</b>针对的是已经 compute-bound 的 kernel，典型如大 shape 的 GEMM。要喂饱 Tensor Core，首先数据布局要匹配硬件的寄存器映射（swizzle、ldmatrix、TMEM），其次可以用低精度（FP8、FP4、INT8）在相同硬件上获得 2&times;&ndash;4&times; 的吞吐提升，以及用结构化稀疏（2:4）再翻一倍。本系列的第 19&ndash;23 篇详细讲解 Tensor Core 从 Ampere 到 Blackwell 的三代编程模型，第 25&ndash;29 篇则用 GEMM 实战串起来。</p>
+<p><b>算得满</b>针对的是已经 compute-bound 的 kernel，典型如大 shape 的 GEMM。要喂饱 Tensor Core，首先数据布局要匹配硬件的寄存器映射（swizzle、ldmatrix、TMEM），其次可以用低精度（FP8、FP4、INT8）获得更高的 Tensor Core 峰值（例如 H100 的稠密 FP8 是 BF16 的 2 倍，HGX B200 的稠密 FP4 是 BF16 的 4 倍），2:4 结构化稀疏在 datasheet 上再翻一倍。本系列的第 19&ndash;23 篇详细讲解 Tensor Core 从 Ampere 到 Blackwell 的三代编程模型，第 25&ndash;29 篇则用 GEMM 实战串起来。</p>
 
-<p><b>把等待藏起来</b>是现代 GPU kernel 区别于十年前写法的最大变化。Hopper 引入了 TMA（硬件自动完成地址计算和搬运）和 mbarrier（带事务计数的同步屏障） <span class="cite">[<a href="#ref-hoptg" title="NVIDIA. NVIDIA Hopper Tuning Guide. Hopper 架构调优指南（TMA、WGMMA、warp specialization、cluster）。">5</a>]</span>，让搬运和计算可以在不同的 warp 上并行执行（warp specialization）。Blackwell 又增加了 CLC（Cluster Launch Control），让多个 SM 之间的协调变成硬件操作。一个 Hopper 上的高效 GEMM kernel，实际上是一个三阶段流水线：当 Warp Group 0 在用 WGMMA 算上一批数据时，Warp Group 1 在用 TMA 搬下一批，同时通过 mbarrier 互不干扰。</p>
+<p><b>把等待藏起来</b>是现代 GPU kernel 区别于十年前写法的最大变化。Hopper 引入了 TMA（硬件自动完成地址计算和搬运）和 mbarrier（带事务计数的同步屏障） <span class="cite">[<a href="#ref-hoptg" title="NVIDIA. NVIDIA Hopper Tuning Guide. Hopper 架构调优指南（TMA、WGMMA、warp specialization、cluster）。">5</a>]</span>，让搬运和计算可以在不同的 warp 上并行执行（warp specialization）。Blackwell 又增加了 CLC（Cluster Launch Control），让持久化 kernel 在运行中原子地&ldquo;领走&rdquo;尚未启动的 cluster 的工作，做动态负载均衡。一个 Hopper 上的高效 GEMM kernel，实际上是一条生产者-消费者流水线：消费者 warpgroup 用 WGMMA 计算当前这批数据时，生产者 warp 里的一个线程已经用 TMA 发出了下一批的拷贝，两边通过 mbarrier 交接缓冲区。</p>
 
 <div class="callout key"><p class="callout-title">从三个来源到一条主线</p><p>上面三个来源在<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>里被细化成&ldquo;一个下界 + 五笔账&rdquo;：少搬数据对应字节账和带宽账，算得满对应算力账，把等待藏起来对应等待账，再加上 SM 之外的整卡账。拿到一个具体的 kernel，先算下界，再按这个顺序逐笔核对，先还最大的一笔。下面的三条线讲的是硬件怎样一代代提供还账的工具。</p></div>
 
@@ -352,11 +352,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-timeline-cap"><span class="fig-label">图 2</span><b>GPU 架构演进时间线。</b>每行右侧带&ldquo;+&rdquo;的是该代新增的硬件特性，灰字是代表产品的显存与 NVLink 规格（取自 NVIDIA datasheet，见系列的硬件参数表）；Hopper 与 Blackwell 用橙色标出，它们是现代 kernel 写法变化最大的两代。三条演进线——数据布局、异步搬运、异步协调——是理解为什么同一个算法在不同代硬件上要写成完全不同的代码的关键。</figcaption>
 </figure>
 
-<p><b>数据布局</b>决定了计算单元能否高效读取操作数。在 Ampere 上，WMMA 和 mma.sync 需要通过 <code>ldmatrix</code> 把数据从共享内存搬进寄存器，而共享内存的 bank conflict 则需要 XOR swizzle 来消除（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>和<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>）。Hopper 的 WGMMA 可以直接从共享内存读取操作数，减少了一次寄存器中转，但对共享内存的布局有 128B swizzle 要求（<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>）。Blackwell 更进一步，引入了 TMEM（Tensor Memory），累加器不再占用通用寄存器堆，寄存器压力大幅下降（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）。CuTe 的 Layout 代数（<a href="../tc20-layout-algebra/tc20-layout-algebra.html">第 20 篇</a>）提供了统一描述这些布局变换的数学语言。</p>
+<p><b>数据布局</b>决定了计算单元能否高效读取操作数。在 Ampere 上，WMMA 和 mma.sync 需要通过 <code>ldmatrix</code> 把数据从共享内存搬进寄存器，而共享内存的 bank conflict 则需要 XOR swizzle 来消除（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>和<a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">第 19 篇</a>）。Hopper 的 WGMMA 可以直接从共享内存读取操作数，减少了一次寄存器中转，但要求共享内存里的操作数按它规定的布局摆放（用描述符说明，可选无 swizzle 或 32B/64B/128B swizzle，<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>）。Blackwell 更进一步，引入了 TMEM（Tensor Memory），累加器不再占用通用寄存器堆，寄存器压力大幅下降（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）。CuTe 的 Layout 代数（<a href="../tc20-layout-algebra/tc20-layout-algebra.html">第 20 篇</a>）提供了统一描述这些布局变换的数学语言。</p>
 
-<p><b>异步搬运</b>让数据搬运不再阻塞计算线程。Ampere 的 <code>cp.async</code> 让 Global &rarr; Shared Memory 的拷贝绕过寄存器，在后台完成（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）。Hopper 的 TMA 更进一步，把地址计算、边界检查、多维索引全交给专用硬件单元，一条指令就能搬一整个 tile，还支持 multicast 到同一 cluster 内的多个 SM。Blackwell 在此基础上增加了 2-SM 协作搬运。</p>
+<p><b>异步搬运</b>让数据搬运不再阻塞计算线程。Ampere 的 <code>cp.async</code> 让 Global &rarr; Shared Memory 的拷贝绕过寄存器，在后台完成（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）。Hopper 的 TMA 更进一步，把地址计算、边界检查、多维索引全交给专用硬件单元，一条指令就能搬一整个 tile，还支持 multicast 到同一 cluster 内的多个 SM。Blackwell 的 TMA 还要配合 CTA pair 上的双 SM MMA：例如 MLC 的双 CTA GEMM 让两个 CTA 各自加载一半操作数，完成信号都记到 CTA 0 的同一个 mbarrier 上（<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>）。</p>
 
-<p><b>异步协调</b>解决的是&ldquo;搬完了怎么通知计算线程&rdquo;的问题。传统的 <code>__syncthreads</code> 是全 block 屏障，粒度太粗。Hopper 的 mbarrier 支持事务计数（arrive-wait 模式），让生产者完成搬运后通知消费者，消费者只等自己需要的数据就位，不等整个 block（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）。这使得 warp specialization 成为可能：block 内的不同 warp group 分别负责搬运和计算，形成流水线（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）。Blackwell 的 CLC 把跨 CTA 的协调也变成硬件操作。</p>
+<p><b>异步协调</b>解决的是&ldquo;搬完了怎么通知计算线程&rdquo;的问题。传统的 <code>__syncthreads</code> 是全 block 屏障，粒度太粗。mbarrier 从 Ampere 起就有（arrive-wait 模式），Hopper 给它加上了事务计数（按到达的字节数完成，专门用来等 TMA），让生产者完成搬运后通知消费者，消费者只等自己需要的数据就位，不等整个 block（<a href="../tc21-async-copy-mbarrier/tc21-async-copy-mbarrier.html">第 21 篇</a>）。这使得 warp specialization 成为可能：block 内的不同 warp group 分别负责搬运和计算，形成流水线（<a href="../gm26-hopper-gemm/gm26-hopper-gemm.html">第 26 篇</a>）。Blackwell 的 CLC 则把 tile 调度也交给硬件辅助：持久化 CTA 可以原子地取消一个尚未启动的 cluster 并接手它的工作。</p>
 
 <h2 id="sec-map">52 篇知识地图</h2>
 
@@ -412,16 +412,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <rect class="d-box accent" x="286" y="520" width="258" height="50" rx="4"/>
 <text class="d-text" x="415" y="541" text-anchor="middle">十四、面试冲刺</text>
 <text class="d-small" x="415" y="560" text-anchor="middle">第 51–52 篇</text>
-<text class="d-title" x="16" y="604">最短路径（约 25 篇）</text>
+<text class="d-title" x="16" y="604">最短路径（约 22 篇）</text>
 <text class="d-small" x="16" y="630">01–07 → 10–11 → 14 → 17 → 19 → 21 → 24–26 → 33</text>
 <text class="d-small" x="16" y="652">→ 37 → 38/39 或 41（按方向选一个）→ 48 → 51–52</text>
 </svg></div>
-  <figcaption id="fig-map-cap"><span class="fig-label">图 3</span><b>全系列 52 篇的知识依赖图。</b>从上到下每一层是下一层的前置；同一层内的几个部分可以按任意顺序读。灰色是基础，绿色是 Tensor Core，橙色是三大核心算子，紫色是应用方向，蓝色是工具链与通信。图下方列出了约 25 篇的&ldquo;最短路径&rdquo;。示意图。</figcaption>
+  <figcaption id="fig-map-cap"><span class="fig-label">图 3</span><b>全系列 52 篇的知识依赖图。</b>从上到下每一层是下一层的前置；同一层内的几个部分可以按任意顺序读。灰色是基础，绿色是 Tensor Core，橙色是三大核心算子，紫色是应用方向，蓝色是工具链与通信。图下方列出了约 22 篇的&ldquo;最短路径&rdquo;。示意图。</figcaption>
 </figure>
 
 <p>如 <a href="#fig-map">图 3</a> 所示，整个系列分为 14 个部分。前三部分（硬件、CUDA 基础、并行原语）是地基，所有后续内容都依赖它们。硬件篇建立起 SM 结构和内存层次的直觉，CUDA 基础篇从第一个 kernel 写起，依次解决访存合并、共享内存 bank conflict、occupancy 与寄存器分配、同步与原子操作、以及 stream 和 CUDA Graph 等关键概念。并行原语篇讲归约、warp 原语、前缀和和排序——这些是后面所有算子的基本构件。第四部分（方法论）教你用 Nsight Systems 做系统级分析、用 Nsight Compute 做单 kernel 分析，以及用 compute-sanitizer 和 SASS 做调试，是贯穿全系列的工具。第五到第六部分（常用算子、Tensor Core）是承上启下的枢纽：常用算子篇覆盖了 elementwise 融合、softmax/LayerNorm 的单遍扫描、量化 kernel 等高频面试题；Tensor Core 篇从 WMMA 讲到 Hopper 的 WGMMA 再到 Blackwell 的 tcgen05，是后面 GEMM 和 attention 篇的硬件基础。</p>
 
-<p>第七到第十一部分是五个应用方向（GEMM、卷积、attention、diffusion、3D），可以根据自己的方向选择性阅读。其中 GEMM（第 24&ndash;29 篇）和 attention（第 33&ndash;37 篇）是面试必考的两大板块，强烈建议都读。卷积篇覆盖了 im2col、implicit GEMM 和 Winograd；diffusion 篇从 UNet 到 DiT 到视频生成；3D 篇覆盖了 3DGS、NeRF 和点云。第十二部分（工具链）介绍 Triton <span class="cite">[<a href="#ref-triton" title="Tillet, Philippe et al. (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. arXiv:1903.04174（Triton 块级编程模型）。">6</a>]</span> 和 CUTLASS/CuTe <span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（可组合 GEMM/Attention 模板库与 CuTe Layout 代数）。">7</a>]</span>，适合在读完 GEMM 之后对照学习。第十三部分（通信）覆盖多卡训练和推理的 kernel 层面知识，从 NVLink 硬件到 NCCL 内部实现再到计算-通信重叠策略。最后两篇是面试冲刺，把前面 50 篇的知识点整理成题库和手撕模板。</p>
+<p>第七到第十一部分是五个应用方向（GEMM、卷积、attention、diffusion、3D），可以根据自己的方向选择性阅读。其中 GEMM（第 24&ndash;29 篇）和 attention（第 33&ndash;37 篇）是面试必考的两大板块，强烈建议都读。卷积篇覆盖了 im2col、implicit GEMM 和 Winograd；diffusion 篇从 UNet 到 DiT 到视频生成；3D 篇覆盖了 3DGS、NeRF 和点云。第十二部分（工具链）介绍 Triton <span class="cite">[<a href="#ref-triton" title="Tillet, Philippe et al. (2019). Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. MAPL 2019（Triton 块级编程模型）。">6</a>]</span> 和 CUTLASS/CuTe <span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: CUDA Templates for Linear Algebra Subroutines. GitHub（可组合 GEMM/Attention 模板库与 CuTe Layout 代数）。">7</a>]</span>，适合在读完 GEMM 之后对照学习。第十三部分（通信）覆盖多卡训练和推理的 kernel 层面知识，从 NVLink 硬件到 NCCL 内部实现再到计算-通信重叠策略。最后两篇是面试冲刺，把前面 50 篇的知识点整理成题库和手撕模板。</p>
 
 <p>上面的依赖图回答&ldquo;先读什么&rdquo;。另一张图回答&ldquo;每篇在优化里管什么&rdquo;：<a href="#fig-kmap">图 4</a> 把 52 篇按学习路径（纵向）和<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>的&ldquo;一个下界 + 五笔账&rdquo;（横向）排开，每篇落在它主要还的那几笔账下面。读完任何一篇，都可以回到这张图，看它补上了哪一格。</p>
 
@@ -543,7 +543,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-kmap-cap"><span class="fig-label">图 4</span><b>知识地图：纵向是学习路径，横向是主线的下界与五笔账。</b>每个方块是一篇博客（篇号与简称），可点击跳转；一篇可以出现在几列里。颜色：灰为下界与工具，蓝为字节账与带宽账，绿为算力账，橙为等待账，紫为整卡账。各列的含义和归类依据见主线篇。示意图。</figcaption>
 </figure>
 
-<h3 id="sec-1">最短路径（约 25 篇）</h3>
+<h3 id="sec-1">最短路径（约 22 篇）</h3>
 
 <p>时间紧时推荐这条线路：01&ndash;07（硬件与 CUDA 基础）&rarr; 10&ndash;11（归约与 warp 原语）&rarr; 14（profiling）&rarr; 17（softmax/norm）&rarr; 19（Tensor Core 基础）&rarr; 21（异步搬运）&rarr; 24&ndash;26（GEMM 阶梯）&rarr; 33（FlashAttention 前向）&rarr; 37（推理 attention）&rarr; 38/39 或 41（按方向选一个应用专题）&rarr; 48（通信基础）&rarr; 51&ndash;52（面试冲刺）。这条路径覆盖了面试中最常考的所有知识点。</p>
 
@@ -627,9 +627,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-toolchain-cap"><span class="fig-label">图 6</span><b>GPU kernel 工具链的抽象层次与控制力取舍。</b>越往下控制力越强、工作量越大。本系列以 CUDA C++ 为主线，Triton 和 CUTLASS/CuTe 作为对照。</figcaption>
 </figure>
 
-<p>写 GPU kernel 有多种工具可选（<a href="#fig-toolchain">图 6</a>）。PyTorch 的 <code>torch.compile</code> 可以自动融合逐元素算子，但对 GEMM 和 attention 这样的复杂算子帮助有限。Triton（<a href="../tl45-triton/tl45-triton.html">第 45 篇</a>）用 Python 语法写块级程序，编译器自动处理共享内存分配和 tiling，开发效率高，但目前对 Hopper/Blackwell 的异步特性（TMA、warp specialization）的支持还在演进中。CUTLASS 和 CuTe（<a href="../tl46-cutlass-cute/tl46-cutlass-cute.html">第 46 篇</a>）提供了可组合的 C++ 模板库，Layout 代数让数据布局变换有了严格的数学表达，但学习曲线陡峭。CUDA C++ 是最底层的选择，可以精确控制每条指令的行为，包括内联 PTX，是面试手撕 kernel 的标准语言。</p>
+<p>写 GPU kernel 有多种工具可选（<a href="#fig-toolchain">图 6</a>）。PyTorch 的 <code>torch.compile</code> 可以自动融合逐元素算子，但对 GEMM 和 attention 这样的复杂算子帮助有限。Triton（<a href="../tl45-triton/tl45-triton.html">第 45 篇</a>）用 Python 语法写块级程序，编译器负责线程级的映射、共享内存分配和流水线，开发效率高；它已经能用 TMA（张量描述符），自动 warp 特化目前只支持 Blackwell 上简单的矩阵乘循环，对这些异步特性的支持仍在演进中。CUTLASS 和 CuTe（<a href="../tl46-cutlass-cute/tl46-cutlass-cute.html">第 46 篇</a>）提供了可组合的 C++ 模板库，Layout 代数让数据布局变换有了严格的数学表达，但学习曲线陡峭。CUDA C++ 是最底层的选择，可以精确控制每条指令的行为，包括内联 PTX，是面试手撕 kernel 的标准语言。</p>
 
-<p>本系列选择 CUDA C++ 作为主线有三个原因：第一，面试考的就是它——面试官让你在白板上写 kernel 时，不会让你用 Triton；第二，理解了底层之后，再学 Triton 或 CuTe 只是&ldquo;换个写法&rdquo;，而反过来不成立；第三，Hopper 和 Blackwell 上最先进的优化手段（WGMMA、tcgen05、warp specialization）目前只能通过 CUDA C++ 或 CuTe 使用。当然，在实际工程中，Triton 的高开发效率使它成为很多场景下的首选——本系列第 45 篇会讲清楚什么时候该用什么工具。</p>
+<p>本系列选择 CUDA C++ 作为主线有三个原因：第一，面试考的就是它——面试官让你在白板上写 kernel 时，不会让你用 Triton；第二，理解了底层之后，再学 Triton 或 CuTe 只是&ldquo;换个写法&rdquo;，而反过来不成立；第三，要显式控制 Hopper 和 Blackwell 上最先进的优化手段（WGMMA、tcgen05、TMEM 分配、warp 角色划分），目前主要靠 CUDA C++、CuTe，或 Triton 的底层方言 Gluon。当然，在实际工程中，Triton 的高开发效率使它成为很多场景下的首选——本系列第 45 篇会讲清楚什么时候该用什么工具。</p>
 
 <h2 id="sec-code-example">优化的起点：从正确的 baseline 开始</h2>
 
@@ -645,7 +645,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/p00-overview/optimization_skeleton.cu</code> 第 11&ndash;18 行（未在 GPU 上运行）</p>
 
-<p>这是最朴素的 SAXPY：每个线程算一个元素。它是 memory-bound 的——SAXPY 的算术强度只有 \(\frac{2}{3 \times 4} \approx 0.17\) FLOP/Byte（FP32 下读两个数、写一个数，各 4 字节，只做 1 次乘加），远低于任何现代 GPU 的 Roofline 拐点。优化方向是减少 HBM 事务数：</p>
+<p>这是最朴素的 SAXPY：每个线程算一个元素。它是 memory-bound 的——SAXPY 的算术强度只有 \(\frac{2}{3 \times 4} \approx 0.17\) FLOP/Byte（FP32 下读两个数、写一个数，各 4 字节，只做 1 次乘加），远低于任何现代 GPU 的 Roofline 拐点。一个常见的改动是向量化，减少访存指令数：</p>
 
 <pre data-code="code/p00-overview/optimization_skeleton.cu#L21-L34"><code>__global__ void saxpy_v1(int n, float a,
                          const float4* __restrict__ x,
@@ -663,9 +663,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/p00-overview/optimization_skeleton.cu</code> 第 21&ndash;34 行（未在 GPU 上运行）</p>
 
-<p>用 <code>float4</code> 向量化加载，每条 LD/ST 指令搬 128 位而不是 32 位，一个 warp 一次读 512 字节。在 A100 上这一个改动就能把有效带宽从约 600 GB/s 提升到接近 1,800 GB/s（接近 HBM 峰值 2,039 GB/s）。这个&ldquo;朴素 &rarr; 向量化 &rarr; grid-stride &rarr; 融合&rdquo;的模式，会在后面每一个算子篇目中反复出现。</p>
+<p>用 <code>float4</code> 向量化加载，每条 LD/ST 指令搬 128 位而不是 32 位，一个 warp 一条指令读 512 字节。字节数没变，变的是指令数和每条指令在途的字节数；它能把有效带宽提高多少，取决于朴素版本离带宽上限有多远，要实测才知道（本系列没有 GPU 实测）。这个版本要求 n 是 4 的倍数、指针 16 字节对齐，否则尾部要单独处理。这个&ldquo;朴素 &rarr; 向量化 &rarr; grid-stride &rarr; 融合&rdquo;的模式，会在后面每一个算子篇目中反复出现。</p>
 
-<p>开发环境方面，写 CUDA 需要一台有 NVIDIA GPU 的机器和 nvcc 编译器。如果你的本地机器没有 GPU，可以使用云 GPU 服务（如 Lambda Cloud、RunPod、Vast.ai 等按小时计费的实例），A100/H100 实例通常每小时几美元。调试工具 compute-sanitizer（检查越界和竞争）和 profiling 工具 Nsight Systems / Nsight Compute 是 CUDA Toolkit 自带的。本系列<a href="../mt14-profiling/mt14-profiling.html">第 14 篇</a>会详细讲这些工具的使用方法。</p>
+<p>开发环境方面，写 CUDA 需要一台有 NVIDIA GPU 的机器和 nvcc 编译器。如果你的本地机器没有 GPU，可以使用按小时计费的云 GPU 实例。调试工具 compute-sanitizer（检查越界和竞争）和 profiling 工具 Nsight Systems / Nsight Compute 是 CUDA Toolkit 自带的。本系列<a href="../mt14-profiling/mt14-profiling.html">第 14 篇</a>会详细讲这些工具的使用方法。</p>
 
 <p>本系列的代码完整版放在每篇对应的 <code>code/&lt;slug&gt;/</code> 目录下，只经过 Apple clang 的 CUDA host-only 语法检查，没有在 GPU 上运行。你可以把它们拷贝到有 GPU 的机器上编译运行、修改实验。</p>
 
@@ -738,10 +738,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <dd>数据布局（寄存器 &rarr; swizzle &rarr; TMEM）、异步搬运（同步 LDG &rarr; cp.async &rarr; TMA）、异步协调（__syncthreads &rarr; mbarrier &rarr; CLC）。这三条线分别解决&ldquo;数据怎么摆&rdquo;&ldquo;数据怎么搬&rdquo;&ldquo;怎么通知算完了&rdquo;的问题。<br><b>追问</b>：为什么 Hopper 要引入 warp specialization？——因为有了 TMA 和 mbarrier 之后，搬运可以由专门的 warp 负责，计算 warp 不需要参与搬运，流水线效率更高。</dd>
 
   <dt id="sec-q3">Q3：CUDA C++、Triton、CUTLASS/CuTe 各适合什么场景？</dt>
-  <dd>CUDA C++：需要最大控制力、使用最新硬件特性、面试手撕。Triton：快速原型、中等复杂度算子、自动调优。CUTLASS/CuTe：GEMM 和 attention 的生产级实现、需要跨 Ampere/Hopper/Blackwell 的可移植性。实际工程中，先用 Triton 写第一版，性能不够再考虑 CuTe 或手写 CUDA。<br><b>追问</b>：Triton 目前做不到什么？——对 Hopper 的 warp specialization 和 Blackwell 的 tcgen05 的支持还不完善；无法精细控制寄存器分配和 pipeline 阶段数。</dd>
+  <dd>CUDA C++：需要最大控制力、使用最新硬件特性、面试手撕。Triton：快速原型、中等复杂度算子、自动调优。CUTLASS/CuTe：GEMM 和 attention 的生产级实现、需要跨 Ampere/Hopper/Blackwell 的可移植性。实际工程中，先用 Triton 写第一版，性能不够再考虑 CuTe 或手写 CUDA。<br><b>追问</b>：Triton 目前做不到什么？——块级抽象之下的细节由编译器决定：自动 warp 特化目前只支持 Blackwell 上简单的矩阵乘循环，寄存器分配、warp 角色、TMEM 布局等不能像 CUDA C++ 或 Gluon 那样逐项指定（流水线级数倒是可以用 <code>num_stages</code> 调）。</dd>
 
   <dt id="sec-q4">Q4：如何判断一个 kernel 是 memory-bound 还是 compute-bound？</dt>
-  <dd>计算其算术强度 \(I = \text{FLOP} / \text{Bytes}\)，与 GPU 的 Roofline 拐点 \(P / \beta\) 比较。\(I < P/\beta\) 则 memory-bound。也可以直接看 Nsight Compute 的 SOL%：如果 memory SOL% &gt; compute SOL%，则 memory-bound。例如 A100 上 FP16 的拐点约 153 FLOP/Byte，GEMM（大 shape）约 512 FLOP/Byte（compute-bound），而 SAXPY 只有 0.17 FLOP/Byte（memory-bound）。<br><b>追问</b>：同一个算子，shape 变了会切换 regime 吗？——会。小 batch 的 GEMM（M=1）退化成 GEMV，算术强度骤降到约 0.5 FLOP/Byte，从 compute-bound 变 memory-bound。这就是 LLM decode 慢的根本原因。</dd>
+  <dd>计算其算术强度 \(I = \text{FLOP} / \text{Bytes}\)，与 GPU 的 Roofline 拐点 \(P / \beta\) 比较。\(I < P/\beta\) 则 memory-bound。也可以直接看 Nsight Compute 的 SOL%：如果 memory SOL% &gt; compute SOL%，则 memory-bound。例如 A100 80GB 上 FP16 Tensor Core 的拐点约 153 FLOP/Byte，FP16 的 \(4096^3\) GEMM 约 1365 FLOP/Byte（compute-bound），而 FP32 SAXPY 只有 0.17 FLOP/Byte（memory-bound）。<br><b>追问</b>：同一个算子，shape 变了会切换 regime 吗？——会。小 batch 的 GEMM（M=1）退化成 GEMV，FP16 下算术强度骤降到约 1 FLOP/Byte，从 compute-bound 变 memory-bound。这就是 LLM decode 慢的根本原因。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
@@ -756,7 +756,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-summary">小结</h2>
 
-<p>本篇勾画了整个系列的知识地图。GPU kernel 的优化归结为三件事：少搬数据、算得满、把等待藏起来。从 Ampere 到 Hopper 到 Blackwell，硬件沿着数据布局、异步搬运、异步协调三条线持续演进，每一代都改变了 kernel 的最优写法。52 篇按照由浅入深的顺序排列，从硬件基础一路推进到面试手撕。无论你是刚开始学习 CUDA 的研究生，还是已经有一些经验但想系统梳理知识体系的工程师，都可以根据自己的水平和目标选择阅读路径。如果你已经熟悉 CUDA 编程基础，可以直接从第 19 篇（Tensor Core）开始；如果你的目标是准备面试，最短路径只需要约 25 篇就能覆盖全部高频考点。下一篇是<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>：它把全系列的优化手段收成&ldquo;一个下界 + 五笔账&rdquo;这一条分析主线，之后从 GPU 的芯片结构开始讲起。</p>
+<p>本篇勾画了整个系列的知识地图。GPU kernel 的优化归结为三件事：少搬数据、算得满、把等待藏起来。从 Ampere 到 Hopper 到 Blackwell，硬件沿着数据布局、异步搬运、异步协调三条线持续演进，每一代都改变了 kernel 的最优写法。52 篇按照由浅入深的顺序排列，从硬件基础一路推进到面试手撕。无论你是刚开始学习 CUDA 的研究生，还是已经有一些经验但想系统梳理知识体系的工程师，都可以根据自己的水平和目标选择阅读路径。如果你已经熟悉 CUDA 编程基础，可以直接从第 19 篇（Tensor Core）开始；如果你的目标是准备面试，最短路径只需要约 22 篇就能覆盖主要的高频考点。下一篇是<a href="../p01-optimization-mainline/p01-optimization-mainline.html">主线篇</a>：它把全系列的优化手段收成&ldquo;一个下界 + 五笔账&rdquo;这一条分析主线，之后从 GPU 的芯片结构开始讲起。</p>
 
 <h2 id="sec-series">系列导航</h2>
 
@@ -774,7 +774,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <li id="ref-mlc">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/">Modern GPU Programming For MLSys</a>. CMU MLSys 课程（B200 上 GEMM 九步阶梯、Flash Attention 4）。</li>
   <li id="ref-bpg">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html">CUDA C++ Best Practices Guide</a>. 官方最佳实践指南（性能优化、访存模式、occupancy）。</li>
   <li id="ref-hoptg">NVIDIA. <a href="https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html">NVIDIA Hopper Tuning Guide</a>. Hopper 架构调优指南（TMA、WGMMA、warp specialization、cluster）。</li>
-  <li id="ref-triton">Tillet, Philippe et al. (2019). <a href="https://arxiv.org/abs/1903.04174">Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</a>. arXiv:1903.04174（Triton 块级编程模型）。</li>
+  <li id="ref-triton">Tillet, Philippe et al. (2019). <a href="https://doi.org/10.1145/3315508.3329973">Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</a>. MAPL 2019（Triton 块级编程模型）。</li>
   <li id="ref-cutlass">NVIDIA. <a href="https://github.com/NVIDIA/cutlass">CUTLASS: CUDA Templates for Linear Algebra Subroutines</a>. GitHub（可组合 GEMM/Attention 模板库与 CuTe Layout 代数）。</li>
 </ol>
 

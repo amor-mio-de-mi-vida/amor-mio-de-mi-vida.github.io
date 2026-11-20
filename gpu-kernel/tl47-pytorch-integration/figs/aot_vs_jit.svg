@@ -48,7 +48,7 @@
 
 <text x="385" y="185" class="label" font-size="10" fill="#16a34a">&#x2713; No setup.py needed</text>
 <text x="385" y="200" class="label" font-size="10" fill="#16a34a">&#x2713; Auto-recompile on change</text>
-<text x="385" y="215" class="label" font-size="10" fill="#dc2626">&#x2717; First import: 10&#x2013;30s compile</text>
+<text x="385" y="215" class="label" font-size="10" fill="#dc2626">&#x2717; First import waits for compile</text>
 
 <text x="350" y="250" text-anchor="middle" class="label" font-size="10.5">Both produce the same .so — choice is dev workflow vs deployment</text>
 

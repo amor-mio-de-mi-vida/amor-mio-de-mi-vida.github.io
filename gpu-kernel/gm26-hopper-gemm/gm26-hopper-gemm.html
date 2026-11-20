@@ -224,17 +224,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   </div>
 </header>
 
-<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 Ampere 到 Hopper：搬运成为瓶颈</a><li><a href="#sec-tma-wgmma">TMA + WGMMA：最简版本</a><li><a href="#sec-persistent">Persistent Kernel 与原子调度</a><li><a href="#sec-warpspec">Warp Specialization：搬运与计算的解耦</a><li><a href="#sec-pingpong">Ping-Pong 调度</a><li><a href="#sec-cluster">Cluster 与 TMA Multicast</a><li><a href="#sec-fp8">FP8 两级累加</a><li><a href="#sec-hb">与 Blackwell 的对比</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
+<nav id="toc"><div class="toc-title">目录</div><ol><li><a href="#sec-motivation">从 Ampere 到 Hopper：搬运成为瓶颈</a><li><a href="#sec-tma-wgmma">TMA + WGMMA：最简版本</a><li><a href="#sec-persistent">Persistent Kernel 与原子调度</a><li><a href="#sec-warpspec">Warp Specialization：搬运与计算的解耦</a><li><a href="#sec-pingpong">Ping-Pong 与 Cooperative 调度</a><li><a href="#sec-cluster">Cluster 与 TMA Multicast</a><li><a href="#sec-fp8">FP8 两级累加</a><li><a href="#sec-hb">与 Blackwell 的对比</a><li><a href="#sec-interview">面试怎么问</a><li><a href="#sec-limits">局限与未覆盖</a><li><a href="#sec-summary">小结</a></ol></nav>  <!-- add data-depth="2" to list only h2 sections -->
 
 <article>
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>Hopper 的 TMA 让一个线程搬一块 2D tile（GMEM&rarr;SMEM），告别整个 warp 协作搬运——搬运线程数从 128 降到 1，省出的线程全给计算。</li>
-<li>WGMMA 把发射粒度从单 warp 升级到 warpgroup（128 线程），A 操作数直接从共享内存读取，不再需要 ldmatrix 和手动 swizzle。单条 WGMMA 做 m64&times;n256&times;k16 的乘累加——比 Ampere <code>mma.sync</code> 大 128 倍。</li>
-<li>Warp specialization 把 CTA 内的线程分为 producer（搬运）和 consumer（计算）两组，用 mbarrier 的 full/empty 协议让流水线各级完全解耦。</li>
-<li>Persistent kernel 只启动 132 个 CTA（H100 SXM5 的 SM 数），用原子计数器动态抢 tile——消除 kernel launch 开销和 wave quantization。</li>
-<li>Cluster 让相邻 CTA 共享 SMEM；TMA multicast 一次搬运写入两个 CTA 的共享内存，A 矩阵的带宽减半。</li>
+<li>Hopper 的 TMA 让一个线程搬一块 2D tile（GMEM&rarr;SMEM），告别整个 block 的线程协作搬运——发搬运指令的线程降到 1 个。</li>
+<li>WGMMA 把发射粒度从单 warp 升级到 warpgroup（128 线程），B 操作数必须、A 操作数可以直接从共享内存读取，不再需要 ldmatrix 和手写 swizzle 地址运算。单条 WGMMA 最大做 m64&times;n256&times;k16 的乘累加——是 Ampere <code>mma.sync</code> m16n8k16 的 128 倍。</li>
+<li>Warp specialization 把 CTA 内的线程分为 producer（搬运）和 consumer（计算）两组，用 mbarrier 的 full/empty 协议让搬运和计算解耦。</li>
+<li>Persistent kernel 只启动 132 个 CTA（H100 SXM5 的 SM 数），用原子计数器动态抢 tile——省掉每个 tile 的 CTA 启动/初始化，并按 tile 粒度做负载均衡。</li>
+<li>Cluster 让同一 GPC 内的 CTA 互访 SMEM；TMA multicast 一次搬运写入两个 CTA 的共享内存，A tile 的 L2&rarr;SMEM 传输量减半。</li>
   </ul>
 </div>
 
@@ -244,7 +244,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-motivation">从 Ampere 到 Hopper：搬运成为瓶颈</h2>
 
-<p>上一篇（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）在 Ampere 上用 <code>mma.sync</code> + <code>cp.async</code> + swizzle 构建了 HGEMM。Ampere 的 FP16 Tensor Core 峰值是 312 TFLOPS（A100 SXM5）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，而 Hopper（H100 SXM5）翻倍到了约 990 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>——同样是 FP16 dense。算力翻倍意味着搬运压力翻倍：A100 上刚好够用的 <code>cp.async</code> 流水线，在 H100 上会让 Tensor Core 饿肚子。</p>
+<p>上一篇（<a href="../gm25-ampere-hgemm/gm25-ampere-hgemm.html">第 25 篇</a>）在 Ampere 上用 <code>mma.sync</code> + <code>cp.async</code> + swizzle 构建了 HGEMM。Ampere 的 FP16 Tensor Core 峰值是 312 TFLOPS（A100 SXM4）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>，而 Hopper（H100 SXM5）是约 990 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>——同样是 FP16 dense，约 3.2 倍；HBM 带宽只从约 2.0 TB/s 涨到 3.35 TB/s（约 1.6 倍）。算力涨得比带宽快，搬运压力随之变大。</p>
 
 <p>量化一下这个压力。GEMM C = A &times; B 的算术强度（arithmetic intensity）为：</p>
 
@@ -252,16 +252,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 \text{AI} = \frac{2MNK}{2(MK + KN + MN)} \approx \frac{M}{3} \quad (M=N=K\text{ 时})
 \]
 
-<p>H100 SXM5 的 HBM3 带宽是 3.35 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，FP16 Tensor Core 峰值 989.5 TFLOPS。要让计算单元满载，需要 AI &ge; 989.5 / 3.35 &approx; 295 FLOP/B。对于方阵 M=N=K，这意味着 M &ge; 885——远低于实际训练中的矩阵尺寸（通常 4096 以上）。所以 GEMM 理论上应该是计算瓶颈——但只有在搬运流水线足够深、延迟完全被掩盖的前提下才成立。</p>
+<p>H100 SXM5 的 HBM3 带宽是 3.35 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>，FP16 Tensor Core 峰值 989.5 TFLOPS。要让计算单元满载，需要 AI &ge; 989.5 / 3.35 &approx; 295 FLOP/B。对于方阵 M=N=K，这意味着 M &ge; 885——远低于实际训练中的矩阵尺寸（通常 4096 以上）。所以 GEMM 理论上应该是计算瓶颈——但只有在搬运流水线足够深、延迟完全被掩盖的前提下才成立。</p>
 
-<p>问题出在搬运的&ldquo;组织成本&rdquo;上。Ampere 的 <code>cp.async</code> 需要整个 warp 的 32 个线程协作：每个线程计算自己负责的地址偏移、发射一条 4/8/16 字节的搬运指令，才能凑出一块 tile。搬运一个 BM &times; BK = 128 &times; 64 的 BF16 tile（16 KB）需要 32 个线程各发射多条 <code>cp.async.cg.shared.global</code> 指令，加上地址计算和 XOR swizzle 逻辑，总共消耗数百个时钟周期的指令发射带宽。这些线程本可以做计算——在 312 TFLOPS 时还够用，到了 990 TFLOPS 就成了真正的瓶颈。</p>
+<p>问题出在搬运的&ldquo;组织成本&rdquo;上。Ampere 的 <code>cp.async</code> 需要整个 warp 的 32 个线程协作：每个线程计算自己负责的地址偏移、发射一条 4/8/16 字节的搬运指令，才能凑出一块 tile。搬运一个 BM &times; BK = 128 &times; 64 的 BF16 tile（16 KB）需要 \(16384 / 16 = 1024\) 次 16 字节的 <code>cp.async</code>——128 个线程每人 8 条，外加每条的地址计算和 XOR swizzle 逻辑。这些指令占用的是本来可以发射计算指令的线程和发射槽。</p>
 
 <p>Hopper 的回答是三件新武器（<a href="../tc22-hopper/tc22-hopper.html">第 22 篇</a>详细讲过）：</p>
 
 <ol>
-<li><b>TMA（Tensor Memory Accelerator）</b>：一个线程发一条指令，搬一块 2D tile。不再需要整个 warp 协作、手动计算地址和 swizzle。TMA 是一个独立的硬件单元，它在 SM 外部执行地址计算和数据搬运——完全不占 SM 的计算资源。</li>
-<li><b>WGMMA（Warpgroup MMA）</b>：一个 warpgroup（128 线程）发一条 <code>wgmma.mma_async</code>，A 操作数直接从共享内存读取，省掉 <code>ldmatrix</code>。异步语义意味着发射后 warpgroup 可以继续做其他事情。</li>
-<li><b>mbarrier</b>：硬件栅栏，arrive/try_wait 语义，比 <code>commit_group</code>/<code>wait_prior</code> 更灵活——可以实现 full/empty 环形流水线和 warp specialization。</li>
+<li><b>TMA（Tensor Memory Accelerator）</b>：一个线程发一条指令，搬一块 2D tile。不再需要整个 warp 协作、手动计算地址和 swizzle。TMA 是每个 SM 里的专用硬件单元（H100 SM 结构图中的 Tensor Memory Accelerator）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>，地址计算和搬运由它完成，不占线程的指令发射。</li>
+<li><b>WGMMA（Warpgroup MMA）</b>：一个 warpgroup（128 线程）发一条 <code>wgmma.mma_async</code>，B 操作数必须、A 操作数可以通过矩阵描述符直接从共享内存读取，省掉 <code>ldmatrix</code><span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。异步语义意味着发射后 warpgroup 可以继续做其他事情。</li>
+<li><b>mbarrier</b>：放在共享内存里、由硬件支持的异步屏障，arrive/try_wait 语义并能按字节数（tx-count）跟踪 TMA 完成，比 <code>commit_group</code>/<code>wait_prior</code> 更灵活——可以实现 full/empty 环形流水线和 warp specialization。</li>
 </ol>
 
 <p>这一篇逐步把这三件武器组装成一个完整的 Hopper GEMM：从最简单的 TMA + WGMMA 开始，加上 persistent kernel、warp specialization、多级流水线，最后引入 cluster 和 TMA multicast。末尾还会讲 FP8 GEMM 的两级累加策略——它是 DeepGEMM 精读系列的核心技巧之一。</p>
@@ -272,19 +272,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-data_path" data-kind="diagram">
 <img aria-labelledby="fig-data_path-cap" src="figs/hopper_data_path.svg" alt="Hopper GEMM 数据通路"/>
-<figcaption id="fig-data_path-cap"><span class="fig-label">图 1</span><b>Hopper GEMM 的数据通路：HBM &rarr; TMA &rarr; SMEM &rarr; WGMMA &rarr; 寄存器累加器。</b>TMA 由一个线程触发，负责 2D tile 的地址计算、swizzle 和搬运；WGMMA 由一个 warpgroup 发射，A 操作数直接从 SMEM 的 64 位描述符读取。</figcaption>
+<figcaption id="fig-data_path-cap"><span class="fig-label">图 1</span><b>Hopper GEMM 的数据通路：HBM &rarr; TMA &rarr; SMEM &rarr; WGMMA &rarr; 寄存器累加器。</b>TMA 由一个线程触发，负责 2D tile 的地址计算、swizzle 和搬运；WGMMA 由一个 warpgroup 发射，本篇的 A、B 都通过 64 位矩阵描述符从 SMEM 读取。</figcaption>
 </figure>
 
 <p>TMA 通过 <code>CUtensorMap</code> 描述符告诉硬件：数据的维度、stride、tile 大小和 swizzle 模式。在 host 端调用 <code>cuTensorMapEncodeTiled</code> 创建描述符，作为 <code>__grid_constant__</code> 参数传给 kernel：</p>
 
 <pre data-code="code/gm26-hopper-gemm/hopper_gemm_basic.cu#L73-L98"><code>  CUtensorMap a_map{};
   CUtensorMap b_map{};
-  uint64_t size_a[] = {(uint64_t)BK, (uint64_t)BM};
-  uint64_t size_b[] = {(uint64_t)BN, (uint64_t)BK};
+  uint64_t size_a[] = {(uint64_t)K, (uint64_t)M};
+  uint64_t size_b[] = {(uint64_t)N, (uint64_t)K};
   uint64_t stride_a[] = {(uint64_t)(K * sizeof(half))};
   uint64_t stride_b[] = {(uint64_t)(N * sizeof(half))};
   uint32_t box_a[] = {(uint32_t)BK, (uint32_t)BM};
-  uint32_t box_b[] = {(uint32_t)BN, (uint32_t)BK};
+  uint32_t box_b[] = {64u, (uint32_t)BK};  // 128 B span
   uint32_t elem_a[] = {1, 1};
 
   cuTensorMapEncodeTiled(
@@ -304,14 +304,14 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);</code></pre>
 <p class="src-note">完整代码：<code>code/gm26-hopper-gemm/hopper_gemm_basic.cu</code> 第 73–98 行（未在 GPU 上运行）</p>
 
-<p>这段代码值得逐字段拆解。<code>size_a</code> 和 <code>size_b</code> 描述整个矩阵的维度（注意是先内层维度、后外层维度）。<code>stride_a</code> 是外层维度的&ldquo;byte stride&rdquo;——对于行主序的 A 矩阵，就是 K &times; sizeof(half)，即从一行到下一行的字节跨距。<code>box_a</code> 是每次搬运的 tile 大小：BK &times; BM。</p>
+<p>这段代码值得逐字段拆解。<code>size_a</code> 和 <code>size_b</code> 描述整个矩阵的维度（注意是先内层维度、后外层维度）。<code>stride_a</code> 是外层维度的&ldquo;byte stride&rdquo;——对于行主序的 A 矩阵，就是 K &times; sizeof(half)，即从一行到下一行的字节跨距。<code>box_a</code> 是每次搬运的 tile 大小：BK &times; BM。注意 <code>box_b</code> 的内层只有 64 个元素：使用 swizzle 时，box 内层维度的字节数不能超过 swizzle 跨度（128B 模式即 128 字节 = 64 个 FP16），所以 BN=256 的 B tile 要分 4 次 TMA 搬运。</p>
 
-<p><code>CU_TENSOR_MAP_SWIZZLE_128B</code> 是关键参数：它告诉 TMA 硬件在写入共享内存时自动做 128 字节粒度的 swizzle。为什么需要 swizzle？因为 WGMMA 要求 A 操作数在 SMEM 中的排列方式满足特定的 bank 冲突消除模式——128B swizzle 让每个 warp 的 32 个线程访问 32 个不同的 bank，实现零冲突。在 Ampere 上这个 XOR swizzle 需要手写 20+ 行代码，这里 TMA 硬件自动搞定。</p>
+<p><code>CU_TENSOR_MAP_SWIZZLE_128B</code> 是关键参数：它告诉 TMA 硬件在写入共享内存时自动做 128 字节粒度的 swizzle。为什么要 swizzle？WGMMA 通过矩阵描述符读 SMEM，描述符里要写明布局的 swizzle 模式（无、32B、64B、128B 四档）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>；TMA 写入时用的模式必须与之一致。选 swizzle 模式是为了让 Tensor Core 读 SMEM 时避开 bank 冲突。在 Ampere 上这个 XOR 要手写地址运算，这里变成描述符里的一个参数。</p>
 
-<p>在 kernel 端，thread 0 发射 TMA 加载，全体线程通过 mbarrier 等待完成，然后 warpgroup 发射 WGMMA：</p>
+<p>在 kernel 端，流程是 thread 0 初始化 mbarrier 并发射 TMA 加载，全体线程等 mbarrier 完成，然后 warpgroup 发射 WGMMA。下面的代码只是骨架：TMA 发射、mbarrier 等待和 <code>wgmma.mma_async</code> 本身都省略了。</p>
 
 <pre data-code="code/gm26-hopper-gemm/hopper_gemm_basic.cu#L36-L54"><code>  for (int k = 0; k &lt; K; k += BK) {
-    // TMA loads (thread 0 issues both)
+    // TMA issue + mbarrier wait elided (skeleton)
     if (tid == 0) {
       uint64_t* mbar = reinterpret_cast&lt;uint64_t*&gt;(
           smem + (BM * BK + BK * BN) * sizeof(half));
@@ -344,68 +344,68 @@ __device__ void wgmma_wait() {
 }</code></pre>
 <p class="src-note">完整代码：<code>code/gm26-hopper-gemm/hopper_gemm_basic.cu</code> 第 12–20 行（未在 GPU 上运行）</p>
 
-<p><code>fence</code> 声明&ldquo;即将发射 WGMMA，别动 SMEM&rdquo;；<code>commit_group</code> 把之前的 WGMMA 指令打包为一组提交到 Tensor Core 队列；<code>wait_group 0</code> 等待所有已提交的组完成。如果改成 <code>wait_group 1</code>，则只等到倒数第二组完成——这是多组 WGMMA 流水线的基础。</p>
+<p><code>wgmma.fence</code> 在之前对累加器和 A 寄存器的访问与随后的 <code>wgmma.mma_async</code> 之间建立顺序（只有累加器和存 A 的寄存器需要它）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>；<code>commit_group</code> 把之前尚未归组的 WGMMA 打包成一组；<code>wait_group 0</code> 等待所有已提交的组完成。如果改成 <code>wait_group 1</code>，则允许最近的 1 组仍在执行——这是多组 WGMMA 流水线的基础。</p>
 
-<p>WGMMA 的三步协议——<code>wgmma.fence</code>（声明即将使用 SMEM 描述符）、<code>wgmma.commit_group</code>（提交当前组的所有 WGMMA 指令）、<code>wgmma.wait_group 0</code>（等待所有已提交的组完成）——和 Ampere 的 <code>cp.async</code> 协议类似，但粒度大得多。来看具体数字对比（<a href="#fig-wgmma_vs_mma">图 2</a>）：</p>
+<p>WGMMA 的三步协议——<code>wgmma.fence</code>（给寄存器访问排序）、<code>wgmma.commit_group</code>（提交当前组的所有 WGMMA 指令）、<code>wgmma.wait_group 0</code>（等待所有已提交的组完成）——和 Ampere 的 <code>cp.async</code> 协议类似，但粒度大得多。来看具体数字对比（<a href="#fig-wgmma_vs_mma">图 2</a>）：</p>
 
 <figure id="fig-wgmma_vs_mma" data-kind="diagram">
 <img aria-labelledby="fig-wgmma_vs_mma-cap" src="figs/wgmma_vs_mma.svg" alt="WGMMA vs mma.sync 指令粒度对比"/>
-<figcaption id="fig-wgmma_vs_mma-cap"><span class="fig-label">图 2</span><b>Ampere mma.sync vs Hopper WGMMA 的指令粒度对比。</b>一条 WGMMA 完成 64&times;256&times;16&times;2 = 524,288 FLOP，是 mma.sync（16&times;8&times;16&times;2 = 4,096 FLOP）的 128 倍。A 操作数直接从 SMEM 读取，省掉了 ldmatrix 步骤。</figcaption>
+<figcaption id="fig-wgmma_vs_mma-cap"><span class="fig-label">图 2</span><b>Ampere mma.sync vs Hopper WGMMA 的指令粒度对比。</b>一条 m64n256k16 的 WGMMA 完成 64&times;256&times;16&times;2 = 524,288 FLOP，是 mma.sync（16&times;8&times;16&times;2 = 4,096 FLOP）的 128 倍。B 必须、A 可以通过描述符从 SMEM 读取，省掉了 ldmatrix 步骤。</figcaption>
 </figure>
 
-<p>一次 WGMMA 调用做 m64&times;n256&times;k16 的乘累加——64 &times; 256 &times; 16 &times; 2 = 524,288 FLOP，而 <code>mma.sync</code> 的 m16&times;n8&times;k16 只有 16 &times; 8 &times; 16 &times; 2 = 4,096 FLOP。大 128 倍意味着指令发射的开销被均摊到 128 倍的计算量上——这就是 WGMMA 能喂饱 990 TFLOPS 的原因。</p>
+<p>一次 WGMMA 调用做 m64&times;n256&times;k16 的乘累加——64 &times; 256 &times; 16 &times; 2 = 524,288 FLOP，而 <code>mma.sync</code> 的 m16&times;n8&times;k16 只有 16 &times; 8 &times; 16 &times; 2 = 4,096 FLOP。大 128 倍意味着指令发射的开销被均摊到 128 倍的计算量上。</p>
 
-<p>另一个关键区别是操作数来源：<code>mma.sync</code> 的两个操作数都在寄存器中（需要先 <code>ldmatrix</code> 从 SMEM 加载到寄存器），而 WGMMA 的 A 操作数可以直接引用 SMEM——通过一个 64 位的描述符告诉硬件 A tile 在 SMEM 中的起始地址和 swizzle 布局。这省掉了 <code>ldmatrix</code> 的指令开销和寄存器占用，把更多寄存器留给累加器。</p>
+<p>另一个关键区别是操作数来源：<code>mma.sync</code> 的两个操作数都在寄存器中（需要先 <code>ldmatrix</code> 从 SMEM 加载到寄存器），而 WGMMA 的 B 操作数必须、A 操作数可以直接引用 SMEM——通过一个 64 位的矩阵描述符告诉硬件 tile 在 SMEM 中的起始地址、步长和 swizzle 模式<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。这省掉了 <code>ldmatrix</code> 的指令开销和寄存器占用，把更多寄存器留给累加器。</p>
 
-<p>从指令数量看，TMA + WGMMA 对比 Ampere 的 cp.async + ldmatrix + mma.sync 有巨大的优势。在 Ampere 上搬运一个 128&times;32 的 A tile，需要 256 个线程各发射一条 <code>cp.async.ca.shared.global</code>（256 条指令），然后做 swizzle 地址计算（至少 256 条 XOR/SHIFT 指令），再用 <code>ldmatrix.x4</code> 加载到寄存器（又是数十条指令）。在 Hopper 上，同样的搬运只需要 thread 0 发射一条 <code>cp.async.bulk.tensor</code>——一条指令替代了数百条。这不仅减少了指令发射的压力（warp scheduler 的发射带宽是有限的），还释放了大量线程去做计算——在 Ampere 上这些线程在搬运期间被占用。</p>
+<p>从指令数量看，TMA + WGMMA 对比 Ampere 的 cp.async + ldmatrix + mma.sync 有巨大的优势。在 Ampere 上搬运一个 128&times;32 的 FP16 A tile（8 KB），需要 512 次 16 字节的 <code>cp.async</code>（256 个线程每人 2 条），每条前面还有 swizzle 地址计算，之后再用 <code>ldmatrix</code> 加载到寄存器。在 Hopper 上，同样的搬运只需要 thread 0 发射一条 <code>cp.async.bulk.tensor</code>——一条指令替代了数百条。这不仅减少了指令发射的压力（warp scheduler 的发射带宽是有限的），还释放了大量线程去做计算——在 Ampere 上这些线程在搬运期间被占用。</p>
 
 <h2 id="sec-persistent">Persistent Kernel 与原子调度</h2>
 
-<p>传统 GEMM 的 grid 大小等于 tile 数——M/BM &times; N/BN 个 CTA。当矩阵很大时，这可能是几千个 CTA，远超 H100 的 132 个 SM。CTA 的启动和退出都有开销，而且最后一个 wave 往往不满——这就是 wave quantization（<a href="#fig-persistent_sched">图 3</a>）。</p>
+<p>传统 GEMM 的 grid 大小等于 tile 数——M/BM &times; N/BN 个 CTA。当矩阵很大时，这可能是几千个 CTA，远超 H100 的 132 个 SM。每个 CTA 都要重新做初始化（分配 SMEM、初始化 mbarrier、启动流水线），而且最后一个 wave 往往不满——这就是 wave quantization（<a href="#fig-persistent_sched">图 3</a>）。</p>
 
 <figure id="fig-persistent_sched" data-kind="diagram">
 <img aria-labelledby="fig-persistent_sched-cap" src="figs/persistent_scheduler.svg" alt="Non-persistent vs Persistent kernel 的 tile 调度"/>
-<figcaption id="fig-persistent_sched-cap"><span class="fig-label">图 3</span><b>Non-persistent vs Persistent kernel 的 tile 调度。</b>左侧：传统方式按 wave 批量启动 CTA，最后一波只用到部分 SM（灰色 = 空闲）。右侧：Persistent kernel 用少量 CTA 均匀遍历所有 tile，消除了尾部浪费。</figcaption>
+<figcaption id="fig-persistent_sched-cap"><span class="fig-label">图 3</span><b>Non-persistent vs Persistent kernel 的 tile 调度（示意）。</b>左侧：传统方式按 wave 批量启动 CTA，最后一波只用到部分 SM（灰色 = 空闲）。右侧：Persistent kernel 用少量 CTA 遍历所有 tile，初始化只做一次；tile 数不能被 CTA 数整除时，最后仍会有部分 CTA 先空闲。</figcaption>
 </figure>
 
-<p>具体来说，假设 M = N = 4096、BM = 128、BN = 256，总共有 (4096/128) &times; (4096/256) = 32 &times; 16 = 512 个 tile。H100 有 132 个 SM，传统方式需要 &lceil;512/132&rceil; = 4 个 wave。前 3 个 wave 每个用满 132 个 SM，最后一个 wave 只有 512 &minus; 3 &times; 132 = 116 个 CTA——有 16 个 SM 空转。更糟糕的是，每个 wave 之间有 kernel launch 间隙：CTA 退出、SMEM 释放、新 CTA 分配、SMEM 重新初始化——每次约 5&ndash;10 &mu;s。4 个 wave 的间隙加起来约 20&ndash;40 &mu;s，对于总执行时间可能只有几百微秒的小矩阵来说不可忽略。在 LLM 推理的 decode 阶段，矩阵常常是 M=1&ndash;32 的极端 skinny 形状，tile 数远少于 SM 数，wave quantization 的浪费就更加严重。</p>
+<p>具体来说，假设 M = N = 4096、BM = 128、BN = 256，总共有 (4096/128) &times; (4096/256) = 32 &times; 16 = 512 个 tile。H100 有 132 个 SM，传统方式需要 &lceil;512/132&rceil; = 4 个 wave。前 3 个 wave 每个用满 132 个 SM，最后一个 wave 只有 512 &minus; 3 &times; 132 = 116 个 CTA——有 16 个 SM 空转（按每 SM 一个 CTA 算）。注意 persistent kernel 并不能消除这种不整除：132 个 CTA 分 512 个 tile，仍然是有的 CTA 做 4 个、有的做 3 个；它省下的是每个 tile 的 CTA 初始化，并让 tile 调度顺序可控。在 LLM 推理的 decode 阶段，M 常常很小，tile 数可能少于 SM 数——这时问题变成并行度不够，要靠 split-K / stream-K（<a href="../gm28-gemm-variants/gm28-gemm-variants.html">第 28 篇</a>）而不是 persistent。</p>
 
 <p>Persistent kernel 的做法不同：只启动 132 个 CTA（每 SM 一个），每个 CTA 在一个 <code>while(true)</code> 循环中反复抢 tile。谁先做完谁先抢下一个——这就是动态调度：</p>
 
 <pre data-code="code/gm26-hopper-gemm/hopper_gemm_warpspec.cu#L66-L76"><code>  // Persistent loop: each CTA processes many tiles
   while (true) {
-    int tile_idx;
-    if (threadIdx.x == 0) {
-      tile_idx = atomicAdd(tile_counter, 1);
-    }
-    tile_idx = __shfl_sync(0xffffffff, tile_idx, 0);
+    __shared__ int s_tile;  // broadcast to all warps
+    if (threadIdx.x == 0)
+      s_tile = atomicAdd(tile_counter, 1);
+    __syncthreads();
+    int tile_idx = s_tile;
     if (tile_idx &gt;= total_tiles) break;
 
     int tile_m = tile_idx / (N / BN);
     int tile_n = tile_idx % (N / BN);</code></pre>
 <p class="src-note">完整代码：<code>code/gm26-hopper-gemm/hopper_gemm_warpspec.cu</code> 第 66–76 行（未在 GPU 上运行）</p>
 
-<p>原子计数器 <code>tile_counter</code> 是全局共享的一个 <code>int</code>。thread 0 做 <code>atomicAdd</code> 抢到 tile 编号，再通过 <code>__shfl_sync</code> 广播给 warp 内所有线程。抢到的 tile 编号超过总 tile 数就退出。代价是一个全局原子操作——在 H100 上 <code>atomicAdd</code> 到 L2 的延迟约 200 ns<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，而一个 tile 的计算时间约 2 &times; 128 &times; 256 &times; 4096 / (990 &times; 10<sup>12</sup> / 132) &approx; 35 &mu;s——原子操作的开销不到 tile 时间的 0.6%。</p>
+<p>原子计数器 <code>tile_counter</code> 是全局共享的一个 <code>int</code>。thread 0 做 <code>atomicAdd</code> 抢到 tile 编号，写进共享内存，<code>__syncthreads()</code> 后全 CTA 的线程读到同一个值（producer 和 consumer 在不同 warp，用 <code>__shfl_sync</code> 只能广播到 warp 内）。抢到的 tile 编号超过总 tile 数就退出。代价是每个 tile 一次全局原子操作和一次 CTA 内同步；作为对比，一个 128&times;256&times;4096 的 tile 在峰值下也要算 \(2 \times 128 \times 256 \times 4096 / (989.5 \times 10^{12} / 132) \approx 36\) &mu;s，一次原子操作相对于它很小。</p>
 
-<p>Persistent kernel 的另一个好处是<b>L2 局部性</b>可编程——遍历顺序由 <code>tile_counter</code> 的递增顺序决定，可以配合 tile 到坐标的映射函数（例如空间填充曲线、列优先条带、对角线交错）来最大化 L2 命中率。在非 persistent 版本中，CTA 的调度顺序由 CUDA runtime 决定，程序员只能用 threadblock swizzle 间接影响；persistent 版本则把 tile 遍历的控制权完全交给了程序员。以 M=N=8192、BM=128、BN=256 为例，有 64&times;32=2048 个 tile。行优先遍历时，连续的 132 个 SM 分别处理前 132 个 tile——它们分布在前两行，B 矩阵的前 32 个 tile 列全部命中 L2；切换到下一行时 B 的列偏移不变，L2 复用率高。列优先遍历则让连续 SM 处理同一列的不同行，A 矩阵复用率更高。对于 M&gt;N 的高瘦矩阵选列优先，M&lt;N 的矮胖矩阵选行优先，是一条实用的经验法则。</p>
+<p>Persistent kernel 的另一个好处是<b>L2 局部性</b>可编程——遍历顺序由 <code>tile_counter</code> 的递增顺序和&ldquo;tile 编号 &rarr; 坐标&rdquo;的映射函数决定，可以换成列优先条带、分组光栅化等顺序来提高 L2 命中率。在非 persistent 版本中，CTA 的发射顺序由硬件决定，程序员只能用 threadblock swizzle 间接影响。以 M=N=8192、BM=128、BN=256 为例，有 64&times;32=2048 个 tile；行优先编号时，同时在跑的前 132 个 tile 覆盖了约 4 行 tile（每行 32 个），它们共享这 4 个 A 行块和全部 32 个 B 列块。哪种顺序更好取决于 A、B 的形状和 L2 容量，需要实测。</p>
 
-<p>Persistent kernel 的好处不仅是消除 launch overhead。更关键的是，CTA 不退出意味着共享内存不需要重新分配（H100 每 SM 的 228 KB SMEM 在 CTA 生命期内一直占有），mbarrier 不需要重新初始化，寄存器也不需要重新分配——这些一次性开销被摊到了所有 tile 上。对于 512-tile 的例子，每个 CTA 平均处理 512/132 &approx; 3.9 个 tile，初始化成本降低到原来的 1/4。</p>
+<p>CTA 不退出意味着共享内存不需要重新分配（CTA 生命期内一直占有它的 SMEM），mbarrier 不需要重新初始化，寄存器也不需要重新分配——这些一次性开销被摊到了所有 tile 上。对于 512-tile 的例子，每个 CTA 平均处理 512/132 &approx; 3.9 个 tile，初始化次数降到原来的约 1/4。</p>
 
 <h2 id="sec-warpspec">Warp Specialization：搬运与计算的解耦</h2>
 
 <p>到目前为止，搬运和计算仍然是串行的：先 TMA 加载，等 mbarrier，再 WGMMA。Warp specialization 把它们彻底解耦——CTA 内的线程分成两个角色（<a href="#fig-warp_spec">图 4</a>）：</p>
 
 <ul>
-<li><b>Producer</b>（1 个 warp，32 线程）：专门做 TMA 加载。寄存器预算低（<code>setmaxnreg 40</code>），不需要累加器。实际上只有 thread 0 发射 TMA 指令，其余 31 个线程空转——但这 32 个线程的寄存器空间被释放给了 consumer。</li>
-<li><b>Consumer</b>（2 个 warpgroup，256 线程）：专门做 WGMMA 计算。寄存器预算高（<code>setmaxnreg 232</code>），持有大量累加器。每个 warpgroup 需要 BM &times; BN / 128 = 128 &times; 256 / 128 = 256 个 FP32 累加器寄存器。</li>
+<li><b>Producer</b>（1 个 warpgroup，128 线程）：专门做 TMA 加载。寄存器预算低（CUTLASS 用 <code>setmaxnreg</code> 降到 40<span class="cite">[<a href="#ref-cutlasscoop" title="NVIDIA (2025). sm90_gemm_tma_warpspecialized_cooperative.hpp，提交 <code>91843b7</code>，第 149–150 行：LoadRegisterRequirement = 40、MmaRegisterRequirement = 232（重寄存器压力时 24 / 240）；1 个 load warpgroup。">3</a>]</span>），不需要累加器。实际上只有一个线程发射 TMA 指令，其余线程闲着——但它们让出的寄存器给了 consumer。之所以是整个 warpgroup 而不是 1 个 warp：<code>setmaxnreg</code> 要求同一 warpgroup 的所有 warp 执行同一条指令，而 WGMMA 的 warpgroup 必须是 4 个连续、首 warp 编号为 4 的倍数的 warp<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。</li>
+<li><b>Consumer</b>（2 个 warpgroup，256 线程）：专门做 WGMMA 计算。寄存器预算高（CUTLASS 用 232<span class="cite">[<a href="#ref-cutlasscoop" title="NVIDIA (2025). sm90_gemm_tma_warpspecialized_cooperative.hpp，提交 <code>91843b7</code>，第 149–150 行：LoadRegisterRequirement = 40、MmaRegisterRequirement = 232（重寄存器压力时 24 / 240）；1 个 load warpgroup。">3</a>]</span>），持有累加器。按 CUTLASS 的 cooperative 做法，两个 warpgroup 沿 M 方向各算 128&times;256 tile 的一半（64&times;256），每个线程持有 \(64 \times 256 / 128 = 128\) 个 FP32 累加器。如果一个 warpgroup 独占整块 128&times;256，每线程需要 256 个累加器寄存器，超过了每线程 255 个的上限。</li>
 </ul>
 
 <figure id="fig-warp_spec" data-kind="diagram">
 <img aria-labelledby="fig-warp_spec-cap" src="figs/warp_specialization.svg" alt="Warp specialization：producer 与 consumer"/>
-<figcaption id="fig-warp_spec-cap"><span class="fig-label">图 4</span><b>Warp specialization 让搬运和计算完全并行。</b>Producer warp（绿色）发射 TMA 加载后立刻去搬下一个 tile，不等计算完成；consumer warpgroup（蓝色）在前一个 tile 上做 WGMMA。mbarrier 的 full/empty 协议保证正确性。</figcaption>
+<figcaption id="fig-warp_spec-cap"><span class="fig-label">图 4</span><b>Warp specialization 让搬运和计算并行。</b>Producer warpgroup（蓝色）发射 TMA 加载后立刻去搬下一个 stage，不等计算完成；两个 consumer warpgroup（绿色）按 cooperative 方式各算 tile 的上半、下半 M，在已就绪的 stage 上做 WGMMA。mbarrier 的 full/empty 协议保证正确性（示意）。</figcaption>
 </figure>
 
-<p><code>setmaxnreg</code> 是 Hopper 新增的 PTX 指令，允许在 kernel 运行时调整每个 warp 的最大寄存器数<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（mma 指令族）、§9.7.5.8（cp.async.bulk.tensor）、§9.7.12.4（mbarrier）、§9.7.17.4（wgmma）。">2</a>]</span>。Producer 把自己限制为 40 个寄存器（够发 TMA 指令和做 mbarrier 操作），省下来的寄存器空间留给 consumer 的大量累加器。H100 每 SM 有 65,536 个 32 位寄存器<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，分给 9 个 warp（1 producer + 2 &times; 4 consumer）：producer 占 40 &times; 32 = 1,280 个寄存器，两个 consumer warpgroup 占 232 &times; 256 = 59,392 个，总计 60,672——刚好不超限。</p>
+<p><code>setmaxnreg</code> 是 Hopper 新增的 PTX 指令（需要 sm_90a），让一个 warpgroup 在运行时把自己的每线程寄存器上限调低（<code>.dec</code>，归还到 CTA 的寄存器池）或调高（<code>.inc</code>，从池里取），取值 24–256 且为 8 的倍数<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。CUTLASS 的 Hopper warp-specialized kernel 把 producer 降到 40、consumer 升到 232<span class="cite">[<a href="#ref-cutlasscoop" title="NVIDIA (2025). sm90_gemm_tma_warpspecialized_cooperative.hpp，提交 <code>91843b7</code>，第 149–150 行：LoadRegisterRequirement = 40、MmaRegisterRequirement = 232（重寄存器压力时 24 / 240）；1 个 load warpgroup。">3</a>]</span>。H100 每 SM 有 65,536 个 32 位寄存器<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>：producer warpgroup 占 128 &times; 40 = 5,120 个，两个 consumer warpgroup 占 256 &times; 232 = 59,392 个，总计 64,512——刚好不超限。</p>
 
 <p>Persistent kernel 加 warp specialization 的共享内存布局需要为 N_STAGES 个 stage 分配 A 和 B tile 空间，还需要 full/empty 两组 mbarrier 做 producer-consumer 同步：</p>
 
@@ -456,11 +456,11 @@ __device__ void wgmma_wait() {
     }</code></pre>
 <p class="src-note">完整代码：<code>code/gm26-hopper-gemm/hopper_gemm_warpspec.cu</code> 第 80–99 行（未在 GPU 上运行）</p>
 
-<p>注意 <code>if (k >= N_STAGES)</code> 的守卫条件：前 N_STAGES 次循环不需要等 empty barrier，因为初始状态下所有 stage 都是&ldquo;空&rdquo;的。这是一个常见的流水线启动优化——避免在 ramp-up 阶段浪费等待周期。同样，流水线结尾的 drain 阶段需要 consumer 消费完最后几个 stage 但 producer 已经退出——这部分代码在完整实现中通过检查 K 循环终止条件处理。</p>
+<p>注意 <code>if (k >= N_STAGES)</code> 的守卫条件：前 N_STAGES 次循环不需要等 empty barrier，因为初始状态下所有 stage 都是&ldquo;空&rdquo;的。但在 persistent kernel 里这个写法只对第一个 tile 成立——<code>k</code> 每个 tile 都从 0 开始，而上一个 tile 的最后几个 stage 可能还在被 consumer 使用。完整实现（如 CUTLASS）用一个跨 tile 连续递增的流水线计数器加 mbarrier 的相位位（phase）来判断，不按每个 tile 重置；这段骨架代码没有做这件事。</p>
 
 <figure id="fig-pipeline_stages" data-kind="diagram">
 <img aria-labelledby="fig-pipeline_stages-cap" src="figs/pipeline_stages.svg" alt="4-stage 流水线时序"/>
-<figcaption id="fig-pipeline_stages-cap"><span class="fig-label">图 5</span><b>4-stage 环形流水线：Producer 和 Consumer 通过 full/empty mbarrier 交替推进。</b>Producer 在 stage 0&ndash;3 之间循环搬运，Consumer 跟在后面消费——流水线满载时搬运与计算完全重叠。</figcaption>
+<figcaption id="fig-pipeline_stages-cap"><span class="fig-label">图 5</span><b>4-stage 环形流水线：Producer 和 Consumer 通过 full/empty mbarrier 交替推进（示意）。</b>Producer 在 stage 0&ndash;3 之间循环搬运，Consumer 跟在后面消费——稳态下搬运与计算重叠。</figcaption>
 </figure>
 
 <p>N_STAGES=4 意味着共享内存中有 4 个 stage 的缓冲区。每个 stage 存一块 A（BM&times;BK = 128&times;64）和一块 B（BK&times;BN = 64&times;256），大小为（<a href="#fig-smem_budget">图 6</a>）：</p>
@@ -471,35 +471,38 @@ __device__ void wgmma_wait() {
 
 <figure id="fig-smem_budget" data-kind="diagram">
 <img aria-labelledby="fig-smem_budget-cap" src="figs/stage_smem_budget.svg" alt="流水线级数 vs 共享内存用量"/>
-<figcaption id="fig-smem_budget-cap"><span class="fig-label">图 6</span><b>流水线级数与共享内存用量的关系。</b>每增加一级流水线占用 48 KB SMEM。H100 的 228 KB 可用 SMEM（扣除 mbarrier 和对齐开销后）最多支持 4 级——5 级的 240 KB 超出限制。</figcaption>
+<figcaption id="fig-smem_budget-cap"><span class="fig-label">图 6</span><b>流水线级数与共享内存用量的关系。</b>每增加一级流水线占用 48 KB SMEM。H100 每 SM 最多 228 KB、每 block 最多 227 KB 共享内存<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>，最多放 4 级——5 级的 240 KB 超出限制。</figcaption>
 </figure>
 
-<p>4 个 stage 总共 192 KB，加上 mbarrier 数组和对齐 padding 约 1&ndash;2 KB——刚好在 H100 每 SM 可配置的最大 228 KB 共享内存限制内<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>（H100 每 SM 总共 256 KB，其中 228 KB 可用于共享内存，剩余用于 L1 cache）。5 级流水线需要 240 KB，超出限制。CUTLASS 3.x 在某些 tile shape 下会用 3 级流水线以腾出更多 L1 cache 容量<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Hopper GEMM 的 warp specialization 与 persistent kernel 设计。">3</a>]</span>。</p>
+<p>4 个 stage 总共 192 KB，加上 mbarrier 数组和对齐 padding 约 1&ndash;2 KB——在 H100 每 block 最多 227 KB 共享内存的限制内<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>（H100 每 SM 的 L1/共享内存合计 256 KB，最多 228 KB 可配成共享内存）。5 级流水线需要 240 KB，超出限制。</p>
 
-<p>Producer 在 stage 0&ndash;3 之间循环搬运，consumer 在后面跟着消费——流水线满载时，搬运和计算完全重叠。流水线的效率取决于搬运延迟和计算延迟的比值：如果搬运一个 tile 的时间 &le; 计算一个 tile 的时间，那么 steady state 下搬运完全被计算掩盖——这正是 TMA 的设计目标。</p>
+<p>Producer 在 stage 0&ndash;3 之间循环搬运，consumer 在后面跟着消费。流水线的效率取决于搬运延迟和计算延迟的比值：如果搬运一个 tile 的时间 &le; 计算一个 tile 的时间，那么 steady state 下搬运完全被计算掩盖——这正是 TMA 的设计目标。</p>
 
-<h2 id="sec-pingpong">Ping-Pong 调度</h2>
+<h2 id="sec-pingpong">Ping-Pong 与 Cooperative 调度</h2>
 
-<p>当 CTA 内有两个 consumer warpgroup 时，可以进一步用 ping-pong 调度：warpgroup 0 在偶数 K-tile 上做 WGMMA，warpgroup 1 在奇数 K-tile 上做——它们各自持有独立的累加器，交替执行。这样在任意时刻，一个 warpgroup 在做 WGMMA 的同时，另一个在等前一个 WGMMA 完成并准备发射下一个。</p>
+<p>当 CTA 内有两个 consumer warpgroup 时，CUTLASS 的 Hopper warp-specialized persistent kernel 有两种分工方式<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。“Hopper Warp Specialization” 一节：Warp-Specialized Persistent Cooperative / Ping-Pong kernel design。">4</a>]</span>：</p>
 
-<p>为什么需要 ping-pong？WGMMA 虽然是异步指令，但它有一个约束：同一个 warpgroup 不能在前一条 WGMMA 还未完成时发射下一条使用<b>相同累加器</b>的 WGMMA——否则会产生 WAW（write-after-write）冲突。<code>wgmma.wait_group 0</code> 就是用来等待所有 pending 的 WGMMA 完成。这个等待期间 warpgroup 的 128 个线程完全空闲。</p>
+<ul>
+<li><b>Cooperative</b>：两个 consumer warpgroup 合作算同一个输出 tile，沿 M 方向各算一半。每个 warpgroup 的累加器只有整块 tile 的一半，寄存器压力降低，于是可以用更大的 tile。</li>
+<li><b>Ping-Pong</b>：tile scheduler 给两个 consumer warpgroup 分配<b>不同</b>的输出 tile；producer 用有序的屏障依次为它们填充缓冲区。这样一个 warpgroup 做 epilogue（写回 C）的时候，另一个 warpgroup 在做主循环的 WGMMA——epilogue 与计算重叠。</li>
+</ul>
 
-<p>Ping-pong 让这个等待不再浪费：warpgroup 0 等待时，warpgroup 1 正在发射——它们的 WGMMA 使用不同的累加器寄存器，互不干扰。理想情况下，一条 WGMMA 的执行延迟被另一个 warpgroup 的 WGMMA 完全掩盖——计算单元的利用率接近 100%。代价是累加器占用翻倍——每个 warpgroup 需要 BM &times; BN / 128 = 128 &times; 256 / 128 = 256 个 FP32 寄存器用于累加器，两组就是 512 个。但 Hopper 的寄存器文件足够大（每 SM 65,536 个 32 位寄存器<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），两组累加器加上 producer 的寄存器总共不到 61,000 个，仍然在限制内。</p>
+<p>为什么 epilogue 重叠有价值？在 cooperative 里，两个 warpgroup 同时进入 epilogue，这段时间 Tensor Core 没有新的 WGMMA 可做；ping-pong 把两个 warpgroup 的节奏错开，掩盖了这段空闲。代价是每个 warpgroup 独占一个输出 tile，tile 不能像 cooperative 那样做得那么大。</p>
 
-<p>最后两个 warpgroup 的部分和需要在 epilogue 里合并：两组累加器相加后写回全局内存。这个合并操作本身很廉价——只是 register-to-register 的 FP32 加法，不涉及内存访问。CUTLASS 3.x 的 <code>CollectiveMma</code> 类实现了完整的 ping-pong 调度，包括 ramp-up、steady-state 和 drain 三个阶段<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Hopper GEMM 的 warp specialization 与 persistent kernel 设计。">3</a>]</span>。</p>
+<p>一个常见误解是&ldquo;同一个 warpgroup 必须等上一条 WGMMA 完成才能发射下一条写同一累加器的 WGMMA&rdquo;。PTX 规定：形状相同的多条 <code>wgmma.mma_async</code> 之间对同一累加器的访问是有序的，不需要中间等待；只有当普通指令要读写累加器或 A 的寄存器时，才需要 <code>wgmma.wait_group</code>（以及之后的 <code>wgmma.fence</code>）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。所以主循环里通常连续发射若干条 WGMMA、只在需要释放 SMEM stage 时用 <code>wait_group</code> 留出 1 组在途。完整的 ping-pong 与 cooperative 实现见 CUTLASS 文档的 &ldquo;Warp-Specialized Persistent Ping-Pong / Cooperative kernel design&rdquo; 两节<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。“Hopper Warp Specialization” 一节：Warp-Specialized Persistent Cooperative / Ping-Pong kernel design。">4</a>]</span>。</p>
 
 <h2 id="sec-cluster">Cluster 与 TMA Multicast</h2>
 
-<p>Cluster 是 Hopper 的新层次——多个 CTA 形成一个 cluster，共享对彼此 SMEM 的直接访问（DSMEM, Distributed Shared Memory）。对 GEMM 来说，cluster 最大的价值是 TMA multicast（<a href="#fig-cluster_multicast">图 7</a>）。除此之外，DSMEM 还允许 cluster 内 CTA 之间做低延迟数据交换——延迟约 30&ndash;50 ns，远低于经由 L2 的 200 ns——在 epilogue 阶段做 split-K 的 partial sum 归约时非常有用。</p>
+<p>Cluster 是 Hopper 的新层次——多个 CTA 形成一个 cluster，共享对彼此 SMEM 的直接访问（DSMEM, Distributed Shared Memory）。对 GEMM 来说，cluster 最大的价值是 TMA multicast（<a href="#fig-cluster_multicast">图 7</a>）。除此之外，DSMEM 还允许 cluster 内 CTA 之间直接读写彼此的共享内存，NVIDIA 称这比经全局内存交换数据快约 7 倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>——可以用来在 cluster 内归约部分和。</p>
 
 <figure id="fig-cluster_multicast" data-kind="diagram">
 <img aria-labelledby="fig-cluster_multicast-cap" src="figs/cluster_multicast.svg" alt="TMA multicast：A tile 同时写入两个 CTA 的共享内存"/>
-<figcaption id="fig-cluster_multicast-cap"><span class="fig-label">图 7</span><b>1&times;2 cluster 中，TMA multicast 让一次加载同时写入两个 CTA 的共享内存。</b>CTA 0 和 CTA 1 负责相邻的两列 B（BN=128 each），但共享同一行 A——multicast 让 A 的 HBM 带宽减半。CTA 1 只需加载自己的 B tile。</figcaption>
+<figcaption id="fig-cluster_multicast-cap"><span class="fig-label">图 7</span><b>1&times;2 cluster 中，TMA multicast 让一次加载同时写入两个 CTA 的共享内存。</b>CTA 0 和 CTA 1 负责相邻的两列 B（各 BN=128），但共享同一行 A——multicast 让 A tile 从 L2 读到 SMEM 的传输量减半。每个 CTA 仍各自加载自己的 B tile。</figcaption>
 </figure>
 
-<p>以 1&times;2 cluster 为例：CTA 0 和 CTA 1 负责 N 方向相邻的两个 tile。它们都需要同一块 A（相同的 M 行、相同的 K 列），但 B 不同。TMA multicast 让 CTA 0 发射一次 A 的加载——<code>cp.async.bulk.tensor</code> 加 <code>.multicast::cluster</code> 修饰——数据同时写入两个 CTA 的共享内存。A 的 HBM 带宽开销直接减半。</p>
+<p>以 1&times;2 cluster 为例：CTA 0 和 CTA 1 负责 N 方向相邻的两个 tile。它们都需要同一块 A（相同的 M 行、相同的 K 列），但 B 不同。TMA multicast 让 CTA 0 发射一次 A 的加载——<code>cp.async.bulk.tensor</code> 加 <code>.multicast::cluster</code> 修饰——数据写入 cluster 内 <code>ctaMask</code> 指定的各个 CTA 共享内存的相同偏移处<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。A tile 的 L2&rarr;SMEM 传输量直接减半（没有 multicast 时第二个 CTA 多半也能命中 L2，所以省的主要是 L2 带宽，而不一定是 HBM 带宽）。</p>
 
-<p>量化这个收益。对于 BM=128、BN=128（单个 CTA）、BK=64 的 tile，每次 K 步迭代的 HBM 读取量为：</p>
+<p>量化这个收益。对于 BM=128、BN=128（单个 CTA）、BK=64 的 tile，一个 cluster 每次 K 步迭代的 L2&rarr;SMEM 传输量为：</p>
 
 \[
 \text{无 multicast} = (128 \times 64 + 64 \times 128) \times 2\,\text{B} \times 2\,\text{CTA} = 64\,\text{KB}
@@ -550,43 +553,39 @@ __device__ void wgmma_wait() {
       (void*)hopper_gemm_multicast, args);</code></pre>
 <p class="src-note">完整代码：<code>code/gm26-hopper-gemm/hopper_gemm_cluster.cu</code> 第 85–100 行（未在 GPU 上运行）</p>
 
-<p>Cluster 的大小受 SM 拓扑约束——H100 上最大 16 个 CTA（4&times;4 或 2&times;8 等组合）<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.29 Warpgroup MMA (WGMMA)、§7.28 TMA、§7.8 Cluster。">4</a>]</span>。GEMM 中典型的选择是 1&times;2 或 2&times;1，对应 A 或 B 的一个维度共享。更大的 cluster 虽然能共享更多数据，但调度灵活性下降：cluster 内的 CTA 必须运行在物理相邻的 SM 上——如果某些 SM 被其他 kernel 占用，大 cluster 可能等待很久才能被调度。此外，cluster 内的所有 CTA 通过 <code>cluster.sync</code> 做集体同步——参与同步的 CTA 越多，同步开销越大，尾部延迟也越明显。</p>
+<p>Cluster 的大小有上限：可移植的最大 cluster 是 8 个 CTA<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §2.2.1 Thread Block Clusters（可移植上限 8）、§3.2.5 Distributed Shared Memory、§7.29 TMA。">5</a>]</span>，H100 允许通过 <code>cudaFuncAttributeNonPortableClusterSizeAllowed</code> 开到 16<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>。GEMM 中常见的选择是 1&times;2 或 2&times;1，对应 A 或 B 的一个维度共享。更大的 cluster 能共享更多数据，但调度灵活性下降：一个 cluster 的所有 CTA 必须同时驻留在同一个 GPC 的 SM 上<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>——cluster 越大，越难凑齐空闲的 SM。</p>
 
 <h2 id="sec-fp8">FP8 两级累加</h2>
 
-<p>Hopper 的 WGMMA 原生支持 FP8（E4M3 和 E5M2）输入<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（mma 指令族）、§9.7.5.8（cp.async.bulk.tensor）、§9.7.12.4（mbarrier）、§9.7.17.4（wgmma）。">2</a>]</span>，但 FP8 乘法的精度极低——E4M3 只有 3 位尾数（有效精度约 1 位十进制），两个 FP8 相乘的结果只有约 6 位有效位。如果把几千次这样的乘法直接累加到一个 FP32 累加器里，误差会快速积累——这不是 FP32 累加器精度不够（23 位尾数），而是 FP8 乘积的舍入误差在累加过程中不断叠加。</p>
+<p>Hopper 的 WGMMA 原生支持 FP8（E4M3 和 E5M2）输入，形状是 m64nNk32，累加器类型可以写 <code>.f16</code> 或 <code>.f32</code><span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。问题在于后者并不真的是 FP32 累加：PTX ISA 在 <code>wgmma.mma_async</code> 一节注明，FP8 输入、<code>.f32</code> 输出时，当前实现的累加精度&ldquo;高于半精度、低于单精度&rdquo;<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。DeepSeek-V3 技术报告在 H800 上测得 FP8 GEMM 的累加大约只保留 14 位；对 K=4096 的两个随机矩阵，误差最大接近 2%<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。K 越大，这个问题越明显。</p>
 
-<p>具体分析：E4M3 的最大可表示值是 448，最小正归一化数是 2<sup>&minus;6</sup>。两个 E4M3 相乘的最大值是 448 &times; 448 = 200,704 &approx; 2 &times; 10<sup>5</sup>，最小有效乘积约 2<sup>&minus;12</sup> &approx; 2.4 &times; 10<sup>&minus;4</sup>。如果 K=8192、BK=64，K 维度上有 128 个 tile，每个 tile 内有 64 个 FP8 乘积要累加。直接累加 128 &times; 64 = 8,192 个 FP8 乘积到一个 FP32 累加器中，虽然 FP32 本身能精确表示每个中间和，但每次 WGMMA 内部的 k=16 方向累加会引入舍入——累计 128 个 tile 后，相对误差可达 10<sup>&minus;3</sup> 量级，对 LLM 训练中的梯度计算来说太大了。</p>
-
-<p>DeepGEMM<span class="cite">[<a href="#ref-deepgemm" title="本系列 DeepGEMM 精读（DeepGEMM 仓库）。FP8 两级累加与细粒度 scaling 的实现参考。">5</a>]</span> 的做法是两级累加（<a href="#fig-fp8_acc">图 8</a>）：</p>
+<p>DeepSeek-V3 的做法（DeepGEMM<span class="cite">[<a href="#ref-deepgemm" title="DeepSeek. DeepGEMM（GitHub 仓库）。FP8 细粒度 scaling GEMM 的实现；源码解读见姊妹系列 DeepEP 与 DeepGEMM 精读。">7</a>]</span> 中实现）是把累加分成两级（<a href="#fig-fp8_acc">图 8</a>）：</p>
 
 <figure id="fig-fp8_acc" data-kind="diagram">
 <img aria-labelledby="fig-fp8_acc-cap" src="figs/fp8_two_level_acc.svg" alt="FP8 两级累加流程"/>
-<figcaption id="fig-fp8_acc-cap"><span class="fig-label">图 8</span><b>FP8 两级累加的流程：每 5 个 K-tile 做一次 promote。</b>局部累加器连续累加少量 tile 的结果，然后精确地加到全局累加器中并清零。这将连续累加的项数控制在 5×64=320 以内，大幅降低舍入误差的积累。</figcaption>
+<figcaption id="fig-fp8_acc-cap"><span class="fig-label">图 8</span><b>FP8 两级累加：Tensor Core 只连续累加 128 个 K 元素，然后提升到 CUDA core 的 FP32 寄存器。</b>N<sub>C</sub> = 128 个元素相当于 4 条 k32 的 WGMMA；提升时同时乘上这一段 K 的缩放因子。数据来自 DeepSeek-V3 技术报告 §3.3.2<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。</figcaption>
 </figure>
 
 <ol>
-<li><b>内层</b>：每 PROMOTION_INTERVAL 个 K-tile（典型值 5，即每 5 &times; BK = 5 &times; 64 = 320 列）做一轮 WGMMA 累加，结果暂存在一个&ldquo;局部&rdquo;FP32 累加器 <code>local_acc</code> 中。由于只累加 5 &times; 16 = 80 个乘积（每条 WGMMA 沿 k 维度累加 16 个乘积），FP32 的 23 位尾数完全足够。</li>
-<li><b>外层</b>：每到 promotion 点，把 <code>local_acc</code> 的值加到&ldquo;全局&rdquo;FP32 累加器 <code>global_acc</code> 中，然后清零 <code>local_acc</code>。这次加法是两个 FP32 值的精确加法（或近似精确——两者量级相近时误差可控）。</li>
+<li><b>内层</b>：在 Tensor Core 上用有限精度累加，但只连续累加 \(N_C = 128\) 个 K 元素（即 4 条 k32 的 WGMMA）<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。</li>
+<li><b>外层</b>：每到一个 \(N_C\) 区间，把这段部分和拷到 CUDA core 的 FP32 寄存器里做完整的 FP32 累加。因为 DeepSeek-V3 的细粒度量化沿 K 方向每 128 个元素一组缩放因子（激活按 1&times;128、权重按 128&times;128 分组），这一步顺便乘上两边的缩放因子完成反量化<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。</li>
 </ol>
 
-<p>关键观察：连续累加 5 个 tile 的 FP8 乘积，最大中间和约为 5 &times; 64 &times; 448<sup>2</sup> &approx; 6.4 &times; 10<sup>7</sup>，远小于 FP32 的精确表示范围（2<sup>24</sup> &approx; 1.7 &times; 10<sup>7</sup> 以内的整数可以精确表示，而 FP32 的最大值是 3.4 &times; 10<sup>38</sup>）。把连续累加控制在 5 个 tile 以内，每次 promotion 只做一次 FP32 加法——整个 K=8192 只需 &lceil;128/5&rceil; = 26 次 promotion，总舍入误差远小于直接累加 128 个 tile。</p>
+<p>报告称 \(N_C = 128\) 是&ldquo;能显著提升精度又不带来明显开销的最小累加间隔&rdquo;<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。提升操作会降低单个 warpgroup 的 WGMMA 发射率，但 H800 上通常有两个 warpgroup 的 WGMMA 同时在途：一个 warpgroup 做提升时，另一个在做 MMA，两者重叠，Tensor Core 利用率得以保持<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>。</p>
 
-<p>这个策略和 Kahan summation 思路相似（都是通过分级累加减少舍入误差），但更简单、更适合 GPU 的流水线：不需要额外的补偿变量，只需要在 K 循环中每隔 PROMOTION_INTERVAL 做一次 promotion。代价是双倍的 FP32 累加器开销——局部和全局各一组，总共占用的寄存器翻倍。对于 BM=128、BN=256 的 tile，每组累加器需要 128 &times; 256 / 128 = 256 个 FP32 寄存器（每个 warpgroup 线程持有 256 个累加元素），两组就是 512 个。这对 Hopper 的寄存器文件（每 SM 65,536 个 32 位寄存器<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>）来说通常够用，但确实增加了寄存器压力——可能需要减少 N_STAGES 或 BN 来平衡。</p>
-
-<p>PROMOTION_INTERVAL 的选择是精度与性能的 trade-off：更小的间隔意味着更频繁的 promotion（每次 promotion 需要一次 register-to-register 加法和清零），精度更好但开销更大；更大的间隔减少开销但允许更多舍入误差积累。DeepGEMM 的默认值 5 是经验性的——在 FP8 E4M3 训练中，K 方向每 320 个元素做一次 promotion 能把累加误差控制在可接受范围内。</p>
+<p>代价是两组累加器：WGMMA 写的部分和与 CUDA core 上的 FP32 总和。一个 warpgroup 算 64&times;N 的 tile 时，每组累加器每线程 \(64 \times N / 128 = N/2\) 个寄存器，两组就是 N 个——寄存器压力翻倍，可能需要减小 N 或 stage 数来平衡。</p>
 
 <h2 id="sec-hb">与 Blackwell 的对比</h2>
 
 <p>Hopper 的 GEMM 工具箱在 Blackwell（<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>）上被进一步演化。核心变化：</p>
 
 <table data-source="paper">
-<caption><b>Hopper vs Blackwell GEMM 构建模块。</b>数据来自 PTX ISA 9.4 和 NVIDIA 官方文档。</caption>
+<caption><b>Hopper vs Blackwell GEMM 构建模块。</b>依据 PTX ISA 9.4<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>、hw-facts<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span> 与第 27 篇。</caption>
 <thead>
 <tr><th>组件</th><th>Hopper (sm_90a)</th><th>Blackwell (sm_100a)</th></tr>
 </thead>
 <tbody>
-<tr><td>矩阵乘指令</td><td><code>wgmma.mma_async</code> m64&times;n*&times;k16</td><td><code>tcgen05.mma</code>，M 最大 128（单 CTA）或 256（CTA pair），f16 的 K 为 16</td></tr>
+<tr><td>矩阵乘指令</td><td><code>wgmma.mma_async</code> m64&times;n*&times;k16（16 位输入；FP8 为 k32）</td><td><code>tcgen05.mma</code>，M 最大 128（单 CTA）或 256（CTA pair），f16 的 K 为 16</td></tr>
 <tr><td>发射粒度</td><td>1 warpgroup (128 线程)</td><td>1 线程</td></tr>
 <tr><td>累加器位置</td><td>寄存器文件</td><td>TMEM（256 KB/SM）</td></tr>
 <tr><td>搬运</td><td>TMA (1 线程)</td><td>TMA (1 线程)</td></tr>
@@ -596,48 +595,48 @@ __device__ void wgmma_wait() {
 </tbody>
 </table>
 
-<p>Blackwell 的 TMEM（Tensor Memory）是最大的架构变化：累加器从通用寄存器文件搬到了 SM 上的专用存储空间（每 SM 256 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>），彻底消除了累加器对寄存器文件的压力。在 Hopper 上，两个 warpgroup 的 ping-pong 需要两组累加器同时驻留在寄存器文件中，这是寄存器压力最大的来源；而 Blackwell 的累加器放在 TMEM 里，TMEM 有足够空间做双缓冲，因此 PIPE_DEPTH=2 的简单双缓冲就够用。同时 <code>tcgen05.mma</code> 的 M 维度从 64 扩大到 256，单条指令的计算量再翻 4 倍——Tensor Core 的效率进一步提升。详见<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>。</p>
+<p>Blackwell 的 TMEM（Tensor Memory）是最大的架构变化：累加器从通用寄存器文件搬到了 SM 上的专用存储空间（每 SM 256 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>），消除了累加器对寄存器文件的压力。在 Hopper 上，两个 consumer warpgroup 的累加器同时驻留在寄存器文件中，这是寄存器压力最大的来源；TMEM 有 512 列，一个 128&times;256 的 FP32 累加器占 256 列，放得下两个（这是容量推算；MLC 的 Blackwell 阶梯只用了一个 128&times;512 的累加器区域，见第 27 篇）。同时 <code>tcgen05.mma</code> 单 CTA 的 M 可到 128，CTA pair 可到 256（由两个 SM 合作）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。详见<a href="../gm27-blackwell-gemm/gm27-blackwell-gemm.html">第 27 篇</a>。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：Hopper GEMM 相比 Ampere GEMM 的核心变化是什么？</dt>
-<dd>三个：(1) TMA 取代 cp.async——搬运从整个 warp 的协作变成一个线程一条指令，且自动处理 2D 地址和 swizzle；(2) WGMMA 取代 mma.sync——发射粒度从 warp 升到 warpgroup（128 线程），A 操作数直接从 SMEM 读，单条指令的 FLOP 从 4,096 提升到 524,288（128 倍）；(3) mbarrier 取代 commit_group/wait_prior——支持 full/empty 环形流水线和 warp specialization。
-<br><b>追问</b>：为什么 TMA 要自动做 swizzle？&rarr; WGMMA 要求 A 操作数在 SMEM 中按特定的 swizzle 模式排列（128B granularity），手动写容易出错且不能适应不同的 tile 形状。TMA 的 swizzle 模式在描述符中配置，硬件在写 SMEM 时自动应用。</dd>
+<dd>三个：(1) TMA 取代 cp.async——搬运从整个 block 的协作变成一个线程一条指令，且自动处理 2D 地址和 swizzle；(2) WGMMA 取代 mma.sync——发射粒度从 warp 升到 warpgroup（128 线程），B 必须、A 可以直接从 SMEM 读，单条指令的 FLOP 最多从 4,096 提升到 524,288（m64n256k16，128 倍）；(3) mbarrier 取代 commit_group/wait_prior——支持 full/empty 环形流水线和 warp specialization。
+<br><b>追问</b>：为什么 TMA 要做 swizzle？&rarr; WGMMA 的矩阵描述符要写明 SMEM 布局的 swizzle 模式（无、32B、64B、128B），TMA 写入时必须用同一模式；swizzle 是为了让 Tensor Core 读 SMEM 时避开 bank 冲突。TMA 的 swizzle 模式在 tensor map 中配置，硬件在写 SMEM 时自动应用。</dd>
 
 <dt id="sec-q2">Q2：Warp specialization 的 producer/consumer 怎么同步？</dt>
 <dd>用 N_STAGES 对 full/empty mbarrier。Producer 写完一个 stage 后 arrive 在 full[stage]，consumer 等 full[stage] 后消费，消费完 arrive 在 empty[stage]。Producer 等 empty[stage] 后才能覆盖这个 stage。这就是经典的有界缓冲区（bounded buffer）协议——N_STAGES 是缓冲区大小。
-<br><b>追问</b>：stage 数怎么选？&rarr; 受 SMEM 容量限制。每 stage 48 KB（BM=128 BN=256 BK=64），4 stage = 192 KB &le; 228 KB（H100 可用 SMEM）。5 stage = 240 KB 超限。更多 stage 能更好地隐藏延迟，但 SMEM 是硬上限。</dd>
+<br><b>追问</b>：stage 数怎么选？&rarr; 受 SMEM 容量限制。每 stage 48 KB（BM=128 BN=256 BK=64），4 stage = 192 KB &le; 227 KB（H100 每 block 共享内存上限）。5 stage = 240 KB 超限。更多 stage 能更好地隐藏延迟，但 SMEM 是硬上限。</dd>
 
 <dt id="sec-q3">Q3：Persistent kernel 的好处和代价？</dt>
-<dd>好处：消除 CTA launch/retire 开销和 wave quantization——只有 132 个 CTA（每 SM 一个），每个反复处理 tile。512 个 tile 不再需要 4 个 wave（最后一波 16 个 SM 空闲），而是均匀分配给 132 个 CTA。代价：(1) 全局原子计数器有争用，但 ~200 ns 对比每 tile ~35 &mu;s 可忽略（&lt;0.6%）；(2) CTA 生命期内独占 SMEM 和寄存器，其他 kernel 无法共享这个 SM。
+<dd>好处：省掉每个 tile 的 CTA 启动和初始化（SMEM、mbarrier、流水线），tile 遍历顺序可控（利于 L2 复用）——只有 132 个 CTA（每 SM 一个），每个反复处理 tile。代价：(1) 每个 tile 一次全局原子操作，相对一个大 tile 的计算时间（128&times;256&times;4096 在峰值下约 36 &mu;s）很小；(2) 512 个 tile 分给 132 个 CTA 仍然不整除（有的做 4 个、有的做 3 个），尾部不均衡并没有消失；(3) CTA 生命期内独占 SMEM 和寄存器，其他 kernel 无法共享这个 SM。
 <br><b>追问</b>：132 怎么来的？&rarr; H100 SXM5 有 132 个 SM，persistent kernel 按每 SM 一个 CTA 启动以获得最大并行度和最大 SMEM/寄存器配额。</dd>
 
 <dt id="sec-q4">Q4：TMA multicast 节省了什么？</dt>
-<dd>在 1&times;2 cluster 中，两个 CTA 处理 N 方向相邻的 tile，需要同一块 A。TMA multicast 让一次 HBM 读操作把 A tile 同时写入两个 CTA 的 SMEM——A 的 HBM 带宽减半。B 仍然各自加载。具体来说 BM=128 BK=64 的 A tile 是 16 KB，不用 multicast 两个 CTA 各读一次 = 32 KB，multicast 后只读一次 = 16 KB。
-<br><b>追问</b>：cluster 越大越好吗？&rarr; 不是。cluster 内 CTA 必须运行在物理相邻的 SM 上，大 cluster 限制了调度器的灵活性，可能导致 cluster 等待空闲 SM 的时间过长。</dd>
+<dd>在 1&times;2 cluster 中，两个 CTA 处理 N 方向相邻的 tile，需要同一块 A。TMA multicast 让一次读取把 A tile 同时写入两个 CTA 的 SMEM——A 的 L2&rarr;SMEM 传输量减半。B 仍然各自加载。具体来说 BM=128 BK=64 的 A tile 是 16 KB，不用 multicast 两个 CTA 各读一次 = 32 KB，multicast 后只读一次 = 16 KB。
+<br><b>追问</b>：cluster 越大越好吗？&rarr; 不是。一个 cluster 的 CTA 必须同时驻留在同一个 GPC 的 SM 上，可移植上限是 8 个 CTA；大 cluster 限制了调度器的灵活性，可能要等更久才能凑齐空闲 SM。</dd>
 
 <dt id="sec-q5">Q5：FP8 两级累加为什么比直接累加精度更好？</dt>
-<dd>FP8 乘积精度很低（E4M3 只有 3 位尾数），直接在一个 FP32 累加器中连续累加上千个这样的乘积，舍入误差会叠加。两级累加把连续累加的项数限制在 PROMOTION_INTERVAL &times; 16 = 80 个以内（5 个 tile，每个 k=16），然后精确地加到全局累加器中。相当于用&ldquo;分段累加 + 合并&rdquo;的方式把误差增长从 O(N) 降到 O(N/interval)。代价是双倍的 FP32 累加器寄存器。</dd>
+<dd>因为 Hopper 上 FP8 WGMMA 即使写 <code>.f32</code> 累加器，内部累加精度也低于 FP32（PTX 注记；DeepSeek-V3 在 H800 上测得约 14 位，K=4096 时最大相对误差接近 2%）。两级累加让 Tensor Core 只连续累加 128 个 K 元素（4 条 k32 的 WGMMA），然后把部分和提升到 CUDA core 的 FP32 寄存器累加，顺便乘上这一段的缩放因子。代价是两组累加器寄存器，以及提升操作占用的发射槽（靠两个 warpgroup 交替掩盖）。</dd>
 </dl>
 
-<p>流水线级数的选择是 Hopper GEMM 调优的关键旋钮。级数太少（如 2 级），producer 刚发完第二块 TMA 请求就必须等第一块到达才能复用其 SMEM slot，搬运和计算之间的重叠窗口很短；级数太多（如 8 级），每级需要独立的 SMEM buffer（一个 128&times;64 的 FP16 tile 占 16 KB），8 级就是 128 KB，几乎吃满 H100 的 228 KB SMEM 容量，留给 B tile 和 barrier 的空间极为紧张。实践中 4&ndash;5 级是最常见的甜点：以 4 级为例，A buffer 占 64 KB、B buffer 占 128 KB（64&times;256&times;2B&times;4 级），barrier 数组约 1 KB，总计约 193 KB，还有 35 KB 余量给 epilogue 的临时空间或 FP8 的 scale 向量。CUTLASS 3.x 的 <code>PipelineAsync</code> 模板会根据 tile 尺寸和 SMEM 预算自动算出最大可用级数。</p>
+<p>流水线级数的选择是 Hopper GEMM 调优的关键旋钮。级数太少（如 2 级），producer 发完第二块 TMA 请求就必须等 consumer 释放第一块的 SMEM slot，搬运和计算之间的重叠窗口很短；级数越多，延迟隐藏越好，但每级都要一份 A 和 B 的 SMEM。以本篇的 BM=128、BN=256、BK=64（BF16）为例，4 级时 A buffer 占 \(4 \times 16 = 64\) KB、B buffer 占 \(4 \times 32 = 128\) KB，加上约 1 KB 的 barrier 共约 193 KB，离 227 KB 的每 block 上限还有约 34 KB 可留给 epilogue 或 FP8 的 scale 向量；5 级就超了。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查（<code>check_cuda.sh</code>），<b>未在 GPU 上编译或运行</b>。内联 PTX（<code>wgmma.*</code>、<code>mbarrier.*</code>、<code>cp.async.bulk.tensor</code>）由 clang 当作字符串跳过——其正确性依赖人工对照 PTX ISA 9.4 相关章节。</li>
 <li>WGMMA 的实际 PTX 发射在代码中用注释占位（<code>// actual wgmma.mma_async PTX elided</code>），因为完整的 WGMMA PTX 涉及寄存器描述符编码（64 位描述符包含 SMEM 基地址、swizzle 模式、leading dimension 等），不适合在没有 GPU 的环境中验证。</li>
-<li>Ping-pong 调度只做了原理描述，没有配套的代码示例——完整实现见 CUTLASS 3.x 的 <code>PersistentScheduler</code><span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。Hopper GEMM 的 warp specialization 与 persistent kernel 设计。">3</a>]</span>。</li>
-<li>FP8 两级累加的 PROMOTION_INTERVAL 选择依赖于具体的精度需求和 K 的大小，本篇给出的 5 只是一个典型值——实际值需要根据精度分析确定。</li>
-<li>硬件规格（132 SMs、256 KB SMEM/SM、50 MB L2）均来自 <code>_notes/hw-facts.md</code><span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>，各有 NVIDIA 官方出处。H100 boost clock 未被 NVIDIA 正式公布，本篇未引用。</li>
+<li>Ping-pong / cooperative 调度只做了原理描述，没有配套的代码示例——完整实现见 CUTLASS 文档对应两节<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS: Efficient GEMM in CUDA，提交 <code>91843b7</code>。“Hopper Warp Specialization” 一节：Warp-Specialized Persistent Cooperative / Ping-Pong kernel design。">4</a>]</span>。代码里的 warp-specialized kernel 也只是骨架：mbarrier 的 arrive/wait、TMA 发射、跨 tile 的流水线相位都被省略，empty barrier 的到达计数也没有按两个 consumer warpgroup 设置。</li>
+<li>FP8 两级累加的间隔 \(N_C = 128\) 来自 DeepSeek-V3 在 H800 上的实验<span class="cite">[<a href="#ref-dsv3" title="DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，NC = 128）。">6</a>]</span>，本篇没有自己做精度测试。</li>
+<li>硬件规格（132 SMs、256 KB SMEM/SM、50 MB L2）均来自 <code>_notes/hw-facts.md</code><span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。">1</a>]</span>，各有 NVIDIA 官方出处。H100 boost clock 未被 NVIDIA 正式公布，本篇未引用。</li>
 </ul>
 
-<p>值得补充的是 WGMMA 的两种操作数模式对 GEMM 设计的影响。WGMMA 支持 A 来自寄存器（<code>.kind = reg</code>）或共享内存（<code>.kind = smem</code>），B 必须来自共享内存。当 A 来自寄存器时，需要先用 <code>ldmatrix</code> 把 A tile 从 SMEM 搬到寄存器，多了一步数据搬运，但好处是可以在寄存器中做 A 的预处理（如量化的 dequant、或 FP8 的 scale 乘法）；当 A 来自共享内存时，省掉了 <code>ldmatrix</code>，warp group 的所有 128 个线程可以直接从 SMEM 协作读取，吞吐更高。DeepGEMM 选择了 A-from-smem 模式，因为它把 FP8 scale 的处理放在了累加器合并阶段而非矩阵乘阶段，不需要对 A 做寄存器级预处理。对于 W4A16 这类需要在线 dequant 的场景，A-from-register 模式则更合适。</p>
+<p>值得补充的是 WGMMA 的两种操作数模式对 GEMM 设计的影响。WGMMA 的 A 可以来自寄存器，也可以通过矩阵描述符来自共享内存；B 必须来自共享内存<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。A 来自寄存器时，要先把 A tile 从 SMEM 读进寄存器，多了一步，但好处是可以在寄存器里先对 A 做预处理（例如低比特权重的在线反量化）；A 来自共享内存时省掉了这一步。另外，转置（MN-major）只支持 16 位类型、且只对从共享内存读的矩阵有效，所以 FP8 的 A、B 都必须是 K-major<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。">2</a>]</span>。</p>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>Hopper GEMM 的演进路线清晰地遵循一条优化阶梯：TMA + WGMMA 基础版（让硬件接管搬运和大粒度计算）&rarr; persistent kernel（消除 launch overhead 和 wave quantization）&rarr; warp specialization（搬运与计算彻底解耦，全并行执行）&rarr; 多级流水线 + ping-pong（用深流水线和双 warpgroup 交替掩盖所有延迟）&rarr; cluster + TMA multicast（通过跨 CTA 数据共享减少 HBM 带宽压力）。每一步都在解决同一个根本问题：Tensor Core 的计算吞吐太高，数据搬运跟不上——但 Hopper 的哲学是把解决方案从&ldquo;让更多线程参与搬运&rdquo;转变为&ldquo;让更聪明的硬件自动完成搬运&rdquo;，从而把宝贵的线程资源全部释放给计算。下一篇进入 Blackwell，看 tcgen05 和 TMEM 如何在这个基础上进一步演化。</p>
+<p>Hopper GEMM 的演进路线清晰地遵循一条优化阶梯：TMA + WGMMA 基础版（让硬件接管搬运和大粒度计算）&rarr; persistent kernel（省掉每个 tile 的 CTA 初始化、控制 tile 顺序）&rarr; warp specialization（搬运与计算解耦并行）&rarr; 多级流水线 + ping-pong / cooperative（用深流水线掩盖搬运延迟，用错开的 epilogue 掩盖写回）&rarr; cluster + TMA multicast（通过跨 CTA 数据共享减少 L2 读取）。每一步都在解决同一个根本问题：Tensor Core 的计算吞吐太高，数据搬运跟不上——但 Hopper 的哲学是把解决方案从&ldquo;让更多线程参与搬运&rdquo;转变为&ldquo;让更聪明的硬件自动完成搬运&rdquo;，从而把线程资源留给计算。下一篇进入 Blackwell，看 tcgen05 和 TMEM 如何在这个基础上进一步演化。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -651,17 +650,19 @@ __device__ void wgmma_wait() {
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、50 MB L2、每 SM 共享内存 256 KB 等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（mma 指令族）、§9.7.5.8（cp.async.bulk.tensor）、§9.7.12.4（mbarrier）、§9.7.17.4（wgmma）。</li>
-  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass/blob/91843b71d90737e0a9b86f7d9df213cff5a3526f/media/docs/cpp/efficient_gemm.md?plain=1">CUTLASS: Efficient GEMM in CUDA</a>，提交 <code>91843b7</code>。Hopper GEMM 的 warp specialization 与 persistent kernel 设计。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.29 Warpgroup MMA (WGMMA)、§7.28 TMA、§7.8 Cluster。</li>
-  <li id="ref-deepgemm">本系列 DeepGEMM 精读（<a href="https://github.com/deepseek-ai/DeepGEMM">DeepGEMM 仓库</a>）。FP8 两级累加与细粒度 scaling 的实现参考。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM5 的 132 SMs、HBM 3.35 TB/s、989.5 TFLOPS 稠密 BF16、每 SM 65,536 个寄存器、每 SM 228 KB / 每 block 227 KB 共享内存、cluster 上限与 GPC 放置、DSMEM、TMA 单元；A100 与 B200 对照值。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（wgmma：形状、操作数位置、fence/commit/wait、FP8 累加精度注记）、§9.7.10.28.5.3（cp.async.bulk.tensor 与 .multicast::cluster）、§9.7.15.16（mbarrier）、§9.7.21.5（setmaxnreg）、§9.7.18（tcgen05）。</li>
+  <li id="ref-cutlasscoop">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass/blob/91843b71d90737e0a9b86f7d9df213cff5a3526f/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized_cooperative.hpp">sm90_gemm_tma_warpspecialized_cooperative.hpp</a>，提交 <code>91843b7</code>，第 149–150 行：LoadRegisterRequirement = 40、MmaRegisterRequirement = 232（重寄存器压力时 24 / 240）；1 个 load warpgroup。</li>
+  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass/blob/91843b71d90737e0a9b86f7d9df213cff5a3526f/media/docs/cpp/efficient_gemm.md?plain=1">CUTLASS: Efficient GEMM in CUDA</a>，提交 <code>91843b7</code>。“Hopper Warp Specialization” 一节：Warp-Specialized Persistent Cooperative / Ping-Pong kernel design。</li>
+  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §2.2.1 Thread Block Clusters（可移植上限 8）、§3.2.5 Distributed Shared Memory、§7.29 TMA。</li>
+  <li id="ref-dsv3">DeepSeek-AI (2024). <a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3 Technical Report</a>. arXiv:2412.19437, §3.3.2（细粒度量化；Increasing Accumulation Precision：H800 上 FP8 累加约 14 位，N<sub>C</sub> = 128）。</li>
+  <li id="ref-deepgemm">DeepSeek. <a href="https://github.com/deepseek-ai/DeepGEMM">DeepGEMM</a>（GitHub 仓库）。FP8 细粒度 scaling GEMM 的实现；源码解读见姊妹系列 <a href="https://blog.hesenyang-ethan.com/deepep-deepgemm/">DeepEP 与 DeepGEMM 精读</a>。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 26 篇。文中代码完整版在系列目录的 <code>code/gm26-hopper-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图，依据 PTX ISA 9.4 与 CUDA 编程指南绘制；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
+  本文是「从零精通 GPU Kernel」系列第 26 篇。文中代码完整版在系列目录的 <code>code/gm26-hopper-gemm/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–7 为示意图，依据 PTX ISA 9.4 与 CUDA 编程指南绘制；图 8 的 FP8 累加间隔与精度数据来自 DeepSeek-V3 技术报告；硬件数据来自 NVIDIA 官方文档。本篇无实测数据。
 </footer>
 
 </div>

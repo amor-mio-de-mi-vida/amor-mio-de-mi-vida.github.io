@@ -36,7 +36,7 @@
   <text x="180" y="190" text-anchor="middle" class="d-note">发射单位：1 warp (32 线程)</text>
   <text x="180" y="208" text-anchor="middle" class="d-note">A 操作数：寄存器（需要 ldmatrix 加载）</text>
   <text x="180" y="226" text-anchor="middle" class="d-note">每条指令 FLOP：16×8×16×2 = 4,096</text>
-  <text x="180" y="244" text-anchor="middle" class="d-note">Swizzle：手动 XOR（代码 20+ 行）</text>
+  <text x="180" y="244" text-anchor="middle" class="d-note">Swizzle：手写 XOR 地址运算</text>
   <text x="180" y="262" text-anchor="middle" class="d-note">同步：cp.async + commit/wait</text>
 
   <!-- Hopper side -->
@@ -57,7 +57,7 @@
     <!-- B tile 16×256 -->
     <rect x="68" y="10" width="100" height="48" rx="2" fill="#bbf7d0" stroke="#86efac"/>
     <text x="118" y="34" text-anchor="middle" class="d-code" style="font-size:9px">B  16×256</text>
-    <text x="118" y="48" text-anchor="middle" class="d-note" style="font-size:8px;fill:#16a34a">(REG)</text>
+    <text x="118" y="48" text-anchor="middle" class="d-note" style="font-size:8px;fill:#16a34a">(SMEM)</text>
 
     <!-- = -->
     <text x="178" y="52" text-anchor="middle" class="d-label">=</text>
@@ -69,9 +69,9 @@
   </g>
 
   <text x="540" y="190" text-anchor="middle" class="d-note">发射单位：1 warpgroup (128 线程)</text>
-  <text x="540" y="208" text-anchor="middle" class="d-note">A 操作数：SMEM 描述符（无需 ldmatrix）</text>
+  <text x="540" y="208" text-anchor="middle" class="d-note">A：SMEM 描述符或寄存器；B：SMEM 描述符</text>
   <text x="540" y="226" text-anchor="middle" class="d-note" style="fill:#16a34a;font-weight:600">每条指令 FLOP：64×256×16×2 = 524,288</text>
-  <text x="540" y="244" text-anchor="middle" class="d-note">Swizzle：TMA 自动（零代码）</text>
+  <text x="540" y="244" text-anchor="middle" class="d-note">Swizzle：描述符里选模式，TMA 写入</text>
   <text x="540" y="262" text-anchor="middle" class="d-note">同步：mbarrier full/empty</text>
 
   <!-- 128x callout -->

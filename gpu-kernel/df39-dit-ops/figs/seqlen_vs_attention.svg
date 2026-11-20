@@ -1,6 +1,6 @@
 <svg viewBox="0 0 600 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="13">
-  <text x="300" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">序列长度 vs Attention 时间占比</text>
-  <text x="300" y="40" text-anchor="middle" font-size="11" fill="#999">illustrative, computed from O(N^2 d) vs O(NLd) scaling</text>
+  <text x="300" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">序列长度 vs Attention 的 FLOP 占比</text>
+  <text x="300" y="40" text-anchor="middle" font-size="11" fill="#999">computed: 4N²D / (4N²D + 24ND²) = N / (N + 6D)，D = 3072</text>
 
   <!-- Axes -->
   <line x1="80" y1="260" x2="560" y2="260" stroke="#333" stroke-width="1.5"/>
@@ -29,29 +29,26 @@
 
   <!-- Axis titles -->
   <text x="320" y="300" text-anchor="middle" font-size="12" fill="#555">序列长度 N (tokens)</text>
-  <text x="30" y="160" text-anchor="middle" font-size="12" fill="#555" transform="rotate(-90,30,160)">Attention 时间占比</text>
+  <text x="30" y="160" text-anchor="middle" font-size="12" fill="#555" transform="rotate(-90,30,160)">Attention FLOP 占比</text>
 
-  <!-- Data curve: attention fraction grows with N -->
-  <!-- At N=256: ~8%, N=1K: ~22%, N=4K: ~45%, N=16K: ~62%, N=64K: ~78% -->
-  <polyline points="130,244 220,215 320,168 420,133 520,100"
+  <!-- Data curve: FLOP share N/(N+6D), D=3072 -->
+  <polyline points="130,257.1 220,249.1 320,222.7 420,163.4 520,100.1"
     fill="none" stroke="#e17055" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Data points -->
-  <circle cx="130" cy="244" r="4" fill="#e17055"/>
-  <circle cx="220" cy="215" r="4" fill="#e17055"/>
-  <circle cx="320" cy="168" r="4" fill="#e17055"/>
-  <circle cx="420" cy="133" r="4" fill="#e17055"/>
-  <circle cx="520" cy="100" r="4" fill="#e17055"/>
+  <circle cx="130" cy="257.1" r="4" fill="#e17055"/>
+  <circle cx="220" cy="249.1" r="4" fill="#e17055"/>
+  <circle cx="320" cy="222.7" r="4" fill="#e17055"/>
+  <circle cx="420" cy="163.4" r="4" fill="#e17055"/>
+  <circle cx="520" cy="100.1" r="4" fill="#e17055"/>
 
-  <!-- Labels on points -->
-  <text x="145" y="240" font-size="10" fill="#e17055">~8%</text>
-  <text x="235" y="211" font-size="10" fill="#e17055">~22%</text>
-  <text x="335" y="162" font-size="10" fill="#e17055">~45%</text>
-  <text x="435" y="127" font-size="10" fill="#e17055">~62%</text>
-  <text x="535" y="95" font-size="10" fill="#e17055">~78%</text>
+  <text x="122" y="249.1" text-anchor="end" font-size="10" fill="#e17055">1.4%</text>
+  <text x="212" y="241.1" text-anchor="end" font-size="10" fill="#e17055">5.3%</text>
+  <text x="312" y="214.7" text-anchor="end" font-size="10" fill="#e17055">18.2%</text>
+  <text x="412" y="155.4" text-anchor="end" font-size="10" fill="#e17055">47.1%</text>
+  <text x="512" y="92.1" text-anchor="end" font-size="10" fill="#e17055">78%</text>
 
   <!-- Annotation -->
-  <rect x="340" y="55" width="200" height="35" rx="4" fill="#ffeaa7" fill-opacity="0.5" stroke="#fdcb6e"/>
-  <text x="440" y="70" text-anchor="middle" font-size="11" fill="#333">视频 64K tokens:</text>
-  <text x="440" y="84" text-anchor="middle" font-size="11" fill="#e17055">attention 占 ~78% 时间</text>
+  <rect x="120" y="60" width="220" height="35" rx="4" fill="#ffeaa7" fill-opacity="0.5" stroke="#fdcb6e"/>
+  <text x="230" y="75" text-anchor="middle" font-size="11" fill="#333">只计 FLOP，不是实测时间</text>
+  <text x="230" y="89" text-anchor="middle" font-size="11" fill="#e17055">64K tokens 时 attention 占 78%</text>
 </svg>

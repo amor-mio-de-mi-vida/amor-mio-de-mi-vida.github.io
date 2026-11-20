@@ -231,10 +231,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <p class="tldr-title">TL;DR</p>
   <ul>
 <li>卷积在 GPU 上有两条路线：直接卷积（direct conv）用 shared memory 加载 halo 区域逐通道累加，im2col 把滑动窗口拉成矩阵再调 GEMM——后者是主流，因为它直接复用高度优化的 GEMM kernel。</li>
-<li>im2col 把每个输入元素复制卷积核面积那么多份，3&times;3 卷积的 col 矩阵约为输入的九倍。这是 implicit GEMM（下一篇）要解决的核心问题。</li>
-<li>NHWC（channels last）布局让同一像素的通道连续，一次 128B 事务读多个通道——Tensor Core GEMM 要求 K 维度连续，NHWC 天然满足；cuDNN 和 PyTorch 推荐它。</li>
-<li>Depthwise 卷积每个通道独立计算，算术强度只有个位数 FLOP/B，深度受带宽约束，Tensor Core 帮不上忙，优化只能靠向量化加载和寄存器复用。</li>
-<li>1&times;1 卷积没有空间滑动，就是一个 GEMM（M = C_out, K = C_in, N = H&middot;W），是 CNN 推理中 Tensor Core 利用率最高的算子。</li>
+<li>im2col 把每个输入元素复制卷积核面积那么多份，stride=1 的 3&times;3 卷积，col 矩阵约为输入的九倍。这是 implicit GEMM（下一篇）要解决的核心问题。</li>
+<li>NHWC（channels last）布局让同一像素的通道连续，GEMM 的 K 维（通道）落在连续地址上；NVIDIA 的卷积性能指南写明 Tensor Core 卷积要求 NHWC，NCHW 输入要付出自动转置的开销。</li>
+<li>Depthwise 卷积每个通道独立计算，即使输入完美复用，算术强度也只有约 2 FLOP/B（FP32），深度受带宽约束，Tensor Core 帮不上忙，优化只能靠合并访存、向量化加载和寄存器复用。</li>
+<li>Pointwise（1&times;1）卷积本身就是 GEMM，不需要 im2col；但少了 R&middot;S 因子，算术强度反而比同通道数的空间卷积低。</li>
   </ul>
 </div>
 
@@ -247,13 +247,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>尽管 Transformer 在 NLP 和视觉领域攻城略地，卷积仍然是许多关键工作负载中最常见的算子：</p>
 
 <ul>
-<li><b>Diffusion 模型</b>：Stable Diffusion 的 UNet 有约 40% 的去噪时间花在卷积上——大部分是 3&times;3 和 1&times;1。即便 DiT 用 Transformer 替代 UNet，VAE 的编码器/解码器仍然是纯卷积。</li>
-<li><b>3D 视觉</b>：体素网络（MinkowskiNet）、点云（PointPillars）、3D Gaussian Splatting 的预处理都涉及 3D 或 2D 卷积。</li>
+<li><b>Diffusion 模型</b>：Stable Diffusion 的 UNet 由 3&times;3 卷积残差块和 attention 块交替组成。即便 DiT 用 Transformer 替代 UNet，VAE 的编码器/解码器仍然以卷积为主（中间块只有一层 self-attention）。</li>
+<li><b>3D 视觉</b>：稀疏体素网络（MinkowskiNet）用 3D 稀疏卷积，点云检测（PointPillars）把点云转成伪图像后用 2D 卷积骨干。</li>
 <li><b>边缘部署</b>：MobileNet、EfficientNet 等轻量级网络以 depthwise + pointwise（1&times;1）卷积为核心，在 Jetson 和手机 GPU 上大量使用。</li>
 <li><b>视频理解</b>：3D 卷积（C3D、SlowFast）对时空特征的建模仍不可替代，时间维度上的卷积可以捕捉短期动态模式。</li>
 </ul>
 
-<p>理解卷积 kernel 的实现，是理解后续 implicit GEMM（<a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>）和 Winograd（<a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>）的基础。本篇从最朴素的直接卷积开始，一步步引入 im2col、布局选择和特殊变体。我们会用具体数字分析每种方案的显存开销、算术强度和 Tensor Core 适配性，让读者建立&ldquo;什么卷积用什么方法&rdquo;的直觉。</p>
+<p>理解卷积 kernel 的实现，是理解后续 implicit GEMM（<a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>）和 Winograd（<a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>）的基础。本篇从最朴素的直接卷积开始，一步步引入 im2col、布局选择和特殊变体。我们会用可复算的数字分析每种方案的显存开销、算术强度和 Tensor Core 适配性，让读者建立&ldquo;什么卷积用什么方法&rdquo;的直觉。</p>
 
 <h2 id="sec-params">卷积参数与输出尺寸</h2>
 
@@ -270,9 +270,9 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 <figcaption id="fig-conv_params-cap"><span class="fig-label">图 1</span><b>stride、padding、dilation 的几何含义。</b>红色方框/圆点是 filter 覆盖的位置。stride 控制输出密度，dilation 扩大感受野。</figcaption>
 </figure>
 
-<p>一个常用的数值例子：ResNet-50 第一层是 7&times;7 conv, stride=2, pad=3，输入 [1, 3, 224, 224]，输出尺寸 \(\lfloor(224 + 6 - 6)/2\rfloor + 1 = 112\)。FLOP 数 = \(2 \times 64 \times 3 \times 7 \times 7 \times 112 \times 112 = 235\) MFLOP——看起来不大，但 batch=256 后就是 60 GFLOP。</p>
+<p>一个常用的数值例子：ResNet-50 第一层是 7&times;7 conv, stride=2, pad=3，输入 [1, 3, 224, 224]，输出尺寸 \(\lfloor(224 + 6 - 6)/2\rfloor + 1 = 112\)。FLOP 数 = \(2 \times 64 \times 3 \times 7 \times 7 \times 112 \times 112 \approx 236\) MFLOP——看起来不大，但 batch=256 后就是约 60 GFLOP。</p>
 
-<p><b>FLOP 与带宽的定量关系</b>：卷积的 FLOP 公式是 \(2 \times C_\text{out} \times C_\text{in}/G \times R \times S \times H_\text{out} \times W_\text{out} \times N\)（G 是 groups，乘以 2 是因为 FMA 算两个操作）。标准 3&times;3 卷积（C_in=C_out=128, H=W=56, N=1）的 FLOP = \(2 \times 128^2 \times 9 \times 56^2 = 924\) MFLOP，读写数据量约 \((128 \times 56^2 + 128^2 \times 9 + 128 \times 56^2) \times 4 \approx 6.5\) MB（输入 + 权重 + 输出），算术强度约 142 FLOP/B——远超 A100 的 roofline 拐点（约 40 FLOP/B），属于 compute-bound，非常适合 Tensor Core。但一旦换成 depthwise（G=C_in），同样的形状下 FLOP 降到 7.2 MFLOP，带宽需求却几乎不变——算术强度暴跌到 1.1 FLOP/B。这就是为什么 MobileNet 架构把 depthwise 和 pointwise（1&times;1）配对使用：depthwise 负责空间滤波（FLOP 极少但 memory-bound），pointwise 负责通道混合（FLOP 多且 compute-bound）。</p>
+<p><b>FLOP 与带宽的定量关系</b>：卷积的 FLOP 公式是 \(2 \times C_\text{out} \times C_\text{in}/G \times R \times S \times H_\text{out} \times W_\text{out} \times N\)（G 是 groups，乘以 2 是因为 FMA 算两个操作）。标准 3&times;3 卷积（C_in=C_out=128, H=W=56, N=1）的 FLOP = \(2 \times 128^2 \times 9 \times 56^2 = 924\) MFLOP，若每个张量只读写一次（理想复用），FP32 下数据量约 \((128 \times 56^2 + 128^2 \times 9 + 128 \times 56^2) \times 4 \approx 3.8\) MB（输入 + 权重 + 输出），算术强度约 243 FLOP/B。作为对照，A100 80GB 的 roofline 拐点：FP32 CUDA core 约 \(19.5 / 2.04 \approx 9.6\) FLOP/B，FP16 Tensor Core 约 \(312 / 2.04 \approx 153\) FLOP/B<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 FP32 / FP16 Tensor Core 峰值、A100/H100/B200 HBM 带宽与容量等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>；FP16 下同一卷积的算术强度翻倍到约 487 FLOP/B，两种情况都是 compute-bound，适合 Tensor Core。但一旦换成 depthwise（G=C_in），同样的形状下 FLOP 降到 7.2 MFLOP，数据量却几乎不变（约 3.2 MB）——算术强度暴跌到约 2.2 FLOP/B。这就是为什么 MobileNet 架构把 depthwise 和 pointwise（1&times;1）配对使用：depthwise 负责空间滤波（FLOP 极少但 memory-bound），pointwise 负责通道混合（FLOP 多且 compute-bound）。</p>
 
 <p><b>dilation 的实际用途</b>：dilation（空洞卷积）在 DeepLab 系列的语义分割中被广泛使用——dilation=2 的 3&times;3 filter 等效于 5&times;5 感受野但只有 9 个参数和 9 个乘加，比真正的 5&times;5 conv 节省 \(25/9 \approx 2.8\) 倍 FLOP。在 GPU 实现上，dilation 只改变了地址计算（<code>ih = oh * stride - pad + r * dil</code>），不影响 FLOP 和内存占用——但它引入了不规则访存模式：同一个 3&times;3 窗口中相邻的输入点不再在内存中相邻，中间隔了 \((\text{dil} - 1)\) 个元素。对直接卷积，这导致 smem 加载的 halo 区域急剧增大：dilation=2 的 3&times;3 filter 需要 \((16 + 4) \times (16 + 4) = 400\) 个 smem 位置，比 dilation=1 的 324 多 23%，而有效计算量不变——smem 利用率下降。</p>
 
@@ -312,7 +312,7 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
   const int co = blockIdx.z % C_out;</code></pre>
 <p class="src-note">完整代码：<code>code/cv30-conv-basics/direct_conv2d.cu</code> 第 11&ndash;26 行（未在 GPU 上运行）</p>
 
-<p>每个 block 负责一个 \(16 \times 16\) 的输出 tile，grid 的 z 维度编码 (n, co) 对——不同 batch 和输出通道的 tile 完全独立，可以被不同 SM 并行处理。halo 尺寸在编译期由 \(BH + R - 1\) 和 \(BW + S - 1\) 确定：对 3&times;3 filter，halo 区域是 \(18 \times 18 = 324\) 个元素，输出 tile 只有 \(16 \times 16 = 256\) 个——多出的 68 个元素是 halo 的&ldquo;冗余搬运代价&rdquo;，占总加载量的 21%。动态 shared memory 用 <code>extern __shared__</code> 声明，launch 时从 host 侧传入 \(SH \times SW \times \text{sizeof(float)}\) 字节。<code>blockIdx.z / C_out</code> 和 <code>blockIdx.z % C_out</code> 是整数除法——如果 C_out 不是 2 的幂，编译器会展开成乘法加移位序列（magic number division），代价约 4&ndash;6 条指令；C_out 是 2 的幂（如 64、128、256）时只需 2 条位运算指令。这也是 CNN 通道数几乎总是选择 2 的幂的工程原因之一。另一个值得注意的细节：tx 对应宽度方向（blockIdx.x），ty 对应高度——保证同一 warp 内的 32 个线程读取同一行中连续列的像素。在 NCHW 下同一行的像素在内存中连续，一个 warp 的读取可以合并成一两个 128B 事务。如果把 tx/ty 的映射交换，同一 warp 的线程会读取 32 个不同行的像素，地址间隔 W 个元素——完全无法合并，实测性能可以差 3&ndash;5 倍。</p>
+<p>每个 block 负责一个 \(16 \times 16\) 的输出 tile，grid 的 z 维度编码 (n, co) 对——不同 batch 和输出通道的 tile 完全独立，可以被不同 SM 并行处理。halo 尺寸在编译期由 \(BH + R - 1\) 和 \(BW + S - 1\) 确定：对 3&times;3 filter，halo 区域是 \(18 \times 18 = 324\) 个元素，输出 tile 只有 \(16 \times 16 = 256\) 个——多出的 68 个元素是 halo 的&ldquo;冗余搬运代价&rdquo;，占总加载量的 21%。动态 shared memory 用 <code>extern __shared__</code> 声明，launch 时从 host 侧传入 \(SH \times SW \times \text{sizeof(float)}\) 字节。<code>blockIdx.z / C_out</code> 和 <code>blockIdx.z % C_out</code> 是整数除法——这里 C_out 是运行时参数，编译器无法做常数除法优化，会生成一段通用整数除法序列；好在每个线程只做一次，代价可以忽略（若在热循环里，常见做法是 host 端预计算 magic number 做 fast divmod，见下一篇）。另一个值得注意的细节：tx 对应宽度方向（blockIdx.x），ty 对应高度——保证同一 warp 内的 32 个线程读取同一行中连续列的像素。在 NCHW 下同一行的像素在内存中连续，一个 warp 的读取可以合并成一两个 128B 事务。如果把 tx/ty 的映射交换，同一 warp 的线程会读取不同行的像素，地址间隔 W 个元素——无法合并，每个线程各占一个内存事务。</p>
 
 <p>接下来是 \(C_\text{in}\) 维度的外层循环和 shared memory 的加载逻辑——先加载 halo 区域，同步后逐点累加：</p>
 
@@ -397,24 +397,24 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cv30-conv-basics/im2col.cu</code> 第 5–34 行（未在 GPU 上运行）</p>
 
-<p><b>im2col 的显存代价</b>是它最大的缺点（<a href="#fig-im2col_memory">图 4</a>）。col 矩阵大小 = K &times; P = \(C_\text{in} \cdot R \cdot S \times H_\text{out} \cdot W_\text{out}\)。对 3&times;3 卷积（R=S=3），col 是输入的 \(R \times S = 9\) 倍。</p>
+<p><b>im2col 的显存代价</b>是它最大的缺点（<a href="#fig-im2col_memory">图 4</a>）。col 矩阵大小 = K &times; P = \(C_\text{in} \cdot R \cdot S \times H_\text{out} \cdot W_\text{out}\)。对 stride=1、same padding 的 3&times;3 卷积（R=S=3，\(H_\text{out}W_\text{out} = HW\)），col 是输入的 \(R \times S = 9\) 倍；stride=2 时 P 缩小 4 倍，膨胀比也随之降到约 \(9/4\)。</p>
 
 <figure id="fig-im2col_memory" data-kind="diagram">
 <img aria-labelledby="fig-im2col_memory-cap" src="figs/im2col_memory.svg" alt="im2col 显存开销"/>
-<figcaption id="fig-im2col_memory-cap"><span class="fig-label">图 4</span><b>im2col 的显存开销随分辨率急剧增长。</b>3&times;3 卷积的 col 矩阵是输入的 9 倍，对 1024&times;1024 输入已经超过 4 GB。这是 implicit GEMM 要解决的核心问题。</figcaption>
+<figcaption id="fig-im2col_memory-cap"><span class="fig-label">图 4</span><b>im2col 的显存开销随分辨率急剧增长。</b>stride=1 时 3&times;3 卷积的 col 矩阵是输入的 9 倍；FP32、C=128、1024&times;1024 输入时 col 达 4.5 GiB。数字均由 \(K \cdot P \cdot 4\) B 算出。这是 implicit GEMM 要解决的核心问题。</figcaption>
 </figure>
 
-<p>具体数字：对 512&times;512、C_in=128、3&times;3 conv、FP16，col 需要 \(128 \times 9 \times 512^2 \times 2 = 603\) MB。如果是 5&times;5 conv，col 膨胀到 25 倍 = 1.67 GB——这对 H100 的 80 GB HBM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span> 都是一笔不小的开销，而且 batch 和多层卷积的 col 会叠加。</p>
+<p>具体数字：对 512&times;512、C_in=128、3&times;3 conv、FP16，col 需要 \(128 \times 9 \times 512^2 \times 2 \approx 604\) MB（576 MiB；图中是 FP32，数字翻倍）。如果是 5&times;5 conv，col 膨胀到 25 倍，约 1.68 GB——这对 H100 的 80 GB HBM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 FP32 / FP16 Tensor Core 峰值、A100/H100/B200 HBM 带宽与容量等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span> 都是一笔不小的开销，而且 batch 和多层卷积的 col 会叠加。</p>
 
-<p>im2col 的<b>优势</b>是：展开之后可以直接调用高度优化的 GEMM（cuBLAS 或 <a href="../gm24-sgemm-ladder/gm24-sgemm-ladder.html">第 24–29 篇</a>的手写 kernel），Tensor Core 派上用场，不需要为卷积单独写优化 kernel。它的<b>带宽代价</b>也不容忽视：im2col kernel 写出 col 矩阵到 HBM，GEMM kernel 再读入——这一写一读是额外的全局内存流量。对 3&times;3 conv，额外流量约为输入的 9 倍——而这些数据在直接卷积中可以从 smem 复用。</p>
+<p>im2col 的<b>优势</b>是：展开之后可以直接调用高度优化的 GEMM（cuBLAS 或 <a href="../gm24-sgemm-ladder/gm24-sgemm-ladder.html">第 24–29 篇</a>的手写 kernel），Tensor Core 派上用场，不需要为卷积单独写优化 kernel。它的<b>带宽代价</b>也不容忽视：im2col kernel 写出 col 矩阵到 HBM，GEMM kernel 再读入——这一写一读是额外的全局内存流量。对 stride=1 的 3&times;3 conv，col 写一遍、读一遍，各约为输入的 9 倍——而这些数据在直接卷积中可以从 smem 复用。</p>
 
-<p><b>im2col kernel 的性能特征</b>：im2col kernel 本身是一个纯 memory-bound 的转换算子——每个线程读一个输入值（或写零），做一次地址计算（除法和取模），写一个输出值。没有任何计算密集操作。在 A100 上，im2col 的吞吐量大约是全局内存带宽的 70&ndash;80%（受限于随机读取模式——不同线程读的输入位置可能不连续）。优化方向是让线程块内的线程尽量读取连续的输入地址——调整 idx 到 crs 和 hw 的映射顺序：先遍历 hw（输出位置连续 &rarr; 输入位置也相对连续），再遍历 crs（不同通道/filter位置），可以改善 L2 cache 命中率。cuDNN 的 im2col 实现还会合并小的 col 块，减少 kernel launch 开销。</p>
+<p><b>im2col kernel 的性能特征</b>：im2col kernel 本身是一个纯 memory-bound 的转换算子——每个线程读一个输入值（或写零），做一次地址计算（除法和取模），写一个输出值。没有任何计算密集操作，性能只取决于访存是否合并。优化方向是让线程块内的线程尽量读取连续的输入地址——调整 idx 到 crs 和 hw 的映射顺序：先遍历 hw（输出位置连续 &rarr; 输入位置也相对连续），再遍历 crs（不同通道/filter位置），可以改善合并度和 L2 cache 命中率。本篇代码已经是 hw 在内层的映射（<code>hw = idx % (H_out*W_out)</code>）。</p>
 
 <p>这就是 <a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>的 implicit GEMM 要解决的：在 GEMM 主循环中实时计算地址，不物化 col 矩阵，省掉这些显存和带宽。</p>
 
 <h2 id="sec-layout">NCHW vs NHWC：为什么要换布局</h2>
 
-<p>PyTorch 默认 NCHW（channels first），但 cuDNN 和 Tensor Core 更偏爱 NHWC（channels last）。<a href="#fig-nchw_nhwc">图 5</a> 对比了两种布局在内存中的排列：</p>
+<p>PyTorch 默认 NCHW（channels first），但 cuDNN 的 Tensor Core 卷积更偏爱 NHWC（channels last）<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §4.1 “Tensor Layouts In Memory: NCHW vs NHWC”、§4.4.3。">2</a>]</span>。<a href="#fig-nchw_nhwc">图 5</a> 对比了两种布局在内存中的排列：</p>
 
 <figure id="fig-nchw_nhwc" data-kind="diagram">
 <img aria-labelledby="fig-nchw_nhwc-cap" src="figs/nchw_nhwc.svg" alt="NCHW vs NHWC"/>
@@ -423,14 +423,13 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 
 <p>在 im2col + GEMM 路线下，GEMM 的 K 维度是 \(C_\text{in} \cdot R \cdot S\)。为了让 K 维度的数据在内存中连续（合并访存），需要通道维度在最内层——这就是 NHWC。NCHW 的 K 维度分散在不同的通道平面上，同一像素的 C_in 个通道值相隔 \(H \times W\) 个元素——warp 中 32 个线程读取同一行 col 矩阵的 32 个元素时，每个线程访问的地址跨度达 \(H \times W \times \text{sizeof(T)}\)，完全无法合并。</p>
 
-<p><b>NHWC 对 Tensor Core 的意义</b>：mma.sync 和 WGMMA 的 A/B 操作数需要特定的内存布局——A 的 K 维度连续（行优先的 A[M,K]），B 的 K 维度连续（列优先的 B[K,N]）。对卷积来说，B 矩阵就是 col（或 implicit col），K 维度 = C_in&middot;R&middot;S，其中 C_in 在最内层。NHWC 让 C_in 在内存中连续，直接匹配 Tensor Core 的要求——不需要额外转置。</p>
+<p><b>NHWC 对 Tensor Core 的意义</b>：GEMM kernel 最常见、也最省事的操作数布局是&ldquo;K-major&rdquo;（A[M,K] 行优先、B[K,N] 列优先，K 方向连续）：16 字节向量加载沿 K 走，shared memory 里的 tile 直接按 K 排。对卷积来说，激活这一侧的 K 维度 = C_in&middot;R&middot;S；NHWC 让 C_in 在内存中连续，正好是 K-major，不需要额外转置。NVIDIA 的卷积性能指南说得更直接：Tensor Core 卷积要求 NHWC，NCHW 输入仍可使用 Tensor Core，但会带来自动转置的开销，张量越大开销越明显<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §4.1 “Tensor Layouts In Memory: NCHW vs NHWC”、§4.4.3。">2</a>]</span>。</p>
 
 <p>实践中的影响：</p>
 <ul>
-<li>cuDNN 在 Tensor Core GPU 上的 <code>CUDNN_TENSOR_NHWC</code> 路径比 NCHW 快 1.2&ndash;2&times;<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7 cuDNN 卷积算法选择。">2</a>]</span>；</li>
+<li>cuDNN：Tensor Core 卷积在 NHWC 下最快，NCHW 需要自动转置<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §4.1 “Tensor Layouts In Memory: NCHW vs NHWC”、§4.4.3。">2</a>]</span>；同一指南还建议 FP16 下 C_in、C_out 取 8 的倍数；</li>
 <li>PyTorch 通过 <code>model.to(memory_format=torch.channels_last)</code> 切换——转换代价是一次全局内存的读+写，但对整个网络只需做一次；</li>
-<li>ONNX Runtime、TensorRT 默认 NHWC；</li>
-<li>CUTLASS 3.x/4.x 的卷积 kernel 只支持 NHWC<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x/4.x。Implicit GEMM 卷积与 NHWC 布局的参考实现。">3</a>]</span>——channels-last 已是事实标准。从 Ampere 架构起，NCHW 路径在 Tensor Core 场景下已无性能竞争力，新项目应该一开始就选择 NHWC。</li>
+<li>CUTLASS 的 implicit GEMM 卷积以 NHWC 激活、KRSC 滤波器为标准布局<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（x 为 NHWC、w 为 KRSC）。">3</a>]</span>。对以 Tensor Core 为主的新项目，一开始就选 NHWC 能省掉布局转换。</li>
 </ul>
 
 <h2 id="sec-depthwise">Depthwise 与分组卷积</h2>
@@ -439,12 +438,12 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 
 <figure id="fig-arithmetic_intensity" data-kind="diagram">
 <img aria-labelledby="fig-arithmetic_intensity-cap" src="figs/arithmetic_intensity.svg" alt="算术强度对比"/>
-<figcaption id="fig-arithmetic_intensity-cap"><span class="fig-label">图 6</span><b>三种卷积的算术强度对比。</b>Depthwise 卷积远低于 A100 的 roofline 拐点（~40 FLOP/B），完全受带宽约束。1&times;1 conv 高达 128 FLOP/B，是 Tensor Core 的理想目标。</figcaption>
+<figcaption id="fig-arithmetic_intensity-cap"><span class="fig-label">图 6</span><b>三种卷积的算术强度对比（FP16、理想复用、忽略权重流量，对数坐标）。</b>由 \(I = 2RS / (2\,\text{B} \cdot (1/C_\text{in} + 1/C_\text{out}))\) 算出。A100 80GB FP16 Tensor Core 的拐点约 153 FLOP/B（312 TFLOPS / 2.04 TB/s）。Depthwise 远在左侧；C=256 的 1&times;1 卷积反而落在拐点附近，没有 R&middot;S 因子的 3&times;3 卷积高。</figcaption>
 </figure>
 
-<p>算术强度的推导：对 3&times;3 depthwise、FP32，每个输出像素读 1 个输出位置（写 4B）+ 9 个输入位置（36B）+ 9 个权重（36B，但可缓存在寄存器），做 \(2 \times 9 = 18\) 次 FMA。如果权重在寄存器中，有效带宽只有输入读取：\(I = 18 / (4 + 36) \approx 4.5\) FLOP/B。这远低于 A100 的 roofline 拐点（约 40 FLOP/B），所以 depthwise conv 是纯粹的 <b>memory-bound</b> 算子——提升算力（更多 Tensor Core）毫无帮助，只有提升带宽才能加速它。</p>
+<p>算术强度的推导：对 3&times;3 depthwise、FP32，每个输出值写 4B，做 9 次 FMA（18 FLOP）；9 个权重缓存在寄存器里不计。若 9 个输入每次都从 HBM 读（无复用），\(I = 18 / (4 + 36) = 0.45\) FLOP/B；若相邻像素的 halo 完美复用、每个输入只读一次，\(I = 18 / (4 + 4) \approx 2.25\) FLOP/B（FP16 下翻倍到 4.5）。即便是后者，也远低于 A100 FP32 CUDA core 的拐点（约 9.6 FLOP/B），所以 depthwise conv 是纯粹的 <b>memory-bound</b> 算子——提升算力（更多 Tensor Core）毫无帮助，只有提升带宽才能加速它。</p>
 
-<p>Tensor Core 对 depthwise 毫无帮助——Tensor Core 做的是矩阵乘，需要 K 维度有多个通道参与累加；depthwise 每通道独立，K 维度只有 \(R \times S = 9\)，远小于 Tensor Core 的最小 tile 尺寸（16）。</p>
+<p>Tensor Core 对 depthwise 帮助很小——把一个通道写成 GEMM，M（该通道的输出通道数）只有 1，K 只有 \(R \times S = 9\)，都远小于 MMA 指令的 tile 尺寸（如 FP16 <code>mma.sync</code> 的 m16n8k16），绝大部分乘法器会被 padding 浪费；何况它本来就是 memory-bound。</p>
 
 <p>先看 depthwise kernel 的 NHWC 布局选择和线程映射：</p>
 
@@ -459,7 +458,7 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
     int stride_h, int stride_w) {</code></pre>
 <p class="src-note">完整代码：<code>code/cv30-conv-basics/depthwise_conv.cu</code> 第 10&ndash;18 行（未在 GPU 上运行）</p>
 
-<p>注意参数列表中的 NHWC 布局标注——input 是 [N,H,W,C] 而非 NCHW，weight 是 [C,R,S] 即每通道独立的 R&times;S filter。与标准卷积的 grid 映射不同，depthwise 的 blockIdx.z 直接编码通道 c，threadIdx.x 和 threadIdx.y 分别对应输出的宽度和高度。BW=32 是刻意选择——32 个线程沿宽度方向连续，NHWC 下相邻输出像素的同一通道在内存中相距仅 C 个元素，一个 warp 的读取请求落在连续的 128B 区间内，完美合并。BH=8 是在线程数和空间复用之间的平衡：更大的 BH 虽然可以增加行间 halo 复用，但 3&times;3 depthwise 每通道只有 9 个权重、全放寄存器，halo 复用的收益远不如标准卷积显著。与之对比，标准卷积使用 NCHW——在 NCHW 下每个输入通道平面是连续的，halo 加载可以用连续地址直接读一整行。但 depthwise 在 NCHW 下没有这个好处：每通道面积 \(H \times W\) 通常上万个元素，一个通道的 tile 在内存中跨度很大；切到 NHWC 后同一空间位置的所有通道值紧挨在一起，虽然每个线程只读取其中一个通道的值，但 warp 级的 32 个线程同时取 32 个通道在同一空间位置的值——NHWC 下这 32 个值完全连续，一次 128B 事务就能覆盖。这就是 depthwise conv 几乎必须使用 NHWC 布局的原因。</p>
+<p>注意参数列表中的 NHWC 布局标注——input 是 [N,H,W,C] 而非 NCHW，weight 是 [C,R,S] 即每通道独立的 R&times;S filter。与标准卷积的 grid 映射不同，depthwise 的 blockIdx.z 直接编码通道 c，threadIdx.x 和 threadIdx.y 分别对应输出的宽度和高度。<b>注意这个 baseline 的映射其实和 NHWC 不匹配</b>：32 个线程沿宽度方向排开、读同一个通道 c，NHWC 下相邻输出像素的同一通道相距 C 个元素（\(4C\) 字节），一个 warp 的 32 次读取落在 32 个不同的 sector 上，没有合并。（这种按宽度排线程的映射只在 NCHW 下合并。）NHWC 下正确的做法是让 warp 的 32 个 lane 沿通道排开：同一空间位置的 32 个通道值在 NHWC 下完全连续，一次 128B 事务就能覆盖；再让每个线程沿宽度循环若干像素，在寄存器里复用 halo。下面列出的优化方向就是从这个 baseline 出发的。</p>
 
 <p>每个线程的计算逻辑简洁——遍历 R&times;S 个 filter 位置，做边界检查后逐点累加：</p>
 
@@ -482,15 +481,15 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 
 <p>Depthwise conv 的优化方向全在带宽利用率上：</p>
 <ul>
-<li><b>NHWC 布局</b>：相邻线程读相邻通道（<code>input[... * C + c]</code>），warp 内 32 个线程读连续的 32 个通道值，一次 128B 事务完成——完美合并。</li>
+<li><b>NHWC + lane 映射到通道</b>：相邻线程读相邻通道（<code>input[... * C + c]</code>，c 由 threadIdx.x 决定），warp 内 32 个线程读连续的 32 个通道值，一次 128B 事务完成。</li>
 <li><b>float4 向量化</b>：NHWC 下一次读 <code>float4</code>（128-bit）就是 4 个通道值，减少指令数和事务数。</li>
 <li><b>Filter 寄存器缓存</b>：3&times;3 depthwise 只有 9 个权重值，全放寄存器——整个内层循环不需要任何 smem 或全局内存读 weight。</li>
 <li><b>输入复用</b>：相邻输出像素共享 halo 区域——可以在 smem 中缓存一条行，让同一数据被多个线程复用。</li>
 </ul>
 
-<p><b>分组卷积</b>（groups &gt; 1 但 &lt; \(C_\text{in}\)）是 depthwise 和标准卷积的折中——每组做一个小的标准卷积，各组之间独立。ResNeXt 的 groups=32 就是这种形式。它可以映射成 batched GEMM：batch_count = groups, M = C_out/groups, K = C_in/groups &times; R &times; S, N = P。但 batched GEMM 有一个问题：每个 batch 的矩阵都很小（C_out/32 = 几到十几），而 Tensor Core 在小矩阵上利用率低——这就是为什么 groups 太多（&gt;64）时性能反而下降，cuDNN 会退回到分组 direct conv。实践中 groups=32 或 groups=64 是一个比较好的平衡点：每组的矩阵足够大，同时还能享受分组带来的参数和计算量减少。</p>
+<p><b>分组卷积</b>（groups &gt; 1 但 &lt; \(C_\text{in}\)）是 depthwise 和标准卷积的折中——每组做一个小的标准卷积，各组之间独立。ResNeXt 的 cardinality=32 就是这种形式。它可以映射成 batched GEMM：batch_count = groups, M = C_out/groups, K = C_in/groups &times; R &times; S, N = P。问题在于 groups 越多，每组的 M 和 K 越小（例如 C=128、groups=32 时每组只有 4 个通道），MMA tile 越难填满，参数和 FLOP 虽然按 1/groups 减少，实际耗时却未必同比例下降。</p>
 
-<p><b>Depthwise separable convolution</b> 是 MobileNet 的核心结构：一个 3&times;3 depthwise conv 后接一个 1&times;1 pointwise conv。总参数量 = \(C \times 9 + C \times C = C(9 + C)\)，而标准 3&times;3 conv 的参数量 = \(C^2 \times 9\)。当 C=128 时，分离卷积的参数量只有标准卷积的 \((9 + 128)/(9 \times 128) = 11.9\%\)。FLOP 的节省更显著：标准 3&times;3 conv 的 FLOP &prop; \(C^2 \times 9 \times H \times W\)，分离卷积的 FLOP &prop; \(C \times 9 \times H \times W + C^2 \times H \times W = C \times H \times W \times (9 + C)\)，节省比例同参数量。这种设计在边缘部署中极为常见——在 Jetson Orin 上，一个 depthwise separable block 的推理延迟通常只有对应标准卷积的 15&ndash;20%。</p>
+<p><b>Depthwise separable convolution</b> 是 MobileNet 的核心结构：一个 3&times;3 depthwise conv 后接一个 1&times;1 pointwise conv。总参数量 = \(C \times 9 + C \times C = C(9 + C)\)，而标准 3&times;3 conv 的参数量 = \(C^2 \times 9\)。当 C=128 时，分离卷积的参数量只有标准卷积的 \((9 + 128)/(9 \times 128) = 11.9\%\)。FLOP 的节省更显著：标准 3&times;3 conv 的 FLOP &prop; \(C^2 \times 9 \times H \times W\)，分离卷积的 FLOP &prop; \(C \times 9 \times H \times W + C^2 \times H \times W = C \times H \times W \times (9 + C)\)，节省比例同参数量。这种设计在边缘部署中极为常见；但因为 depthwise 部分是 memory-bound，实际延迟的节省通常小于 FLOP 的节省。</p>
 
 <h2 id="sec-oneone">1&times;1 卷积 = GEMM</h2>
 
@@ -500,50 +499,49 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 \text{Output}_{[C_\text{out}, H \cdot W]} = \text{Weight}_{[C_\text{out}, C_\text{in}]} \times \text{Input}_{[C_\text{in}, H \cdot W]}
 \]
 
-<p>不需要 im2col——输入本身就是 col 矩阵（K 维度只有 C_in，没有 R&times;S 的膨胀）。1&times;1 卷积在 ResNet（bottleneck 的降维/升维）、MobileNet（pointwise 层）和 UNet 的通道变换中大量出现。它是 CNN 推理中 Tensor Core 利用率最高的算子——M = C_out, K = C_in, N = H&middot;W 通常都足够大（几百到几千），可以填满 Tensor Core。</p>
+<p>不需要 im2col——输入本身就是 col 矩阵（K 维度只有 C_in，没有 R&times;S 的膨胀）。1&times;1 卷积在 ResNet（bottleneck 的降维/升维）、MobileNet（pointwise 层）和 UNet 的通道变换中大量出现。M = C_out, K = C_in, N = H&middot;W 通常都有几百以上，足以填满 MMA tile。但要注意它的算术强度：FP16 下约 \(2 / (2\,\text{B} \cdot (1/C_\text{in} + 1/C_\text{out}))\)，C_in=C_out=256 时约 128 FLOP/B，比同通道数 3&times;3 卷积低 9 倍，在 A100 上已接近拐点（<a href="#fig-arithmetic_intensity">图 6</a>）。</p>
 
-<p>一个关键优化：当 batch size 很大时，可以把 batch 维度合并到 N 维度——GEMM 变成 M = C_out, K = C_in, N = batch &times; H &times; W。对 batch=32, H=W=56, C_in=256, C_out=256 的 ResNet 第三阶段：这是一个 256 &times; 256 &times; 100352 的 GEMM——完全 compute-bound，Tensor Core 效率极高。</p>
+<p>一个关键优化：当 batch size 很大时，可以把 batch 维度合并到 N 维度——GEMM 变成 M = C_out, K = C_in, N = batch &times; H &times; W。对 batch=32, H=W=56, C_in=256, C_out=256 的形状：这是一个 M=256、K=256、N=100352 的 GEMM，N 很大，不缺并行度；但 K 只有 256，算术强度受上面那个公式限制。</p>
 
-<p><b>1&times;1 conv 的融合优化</b>：由于 1&times;1 conv 就是 GEMM，它可以和 bias add、ReLU、BN（batch normalization 的推理形式可以折叠成 scale + bias）做算子融合——cuBLAS 的 <code>cublasLtMatmul</code> 支持 epilogue fusion（alpha &times; A&times;B + beta &times; C 后跟 ReLU/GELU）。融合后省掉中间张量的全局内存写→读，对 1&times;1 conv + ReLU 来说能减少约 30% 的全局内存流量。在 TensorRT 的推理优化中，连续的 1&times;1 conv + BN + ReLU 几乎总是被融合成单个 kernel。</p>
+<p><b>1&times;1 conv 的融合优化</b>：由于 1&times;1 conv 就是 GEMM，它可以和 bias add、ReLU、BN（batch normalization 的推理形式可以折叠成 scale + bias）做算子融合——cuBLAS 的 <code>cublasLtMatmul</code> 支持 epilogue fusion（alpha &times; A&times;B + beta &times; C 后跟 ReLU/GELU）。融合后省掉中间张量的一次全局内存写和一次读：C_in=C_out 时，未融合的 conv + ReLU 共读写 4 个激活大小的张量，融合后只剩 2 个。推理引擎（如 TensorRT）通常会把 conv + BN + ReLU 融合成单个 kernel。</p>
 
 <h2 id="sec-pool">Pooling 与上采样</h2>
 
 <p><b>Max / average pooling</b> 的结构与卷积相似（滑动窗口 + stride），但只做比较/求和，没有乘法——是纯 memory-bound 算子。GPU 实现通常是每线程负责一个输出像素，从全局内存读窗口内的值。对 2&times;2 stride=2 的 max pool，每个输出像素读 4 个值（16B）、写 1 个值（4B）、做 3 次比较——算术强度约 \(3/20 = 0.15\) FLOP/B。优化思路同 depthwise conv：向量化访存、合并。</p>
 
-<p><b>Nearest / bilinear upsample</b> 也是 memory-bound：nearest 只是索引计算加拷贝，bilinear 多四次乘加（算术强度约 0.5 FLOP/B）。在 diffusion 模型中，上采样后紧跟 3&times;3 卷积——这两个算子可以融合成一个 kernel：上采样的输出不写回 HBM，直接作为卷积的输入在 smem/寄存器中传递（在 <a href="../df38-unet-ops/df38-unet-ops.html">第 38 篇</a>会详细讨论）。</p>
+<p><b>Nearest / bilinear upsample</b> 也是 memory-bound：nearest 只是索引计算加拷贝，bilinear 每个输出多几次乘加，算术强度仍远低于 1 FLOP/B 量级的拐点。在 diffusion 模型中，上采样后紧跟 3&times;3 卷积——这两个算子可以融合成一个 kernel：上采样的输出不写回 HBM，直接作为卷积的输入在 smem/寄存器中传递（在 <a href="../df38-unet-ops/df38-unet-ops.html">第 38 篇</a>会详细讨论）。</p>
 
 <p><b>Global average pooling</b>（GAP）是 ResNet 最后一层的常见操作——把 \(H \times W\) 的特征图平均到一个标量。它本质上是一个 reduction：对每个 (N, C) 通道，在 \(H \times W\) 个值上求和再除以 \(H \times W\)。当 \(H \times W\) 较大时（如 7&times;7 = 49），可以让一个 warp 做并行 reduction；当 \(H \times W\) 很大（如 56&times;56 = 3136），需要 block-level reduction 加 shared memory。在 NHWC 布局下，GAP 可以同时对多个通道做 reduction——利用向量化加载（<code>float4</code>）一次处理 4 个通道的值。</p>
 
 <h2 id="sec-cudnn">cuDNN 算法选择</h2>
 
-<p>cuDNN 为每种卷积组合提供多个算法（direct、im2col GEMM、Winograd、FFT、implicit GEMM 等），通过 <code>cudnnFindConvolutionForwardAlgorithm</code> 在运行时自动选择最快的。选择依据包括：</p>
+<p>cuDNN 的 legacy API 为前向卷积列出了八种算法（<code>cudnnConvolutionFwdAlgo_t</code>：IMPLICIT_GEMM、IMPLICIT_PRECOMP_GEMM、GEMM、DIRECT、FFT、FFT_TILING、WINOGRAD、WINOGRAD_NONFUSED）<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code> 各算法说明。">4</a>]</span>，<code>cudnnFindConvolutionForwardAlgorithm</code> 实际跑一遍候选算法并按耗时排序。cuDNN 的启发式规则不公开，下面是影响选择的几个因素（定性）：</p>
 
 <ul>
-<li><b>filter 大小</b>：3&times;3 优先 Winograd（FP32）或 implicit GEMM（FP16/FP8）；大 filter（&gt;5&times;5）可能用 FFT；</li>
-<li><b>精度</b>：FP16/BF16/FP8 优先 Tensor Core implicit GEMM——这是性能最好的路径；FP32 的 3&times;3 可能选 Winograd（<a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>）；</li>
-<li><b>workspace 预算</b>：im2col 需要 workspace（= col 矩阵大小），无 workspace 时退回 direct 或 implicit GEMM；</li>
-<li><b>groups</b>：depthwise 有专门的 direct kernel，不走 GEMM 路线；</li>
-<li><b>输入大小</b>：小 HW（如 7&times;7）的卷积 GEMM 的 N 维度太小，可能不如 direct conv。</li>
+<li><b>filter 大小</b>：Winograd 只针对小 filter（如 3&times;3），FFT 类算法对大 filter 更划算；注意文档写明 WINOGRAD 算法在 Hopper 及之后的架构上不再支持<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code> 各算法说明。">4</a>]</span>；</li>
+<li><b>精度</b>：FP16/BF16 等低精度能走 Tensor Core 的 implicit GEMM；Winograd 的数值误差问题见<a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>；</li>
+<li><b>workspace 预算</b>：文档写明 GEMM（显式 im2col）需要&ldquo;相当大的&rdquo; workspace 存放展开矩阵，IMPLICIT_PRECOMP_GEMM 只需少量 workspace 存预计算索引，IMPLICIT_GEMM 不显式构造矩阵<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Backend API: cudnn_ops library. <code>cudnnConvolutionFwdAlgo_t</code> 各算法说明。">4</a>]</span>；</li>
+<li><b>groups 与形状</b>：depthwise、分组卷积以及小 HW 的卷积，GEMM 化后矩阵很小，不一定是 GEMM 类算法最快。</li>
 </ul>
 
 <p>PyTorch 的 <code>torch.backends.cudnn.benchmark = True</code> 在首次遇到新形状时做算法搜索并缓存结果。注意：如果输入形状在训练过程中动态变化（如不同 batch 大小或序列长度），benchmark 模式会频繁搜索，反而更慢。</p>
 
-<p><b>算法选择的实际影响</b>有多大？对 ResNet-50 的 3&times;3 conv（C=128, H=W=56），cuDNN 在 A100 上的算法选择差异可以导致 2&ndash;3 倍的性能差距——最差的（direct conv FP32）和最好的（Tensor Core implicit GEMM FP16）之间差距巨大。在实际工程中，PyTorch 用户经常踩的一个坑是：训练脚本在 FP32 下跑得很慢，加了 <code>torch.cuda.amp.autocast()</code> 后突然快了 3 倍——这不仅是因为 FP16 吞吐量翻倍，更重要的是 cuDNN 选择了完全不同的算法路径（从 Winograd FP32 或 im2col FP32 GEMM 切换到了 Tensor Core implicit GEMM FP16）。</p>
+<p><b>算法选择与精度的关系</b>：同一个卷积，换精度往往意味着换算法路径。开启 <code>torch.autocast</code> 后变快，不只是因为数据减半，更因为 FP16/BF16 卷积能走 Tensor Core 的 implicit GEMM（A100 上 FP16 Tensor Core 稠密峰值 312 TFLOPS，FP32 CUDA core 只有 19.5 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 FP32 / FP16 Tensor Core 峰值、A100/H100/B200 HBM 带宽与容量等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>）。具体快多少取决于形状和 cuDNN 版本，用 <code>torch.backends.cudnn.benchmark</code> 加 profiler 实测为准。</p>
 
-<p>另一个工程细节：cuDNN 8.x 引入了基于 <b>graph API</b> 的融合引擎（<code>cudnnBackendDescriptor</code>），可以把卷积 + bias + 激活函数 + 残差连接融合成一个 kernel。这对 ResNet 的 bottleneck block（1&times;1 conv &rarr; BN &rarr; ReLU &rarr; 3&times;3 conv &rarr; BN &rarr; ReLU &rarr; 1&times;1 conv &rarr; BN &rarr; add residual &rarr; ReLU）特别有效——理论上可以把整个 block 的内存流量减少到只读输入和写输出，中间层的激活不落地。cuDNN 9.x 进一步改进了图优化器，能自动发现更多融合机会。</p>
+<p>另一个工程细节：cuDNN 8.x 引入了基于 <b>graph API</b> 的融合引擎（<code>cudnnBackendDescriptor</code>），可以把卷积 + bias + 激活函数 + 残差连接融合成一个 kernel。这对 ResNet 的 bottleneck block（1&times;1 conv &rarr; BN &rarr; ReLU &rarr; 3&times;3 conv &rarr; BN &rarr; ReLU &rarr; 1&times;1 conv &rarr; BN &rarr; add residual &rarr; ReLU）特别有效——理想情况下中间激活不落地；实际能融合哪些模式取决于 cuDNN 版本支持的融合图。</p>
 
-<p>在实际工程中，用 <code>nsys profile</code> 或 <code>ncu</code> 分析卷积 kernel 时，一个常见的发现是：即使在 cuDNN benchmark 模式下选择了最优算法，真正的性能瓶颈往往不在卷积本身，而在卷积前后的 element-wise 操作（BatchNorm、ReLU、残差加法）反复读写 HBM。一个 ResNet bottleneck block 的 3 个卷积只做 6 次 HBM 读写（每个卷积读输入写输出），但中间的 BN 和 ReLU 各需要独立的读-计算-写流程——额外增加 6&ndash;8 次 HBM 往返。cuDNN 的 graph API 通过融合消灭这些多余的往返，将整个 block 的访存次数压缩到接近理论最小值，是现代 CNN 训练中最重要的系统级优化之一。PyTorch 2.x 的 <code>torch.compile</code> 也能对 element-wise 操作做类似融合——但它作用在 PyTorch 层面，对 cuDNN 内部的卷积 kernel 没有影响，两者互补。</p>
+<p>用 <code>nsys profile</code> 或 <code>ncu</code> 分析时值得留意卷积前后的 element-wise 操作（BatchNorm、ReLU、残差加法）：数一下就知道，一个 ResNet bottleneck block 的 3 个卷积各读一次输入、写一次输出；未融合时 3 个 BN、3 个 ReLU 和 1 个残差加各自还要一读一写，约 7 次额外的 HBM 往返。这些算子 FLOP 很少，耗时几乎全是访存，正是融合的目标。PyTorch 2.x 的 <code>torch.compile</code> 也能把相邻的 element-wise 操作融合成一个 kernel——但卷积本身通常仍调用 cuDNN，两者互补。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
 <table>
 <thead><tr><th>特性</th><th>对卷积的影响</th></tr></thead>
 <tbody>
-<tr><td>TMA（Hopper/Blackwell）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.8（TMA 指令族）。">4</a>]</span></td><td>im2col + GEMM 路线中，TMA 加载 col 矩阵的 tile 效率更高——但 implicit GEMM 才是 TMA 真正发力的地方：TMA 可以做带 stride 的 2D/3D tile 加载，正好匹配卷积的访问模式，部分取代软件的地址计算。</td></tr>
-<tr><td>WGMMA / tcgen05</td><td>更大的 MMA tile（m64n256k16 / m256n256k32）让 1&times;1 卷积和 implicit GEMM 的 Tensor Core 利用率更高。对小 HW 的卷积（如 7&times;7），大 tile 可能浪费——需要 padding 到 tile 边界。</td></tr>
-<tr><td>NHWC 布局</td><td>CUTLASS 3.x/4.x 的卷积 kernel 只支持 NHWC<span class="cite">[<a href="#ref-cutlass" title="NVIDIA (2025). CUTLASS 3.x/4.x。Implicit GEMM 卷积与 NHWC 布局的参考实现。">3</a>]</span>——channels-last 已是事实标准。NCHW 路径在未来可能被彻底弃用。</td></tr>
-<tr><td>FP8 / FP4</td><td>低精度卷积可以复用 <a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>的 block scaling 技术；CUTLASS 4.x 支持 FP8 implicit GEMM conv。FP4 卷积目前尚无公开实现。</td></tr>
-<tr><td>Depthwise 特化</td><td>depthwise conv 仍然是 memory-bound，不受 Tensor Core 算力提升影响——带宽增长（A100 2.0 TB/s → H100 3.35 TB/s → B200 8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>）才是加速来源。B200 的 4&times; 带宽提升对 depthwise conv 意义最大。</td></tr>
+<tr><td>TMA（Hopper/Blackwell）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.5. §5.5.4 “im2col mode”（TMA 张量访问模式）。">5</a>]</span></td><td>TMA 除了普通的 tiled 模式，还有专门的 <b>im2col 模式</b>（PTX ISA §5.5.4）：把 3D/4D/5D 的 NWC/NHWC/NDHWC 张量当作一批图像，按 DHW 空间的 bounding box 取数并在 shared memory 中排成 im2col 的列——implicit GEMM 的地址计算可以部分交给硬件，而且它只支持 channels-last 布局。</td></tr>
+<tr><td>WGMMA / tcgen05</td><td>更大的 MMA tile（FP16 下 WGMMA 最大 m64n256k16，tcgen05 双 CTA 最大 m256n256k16）让 1&times;1 卷积和 implicit GEMM 的 Tensor Core 利用率更高。对小 HW 的卷积（如 7&times;7），大 tile 可能浪费——需要 padding 到 tile 边界。</td></tr>
+<tr><td>NHWC 布局</td><td>CUTLASS 的 implicit GEMM 卷积以 NHWC 为标准布局<span class="cite">[<a href="#ref-cutlass" title="NVIDIA. CUTLASS: Implicit GEMM Convolution. CUTLASS 文档（x 为 NHWC、w 为 KRSC）。">3</a>]</span>，TMA 的 im2col 模式也只认 channels-last——新硬件特性都围绕 NHWC 设计。</td></tr>
+<tr><td>FP8 / FP4</td><td>低精度卷积在原理上可以复用 <a href="../gm29-low-precision-gemm/gm29-low-precision-gemm.html">第 29 篇</a>的 block scaling 技术（implicit GEMM 的主循环就是 GEMM 主循环）；各库对 FP8/FP4 卷积的支持程度请以其文档为准。</td></tr>
+<tr><td>Depthwise 特化</td><td>depthwise conv 仍然是 memory-bound，不受 Tensor Core 算力提升影响——带宽增长（A100 2.0 TB/s → H100 3.35 TB/s → B200 8 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 FP32 / FP16 Tensor Core 峰值、A100/H100/B200 HBM 带宽与容量等规格。各项均标有 NVIDIA 官方出处。">1</a>]</span>）才是加速来源。B200 相对 A100 约 4&times; 的带宽提升对 depthwise conv 意义最大。</td></tr>
 </tbody>
 </table>
 
@@ -555,20 +553,20 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 <b>追问</b>：implicit GEMM 相比 im2col + GEMM 的优劣？答：省显存、减少全局写→读的往返，但地址计算更复杂（需要除法/取模或预计算偏移表），且增加了 B 侧 tile 加载的延迟。实际性能接近或更快（因为省了带宽）。</dd>
 
 <dt id="sec-q2">Q2：为什么推荐 NHWC 而不是 NCHW？</dt>
-<dd>Tensor Core GEMM 的 K 维度需要连续——对卷积来说 K 包含 \(C_\text{in}\) 个通道。NHWC 让通道维度在最内层，一次 128B 事务读取多个通道值，合并效率高。NCHW 的通道维度在外层，同一像素的不同通道相隔 H&times;W 个元素——一个 warp 读同一 col 行的 32 个元素时，地址跨度可达数 MB，完全无法合并。<br>
-<b>追问</b>：什么时候 NCHW 更好？答：纯 CUDA core 的逐像素算子（如 depthwise conv with small C 或 reduction over spatial），通道维度不参与合并时差别不大；某些 legacy cuDNN 路径只支持 NCHW。但在 Tensor Core 时代，NHWC 几乎总是更好。</dd>
+<dd>Tensor Core GEMM 的 K 维度需要连续——对卷积来说 K 包含 \(C_\text{in}\) 个通道。NHWC 让通道维度在最内层，一次 128B 事务读取多个通道值，合并效率高。NCHW 的通道维度在外层，同一像素的不同通道相隔 H&times;W 个元素——沿通道读 32 个元素时，相邻两次访问相隔 \(H \cdot W \cdot \text{sizeof(T)}\) 字节，完全无法合并。<br>
+<b>追问</b>：什么时候 NCHW 更好？答：纯 CUDA core 的逐像素算子（如 depthwise conv with small C 或 reduction over spatial），通道维度不参与合并时差别不大。但对 Tensor Core 卷积，NVIDIA 指南明确建议 NHWC。</dd>
 
 <dt id="sec-q3">Q3：Depthwise 卷积为什么难优化？</dt>
-<dd>每个通道独立计算，没有跨通道数据复用——3&times;3 depthwise 的算术强度约 4.5 FLOP/B，远低于 roofline 拐点。Tensor Core 需要矩阵乘的形状，depthwise 用不上（K=9 太小，且不跨通道累加）。优化只能靠带宽：向量化加载（float4）、filter 权重缓存在寄存器、合并访存、输入行在 smem 中复用。<br>
+<dd>每个通道独立计算，没有跨通道数据复用——3&times;3 depthwise 即使输入完美复用，算术强度也只有约 2.25 FLOP/B（FP32）/ 4.5 FLOP/B（FP16），远低于 roofline 拐点。Tensor Core 需要矩阵乘的形状，depthwise 用不上（K=9 太小，且不跨通道累加）。优化只能靠带宽：向量化加载（float4）、filter 权重缓存在寄存器、合并访存、输入行在 smem 中复用。<br>
 <b>追问</b>：MobileNet 中 depthwise + pointwise 的组合为什么高效？答：depthwise 做空间滤波（memory-bound 但 FLOP 极少），pointwise（1&times;1 conv = GEMM）做通道混合（compute-bound，Tensor Core 友好）。总 FLOP 约为标准 3&times;3 conv 的 \(1/C_\text{out} + 1/(R \cdot S)\) &asymp; 1/9，减少了近一个数量级的计算量。</dd>
 
 <dt id="sec-q4">Q4：1&times;1 卷积和 GEMM 有什么关系？</dt>
-<dd>1&times;1 conv 没有空间滑动（R=S=1），就是 \([C_\text{out}, C_\text{in}] \times [C_\text{in}, H\cdot W]\) 的 GEMM。不需要 im2col——输入本身就是 col 矩阵。它是 CNN 中 Tensor Core 利用率最高的算子。<br>
-<b>追问</b>：如果 batch size 很大（N=256），1&times;1 conv 的 GEMM 维度是什么？答：可以把 batch 和空间维度合并：M = C_out, K = C_in, N = batch&middot;H&middot;W——成为一个超大的 GEMM，完全 compute-bound。</dd>
+<dd>1&times;1 conv 没有空间滑动（R=S=1），就是 \([C_\text{out}, C_\text{in}] \times [C_\text{in}, H\cdot W]\) 的 GEMM。不需要 im2col——输入本身就是 col 矩阵。它的算术强度没有 R&middot;S 因子，比同通道数的 3&times;3 卷积低，通道数小时可能接近 memory-bound。<br>
+<b>追问</b>：如果 batch size 很大（N=256），1&times;1 conv 的 GEMM 维度是什么？答：可以把 batch 和空间维度合并：M = C_out, K = C_in, N = batch&middot;H&middot;W——N 维度很大，并行度充足；是否 compute-bound 取决于 C_in、C_out（见正文的算术强度公式）。</dd>
 
 <dt id="sec-q5">Q5：直接卷积和 im2col 各适合什么场景？</dt>
 <dd>直接卷积适合：小 batch、小 HW 的场景（im2col 的 col 矩阵太小，不值得多一次 kernel launch）；没有 workspace 预算时。im2col + GEMM 适合：大 batch、大 HW 的标准卷积，可以充分利用 GEMM 的 Tensor Core 优化。实际中 implicit GEMM 几乎总是最优选择——它兼有直接卷积的低显存和 GEMM 的高算力利用率。<br>
-<b>追问</b>：cuDNN 的算法搜索（benchmark 模式）是怎么工作的？答：对每种可用算法实际运行一次，记录执行时间，缓存最快的。首次搜索有几百 ms 开销，但后续同形状输入直接命中缓存。</dd>
+<b>追问</b>：cuDNN 的算法搜索（benchmark 模式）是怎么工作的？答：对每种可用算法实际运行，记录执行时间，缓存最快的。首次遇到新形状时有一次搜索开销，后续同形状输入直接命中缓存。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
@@ -577,14 +575,14 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 <li>本篇所有代码只通过 Apple clang 的 host-only 语法检查，<b>未在 GPU 上编译或运行</b>。卷积的输出正确性未经数值验证。</li>
 <li>Direct conv 代码使用动态共享内存（<code>extern __shared__</code>），实际部署时需要根据 tile 大小和 filter 大小计算 smem 预算并用 <code>cudaFuncSetAttribute</code> 设置最大动态 smem 大小。</li>
 <li>im2col 代码只展示了 col 矩阵的生成，GEMM 部分以注释代替——完整流程见 <a href="../gm24-sgemm-ladder/gm24-sgemm-ladder.html">第 24 篇</a>的 GEMM kernel。</li>
-<li>Depthwise conv 代码是 baseline 版本，未做 filter 寄存器缓存和向量化——cuDNN 的实现要快得多。</li>
+<li>Depthwise conv 代码是 baseline 版本：线程沿宽度映射，在 NHWC 下不合并，也未做 filter 寄存器缓存和向量化。</li>
 <li>未覆盖 3D 卷积（输入 [N,C,D,H,W]）、转置卷积（deconv）、可变形卷积（deformable conv）——这些在 <a href="../cv32-winograd-special-conv/cv32-winograd-special-conv.html">第 32 篇</a>。</li>
 <li>未覆盖 implicit GEMM（不物化 col 矩阵的卷积 GEMM）——这是下一篇（<a href="../cv31-implicit-gemm/cv31-implicit-gemm.html">第 31 篇</a>）的主题。理解本篇的 im2col 原理是理解 implicit GEMM 的前提。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>卷积在 GPU 上有两条路线：直接卷积用 shared memory halo tiling，im2col 把它变成 GEMM。后者是主流，因为它直接复用 GEMM 的所有优化（Tensor Core、流水线、persistent kernel），但代价是 col 矩阵的 R&times;S 倍显存膨胀——对高分辨率输入，一个 3&times;3 卷积的 col 就可能占用数 GB 显存。NHWC 布局让通道连续，是 Tensor Core 卷积的前提——从 cuDNN 到 CUTLASS，channels-last 已经是事实标准。Depthwise conv 是特殊存在——完全 memory-bound，Tensor Core 帮不上忙，只有带宽增长才能加速它。cuDNN 通过算法选择引擎（包括自动调优和启发式选择）为每种卷积形状和精度自动选择最佳实现路径，而 graph API 则进一步实现了跨算子融合。下一篇将讲 implicit GEMM：在 GEMM 主循环中实时计算地址，消除 im2col 的显存开销——这是现代 GPU 卷积库最核心的优化思想。</p>
+<p>卷积在 GPU 上有两条路线：直接卷积用 shared memory halo tiling，im2col 把它变成 GEMM。后者是主流，因为它直接复用 GEMM 的所有优化（Tensor Core、流水线、persistent kernel），但代价是 col 矩阵的 R&times;S 倍显存膨胀——对高分辨率输入，一个 3&times;3 卷积的 col 就可能占用数 GB 显存。NHWC 布局让通道连续，是 Tensor Core 卷积的前提——从 cuDNN 的建议、CUTLASS 的标准布局到 TMA 的 im2col 模式，都以 channels-last 为前提。Depthwise conv 是特殊存在——完全 memory-bound，Tensor Core 帮不上忙，只有带宽增长才能加速它。cuDNN 通过启发式规则或实测搜索为每种卷积形状和精度选择实现路径，而 graph API 则进一步实现了跨算子融合。下一篇将讲 implicit GEMM：在 GEMM 主循环中实时计算地址，消除 im2col 的显存开销——这是现代 GPU 卷积库最核心的优化思想。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -598,16 +596,17 @@ H_\text{out} = \left\lfloor \frac{H + 2\cdot\text{pad}_h - \text{dil}_h\cdot(R -
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽等规格。各项均标有 NVIDIA 官方出处。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7 cuDNN 卷积算法选择。</li>
-  <li id="ref-cutlass">NVIDIA (2025). <a href="https://github.com/NVIDIA/cutlass">CUTLASS 3.x/4.x</a>。Implicit GEMM 卷积与 NHWC 布局的参考实现。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.8（TMA 指令族）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 FP32 / FP16 Tensor Core 峰值、A100/H100/B200 HBM 带宽与容量等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-dlperf">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-convolutional/index.html">Convolutional Layers User&#39;s Guide</a>. NVIDIA Deep Learning Performance Documentation, §4.1 &ldquo;Tensor Layouts In Memory: NCHW vs NHWC&rdquo;、§4.4.3。</li>
+  <li id="ref-cutlass">NVIDIA. <a href="https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md">CUTLASS: Implicit GEMM Convolution</a>. CUTLASS 文档（x 为 NHWC、w 为 KRSC）。</li>
+  <li id="ref-cudnn">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/cudnn/backend/latest/api/cudnn-ops-library.html">cuDNN Backend API: cudnn_ops library</a>. <code>cudnnConvolutionFwdAlgo_t</code> 各算法说明。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.5</a>. §5.5.4 &ldquo;im2col mode&rdquo;（TMA 张量访问模式）。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 30 篇。文中代码完整版在系列目录的 <code>code/cv30-conv-basics/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
+  本文是「从零精通 GPU Kernel」系列第 30 篇。文中代码完整版在系列目录的 <code>code/cv30-conv-basics/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–3、5 为手绘示意图；图 4、6 的数字由图中公式算出；硬件数据来自 NVIDIA 官方文档，出处见参考文献。
 </footer>
 
 </div>

@@ -34,10 +34,10 @@
 
 <!-- Example -->
 <rect x="20" y="135" width="640" height="75" class="box" fill="#f3f4f6" stroke="#d1d5db"/>
-<text x="340" y="155" text-anchor="middle" class="title">Example kernel project STAR</text>
-<text x="35" y="173" class="label">S: LLM inference decode was bottlenecked by attention kernel on A100 (seq_len 32K, batch 64)</text>
+<text x="340" y="155" text-anchor="middle" class="title">Example kernel project STAR (fictional numbers, for illustration)</text>
+<text x="35" y="173" class="label">S: LLM inference on A100, decode attention kernel is the bottleneck (p99 12 ms)</text>
 <text x="35" y="191" class="label">A: Profiled with ncu &rarr; 45% HBM utilization; vectorized loads + online softmax &rarr; 82% utilization</text>
-<text x="35" y="209" class="label">R: 1.8x speedup, reduced p99 latency from 12ms to 7ms, deployed to production serving 10K QPS</text>
+<text x="35" y="209" class="label">R: p99 latency 12 ms &rarr; 6.5 ms (target &lt; 7 ms); same cluster serves 1.8x the QPS</text>
 
 <text x="340" y="237" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

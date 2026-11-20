@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 17 分钟阅读</span>
+    <span data-reading-time>约 18 分钟阅读</span>
   </div>
 </header>
 
@@ -244,7 +244,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>到<a href="../tc20-layout-algebra/tc20-layout-algebra.html">第 20 篇</a>为止，我们知道了 Tensor Core 的操作数长什么形状、寄存器里每个 fragment 对应矩阵哪个位置。但从第 <a href="../tc19-tensor-core-basics/tc19-tensor-core-basics.html">19 篇</a>开始一直没讨论一个问题：数据是怎么从全局内存搬进共享内存的？</p>
 
-<p>在 Volta 和 Turing 上，答案很简单：一条 <code>LDG</code> 从全局内存读到寄存器，一条 <code>STS</code> 从寄存器写到共享内存，线程同步之后再用 <code>ldmatrix</code> 搬给张量核。每一步都是同步的——线程必须等全局内存的数据到达寄存器才能执行下一条指令，然后再等寄存器的数据写入共享内存才能继续。这段等待时间里线程什么计算都做不了。</p>
+<p>在 Volta 和 Turing 上，答案很简单：一条 <code>LDG</code> 从全局内存读到寄存器，一条 <code>STS</code> 从寄存器写到共享内存，线程同步之后再用 <code>ldmatrix</code>（Turing 起）或普通的共享内存读取把数据交给 Tensor Core。<code>STS</code> 要用到 <code>LDG</code> 的结果，所以线程必须等全局内存的数据到达寄存器，才能把它写进共享内存；这段等待里，这个线程后面依赖它的指令都发不出去。</p>
 
 <p>本篇回答三个问题：<b>Ampere 的 <code>cp.async</code> 怎么绕过寄存器让线程不用等；Hopper 的 TMA 又怎么连地址计算都省了；以及 mbarrier 如何协调&ldquo;数据到了没有&rdquo;这件事，从而让多级流水线跑起来。</b></p>
 
@@ -258,16 +258,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-timeline-cap"><span class="fig-label">图 1</span><b>同步加载让线程等在 GMEM→寄存器→SMEM 的每一步上；cp.async 绕过寄存器，线程发完拷贝指令就能去做别的。</b></figcaption>
 </figure>
 
-<p>Ampere 引入的 <code>cp.async</code>（PTX ISA §9.7.10.28.3.1）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 做了一件事：让&ldquo;从全局内存到共享内存&rdquo;这段搬运不再经过线程的寄存器。线程只需要给出源地址和目的地址，硬件就沿着一条绕过寄存器文件的旁路搬数据，线程本身可以继续执行后面的指令（<a href="#fig-timeline">图 1</a>）。</p>
+<p>Ampere 引入的 <code>cp.async</code>（PTX ISA §9.7.10.28.3.1）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 做了一件事：让&ldquo;从全局内存到共享内存&rdquo;这段搬运不再经过线程的寄存器。线程只需要给出源地址和目的地址，数据直接从全局内存写进共享内存，不再需要中转用的寄存器 <span class="cite">[<a href="#ref-ampereblog" title="Krashinsky, R., Giroux, O., Jones, S., Stam, N., Ramaswamy, S. (2020). NVIDIA Ampere Architecture In-Depth. NVIDIA Technical Blog（“Asynchronous copy” 一段）。">2</a>]</span>，线程本身可以继续执行后面的指令（<a href="#fig-timeline">图 1</a>）。</p>
 
 <figure id="fig-datapath" data-kind="diagram">
   <img aria-labelledby="fig-datapath-cap" src="figs/cpasync_datapath.svg" alt="同步、cp.async、TMA 三种数据路径对比">
   <figcaption id="fig-datapath-cap"><span class="fig-label">图 2</span><b>三代数据搬运路径演进。</b>Volta/Turing 同步路径经过寄存器中转（HBM→Register→SMEM），线程在每一步都被阻塞。Ampere 的 cp.async 绕过寄存器直达 SMEM，线程可以继续计算。Hopper 的 TMA 进一步把地址计算和 swizzle 也交给硬件——只需一个线程、一条指令就搬完整块 tile。</figcaption>
 </figure>
 
-<p><a href="#fig-datapath">图 2</a>清晰展示了三代路径的区别。同步路径的问题不仅是线程被阻塞——<b>寄存器中转还会占用寄存器文件的容量</b>。一个 128 线程的 warp 如果每个线程中转 16 字节，就需要 2 KB 寄存器空间来暂存搬运数据，这些寄存器本可以用来持有更多计算中间值。cp.async 的旁路把这块寄存器压力完全消除了。</p>
+<p><a href="#fig-datapath">图 2</a> 展示了三代路径的区别。同步路径的问题不仅是线程被阻塞——<b>寄存器中转还会占用寄存器</b>。一个 128 线程的 block 如果每个线程中转 16 字节，就要拿出 128 × 16 B = 2 KB 的寄存器来暂存搬运数据，这些寄存器本可以用来持有计算的中间值。cp.async 不经过寄存器，省掉了这部分占用。</p>
 
-<p>一条 <code>cp.async</code> 的 PTX 长这样：</p>
+<p>PTX 层面，一条 <code>cp.async</code> 写作 <code>cp.async.ca.shared.global [dst], [src], cp-size</code>（<code>.cg</code> 版本同理）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。本篇的示例 <code>cpasync_pipe.cu</code> 用的是 CUDA 的 <code>__pipeline_*</code> 原语，它们是 cp.async 在 C++ 里的封装 <span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>；文件头说明了它的结构：</p>
 
 <pre data-code="code/tc21-async-copy-mbarrier/cpasync_pipe.cu#L1-L13"><code>// tc21: cp.async double-buffer pipeline for SMEM loads.
 //
@@ -292,9 +292,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h3 id="sec-1">为什么 16 字节是最优选择</h3>
 
-<p>cp.async 支持 4、8、16 字节三种宽度，但实际的 GEMM kernel 几乎总是用 16 字节。原因是<b>一次 128 位（16 字节）拷贝正好对应全局内存控制器的一个 sector 传输粒度</b>。HBM 的 sector 大小是 32 字节，一个 warp 的 32 个线程各发一条 16 字节的 cp.async，总计 512 字节 = 16 个 sector，恰好填满一个缓存行。用 4 或 8 字节会让 sector 利用率下降到 12.5% 或 25%，白白浪费带宽。</p>
+<p>cp.async 支持 4、8、16 字节三种宽度，但实际的 GEMM kernel 几乎总是用 16 字节。原因主要有两条。一是指令数：同样搬一块数据，每条搬 16 字节所需的指令数只有每条 4 字节的四分之一。二是只有 16 字节的拷贝能用 <code>.cg</code>（只缓存在 L2、绕过 L1）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。只要一个 warp 的访问是合并的，4 字节宽度并不会浪费 DRAM 带宽（第 5 篇），差别在于发射的指令多。</p>
 
-<p>对于 FP16 数据，16 字节 = 8 个 FP16 元素；对于 FP32，16 字节 = 4 个元素。CUTLASS 的 <code>cp.async</code> 模板就是按 128 位对齐来组织源地址和目的地址的。</p>
+<p>对于 FP16 数据，16 字节 = 8 个 FP16 元素；对于 FP32，16 字节 = 4 个元素。源地址和目的地址都要按拷贝宽度对齐。</p>
 
 <h3 id="sec-2">commit/wait 组：把拷贝打包，按批等待</h3>
 
@@ -341,7 +341,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h3 id="sec-3">CUDA C++ 封装：__pipeline 系列函数</h3>
 
-<p>上面代码中的 <code>__pipeline_memcpy_async</code>、<code>__pipeline_commit</code>、<code>__pipeline_wait_prior</code> 是 CUDA C++ 对 PTX cp.async 指令的直接封装。此外，CUDA 12+ 还提供了 <code>cuda::memcpy_async</code>（在 <code>&lt;cuda/barrier&gt;</code> 头文件中），它将拷贝操作绑定到 <code>cuda::barrier</code> 而非 commit/wait 组。这两种封装的底层机制相同，选择哪种取决于你用的是 commit/wait 组模型还是 barrier 模型。</p>
+<p>上面代码中的 <code>__pipeline_memcpy_async</code>、<code>__pipeline_commit</code>、<code>__pipeline_wait_prior</code> 是 CUDA C++ 对 PTX cp.async 指令的直接封装。此外，CUDA 还提供了 <code>cuda::memcpy_async</code>（在 <code>&lt;cuda/barrier&gt;</code> 头文件中），它将拷贝操作绑定到 <code>cuda::barrier</code> 而非 commit/wait 组。这两种封装的底层机制相同，选择哪种取决于你用的是 commit/wait 组模型还是 barrier 模型。</p>
 
 <p>需要注意的是，commit/wait 组是<b>线程级</b>的概念——每个线程维护自己的一组待完成组，组的编号和内容对其他线程不可见。这意味着同一个 warp 里的不同线程可以有不同数量的待完成组。而 <code>__syncthreads()</code> 只保证所有线程到达同步点，并不保证各线程的 cp.async 组都完成了。正确的模式是：先 <code>wait_prior(0)</code> 确保自己线程的拷贝完成，再 <code>__syncthreads()</code> 确保整个 block 的所有线程都看到了数据。</p>
 
@@ -350,11 +350,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <!-- ======== Section 2: TMA ======== -->
 <h2 id="sec-tma" data-short="TMA">Hopper：一个线程描述一整块 tile</h2>
 
-<p>Tensor Memory Access（TMA，§9.7.10.28.5.3）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 的核心想法：<b>把&ldquo;这块数据长什么样&rdquo;和&ldquo;这次要搬哪一块&rdquo;分开</b><span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">2</a>]</span>。前者在主机上一次性编码进一个叫 <b>tensor map</b>（<code>CUtensorMap</code>）的不透明对象；后者在 kernel 里一条指令带上坐标就搞定。</p>
+<p>Tensor Memory Accelerator（TMA，§9.7.10.28.5.3）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 的核心想法：<b>把&ldquo;这块数据长什么样&rdquo;和&ldquo;这次要搬哪一块&rdquo;分开</b><span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">4</a>]</span>。前者在主机上一次性编码进一个叫 <b>tensor map</b>（<code>CUtensorMap</code>）的不透明对象；后者在 kernel 里一条指令带上坐标就搞定。</p>
 
 <h3 id="sec-4">Tensor map：主机告诉硬件&ldquo;张量长什么样&rdquo;</h3>
 
-<p>Tensor map 用驱动 API <code>cuTensorMapEncodeTiled</code>（Driver API §6.41）<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span> 在主机端创建。你告诉它：</p>
+<p>Tensor map 用驱动 API <code>cuTensorMapEncodeTiled</code> 在主机端创建 <span class="cite">[<a href="#ref-driverapi" title="NVIDIA. CUDA Driver API: Tensor Map Object Management（<code>cuTensorMapEncodeTiled</code> 的参数约束与 swizzle、im2col 模式说明）。">5</a>]</span>。你告诉它：</p>
 <ul>
   <li><b>globalAddress</b>：张量在全局内存中的基地址（16 字节对齐；tensor map 对象本身 64 字节对齐）。</li>
   <li><b>rank</b>：张量维度，1 到 5。</li>
@@ -367,13 +367,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>共享内存有 32 个 bank，每 bank 4 字节宽。如果一个 warp 的多个线程读同一个 bank 的不同地址，就会产生 bank conflict。TMA 的 swizzle 模式在搬运时<b>自动</b>对地址做异或变换（XOR），让 tile 在共享内存中的排列避开最常见的 conflict 模式。</p>
 
-<p>以 128B swizzle 为例：地址的第 4–6 位（128 字节内的偏移）与行号的低位做 XOR。效果是同一列的不同行在共享内存中交错分布到不同的 bank 组。具体的 XOR 映射公式编码在 tensor map 的 swizzle 字段里，后续的 <code>ldmatrix</code> 或 WGMMA 描述符必须知道同一套映射，否则读出来的数据位置不对。CUTLASS 3.x 的 <code>SmemLayoutAtom</code> 就是在做这件事：让搬运时的 swizzle 和消费时的 layout 匹配。</p>
+<p>以 128B swizzle 为例：一行 128 字节分成 8 个 16 字节块，物理块号 = 逻辑块号 XOR（行号 mod 8）<span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">4</a>]</span>，即地址的第 4–6 位与第 7–9 位做 XOR，模式每 1024 字节重复一次 <span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。效果是同一列的不同行在共享内存中交错分布到不同的 bank 组。具体的 XOR 映射公式编码在 tensor map 的 swizzle 字段里，后续的 <code>ldmatrix</code> 或 WGMMA 描述符必须知道同一套映射，否则读出来的数据位置不对。第 20 篇讲过，这正是 CuTe 里 <code>Swizzle&lt;3,4,3&gt;</code> 描述的变换。</p>
 
-<p>创建好的 tensor map 推荐作为 kernel 参数传入（<code>const __grid_constant__ CUtensorMap</code>），也可以放在 <code>__constant__</code> 里<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span>。</p>
+<p>创建好的 tensor map 推荐作为 kernel 参数传入（<code>const __grid_constant__ CUtensorMap</code>），也可以放在 <code>__constant__</code> 或全局内存里（后者需要额外的 tensormap fence）<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。</p>
 
 <h3 id="sec-6">一条指令搬一整块 tile</h3>
 
-<p>在 kernel 里，一个线程——是的，<b>一个</b>线程——就能搬一整块 tile<span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">2</a>]</span>：</p>
+<p>在 kernel 里，一个线程——是的，<b>一个</b>线程——就能搬一整块 tile<span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">4</a>]</span>：</p>
 
 <pre data-code="code/tc21-async-copy-mbarrier/tma_mbar.cu#L58-L71"><code>  // Stage 0: one thread issues TMA, sets expected tx bytes.
   if (threadIdx.x == 0) {
@@ -400,7 +400,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <li><b>维度</b>：<code>.1d</code> 到 <code>.5d</code>，支持 1 到 5 维的 tiled 搬运。</li>
   <li><b>方向</b>：除了 global→smem 的 load，还有 smem→global 的 <code>cp.async.bulk.tensor.Nd.global.shared::cta</code>（store），以及归约 store（<code>cp.reduce.async.bulk.tensor</code>，§9.7.10.28.5.4）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>，支持 add、min、max 等原子归约操作。</li>
   <li><b>multicast</b>：Hopper 的 <code>.multicast::cluster</code> 修饰符让同一份全局数据一次写到 cluster 内多个 CTA 的共享内存，ctaMask 的每一位对应一个 CTA rank。这对多 CTA 共享相同输入（如 GEMM 的 B 矩阵广播）特别有用。</li>
-  <li><b>im2col</b>模式：<code>.im2col</code> 修饰符让 TMA 在搬运时做隐式的 im2col 变换，直接为卷积准备好输入数据，省去了在 kernel 里手动做 im2col 的开销。Blackwell 新增的 <code>.im2col::w</code> 变体进一步优化了权重侧的 im2col 变换效率。</li>
+  <li><b>im2col</b>模式：<code>.im2col</code> 修饰符让 TMA 在搬运时做隐式的 im2col 变换，直接为卷积准备好输入数据，省去了在 kernel 里手动做 im2col 的开销。Blackwell 又新增了 <code>.im2col::w</code> 等变体，只沿 W 维取元素 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>, <a href="#ref-driverapi" title="NVIDIA. CUDA Driver API: Tensor Map Object Management（<code>cuTensorMapEncodeTiled</code> 的参数约束与 swizzle、im2col 模式说明）。">5</a>]</span>。</li>
 </ul>
 
 <p>但跟 cp.async 不同的是，TMA 的完成不再用 commit/wait 组，而是用 mbarrier。</p>
@@ -440,7 +440,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h3 id="sec-9">初始化与到达</h3>
 
-<p><code>mbarrier.init [addr], count</code>（§9.7.15.16.12）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 把屏障设为 phase 0，剩余和期望到达数都设为 count，tx-count 设为 0。初始化之后要加一条 <code>fence.proxy.async.shared::cta</code>，让后续的 bulk 操作能看到初始化结果<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span>。</p>
+<p><code>mbarrier.init [addr], count</code>（§9.7.15.16.12）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 把屏障设为 phase 0，剩余和期望到达数都设为 count，tx-count 设为 0。初始化之后要加一条 <code>fence.proxy.async.shared::cta</code>，让后续的 bulk 操作能看到初始化结果<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。</p>
 
 <p><code>mbarrier.arrive</code>（§9.7.15.16.16）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 让剩余到达数减一。<code>mbarrier.arrive.expect_tx [addr], bytes</code> 先把 tx-count 增加 bytes，再做一次 arrive——这是在告诉屏障&ldquo;我即将发一批 TMA，一共这么多字节&rdquo;。当 TMA 写完共享内存时，硬件自动做 <code>complete_tx</code> 把 tx-count 减回去。两者抵消，屏障完成。</p>
 
@@ -463,19 +463,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <!-- ======== Section 4: async proxy ======== -->
 <h2 id="sec-proxy" data-short="async proxy">异步代理与 fence</h2>
 
-<p>cp.async 和 TMA 都在一个叫 <b>async proxy</b> 的内存代理里执行（§9.7.10.28.2）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。同一个地址如果被 async proxy 和 generic proxy（普通 load/store 走的代理）同时访问，需要用 <code>fence.proxy.async</code>（§9.7.15.4）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 做一次双向代理 fence。</p>
+<p>这里要区分两类指令。Ampere 的 <code>cp.async</code> 是 generic proxy（普通 load/store 走的代理）里的弱内存操作；TMA 所属的 <code>cp.async.bulk</code> 系列则在另一个叫 <b>async proxy</b> 的内存代理里执行（§9.7.10.28.2）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。同一个地址如果被 async proxy 和 generic proxy 先后访问，需要用 <code>fence.proxy.async</code>（§9.7.15.4）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 做一次双向代理 fence。</p>
 
-<p>有一个好消息：cp.async 和 TMA 的<b>完成</b>自带一个隐式的 generic-async proxy fence——也就是说，只要你通过 wait_group 或 mbarrier 观察到了完成，数据就已经对 generic proxy 可见了，不需要额外加 fence。</p>
+<p>有一个好消息：PTX 规定 bulk 操作的<b>完成</b>后面跟着一个隐式的 generic-async proxy fence <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>——只要通过 mbarrier（或 bulk 的 wait_group）观察到了 TMA 加载完成，数据就已经对 generic proxy 可见，不需要额外加 fence。<code>cp.async</code> 本来就在 generic proxy 里，等到 wait_group 或 mbarrier 完成即可。</p>
 
 <p>需要显式 fence 的场景主要有两个：</p>
 <ul>
-  <li><b>mbarrier 初始化之后</b>：init 是 generic proxy 的写，但后续的 bulk copy 在 async proxy 里读屏障地址。编程指南的示例在 init 之后加了 <code>fence.proxy.async.shared::cta</code><span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span>。</li>
-  <li><b>TMA store 之前</b>：各线程用普通 store 往 smem 写数据（generic proxy），然后一个线程用 TMA bulk store 把 smem 搬回全局内存（async proxy 读 smem）。在 store 和 TMA 之间需要 fence<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span>。</li>
+  <li><b>mbarrier 初始化之后</b>：init 是 generic proxy 的写，但后续的 bulk copy 在 async proxy 里读屏障地址。编程指南的示例在 init 之后加了 <code>fence.proxy.async.shared::cta</code><span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。</li>
+  <li><b>TMA store 之前</b>：各线程用普通 store 往 smem 写数据（generic proxy），然后一个线程用 TMA bulk store 把 smem 搬回全局内存（async proxy 读 smem）。在 store 和 TMA 之间需要 fence<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。</li>
 </ul>
 
-<p>理解 proxy 的关键是记住这条规则：<b>同一个地址、同一个方向（读或写）只会走一种代理</b>。只有当两种代理访问同一地址时才需要 fence。在典型的 TMA 加载流水线中，搬运走 async proxy、计算走 generic proxy、但它们访问的是<b>不同阶段</b>的共享内存地址——所以 fence 只在初始化和 store 的交界处出现。</p>
-
-<p>一个常见的错误是在 TMA store（smem→global）场景中忘记加 fence。考虑 GEMM epilogue 的典型流程：各线程把计算结果写入 smem（generic proxy store），然后一个线程用 <code>cp.async.bulk.shared::cta.global</code> 把 smem 整块搬回全局内存（async proxy read）。如果中间没有 <code>fence.proxy.async</code>，async proxy 读到的 smem 内容可能是旧的——因为 generic proxy 的 store 还在它自己的写缓冲区里，没有传播到 async proxy 的视图。</p>
+<p>一个常见的错误是在 TMA store（smem→global）场景中忘记加 fence。考虑 GEMM epilogue 的典型流程：各线程把计算结果写入 smem（generic proxy store），然后一个线程用 <code>cp.async.bulk.tensor.2d.global.shared::cta</code> 把 smem 整块搬回全局内存（async proxy read）。按 PTX 的内存模型，中间没有 <code>fence.proxy.async</code> 时，不保证 async proxy 能看到这些 generic proxy 的写，搬出去的可能是旧数据。编程指南的示例顺序是：各线程写 smem，执行 <code>fence.proxy.async.shared::cta</code>，<code>__syncthreads()</code>，再由一个线程发 bulk store <span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。</p>
 
 <!-- ======== Section 5: ring pipeline ======== -->
 <h2 id="sec-ring" data-short="环形流水线">把它们组装起来：环形多 stage 流水线</h2>
@@ -485,7 +483,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <figcaption id="fig-ring-cap"><span class="fig-label">图 5</span><b>三个 SMEM stage 轮流使用，每个 stage 由一对 full/empty mbarrier 保护。</b>生产者（TMA）等 empty 才写，消费者（计算 warp）等 full 才读。</figcaption>
 </figure>
 
-<p>有了 TMA 搬数据、mbarrier 跟踪完成，多级流水线的结构就清楚了。核心思想（<a href="#fig-ring">图 5</a>）：共享内存开 S 个 stage，每个 stage 配一对 mbarrier：<b>full</b>（数据已到达）和 <b>empty</b>（数据已消费、slot 可复用）<span class="cite">[<a href="#ref-mlcmbar" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Coordination — mbarrier.">4</a>]</span>。</p>
+<p>有了 TMA 搬数据、mbarrier 跟踪完成，多级流水线的结构就清楚了。核心思想（<a href="#fig-ring">图 5</a>）：共享内存开 S 个 stage，每个 stage 配一对 mbarrier：<b>full</b>（数据已到达）和 <b>empty</b>（数据已消费、slot 可复用）<span class="cite">[<a href="#ref-mlcmbar" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Coordination — mbarrier.">6</a>]</span>。</p>
 
 <p>生产者（发 TMA 的线程）在填第 s 个 stage 之前，先等 empty[s] 确认消费者已经用完上一轮的数据；填完之后信号 full[s]。消费者在读第 s 个 stage 之前等 full[s]；读完之后信号 empty[s]。三个 stage 这样轮转：</p>
 
@@ -522,11 +520,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h3 id="sec-12">Prime 段的必要性</h3>
 
-<p>启动时的 prime 段（标记所有 empty 屏障为&ldquo;完成&rdquo;）是容易被忽视的关键步骤。不做 prime 的话，生产者在第一轮等 empty[0] 时会永远阻塞——因为 empty 屏障刚初始化，phase 0 还没完成，但消费者还没消费过任何数据来 arrive。prime 段相当于告诉系统&ldquo;所有 stage 一开始就是空的、可以填充&rdquo;，这对应了流水线的初始空状态。</p>
+<p>这份代码让生产者和消费者用同一个 phase 公式，所以启动时要先 prime：对每个 empty 屏障 arrive 一次，让它的 phase 0 完成。不 prime 的话，生产者第一轮等 empty[0] 的 phase 0 会永远阻塞——消费者还没消费过任何数据，不会来 arrive。另一种同样常见的写法是不 prime，而让生产者等 empty 时用相反的 parity（初值为 1）：PTX 规定 <code>try_wait.parity</code> 对&ldquo;紧前一个阶段&rdquo;的 parity 直接返回 True <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>，所以刚初始化的屏障上等 parity 1 会立即通过，效果相同。两种写法都表达&ldquo;所有 stage 一开始都是空的&rdquo;。</p>
 
 <h3 id="sec-13">stage 数怎么选</h3>
 
-<p>Stage 数受两个约束。一方面，stage 越多，搬运和计算重叠的机会越大，流水线越满——至少要 2 个 stage 才有重叠，3 或 4 个 stage 是常见选择。另一方面，每个 stage 要占一份共享内存。Ampere (CC 8.0) 每 block 最大动态共享内存 163 KB，Hopper (CC 9.0) 和 Blackwell (CC 10.0) 是 227 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：核实过的 GPU 规格表，每条附 NVIDIA 原始来源。">5</a>]</span>。</p>
+<p>Stage 数受两个约束。一方面，stage 越多，搬运和计算重叠的机会越大，流水线越满——至少要 2 个 stage 才有重叠，3 或 4 个 stage 是常见选择。另一方面，每个 stage 要占一份共享内存。Ampere (CC 8.0) 每 block 最大动态共享内存 163 KB，Hopper (CC 9.0) 和 Blackwell (CC 10.0) 是 227 KB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：核实过的 GPU 规格表，每条附 NVIDIA 原始来源。">7</a>]</span>。</p>
 
 <p>拿 HGEMM 的常见 tile 大小算：M×K = 128×64，FP16 每元素 2 字节，一份 A tile 占 16 KB。B tile 如果也是 64×128 那又是 16 KB。两份一起 32 KB，三个 stage 就是 96 KB——Hopper 上够用。但如果 tile 更大（比如 128×128 的 A 和 B），一份就是 32 KB，三个 stage 192 KB，正好卡在 Hopper 的上限内。四个 stage 就会超。</p>
 
@@ -536,15 +534,15 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>上面的代码中生产者和消费者是同一组线程的不同路径（由 <code>tid == 0</code> 分支）。但在 Hopper 的高性能 GEMM kernel 中，通常采用<b>warp specialization</b>——整个 CTA 被分成生产者 warp 和消费者 warp，各自专门负责搬运和计算。</p>
 
-<p>生产者 warp（通常 1 个 warp）循环发 TMA 并管理 mbarrier 的 expect_tx / arrive。消费者 warp（通常 3 个 warp，组成一个 warpgroup）循环等 mbarrier 的 full 信号，然后用 WGMMA 做矩阵乘法。这种分工的好处是<b>消费者不需要执行任何搬运相关的指令</b>——所有的寄存器和指令 slot 都留给计算，最大化 Tensor Core 的利用率。</p>
+<p>生产者（一个 warp 或一个 warpgroup，实际只由其中一个线程发 TMA）循环发 TMA 并管理 mbarrier 的 expect_tx / arrive。消费者是一个或多个 warpgroup（每个 warpgroup 由 4 个连续的 warp 组成，第 2 篇），循环等 mbarrier 的 full 信号，然后用 WGMMA 做矩阵乘法。这种分工的好处是<b>消费者不需要执行任何搬运相关的指令</b>——所有的寄存器和指令 slot 都留给计算，最大化 Tensor Core 的利用率。</p>
 
-<p>在 CUTLASS 3.x 的 <code>PipelineTmaAsync</code> 和 CuTe 的 <code>make_tma_copy</code> 中，warp specialization 的逻辑已经被模板化：你只需指定生产者和消费者的角色，模板会生成对应的 mbarrier 管理代码。</p>
+<p>CUTLASS 3.x 把 full/empty 屏障的管理封装成了 <code>PipelineTmaAsync</code> 等流水线类，TMA 拷贝本身由 CuTe 的 <code>make_tma_copy</code> 构造。</p>
 
 <!-- ======== Section 6: H/B ======== -->
 <h2 id="sec-hb" data-short="H/B 系列">Hopper 与 Blackwell 的异步硬件对比</h2>
 
 <figure id="tab-hb" class="table" data-source="paper">
-  <figcaption id="tab-hb-cap"><span class="fig-label">表 1</span><b>Hopper 到 Blackwell：异步搬运与协调机制的演进。</b>数据来自 PTX ISA 9.4<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 与 CUDA 编程指南<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。">3</a>]</span>。TMA 本身没有变化，变化集中在消费端。</figcaption>
+  <figcaption id="tab-hb-cap"><span class="fig-label">表 1</span><b>Hopper 到 Blackwell：异步搬运与协调机制的演进。</b>数据来自 PTX ISA 9.4<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span> 与 CUDA 编程指南<span class="cite">[<a href="#ref-progguide" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。">3</a>]</span>。TMA 的基本模型没有变，变化主要在消费端。</figcaption>
   <div class="table-wrap"><table>
     <thead><tr><th>维度</th><th>Hopper (sm_90a)</th><th>Blackwell (sm_100a)</th></tr></thead>
     <tbody>
@@ -552,55 +550,55 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
       <tr><td>TMA 完成跟踪</td><td>mbarrier (expect_tx / complete_tx)</td><td>同左</td></tr>
       <tr><td>消费端 MMA</td><td>WGMMA：4 warps 发射，累加器在寄存器</td><td>tcgen05.mma：1 线程发射，累加器在 TMEM</td></tr>
       <tr><td>MMA 完成跟踪</td><td>wgmma.commit_group / wait_group</td><td>tcgen05.commit → mbarrier</td></tr>
-      <tr><td>双 SM 协作</td><td>cluster (最多 16 CTA)</td><td>CTA pair (2 CTA, 2 SM)</td></tr>
+      <tr><td>跨 CTA 协作</td><td>cluster（可移植上限 8 个 CTA）</td><td>同左；另有 CTA pair（<code>cta_group::2</code>，一对 CTA 合作一条 MMA）</td></tr>
       <tr><td>动态调度</td><td>无（静态 persistent grid）</td><td>Cluster Launch Control (CLC)</td></tr>
       <tr><td>每 block smem 上限</td><td>227 KB</td><td>227 KB</td></tr>
     </tbody>
   </table></div>
 </figure>
 
-<p>Blackwell 的 TMA 增加了 <code>.tile::gather4</code> 和 <code>.im2col::w</code> 两种新的加载模式（需要 sm_100a），以及 <code>.cta_group</code> 限定符。但 TMA 的核心模型——tensor map + 坐标 + mbarrier——和 Hopper 是一样的（<a href="#tab-hb">表 1</a>）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。</p>
+<p>Blackwell 的 TMA 增加了 <code>.tile::gather4</code> 和 <code>.im2col::w</code> 两种新的加载模式（目的地址为 <code>.shared::cluster</code> 时需要 sm_100a，为 <code>.shared::cta</code> 时 sm_100 及以上即可），以及 <code>.tile::scatter4</code> 和 <code>.cta_group</code> 限定符。但 TMA 的核心模型——tensor map + 坐标 + mbarrier——和 Hopper 是一样的（<a href="#tab-hb">表 1</a>）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。">1</a>]</span>。</p>
 
 <p>真正变化的是消费端：Hopper 的 WGMMA 用自己的 commit_group/wait_group 跟踪 MMA 完成，Blackwell 的 <code>tcgen05.mma</code> 改用 <code>tcgen05.commit</code> 把完成绑定到 mbarrier，使得整条流水线——搬运和计算——都用 mbarrier 统一协调。这是<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>的内容。</p>
 
-<p>这种演进方向说明一个趋势：<b>mbarrier 正在成为 NVIDIA GPU 上所有异步操作的统一协调原语</b>。从 Ampere 的线程到达计数，到 Hopper 的字节到达跟踪（tx-count），再到 Blackwell 的计算完成跟踪（tcgen05.commit → mbarrier），越来越多原本用专用机制完成的同步都在向 mbarrier 收敛。理解 mbarrier 的四个状态字段和 phase parity 机制，就掌握了未来几代 NVIDIA 架构的流水线编程基础。</p>
+<p>这种演进方向说明一个趋势：<b>mbarrier 正在成为 NVIDIA GPU 上所有异步操作的统一协调原语</b>。从 Ampere 的线程到达计数，到 Hopper 的字节到达跟踪（tx-count），再到 Blackwell 的计算完成跟踪（tcgen05.commit → mbarrier），越来越多的异步完成信号都汇到 mbarrier 上。所以 mbarrier 的四个状态字段和 phase parity 机制，是后面 Hopper、Blackwell 各篇流水线代码的共同基础。</p>
 
 <!-- ======== Interview ======== -->
 <h2 id="sec-interview">面试考点</h2>
 <dl>
   <dt id="sec-q1">cp.async 和普通 load 的区别？</dt>
-  <dd>cp.async 不经过寄存器，绕过寄存器文件走旁路搬数据，线程不用等；完成靠 commit_group / wait_group 或 mbarrier，不是 <code>__syncthreads()</code>。普通 load 是 LDG→寄存器→STS→SMEM，每步同步。cp.async 还释放了寄存器压力——不需要中转寄存器。在实际 GEMM kernel 中，省下来的寄存器可以让编译器为计算部分分配更多累加寄存器，从而减少 register spilling 到 local memory 的次数。</dd>
+  <dd>cp.async 不经过寄存器，绕过寄存器文件走旁路搬数据，线程不用等；完成靠 commit_group / wait_group 或 mbarrier，不是 <code>__syncthreads()</code>。普通 load 是 LDG→寄存器→STS→SMEM，每步同步。cp.async 还省掉了中转用的寄存器。</dd>
 
   <dt id="sec-q2">TMA 的优点有哪些？</dt>
-  <dd>（1）一个线程一条指令搬一整块 tile，省掉了所有线程各自算地址的开销；（2）硬件做跨步和 swizzle，减少指令数并消除 bank conflict；（3）用 mbarrier 的 tx-count 精确跟踪字节到达，不用 commit/wait 组；（4）支持 multicast 到 cluster 内多个 CTA。</dd>
+  <dd>（1）一个线程一条指令搬一整块 tile，省掉了所有线程各自算地址的开销；（2）硬件做跨步和 swizzle，减少指令数，配合匹配的读取方式可以避开 bank conflict；（3）用 mbarrier 的 tx-count 精确跟踪字节到达，不用 commit/wait 组；（4）支持 multicast 到 cluster 内多个 CTA。</dd>
 
   <dt id="sec-q3">mbarrier 的 tx-count 怎么工作？</dt>
   <dd>借-还模型：expect_tx 增加 tx-count（告诉屏障即将搬多少字节），TMA 完成时硬件自动做 complete_tx 减回来。当 tx-count 和 arrive_count 都归零，当前 phase 完成，phase 自动 +1。线程不需要轮询搬运状态——只需等 mbarrier 的 parity 即可。</dd>
 
   <dt id="sec-q4">mbarrier 的 phase 是什么？</dt>
-  <dd>mbarrier 每次完成后自动进入下一个 phase，phase parity 在 0 和 1 之间翻转。try_wait 传入期望的 parity：匹配则检查当前阶段是否完成。这让多级流水线不用每轮重新 init 屏障。</dd>
+  <dd>mbarrier 每次完成后自动进入下一个 phase，phase parity 在 0 和 1 之间翻转。<code>try_wait.parity</code> 传入要等的那个阶段的 parity：该阶段已完成就返回 True，还在进行就（可能等一段时间后）返回 False，需要循环重试。这让多级流水线不用每轮重新 init 屏障。</dd>
 
   <dt id="sec-q5">多级流水线 stage 数怎么选？</dt>
-  <dd>下界：至少 2 个 stage 才能让搬运和计算重叠。上界：每 stage 占一份 tile 的 smem（A+B），乘以 stage 数不能超过架构的 smem 上限（Hopper/Blackwell 227 KB）。常见选择是 3 或 4。具体来说，对于 FP16 的 128×64 tile，一个 A tile 占 16 KB，一个 B tile 也是 16 KB，两者加上 mbarrier 开销，一个 stage 约 32 KB。三个 stage 约 96 KB，四个 stage 约 128 KB，在 Hopper 的 227 KB 上限之内都没问题。但如果 tile 增大到 256×128，单 stage 就要 64 KB，三个 stage 就接近 200 KB。</dd>
+  <dd>下界：至少 2 个 stage 才能让搬运和计算重叠。上界：每 stage 占一份 tile 的 smem（A+B），乘以 stage 数不能超过架构的 smem 上限（Hopper/Blackwell 227 KB）。常见选择是 3 或 4。具体来说，对于 FP16 的 128×64 tile，一个 A tile 占 16 KB，一个 B tile 也是 16 KB，一个 stage 32 KB（每个 mbarrier 只占 8 字节，可以忽略）。三个 stage 96 KB，四个 stage 128 KB，都在 227 KB 之内。如果 A、B tile 都是 128×128，单 stage 就要 64 KB，三个 stage 192 KB，四个就超过上限。</dd>
 
   <dt id="sec-q6">fence.proxy.async 什么时候需要？</dt>
-  <dd>当同一共享内存位置被 async proxy（cp.async 或 TMA 走的代理）和 generic proxy（普通 load/store 走的代理）跨代理访问时需要显式 fence。两个典型场景：mbarrier 初始化之后（init 是 generic 写，后续 bulk copy 从 async 读屏障地址）；TMA store 之前（线程用普通 store 写 smem，TMA 从 async proxy 读 smem 搬往全局内存）。但不用担心的是：cp.async 和 TMA 加载完成后自带隐式 fence，消费者读共享内存时不需要额外操作。</dd>
+  <dd>当同一共享内存位置被 async proxy（TMA 等 <code>cp.async.bulk</code> 操作走的代理）和 generic proxy（普通 load/store 以及非 bulk 的 cp.async 走的代理）跨代理访问时需要显式 fence。两个典型场景：mbarrier 初始化之后（init 是 generic 写，后续 bulk copy 从 async 读屏障地址）；TMA store 之前（线程用普通 store 写 smem，TMA 从 async proxy 读 smem 搬往全局内存）。不需要的情形：TMA 加载完成后自带隐式的代理 fence，消费者等到 mbarrier 完成后直接读共享内存即可。</dd>
 </dl>
 
 <!-- ======== Limits ======== -->
 <h2 id="sec-limits">局限与未覆盖</h2>
 <ul>
   <li>本篇的内联 PTX 都在 Apple clang 的 host-only 语法检查下编译通过，但 <b>asm volatile 里的 PTX 文本对编译器前端是不透明的</b>：拼写、操作数宽度等只做了人工核对，没有经过 ptxas。</li>
-  <li><code>cuda::pipeline</code> 和 <code>cuda::barrier</code>（C++ API）未展开；它们是 cp.async/mbarrier 的 C++ 包装，底层编译到相同的 PTX 指令，推荐在 CUDA 12+ 中使用。</li>
+  <li><code>cuda::pipeline</code> 和 <code>cuda::barrier</code>（C++ API）未展开；它们是 cp.async/mbarrier 的 C++ 包装。</li>
   <li>TMA 的 .im2col 模式、多维示例、store + reduce 的完整代码未给出。</li>
-  <li>本机无法运行 GPU 代码，所以没有性能对比——cp.async 与同步 load 的延迟数据可参考 MLC 教程<span class="cite">[<a href="#ref-mlctma" title="MLC Community (2026). Modern GPU Programming For MLSys: Async Data Movement — TMA.">2</a>]</span>。</li>
-  <li>Blackwell 新增的 <code>.tile::gather4</code> 只在<a href="#sec-hb">H/B 系列</a> 提了一句，完整用法见<a href="../tc23-blackwell/tc23-blackwell.html">第 23 篇</a>。</li>
+  <li>本机无法运行 GPU 代码，所以没有给出 cp.async、TMA 与同步加载的任何性能对比数字。</li>
+  <li>Blackwell 新增的 <code>.tile::gather4</code>、<code>.tile::scatter4</code>、<code>.im2col::w</code> 只在<a href="#sec-hb">H/B 系列</a> 提了一句，没有展开。</li>
 </ul>
 
 <!-- ======== Summary ======== -->
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>本篇沿着&ldquo;异步搬运&rdquo;主线，从 Ampere 的 <code>cp.async</code>（全局内存→共享内存的异步拷贝，绕过寄存器，节省寄存器压力并让搬运与计算重叠）到 Hopper 的 <code>mbarrier</code>（硬件异步屏障，用 arrive/wait 的计数协议替代 <code>__syncthreads</code> 的全 block 粗粒度同步）再到 TMA（Tensor Memory Accelerator，把地址计算和数据搬运完全卸载到硬件单元，warp 只需发射一条指令就能搬运整个 tile）。三者的组合构成了 Hopper 多级软件流水线的基础设施——producer warp 用 TMA 发起搬运，mbarrier 通知 consumer warp 数据就绪，consumer warp 直接从共享内存执行 WGMMA。这条异步管线让数据搬运的延迟几乎完全被计算掩盖，是 Hopper GEMM 达到 SOL 带宽的关键。下一篇将展示如何把这些原语组合进完整的 Hopper GEMM kernel。</p>
+<p>本篇沿着&ldquo;异步搬运&rdquo;主线，从 Ampere 的 <code>cp.async</code>（全局内存→共享内存的异步拷贝，绕过寄存器，节省寄存器压力并让搬运与计算重叠）到 <code>mbarrier</code>（Ampere 引入、Hopper 加上 tx-count 的硬件异步屏障，用 arrive/wait 的计数协议替代 <code>__syncthreads</code> 的全 block 粗粒度同步）再到 TMA（Tensor Memory Accelerator，把地址计算和数据搬运卸载到硬件单元，一个线程发一条指令就能搬运整个 tile）。三者的组合构成了 Hopper 多级软件流水线的基础设施——producer warp 用 TMA 发起搬运，mbarrier 通知 consumer warp 数据就绪，consumer warp 直接从共享内存执行 WGMMA。这条异步管线让搬运与计算重叠，是 Hopper GEMM 接近 Tensor Core 峰值的前提之一。下一篇将展示如何把这些原语组合进完整的 Hopper GEMM kernel。</p>
 
 <!-- ======== Series ======== -->
 <h2 id="sec-series">系列导航</h2>
@@ -612,9 +610,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.10.28.3（cp.async）、§9.7.10.28.5.3（cp.async.bulk.tensor）、§9.7.15.16（mbarrier）、§9.7.15.4（fence.proxy.async）。</li>
+  <li id="ref-ampereblog">Krashinsky, R., Giroux, O., Jones, S., Stam, N., Ramaswamy, S. (2020). <a href="https://developer.nvidia.com/blog/nvidia-ampere-architecture-in-depth/">NVIDIA Ampere Architecture In-Depth</a>. NVIDIA Technical Blog（“Asynchronous copy” 一段）。</li>
+  <li id="ref-progguide">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.26 Asynchronous Barrier、§7.28.4 Pipeline Primitives Interface、§7.29 Asynchronous Data Copies using the Tensor Memory Accelerator (TMA)。</li>
   <li id="ref-mlctma">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_tma/index.html">Modern GPU Programming For MLSys: Async Data Movement — TMA</a>.</li>
-  <li id="ref-progguide">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide</a>. §7.29 Tensor Memory Access (TMA)、§7.27 Asynchronous Barrier。</li>
-  <li id="ref-mlcmbar">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_mbarrier/index.html">Modern GPU Programming For MLSys: Async Coordination — mbarrier</a>.</li>
+  <li id="ref-driverapi">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html">CUDA Driver API: Tensor Map Object Management</a>（<code>cuTensorMapEncodeTiled</code> 的参数约束与 swizzle、im2col 模式说明）。</li>
+  <li id="ref-mlcmbar">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_async_barriers/index.html">Modern GPU Programming For MLSys: Async Coordination — mbarrier</a>.</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：核实过的 GPU 规格表，每条附 NVIDIA 原始来源。</li>
 </ol>
 

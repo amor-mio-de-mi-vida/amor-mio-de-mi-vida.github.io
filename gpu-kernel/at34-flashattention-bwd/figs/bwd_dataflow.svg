@@ -68,8 +68,8 @@
 
   <!-- FLOP note -->
   <rect x="20" y="215" width="685" height="75" rx="6" fill="#FFFDE7" stroke="#F0E442"/>
-  <text x="30" y="235" class="label" fill="#D55E00" font-weight="600">为什么反向比前向慢约 2.5&times;？</text>
+  <text x="30" y="235" class="label" fill="#D55E00" font-weight="600">为什么反向比前向慢？</text>
   <text x="30" y="255" class="sublabel">前向：2 个 GEMM（QK&#x1D40; 和 PV）+ softmax。反向：5 个 GEMM（dV, dP, dS&middot;K, dS&#x1D40;&middot;Q, 加上重计算 QK&#x1D40;）+ softmax + 逐元素。</text>
-  <text x="30" y="270" class="sublabel">FLOP 约 2.5&times; 前向。加上 dQ 的跨 block 累加开销和 causal 下的负载不均衡，实际差距通常是 2&ndash;3&times;。</text>
+  <text x="30" y="270" class="sublabel">matmul FLOP 是前向的 2.5&times;（FA2 论文）；反向利用率也更低（A100 上最高 63% 对前向 73%），耗时比还要更大一些。</text>
   <text x="30" y="285" class="sublabel" fill="#388E3C">好处：不存 N&times;N 矩阵——显存仍然是 O(N)，和前向一样。</text>
 </svg>

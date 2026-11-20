@@ -235,7 +235,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     <li>Harris 的七步优化里，大头来自改算法：消除 warp 发散、消除 bank 冲突、让每个线程先串行累加很多元素。</li>
     <li>今天的标准写法是两层 warp shuffle 加一次共享内存中转。旧幻灯片上依赖 warp 锁步的 <code>volatile</code> 技巧，在 Volta 之后是数据竞争。</li>
     <li>归约顺序决定浮点结果：顺序累加的误差随 N 增长，树形累加几乎不增长；想要逐位可复现，就必须固定合并顺序，不能用浮点原子。</li>
-    <li>Hopper 和 Blackwell 没有改变归约的上限，只多了几件工具：整数和浮点 min/max 的单指令 warp 归约、cluster 内的分布式共享内存、异步的批量归约写回。</li>
+    <li>新架构没有改变归约的上限，只多了几件工具：Ampere 起的整数单指令 warp 归约（Blackwell 又加了浮点 min/max），Hopper 起的 cluster 分布式共享内存和异步批量归约写回。</li>
   </ul>
 </div>
 
@@ -584,7 +584,7 @@ __global__ void reduce_v1(const int* in, int* out) {
 
 <h3 id="sec-5">v5、v6：展开循环，去掉指令开销</h3>
 
-<p>做到 v4，带宽只有 17 GB/s，离 86.4 GB/s 还很远。Harris 判断此时的瓶颈是指令开销：地址计算、循环控制这些“不是加载、存储、也不是加法”的辅助指令 <span class="cite">[<a href="#ref-harris" title="Harris, M. Optimizing Parallel Reduction in CUDA. NVIDIA Developer Technology 幻灯片（38 页）。引用页码为幻灯片编号。">1</a>, 第 20 页]</span>。办法是展开循环。v5 先展开最后 6 步：当步长 d ≤ 32 时只剩一个 warp 在工作，幻灯片认为 warp 内部指令是同步执行的，所以既不需要 <code>__syncthreads()</code>，也不需要 <code>if (tid &lt; d)</code> <span class="cite">[<a href="#ref-harris" title="Harris, M. Optimizing Parallel Reduction in CUDA. NVIDIA Developer Technology 幻灯片（38 页）。引用页码为幻灯片编号。">1</a>, 第 21–22 页]</span>。v6 更进一步，把 block 大小做成模板参数，所有关于 BS 的判断都在编译期确定，整个循环消失：</p>
+<p>做到 v4，带宽只有 17 GB/s，离 86.4 GB/s 还很远。Harris 判断此时的瓶颈是指令开销：地址计算、循环控制这些“不是加载、存储、也不是加法”的辅助指令 <span class="cite">[<a href="#ref-harris" title="Harris, M. Optimizing Parallel Reduction in CUDA. NVIDIA Developer Technology 幻灯片（38 页）。引用页码为幻灯片编号。">1</a>, 第 20 页]</span>。办法是展开循环。v5 先展开最后 6 步：当步长 d ≤ 32 时只剩一个 warp 在工作，幻灯片认为 warp 内部指令是同步执行的，所以既不需要 <code>__syncthreads()</code>，也不需要 <code>if (tid &lt; d)</code> <span class="cite">[<a href="#ref-harris" title="Harris, M. Optimizing Parallel Reduction in CUDA. NVIDIA Developer Technology 幻灯片（38 页）。引用页码为幻灯片编号。">1</a>, 第 21–22 页]</span>。v6 更进一步，把 block 大小做成模板参数，所有关于 BS 的判断都在编译期确定，整个循环消失。和幻灯片一样，代码假设 BS 是 2 的幂、介于 64 和 512 之间（当时的 GPU 限制 block 最多 512 个线程）<span class="cite">[<a href="#ref-harris" title="Harris, M. Optimizing Parallel Reduction in CUDA. NVIDIA Developer Technology 幻灯片（38 页）。引用页码为幻灯片编号。">1</a>, 第 24 页]</span>：</p>
 
 <pre data-code="code/pp10-reduction/reduce_harris.cu#L104-L119"><code>template &lt;unsigned BS&gt;
 __global__ void reduce_v6(const int* in, int* out) {
@@ -3619,11 +3619,11 @@ __global__ void sum_partials(const float* x, size_t n,
     partial[blockIdx.x] = acc;
     __threadfence();  // publish before counting
     unsigned t = atomicInc(&amp;g_done, gridDim.x);
+    __threadfence();  // acquire side: see every partial
     last = (t == gridDim.x - 1);
   }
   __syncthreads();
   if (!last) return;
-  __threadfence();  // see every block's partial
   acc = 0.f;
   for (unsigned i = threadIdx.x; i &lt; gridDim.x; i += blockDim.x)
     acc += partial[i];
@@ -3665,7 +3665,7 @@ void device_sum(const float* d_in, float* d_out, int n) {
 
 <p>前面把加法当作满足结合律，浮点数并不满足：\((a+b)+c\) 和 \(a+(b+c)\) 的舍入可能不同。所以“换一种加括号的方式”不只改变速度，也改变结果。这件事有好有坏。</p>
 
-<p><b>好的一面：树形归约更准。</b>数值分析的经典结论是，顺序累加的误差上界随 N 线性增长，两两求和的误差上界只随 log N 增长 <span class="cite">[<a href="#ref-higham1993" title="Higham, N. J. (1993). The Accuracy of Floating Point Summation. SIAM Journal on Scientific Computing, 14(4), 783–799.">5</a>]</span>。<a href="#fig-error">图 5</a> 在 CPU 上用 NumPy 模拟了四种加法顺序，全部用 float32 累加：顺序累加的相对误差从 10<sup>−7</sup> 一路涨到 10<sup>−4</sup> 量级；纯树形、级联（每个线程串行加 256 个以内的元素再做树）和 Kahan 补偿求和都停留在 float32 自身的舍入精度附近。GPU 的级联写法天然属于后者：每个线程的串行链很短，Kahan 补偿在这里几乎没有额外收益。只有当串行链很长时（比如线程数太少、每个线程要加几百万个元素），才值得在线程内部用 Kahan 补偿。</p>
+<p><b>好的一面：树形归约更准。</b>数值分析的经典结论是，顺序累加的误差上界随 N 线性增长，两两求和的误差上界只随 log N 增长 <span class="cite">[<a href="#ref-higham1993" title="Higham, N. J. (1993). The Accuracy of Floating Point Summation. SIAM Journal on Scientific Computing, 14(4), 783–799.">5</a>]</span>。<a href="#fig-error">图 5</a> 在 CPU 上用 NumPy 模拟了四种加法顺序，全部用 float32 累加：顺序累加的相对误差（5 个种子的中位数）从 N = 2<sup>10</sup> 时的约 2×10<sup>−7</sup> 涨到 N = 2<sup>24</sup> 时的约 7×10<sup>−5</sup>；纯树形、级联（每个线程串行加 256 个以内的元素再做树）和 Kahan 补偿求和都停留在 float32 自身的舍入精度附近。GPU 的级联写法天然属于后者：每个线程的串行链很短，Kahan 补偿在这里几乎没有额外收益。只有当串行链很长时（比如线程数太少、每个线程要加几百万个元素），才值得在线程内部用 Kahan 补偿。</p>
 
 <figure id="fig-error" data-kind="data" data-source="computed" data-script="plots/error.py">
   <div class="fig-body"><svg aria-labelledby="fig-error-cap" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 428.39952 285.59952" xmlns="http://www.w3.org/2000/svg" version="1.1" role="img" id="s5-root" style="max-width:571px;">
@@ -6943,7 +6943,7 @@ __device__ VI warp_argmax(VI p) {
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 <p>归约的上限由带宽决定：读完所有数据所需的时间就是下界。达到它需要三件事：不浪费线程和 bank（顺序寻址），让每个线程做足够多的串行工作（级联与 grid-stride），以及让足够多的字节同时在途（向量化加载与足够大的 grid）。今天的标准写法是两层 warp shuffle 加一次共享内存中转；旧教程里依赖 warp 锁步的写法已经不安全。</p>
-<p>归约顺序同时决定了结果的精度和可复现性：树形归约比顺序累加准得多，而逐位可复现要求合并顺序完全固定。Hopper 和 Blackwell 带来了单指令的 warp min/max、cluster 内的共享内存和异步批量归约，但没有改变“归约受带宽限制”这件事。下一篇系统讲 warp 级原语：shuffle、vote、match 和 cooperative groups。</p>
+<p>归约顺序同时决定了结果的精度和可复现性：树形归约比顺序累加准得多，而逐位可复现要求合并顺序完全固定。Hopper 带来了 cluster 内的共享内存和异步批量归约，Blackwell 带来了单指令的 warp 浮点 min/max，但没有改变“归约受带宽限制”这件事。下一篇系统讲 warp 级原语：shuffle、vote、match 和 cooperative groups。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">

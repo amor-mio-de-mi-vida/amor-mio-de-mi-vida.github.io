@@ -47,8 +47,8 @@
 <text x="365" y="222" class="code" font-size="10">w111 = (fx)(fy)(fz)</text>
 
 <text x="365" y="250" class="code" fill="#dc2626" font-size="10">feat = &Sigma; w_corner * table[h(corner)]</text>
-<text x="365" y="270" class="label" font-size="10">16 levels x 8 corners x F=2 features</text>
-<text x="365" y="285" class="label" font-size="10">= 256 hash lookups per sample</text>
+<text x="365" y="270" class="label" font-size="10">16 levels x 8 corners = 128 lookups</text>
+<text x="365" y="285" class="label" font-size="10">(each fetches F = 2 FP16 values)</text>
 
 <text x="350" y="315" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

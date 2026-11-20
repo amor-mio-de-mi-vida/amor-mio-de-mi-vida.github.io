@@ -62,12 +62,12 @@
 <!-- FLOP comparison -->
 <rect x="20" y="230" width="660" height="60" class="box" fill="#f9fafb" stroke="#e5e7eb"/>
 <text x="35" y="250" class="title">FLOP Comparison (C_in=C_out=128, 56&#xd7;56 output, 3&#xd7;3 filter):</text>
-<text x="35" y="270" class="code">Direct GEMM: 128&#xb7;128&#xb7;9&#xb7;56&#xb7;56&#xb7;2 = 587M FLOP</text>
+<text x="35" y="270" class="code">Direct GEMM: 128&#xb7;128&#xb7;9&#xb7;56&#xb7;56&#xb7;2 = 925M FLOP</text>
 <text x="390" y="270" class="code">Winograd: 16&#xb7;128&#xb7;128&#xb7;784&#xb7;2 = 411M FLOP</text>
-<text x="35" y="285" class="label" fill="#16a34a">Winograd saves ~30% multiply FLOPs, but adds ~100M transform FLOPs &#x2192; net ~20% faster</text>
+<text x="35" y="285" class="label" fill="#16a34a">2.25&#xd7; fewer multiply FLOPs; transforms add ~5.6M adds (32 + 24 per tile-channel) and 4&#xd7; data traffic</text>
 
 <defs><marker id="arr3" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
   <path d="M0,0 L6,2.5 L0,5" fill="#888"/>
 </marker></defs>
-<text x="350" y="315" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (ResNet layer3, batch=1)</text>
+<text x="350" y="315" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (example layer, batch=1; transform counts from Lavin &amp; Gray 2015)</text>
 </svg>

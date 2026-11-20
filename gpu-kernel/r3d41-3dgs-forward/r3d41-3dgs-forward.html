@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>3D Gaussian Splatting（一）：光栅化前向——投影、排序与 Tile-Based α-Blending</title>
-<meta name="description" content="从零精通 GPU Kernel 第 41 篇：3DGS 前向渲染流水线（预处理、排序、光栅化）、EWA 协方差投影、球谐求值、tile 分配与 radix sort、shared memory 分批 α-blending 与提前终止、SFU 瓶颈分析、Hopper/Blackwell 上的变化。">
+<meta name="description" content="从零精通 GPU Kernel 第 41 篇：3DGS 前向渲染流水线（预处理、排序、光栅化）、EWA 协方差投影、球谐求值、tile 分配与 radix sort、shared memory 分批 α-blending 与提前终止、瓶颈分析、Hopper/Blackwell 上的变化。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -216,7 +216,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 41 篇</div>
   <h1>3D Gaussian Splatting（一）<br>光栅化前向</h1>
-  <p class="subtitle">百万个 3D 高斯投影到屏幕、radix sort 按 tile|depth 排序、16×16 tile 内 shared memory 分批 α-blending + 提前终止——整条流水线在 GPU 上跑到 >30 fps。</p>
+  <p class="subtitle">百万个 3D 高斯投影到屏幕、radix sort 按 tile|depth 排序、16×16 tile 内 shared memory 分批 α-blending + 提前终止——原论文在 1080p 下做到 ≥30 fps。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
@@ -230,11 +230,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>3D Gaussian Splatting（3DGS）用数百万个 3D 高斯表示场景，整条渲染流水线由三个 GPU kernel 驱动：预处理（投影 + EWA 协方差）→ radix sort（按 tile|depth 排序）→ tile-based &alpha;-blending。</li>
+<li>3D Gaussian Splatting（3DGS）用数百万个 3D 高斯表示场景，整条渲染流水线由三个阶段组成：预处理（投影 + EWA 协方差）→ radix sort（按 tile|depth 排序）→ tile-based &alpha;-blending。</li>
 <li>预处理 kernel 每线程处理一个 Gaussian：把 3D 协方差通过 Jacobian 投影到 2D（EWA splatting），计算 conic（&Sigma;&prime;&#x207B;&sup1;）、3&sigma; 包围盒、覆盖的 tile 数量，同时做球谐求值得到 view-dependent 颜色。</li>
-<li>排序阶段为每个 Gaussian&ndash;tile pair 生成 64-bit key（高 32 bit = tile_id，低 32 bit = depth），用 CUB radix sort 一次排完——排序后同一 tile 内的 Gaussian 已按深度排列。</li>
+<li>排序阶段为每个 Gaussian&ndash;tile pair 生成 64-bit key（高位 = tile_id，低 32 bit = depth），用 CUB radix sort 一次排完——排序后同一 tile 内的 Gaussian 已按深度排列。</li>
 <li>光栅化 kernel 让一个 block 负责一个 16&times;16 的屏幕 tile、每个线程一个像素，把排好序的高斯分批载入 shared memory，逐像素从前往后做 &alpha;-blending，透射率低于阈值时提前退出。</li>
-<li>瓶颈通常在光栅化：每个像素要遍历数十到数百个 Gaussian，Gaussian 求值（指数函数 + 乘加）是 compute-bound；预处理和排序相对轻量。</li>
+<li>光栅化是工作量最大的阶段：每个像素要遍历其 tile 列表里的 Gaussian，每次求值是一次指数加十来次乘加；按指令计数，FP32 流水比 SFU 更早饱和，实际瓶颈还取决于负载不均与访存。</li>
   </ul>
 </div>
 
@@ -244,7 +244,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-pipeline">3DGS 渲染流水线</h2>
 
-<p>3D Gaussian Splatting<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>（简称 3DGS）是 2023 年提出的神经场景表示方法，在保持接近 NeRF 渲染质量的前提下把速度提高了两个数量级——从 NeRF 的数秒每帧到 3DGS 的 &gt;30 fps 实时渲染。核心区别在于：NeRF 需要对每条光线采样数百个点、每个点过一次 MLP 推理（参见<a href="../r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html">第 43 篇</a>），而 3DGS 完全不需要神经网络推理——它用一组显式的 3D 高斯椭球表示场景，渲染时只做投影和 &alpha;-blending，全部是矩阵乘法和初等函数运算。</p>
+<p>3D Gaussian Splatting<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>（简称 3DGS）是 2023 年提出的辐射场表示方法：论文报告其质量与 Mip-NeRF360 相当，并首次在 1080p 下做到 &ge;30 fps 的实时新视角合成——同一论文的 Table 1 中，Mip-NeRF360 在 Mip-NeRF360 数据集上约 0.06 fps，3DGS（30K 迭代）为 134 fps（A6000）<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。核心区别在于：NeRF 需要对每条光线采样数百个点、每个点过一次 MLP 推理（参见<a href="../r3d43-nerf-hashgrid/r3d43-nerf-hashgrid.html">第 43 篇</a>），而 3DGS 完全不需要神经网络推理——它用一组显式的 3D 高斯椭球表示场景，渲染时只做投影和 &alpha;-blending，全部是小矩阵运算和初等函数运算。</p>
 
 <p>每个 3D 高斯带有四组可学习参数：</p>
 <ul>
@@ -261,9 +261,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <figcaption id="fig-pipeline_overview-cap"><span class="fig-label">图 1</span><b>3DGS 前向渲染流水线（示意）。</b>预处理、排序、光栅化三步全在 GPU 上完成。排序用 CUB 的 radix sort，光栅化每个 tile 一个 block。</figcaption>
 </figure>
 
-<p>典型场景有 P &asymp; 10<sup>5</sup>&ndash;10<sup>6</sup> 个 Gaussian，输出 1920&times;1080 图像（约 8100 个 16&times;16 tile）。预处理的并行度是 P（每线程一个 Gaussian），光栅化的并行度是 tile 数 &times; 256（每线程一个像素）。整条流水线完全可微——反向传播在<a href="../r3d42-3dgs-backward/r3d42-3dgs-backward.html">下一篇</a>讲。</p>
+<p>论文测试的场景有 100 万&ndash;500 万个 Gaussian<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>；输出 1920&times;1080 图像时有 120&times;68 = 8160 个 16&times;16 tile。预处理的并行度是 P（每线程一个 Gaussian），光栅化的并行度是 tile 数 &times; 256（每线程一个像素）。整条流水线完全可微——反向传播在<a href="../r3d42-3dgs-backward/r3d42-3dgs-backward.html">下一篇</a>讲。</p>
 
-<p>这三步全部由自定义 CUDA kernel 实现，不依赖 cuDNN 或 cuBLAS。这与 NeRF 的实现策略形成鲜明对比：NeRF 的核心操作是 MLP 推理，主要用 PyTorch/cuDNN 的 GEMM；而 3DGS 的核心操作是投影、排序和逐像素 &alpha;-blending——全是 elementwise 或 reduction 模式，没有矩阵乘法，必须手写 kernel。这也是 3DGS 能达到实时帧率的关键原因：每个步骤都针对 GPU 架构做了精确的并行设计，没有通用框架的 overhead。</p>
+<p>这三步全部由自定义 CUDA kernel 实现，不依赖 cuDNN 或 cuBLAS。这与 NeRF 的实现策略形成鲜明对比：NeRF 的核心操作是 MLP 推理，主要用 PyTorch/cuDNN 的 GEMM；而 3DGS 的核心操作是投影、排序和逐像素 &alpha;-blending——全是 elementwise、scan、sort 模式，没有大规模 GEMM 可以交给 cuBLAS，所以要手写 kernel（排序部分直接调用 CUB<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>）。</p>
 
 <h3 id="sec-1">每个 Gaussian 的数据布局</h3>
 
@@ -275,16 +275,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li>SH 系数：3 阶 = 16 个基函数 &times; 3 通道 = 48 floats = 192 B；0 阶 = 3 floats = 12 B。</li>
 </ul>
 
-<p>总计：3 阶 SH 下每个 Gaussian 约 236 B（<a href="#fig-gaussian_data_layout">图 2</a>）。SH 系数占了 81% 的存储——这是 3DGS 的内存瓶颈所在。100 万个 Gaussian 的数据量约 236 MB——在 A100（80 GB HBM）上轻松装下，但全部读一遍需要 236 MB / 2039 GB/s &asymp; 0.12 ms，这就是预处理 kernel 的 HBM 读取下界。如果降到 0 阶 SH（只有漫反射颜色），每 Gaussian 只需 56 B，内存占用降到四分之一——这就是推理时常见的&ldquo;SH 截断&rdquo;优化。</p>
+<p>总计：3 阶 SH 下每个 Gaussian 约 236 B（<a href="#fig-gaussian_data_layout">图 2</a>）。SH 系数占了 81% 的存储——这是 3DGS 的内存瓶颈所在。100 万个 Gaussian 的数据量约 236 MB——在 A100 80 GB 上轻松装下，全部读一遍需要 236 MB / 2039 GB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span> &asymp; 0.12 ms，这就是预处理 kernel 的 HBM 读取下界。如果降到 0 阶 SH（只有与视角无关的颜色），每 Gaussian 只需 56 B，约为原来的四分之一。</p>
 
 <figure id="fig-gaussian_data_layout" data-kind="diagram">
 <img aria-labelledby="fig-gaussian_data_layout-cap" src="figs/gaussian_data_layout.svg" alt="Per-Gaussian data layout"/>
-<figcaption id="fig-gaussian_data_layout-cap"><span class="fig-label">图 2</span><b>每个 Gaussian 的数据布局与显存预算。</b>3 阶 SH 系数占 81% 的存储，是 3DGS 内存瓶颈。P = 10⁶ 时整条流水线的峰值显存约 500 MB。</figcaption>
+<figcaption id="fig-gaussian_data_layout-cap"><span class="fig-label">图 2</span><b>每个 Gaussian 的数据布局与显存预算。</b>3 阶 SH 系数占 81% 的存储。P = 10⁶、平均每个 Gaussian 覆盖 10 个 tile（假设值）时，属性 + 2D 输出 + 排序 key/value 与临时缓冲合计约 500 MB。</figcaption>
 </figure>
 
 <h2 id="sec-preprocess">预处理 Kernel：投影与 EWA 协方差</h2>
 
-<p>预处理 kernel 的任务是把每个 3D Gaussian 投影到屏幕上，得到 2D 高斯椭圆。核心是 <b>EWA splatting</b><span class="cite">[<a href="#ref-zwicker02" title="Zwicker, Pfister, van Baar &amp; Gross (2002). EWA Splatting. IEEE TVCG 8(3).">2</a>]</span>：用投影的 Jacobian 把 3D 协方差变换到 2D。整个 kernel 是 one-thread-per-Gaussian 的 elementwise 模式：没有 shared memory，没有跨线程通信，每个线程独立读入一个 Gaussian 的属性、完成所有计算、写出 2D 结果。</p>
+<p>预处理 kernel 的任务是把每个 3D Gaussian 投影到屏幕上，得到 2D 高斯椭圆。核心是 <b>EWA splatting</b><span class="cite">[<a href="#ref-zwicker02" title="Zwicker, Pfister, van Baar &amp; Gross (2002). EWA Splatting. IEEE TVCG 8(3).">3</a>]</span>：用投影的 Jacobian 把 3D 协方差变换到 2D。整个 kernel 是 one-thread-per-Gaussian 的 elementwise 模式：没有 shared memory，没有跨线程通信，每个线程独立读入一个 Gaussian 的属性、完成所有计算、写出 2D 结果。</p>
 
 <h3 id="sec-cov-param">协方差参数化</h3>
 
@@ -292,7 +292,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 \[\Sigma = R\, S\, S^\top R^\top\]
 
-<p>其中 \(R\) 是四元数 \(q = (w, x, y, z)\) 对应的 3&times;3 旋转矩阵，\(S = \text{diag}(s_x, s_y, s_z)\) 是缩放。反向传播时对 \(q, s\) 求导，\(\Sigma\) 始终正定。预处理 kernel 先从 \((q, s)\) 算出 \(\Sigma\) 的 6 个独立元素，再做 EWA 投影。这步是纯算术操作：3&times;3 旋转矩阵构造（约 30 FLOP）加上矩阵乘法（约 36 FLOP），每线程开销很小。</p>
+<p>其中 \(R\) 是四元数 \(q = (w, x, y, z)\) 对应的 3&times;3 旋转矩阵，\(S = \text{diag}(s_x, s_y, s_z)\) 是缩放。反向传播时对 \(q, s\) 求导，\(\Sigma\) 始终正定。预处理 kernel 先从 \((q, s)\) 算出 \(\Sigma\) 的 6 个独立元素，再做 EWA 投影。这步是纯算术操作：构造 3&times;3 旋转矩阵再做两次 3&times;3 小矩阵乘，每线程只有几十次乘加。</p>
 
 <h3 id="sec-proj">投影</h3>
 
@@ -300,7 +300,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ol>
 <li>变换到相机坐标：\(\mathbf{p}_\text{cam} = W \cdot \boldsymbol{\mu}\)。</li>
 <li>投影到屏幕：\(u = f_x \cdot x/z + c_x,\; v = f_y \cdot y/z + c_y\)。</li>
-<li>近平面剔除：\(z < 0.2\) 的 Gaussian 直接跳过。</li>
+<li>近平面剔除：官方实现中相机空间 \(z \le 0.2\) 的 Gaussian 直接跳过。</li>
 </ol>
 
 <h3 id="sec-ewa">EWA 协方差投影</h3>
@@ -313,7 +313,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 \[\Sigma' = J\, W_{3\times3}\, \Sigma\, W_{3\times3}^\top J^\top + 0.3\,I\]
 
-<p>最后一项 \(0.3\,I\) 是低通滤波器，防止 Gaussian 投影后小于一个像素时出现走样（aliasing）——它保证 \(\Sigma'\) 的最小特征值不低于 0.3，即投影后的 2D 椭圆至少有半个像素的宽度。</p>
+<p>最后一项 \(0.3\,I\) 是低通滤波器（官方代码注释：&ldquo;every Gaussian should be at least one pixel wide/high&rdquo;），防止 Gaussian 投影后小于一个像素时出现走样（aliasing）——它让 \(\Sigma'\) 的特征值都至少为 0.3，即每个方向的标准差至少 \(\sqrt{0.3} \approx 0.55\) 像素。</p>
 
 <figure id="fig-ewa_projection" data-kind="diagram">
 <img aria-labelledby="fig-ewa_projection-cap" src="figs/ewa_projection.svg" alt="EWA projection"/>
@@ -324,9 +324,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 \[\text{conic} = \Sigma'^{-1} = \frac{1}{ac - b^2}\begin{pmatrix} c & -b \\ -b & a \end{pmatrix}\]
 
-<p>行列式 \(\det = ac - b^2 \leq 0\) 的退化 Gaussian 直接剔除。</p>
+<p>行列式为 0 的退化 Gaussian 直接剔除（官方实现检查的是 <code>det == 0.0f</code>）。</p>
 
-<p>整个 EWA 投影的计算量：构造 \(T = J \cdot W_{3\times3}\)（2&times;3 乘 3&times;3 = 18 FMA）、计算 \(M = T \cdot \Sigma\)（2&times;3 乘对称 3&times;3，利用对称性约 18 FMA）、计算 \(\Sigma' = M \cdot T^\top\)（2&times;3 乘 3&times;2 = 12 FMA），再加求逆（6 FLOP）和特征值（10 FLOP）——合计每个 Gaussian 约 120 FLOP 的投影开销。加上四元数到旋转矩阵的转换和 SH 求值，整个预处理 kernel 每 Gaussian 约 250&ndash;350 FLOP（取决于 SH 阶数），完全是 compute-bound。</p>
+<p>整个 EWA 投影的计算量：构造 \(T = J \cdot W_{3\times3}\)（J 只有 4 个非零元，12 次乘/乘加）、计算 \(M = T \cdot \Sigma\)（2&times;3 乘 3&times;3，18 次乘加）、计算 \(\Sigma'\) 的 3 个独立元素（约 9 次乘加），再加求逆和特征值——合计每个 Gaussian 一百 FLOP 上下。加上四元数到旋转矩阵的转换和 SH 求值，整个预处理 kernel 每 Gaussian 也就几百 FLOP，却要读约 236 B 属性：算术强度只有 1&ndash;2 FLOP/B，远低于 A100 的 FP32 ridge point（19.5 TFLOP/s &divide; 2.04 TB/s &asymp; 9.6 FLOP/B<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>），所以预处理是 <b>memory-bound</b>。</p>
 
 <p>代码中 <code>computeCov2D</code> 函数展示了 EWA 投影的核心——构造 Jacobian、与视图矩阵合并得到 T，再解包 3D 协方差上三角：</p>
 
@@ -350,11 +350,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float s00 = cov3d[0], s01 = cov3d[1], s02 = cov3d[2];</code></pre>
 <p class="src-note">完整代码：<code>code/r3d41-3dgs-forward/preprocess.cu</code> 第 25–43 行</p>
 
-<p>Jacobian 只有四个非零元素（J00、J02、J11、J12）——因为透视投影中屏幕 x 只依赖相机坐标的 x 和 z，屏幕 y 只依赖 y 和 z。这使得 2&times;3 的 T = J @ W 只需 8 次 FMA（每行 4 次），而非满矩阵乘的 18 次。另一个值得注意的细节是 <code>rz2 = rz * rz</code> 而不是 <code>1.0f / (z * z)</code>——GPU 上除法延迟是乘法的 4&ndash;8 倍，复用已有的 <code>rz</code> 做乘法更快。整个 <code>computeCov2D</code> 函数没有条件分支——编译器可以完全展开所有算术，每个线程执行固定数量的 FMA，warp 内零发散。这也是为什么预处理 kernel 能达到接近峰值算力的原因：纯算术、无分支、无 shared memory 依赖。</p>
+<p>Jacobian 只有四个非零元素（J00、J02、J11、J12）——因为透视投影中屏幕 x 只依赖相机坐标的 x 和 z，屏幕 y 只依赖 y 和 z。这使得 2&times;3 的 T = J @ W 每个元素只有 2 项（6 个元素共 12 次乘/乘加），而非满矩阵乘的 18 次。另一个细节是 <code>rz2 = rz * rz</code> 而不是 <code>1.0f / (z * z)</code>——IEEE 精度的浮点除法在 GPU 上不是单条指令（编译成倒数近似加迭代修正），复用已有的 <code>rz</code> 做乘法更便宜。整个 <code>computeCov2D</code> 没有数据相关的分支，warp 内不发散；但如上所述，预处理 kernel 的瓶颈是读 Gaussian 属性的 HBM 带宽，而不是这些乘加。</p>
 
 <h3 id="sec-radius">包围半径与 tile 覆盖</h3>
 
-<p>2D 协方差的最大特征值 \(\lambda_\text{max}\) 决定椭圆的长轴。3&sigma; 范围内包含 99.7% 的能量，因此包围半径取 \(r = 3\sqrt{\lambda_\text{max}}\)。用更快的公式避免求特征值：</p>
+<p>2D 协方差的最大特征值 \(\lambda_\text{max}\) 决定椭圆的长轴。3&sigma; 是常用截断（一维时含 99.7% 的质量；二维 Mahalanobis 半径 3 的椭圆内含 \(1 - e^{-9/2} \approx 98.9\%\)），因此包围半径取 \(r = \lceil 3\sqrt{\lambda_\text{max}} \rceil\)。2&times;2 对称矩阵的最大特征值有闭式解：</p>
 
 \[\lambda_\text{max} = \frac{a + c}{2} + \sqrt{\left(\frac{a-c}{2}\right)^2 + b^2}\]
 
@@ -381,17 +381,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
       means3d[3*idx], means3d[3*idx+1], means3d[3*idx+2]);</code></pre>
 <p class="src-note">完整代码：<code>code/r3d41-3dgs-forward/preprocess.cu</code> 第 59&ndash;77 行（未在 GPU 上运行）</p>
 
-<p>整个预处理 kernel 的并行度是 P——每个 Gaussian 一个线程，无 shared memory 需求。全局内存读取是 scatter 模式（每线程读自己 Gaussian 的属性，地址连续），写出也是 scatter，天然合并（<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>）。launch 配置典型为 <code>&lt;&lt;&lt;(P+255)/256, 256&gt;&gt;&gt;</code>，P = 10<sup>6</sup> 时约 4000 个 block，在 A100 的 108 个 SM 上有足够的并行度。</p>
+<p>整个预处理 kernel 的并行度是 P——每个 Gaussian 一个线程，无 shared memory 需求。相邻线程读写相邻 Gaussian 的属性，warp 的访问地址整体连续，基本合并（<a href="../cu05-memory-coalescing/cu05-memory-coalescing.html">第 5 篇</a>）。launch 配置典型为 <code>&lt;&lt;&lt;(P+255)/256, 256&gt;&gt;&gt;</code>，P = 10<sup>6</sup> 时约 4000 个 block，在 A100 的 108 个 SM 上有足够的并行度。</p>
 
-<p>需要注意的边界情况：（1）近平面剔除——\(z < 0.2\) 的 Gaussian 被跳过，不参与后续排序和光栅化；（2）退化协方差——行列式 &le; 0 意味着 Gaussian 在屏幕上退化为一条线或一个点，这种情况在数值上不稳定，也跳过；（3）屏幕外剔除——投影后如果整个 3&sigma; 包围盒都在屏幕之外，<code>tiles_touched = 0</code>，不参与排序。这些剔除在预处理阶段完成，排序和光栅化不需要再检查。</p>
+<p>需要注意的边界情况：（1）近平面剔除——\(z \le 0.2\) 的 Gaussian 被跳过，不参与后续排序和光栅化；（2）退化协方差——行列式为 0 意味着 2D 协方差不可逆，也跳过；（3）屏幕外剔除——投影后如果整个 3&sigma; 包围盒都在屏幕之外，<code>tiles_touched = 0</code>，不参与排序。这些剔除在预处理阶段完成，排序和光栅化不需要再检查。</p>
 
 <h2 id="sec-sh">球谐函数求值</h2>
 
-<p>3DGS 用实数球谐函数编码 view-dependent 颜色。给定视线方向 \(\mathbf{d} = (\boldsymbol{\mu} - \mathbf{cam\_pos}) / \|\cdot\|\)，对每个颜色通道求 SH 展开：</p>
+<p>3DGS 用实数球谐函数编码 view-dependent 颜色。给定从相机中心指向该 Gaussian 中心的方向 \(\mathbf{d} = (\boldsymbol{\mu} - \mathbf{cam\_pos}) / \|\cdot\|\)（每个 Gaussian 一个方向，与像素无关），对每个颜色通道求 SH 展开（官方实现再把结果截断到 \(\ge 0\)）：</p>
 
 \[c = \sum_{l=0}^{L}\sum_{m=-l}^{l} f_{lm}\, Y_l^m(\mathbf{d}) + 0.5\]
 
-<p>0 阶（\(L=0\)）只有一个常数系数（漫反射），3 阶（\(L=3\)）有 16 个基函数。传统数学表达用球坐标 \((\theta, \phi)\) 和关联 Legendre 函数，但在 GPU 上求三角函数既慢又不精确。实际实现使用 <b>Cartesian 形式</b>的 SH 基函数——把 \(\sin\theta\cos\phi = x\)、\(\sin\theta\sin\phi = y\)、\(\cos\theta = z\) 代入后，每个基函数变成 x, y, z 的多项式，只需乘法和加法，完全避开 SFU：</p>
+<p>0 阶（\(L=0\)）只有一个常数系数（漫反射），3 阶（\(L=3\)）有 16 个基函数。传统数学表达用球坐标 \((\theta, \phi)\) 和关联 Legendre 函数，但在 GPU 上求三角函数既慢又不精确。实际实现使用 <b>Cartesian 形式</b>的 SH 基函数——把 \(\sin\theta\cos\phi = x\)、\(\sin\theta\sin\phi = y\)、\(\cos\theta = z\) 代入后，每个基函数变成 x, y, z 的多项式，只需乘法和加法，不需要三角函数：</p>
 
 <pre data-code="code/r3d41-3dgs-forward/sh_eval.cu#L16-L35"><code>__device__ float3 evalSH(
     int deg,
@@ -419,19 +419,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <table>
 <thead>
-<tr><th>SH 阶数 L</th><th>基函数数</th><th>系数数（3 通道）</th><th>每 Gaussian FMA 数</th></tr>
+<tr><th>SH 阶数 L</th><th>基函数数</th><th>系数数（3 通道）</th><th>系数乘加次数</th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td>1</td><td>3</td><td>~3</td></tr>
-<tr><td>1</td><td>4</td><td>12</td><td>~15</td></tr>
-<tr><td>2</td><td>9</td><td>27</td><td>~50</td></tr>
-<tr><td>3</td><td>16</td><td>48</td><td>~100</td></tr>
+<tr><td>0</td><td>1</td><td>3</td><td>3</td></tr>
+<tr><td>1</td><td>4</td><td>12</td><td>12</td></tr>
+<tr><td>2</td><td>9</td><td>27</td><td>27</td></tr>
+<tr><td>3</td><td>16</td><td>48</td><td>48</td></tr>
 </tbody>
 </table>
 
-<p>3 阶时每个 Gaussian 约 100 个 FMA，这比光栅化中每像素数十到数百次的 Gaussian 求值要小得多。值得注意的是，SH 求值全是浮点乘加，不涉及 <code>__expf</code> 或 <code>__sinf</code>——这正是 Cartesian 形式的优势：整个预处理 kernel 的 SFU 使用量为零，瓶颈是纯算术吞吐或内存带宽。原始 3DGS 实现把 SH 求值和投影放在同一个预处理 kernel 里，一次读取所有属性。</p>
+<p>系数乘加次数就等于系数个数（每个系数乘一次基函数值再累加）；基函数多项式本身还要几十次乘法，3 阶合计约一百 FLOP 量级，每个 Gaussian 只算一次。SH 求值全是浮点乘加，不涉及 <code>__expf</code> 或 <code>__sinf</code>——这正是 Cartesian 形式的优势（预处理中只有归一化方向、求特征值等少数地方用到 sqrt/倒数）。原始 3DGS 实现把 SH 求值和投影放在同一个预处理 kernel 里，一次读取所有属性。</p>
 
-<p>一个重要的优化取舍是 <b>SH 求值放在预处理还是光栅化</b>。放在预处理意味着每个 Gaussian 只算一次 SH（与像素数无关），但需要额外写 color[P, 3] 到全局内存（P &times; 12 B），再在光栅化时读回来。放在光栅化则省掉这对全局读写，但每个 Gaussian 在每个像素处都要重新算 SH——不过同一 tile 内所有像素的视线方向几乎相同（16 像素的角度差 &lt; 0.5&deg;），所以可以用 tile 中心的方向算一次、存到 smem 复用。gsplat<span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">3</a>]</span> 探索了后一种方案，并发现当 SH 阶数为 3（每 Gaussian 48 个 SH floats = 192 B）时，把 SH 系数加载到 smem 并在光栅化中求值，比预处理写 12 B color + 光栅化读 12 B color 的方案总带宽更高，但换来更好的计算与访存重叠。具体哪种更快取决于场景的 Gaussian 密度和分辨率。</p>
+<p>因为 SH 的方向是&ldquo;相机 &rarr; Gaussian 中心&rdquo;，颜色对一个视角是每个 Gaussian 一个值，所以放在预处理里算最自然：每个 Gaussian 读一次 192 B 的 SH 系数、写 12 B 颜色，光栅化时每个 (Gaussian, tile) pair 再读回这 12 B。若改在光栅化里求值，每个 pair 都要读 192 B 的 SH 系数并重算一遍，流量反而更大。gsplat<span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">4</a>]</span> 也沿用了原论文的 tile 排序框架，并把 SH 求值放在光栅化之前单独计算颜色。</p>
 
 <h2 id="sec-tiles">Tile 分配与 Radix Sort</h2>
 
@@ -443,31 +443,31 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 </figure>
 
 <h3 id="sec-2">1. Prefix sum → offsets</h3>
-<p>对 <code>tiles_touched[0..P-1]</code> 做 exclusive prefix sum（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>），得到每个 Gaussian 的写入偏移。总 pair 数 \(N_\text{pairs} = \sum \text{tiles\_touched}[i]\)，典型值约 5&ndash;20&times; P。</p>
+<p>对 <code>tiles_touched[0..P-1]</code> 做 exclusive prefix sum（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>），得到每个 Gaussian 的写入偏移。总 pair 数 \(N_\text{pairs} = \sum \text{tiles\_touched}[i]\)，它随 Gaussian 的屏幕尺寸而变，论文称这只带来&ldquo;适度&rdquo;的数量增加<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
 <h3 id="sec-3">2. 生成 64-bit key</h3>
 <p>一个 Gaussian 覆盖 k 个 tile 就生成 k 条 (key, value) pair：</p>
 <ul>
-<li><b>key</b>（64 bit）：高 32 bit 为 tile_id（= tile_y &times; tiles_per_row + tile_x），低 32 bit 为 depth 的 IEEE 754 bit 表示。正浮点数的 IEEE 754 整数表示保持排序性（这是一个经典技巧，参见<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>）。</li>
+<li><b>key</b>（64 bit）：tile_id（= tile_y &times; tiles_per_row + tile_x）左移 32 位放在高位，低 32 bit 为 view-space depth 的 IEEE 754 bit 表示<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。正浮点数的 IEEE 754 整数表示保持排序性（近平面剔除保证了 depth &gt; 0.2）（这是一个经典技巧，参见<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>）。</li>
 <li><b>value</b>（32 bit）：Gaussian 的全局索引，用于在光栅化时索引回 means2d、conics 等数组。</li>
 </ul>
 <p>tile_id 在高位保证排序后同一 tile 的 Gaussian 连续排列，这样光栅化时只需要一对 <code>[start, end)</code> 指针就能定位一个 tile 的所有 Gaussian；depth 在低位保证同一 tile 内按深度从近到远排列，满足 front-to-back &alpha;-blending 的顺序要求。</p>
 
-<p>生成 key 的 duplicate kernel 同样是 one-thread-per-Gaussian：每个线程根据 prefix sum 的偏移，把自己覆盖的所有 tile 的 key 写入全局数组。由于一个 Gaussian 覆盖的 tile 数量不固定（从 1 到可能上百），不同线程写入的 pair 数量差异很大，可能导致负载不均衡。实践中，大多数 Gaussian 投影后很小（覆盖 1&ndash;5 个 tile），极少数很大的 Gaussian 是异常值。</p>
+<p>生成 key 的 duplicate kernel 同样是 one-thread-per-Gaussian：每个线程根据 prefix sum 的偏移，把自己覆盖的所有 tile 的 key 写入全局数组。由于一个 Gaussian 覆盖的 tile 数量不固定（从 1 到可能上百），不同线程写入的 pair 数量差异很大，可能导致负载不均衡——论文的设计假设是&ldquo;大量小 splat&rdquo;<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>，少数投影很大的 Gaussian 会让个别线程写出远多于平均的 pair。</p>
 
 <h3 id="sec-4">3. Radix sort</h3>
-<p>调用 CUB 的 <code>DeviceRadixSort::SortPairs</code>（<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>），对 \(N_\text{pairs}\) 条 64-bit key 做 LSD（Least Significant Digit）radix sort。CUB 的实现基于 Onesweep<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">4</a>]</span> 算法——只需要两趟全局 pass（一趟 histogram + 一趟 scatter），而传统 radix sort 需要 K/B 趟（K bit 的 key 每趟处理 B bit）。在 A100 上，CUB radix sort 的有效吞吐约 16&ndash;20 GB/s<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">4</a>]</span>，对 10<sup>7</sup> 级的 pair 数仅需 &lt; 2 ms。注意 CUB 的 radix sort 需要一块与输入等大的临时缓冲区（双缓冲策略），所以排序阶段的峰值内存使用是输入的 2 倍。</p>
+<p>调用 CUB 的 <code>DeviceRadixSort::SortPairs</code>（<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>），对 \(N_\text{pairs}\) 条 64-bit key 做 LSD（Least Significant Digit）radix sort。官方实现只排低 \(32 + \lceil\log_2(\text{tile 数})\rceil\) 位（tile_id 用不满 32 位），1080p 的 8160 个 tile 只需 13 位，共 45 位。LSD radix sort 每个 digit（Onesweep 论文用 8 bit）仍要一趟 digit-binning；Onesweep<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">5</a>]</span> 的改进是用单趟 prefix sum 把每趟的全局读写从约 3n 降到约 2n，论文报告 A100 上对 256M 个 32-bit key 达到 29.4 GKey/s，约为当时 CUB 的 1.5 倍（较新的 CUB 已包含 Onesweep 实现）。官方代码把排序结果写到另一组数组（<code>SortPairs</code> 的输入输出分离），再加上 CUB 的临时空间，排序阶段的内存约为 key/value 数组的 2 倍。</p>
 
 <h3 id="sec-5">4. Compute tile ranges</h3>
-<p>排序后遍历一次 sorted key 数组，找到每个 tile 的 <code>[start, end)</code> 范围。实现方法：一个 one-thread-per-pair 的 kernel，每个线程比较当前和上一个 key 的高 32 位（tile_id）——如果不同，说明这里是一个 tile 的边界，写入前一个 tile 的 end 和当前 tile 的 start。第一条和最后一条 pair 需要特殊处理边界。这个 kernel 的开销是 \(O(N_\text{pairs})\) 次全局读取 + 稀疏写入（只在 tile 边界处写），耗时通常不到 0.1 ms，可以忽略不计。没有被任何 Gaussian 覆盖的 tile 的 range 为空（start == end），光栅化时直接跳过。</p>
+<p>排序后遍历一次 sorted key 数组，找到每个 tile 的 <code>[start, end)</code> 范围。实现方法：一个 one-thread-per-pair 的 kernel，每个线程比较当前和上一个 key 的高 32 位（tile_id）——如果不同，说明这里是一个 tile 的边界，写入前一个 tile 的 end 和当前 tile 的 start。第一条和最后一条 pair 需要特殊处理边界。这个 kernel 的开销是 \(O(N_\text{pairs})\) 次全局读取 + 稀疏写入（只在 tile 边界处写）：\(10^7\) 个 8 B key 是 80 MB，按 A100 的 2 TB/s 约 0.04 ms。没有被任何 Gaussian 覆盖的 tile 的 range 为空（start == end），光栅化时直接跳过。</p>
 
 <h3 id="sec-sort-cost">排序的代价</h3>
 
-<p>排序是整条流水线中唯一涉及全局同步的步骤。估算其代价：假设 P = 10<sup>6</sup>，每个 Gaussian 平均覆盖 10 个 tile，则 \(N_\text{pairs} = 10^7\)。每个 pair 占 12 B（8 B key + 4 B value），总数据量 120 MB。CUB 的 Onesweep radix sort 在 A100 上对 64-bit key 的吞吐约 16&ndash;20 GB/s<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">4</a>]</span>（含多趟读写），排序耗时约 120 MB &times; 4 趟 / 18 GB/s &asymp; 0.03 s，实际因为 key 高位集中，可以只排有效位数（32+16 bit 足够）减少趟数。</p>
+<p>排序是整条流水线中唯一涉及全局同步的步骤。估算其代价：假设 P = 10<sup>6</sup>，每个 Gaussian 平均覆盖 10 个 tile，则 \(N_\text{pairs} = 10^7\)。每个 pair 占 12 B（8 B key + 4 B value），总数据量 120 MB。按 Onesweep 每趟约 2n 次读写、45 位 key 分 6 趟（8 bit/趟）估算，HBM 流量约 \(6 \times 2 \times 120\ \text{MB} \approx 1.44\) GB，在 A100 的 2.04 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span> 下下界约 0.7 ms（未实测）。</p>
 
 <p>排序前的 duplicate kernel（把每个 Gaussian 复制到它覆盖的所有 tile）和排序后的 tile_ranges kernel 都是简单的 O(N) 操作，耗时远小于 sort 本身。如果场景中 Gaussian 非常稀疏（每个只覆盖 1&ndash;2 个 tile），排序就不是瓶颈；如果 Gaussian 很大（覆盖几十个 tile），pair 数激增，排序可能成为瓶颈。</p>
 
-<p>排序阶段还有一个隐藏的内存压力问题：duplicate 阶段要为每个 pair 分配 12 B 的存储空间，再加上 radix sort 的双缓冲——总临时内存 = 2 &times; 12 B &times; N<sub>pairs</sub>。对于 100 万 Gaussian、平均覆盖 10 个 tile 的典型场景，这就是 240 MB 的临时空间。在显存紧张的训练场景中（梯度、优化器状态已占大量空间），这个临时缓冲区可能触发 OOM。一种优化是分批排序——将 Gaussian 按空间区域分组，每组独立排序后再合并，用计算时间换显存空间。</p>
+<p>排序阶段还有一个隐藏的内存压力问题：duplicate 阶段要为每个 pair 分配 12 B 的存储空间，再加上 radix sort 的双缓冲——总临时内存 = 2 &times; 12 B &times; N<sub>pairs</sub>。对于 100 万 Gaussian、平均覆盖 10 个 tile 的假设场景，这就是 240 MB 的临时空间。在显存紧张的训练场景中（梯度、优化器状态已占大量空间），这个临时缓冲区可能触发 OOM。一种优化是分批排序——将 Gaussian 按空间区域分组，每组独立排序后再合并，用计算时间换显存空间。</p>
 
 <h2 id="sec-rasterize">&alpha;-Blending 光栅化 Kernel</h2>
 
@@ -475,7 +475,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <figure id="fig-raster_smem" data-kind="diagram">
 <img aria-labelledby="fig-raster_smem-cap" src="figs/raster_smem.svg" alt="Rasterization with shared memory"/>
-<figcaption id="fig-raster_smem-cap"><span class="fig-label">图 5</span><b>光栅化 kernel 的 shared memory 分批策略。</b>一个 block 处理一个 16&times;16 tile，256 个线程各负责一个像素。每轮从全局内存加载 256 个 Gaussian 到 shared memory，再逐个求值。</figcaption>
+<figcaption id="fig-raster_smem-cap"><span class="fig-label">图 5</span><b>光栅化 kernel 的 shared memory 分批策略（示意）。</b>一个 block 处理一个 16&times;16 tile，256 个线程各负责一个像素。每轮从全局内存加载 256 个 Gaussian 到 shared memory，再逐个求值。官方实现只把 id、xy、conic+opacity 放进 smem，颜色在求值时按 id 从全局内存读。</figcaption>
 </figure>
 
 <h3 id="sec-blend">前向 &alpha;-blending 公式</h3>
@@ -492,17 +492,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>透射率 \(T_i\) 是前面所有 Gaussian 的透过率之积。Front-to-back 的好处是 \(T_i\) 单调递减：一旦低于阈值可以提前退出，避免处理被完全遮挡的 Gaussian。相比之下，back-to-front（传统画家算法 over 操作：\(C \leftarrow \alpha_i c_i + (1-\alpha_i) C\)）必须从最远处开始处理，无法提前退出——每个 Gaussian 都要参与计算，即使它完全被遮挡。</p>
 
-<p>还有一个实现细节：<code>alpha</code> 被 clamp 到 \([1/255, 0.99]\)。下界 1/255 避免贡献极小的 Gaussian 浪费计算；上界 0.99 防止单个 Gaussian 完全遮挡后面的所有内容——这对训练梯度流动很重要（完全遮挡意味着后面的 Gaussian 梯度为零，无法被优化）。</p>
+<p>还有一个实现细节（论文附录 C）：<code>alpha</code> 上限 clamp 到 0.99，而 \(\alpha < 1/255\) 的 Gaussian 直接跳过、不参与混合。论文给出的理由是数值稳定性——朴素实现容易出现除以 0 之类的问题（反向传播要用 \(1-\alpha\) 做除法恢复透射率，见下一篇）<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。</p>
 
 <h3 id="sec-kernel">Kernel 结构</h3>
 
-<p>一个 block = 一个 tile = 16&times;16 像素 = 256 个线程。Grid 大小是 tile 数（= ceil(W/16) &times; ceil(H/16)），1920&times;1080 下为 120 &times; 68 = 8160 个 block。该 tile 的 Gaussian 列表由 <code>tile_ranges[tile_id]</code> 给出——这个列表可能有 0 到数千个 Gaussian。当列表长度远超 256 时，分批（round）加载：</p>
+<p>一个 block = 一个 tile = 16&times;16 像素 = 256 个线程。Grid 大小是 tile 数（= ceil(W/16) &times; ceil(H/16)），1920&times;1080 下为 120 &times; 68 = 8160 个 block。该 tile 的 Gaussian 列表由 <code>tile_ranges[tile_id]</code> 给出，长度随场景和位置变化很大。当列表长度远超 256 时，分批（round）加载：</p>
 
 <ol>
 <li><b>加载阶段</b>：256 个线程协作加载 256 个 Gaussian 的 2D 均值、conic、颜色、opacity 到 shared memory——每线程负责一个 Gaussian（<code>threadIdx.x</code> 做索引），全局内存读取是连续地址，天然合并。</li>
 <li><b>第一个 <code>__syncthreads()</code></b>：确保 256 条 smem 写入全部完成后，所有线程才开始读 smem——这是 producer-consumer barrier。</li>
 <li><b>求值阶段</b>：每个线程遍历 smem 中的 256 个 Gaussian，计算自己像素到每个 Gaussian 中心的 Mahalanobis 距离（用预处理阶段算好的 conic），调用 <code>__expf</code> 得到 \(G\)，乘以 opacity 得到 alpha，做 &alpha;-blending 累加到线程私有的寄存器中。</li>
-<li><b>第二个 <code>__syncthreads()</code></b>：确保所有线程都读完这批 smem 数据后，才能用新数据覆盖——这是 consumer-producer barrier。两个 barrier 构成经典的双缓冲同步模式。</li>
+<li><b>第二个 <code>__syncthreads()</code></b>：确保所有线程都读完这批 smem 数据后，才能用新数据覆盖——这是 consumer-producer barrier。两个 barrier 保护同一块 smem 缓冲的&ldquo;写完再读、读完再写&rdquo;。官方实现把这一步合并进下一轮开头的 <code>__syncthreads_count(done)</code>：它同时统计 block 内已完成的像素数，全部完成时整个 block 提前退出循环。</li>
 </ol>
 
 <p>先看协作加载阶段——256 个线程各自从全局内存读一个 Gaussian 的属性并写入 shared memory 对应位置：</p>
@@ -525,7 +525,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     __syncthreads();</code></pre>
 <p class="src-note">完整代码：<code>code/r3d41-3dgs-forward/rasterize.cu</code> 第 53–69 行</p>
 
-<p>这段代码揭示了一个关键的索引间接性：<code>point_list[idx_in_list]</code> 返回的 <code>gid</code> 是 Gaussian 的全局索引——排序阶段已经把同一 tile 的 Gaussian 按深度排好了，<code>point_list</code> 就是排序后的索引映射。每个线程用 <code>gid</code> 索引 <code>means2d</code>、<code>conics</code>、<code>colors</code> 等全局数组——这是间接寻址（indirect load），地址不连续，无法完美合并。但同一 tile 内的 Gaussian 在空间上接近，它们的全局索引往往也接近（因为排序前按空间哈希分配的索引有局部性），所以实际中 L2 cache 命中率通常在 60%&ndash;80%。<code>__syncthreads()</code> 是 producer-consumer barrier：256 条 smem 写操作必须全部完成，任何线程才能开始从 smem 读取数据。如果去掉这个 barrier，快速完成写入的线程可能读到其他线程尚未写入的 smem 位置——得到未初始化的垃圾值。</p>
+<p>这段代码揭示了一个关键的索引间接性：<code>point_list[idx_in_list]</code> 返回的 <code>gid</code> 是 Gaussian 的全局索引——排序阶段已经把同一 tile 的 Gaussian 按深度排好了，<code>point_list</code> 就是排序后的索引映射。每个线程用 <code>gid</code> 索引 <code>means2d</code>、<code>conics</code>、<code>colors</code> 等全局数组——这是间接寻址（indirect load），地址不连续，无法完美合并。相邻 tile 的列表会大量重叠（一个 Gaussian 往往覆盖多个 tile），同一份属性会被多个 block 读到，L2 能吸收一部分重复读取，具体命中率取决于场景。<code>__syncthreads()</code> 是 producer-consumer barrier：256 条 smem 写操作必须全部完成，任何线程才能开始从 smem 读取数据。如果去掉这个 barrier，快速完成写入的线程可能读到其他线程尚未写入的 smem 位置——得到未初始化的垃圾值。</p>
 
 <pre data-code="code/r3d41-3dgs-forward/rasterize.cu#L70-L88"><code>    // Process all Gaussians in this batch
     int batch_end = min(BLOCK_SIZE,
@@ -550,16 +550,16 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h3 id="sec-early">提前终止</h3>
 
-<p>Front-to-back 的透射率 \(T\) 从 1.0 开始单调递减。当 \(T < 10^{-4}\) 时，后续 Gaussian 对最终颜色的贡献不超过 \(10^{-4}\)——该像素标记 <code>done = true</code>，在后续批次中跳过求值。</p>
+<p>Front-to-back 的透射率 \(T\) 从 1.0 开始单调递减。官方实现在混合一个 Gaussian 之前先算 <code>test_T = T * (1 - alpha)</code>，若 <code>test_T &lt; 0.0001</code> 就不再混合它、并把该像素标记 <code>done = true</code>（论文的说法是累计不透明度不超过 0.9999）<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>。此后的 Gaussian 对颜色的总贡献不超过 \(T\)。本文的简化代码则是先混合、再检查 <code>T &lt; 1e-4f</code>，会多混合最后一个 Gaussian。</p>
 
 <p>提前终止带来两个好处：（1）减少计算量（被遮挡区域的像素提前退出）；（2）减少寄存器压力（累加器不再更新）。但注意：由于 <code>__syncthreads()</code> 的存在，done 的线程不能退出 block——它仍然要参与 barrier 同步和 shared memory 加载，只是跳过了求值循环的内层。这是 GPU 编程中经典的&ldquo;divergent early exit&rdquo;问题：warp 内只要有一个线程没有 done，整个 warp 就要继续执行。最好情况下，一个 warp 的 32 个像素同时全部 done（整个 warp 在内层循环空转但不做 expf 计算）；最坏情况下，warp 中只有一个像素没 done，其余 31 个像素虽然跳过求值但仍然要等这一个线程完成。</p>
 
 <figure id="fig-alpha_blending_ftb" data-kind="diagram">
 <img aria-labelledby="fig-alpha_blending_ftb-cap" src="figs/alpha_blending_ftb.svg" alt="Front-to-back alpha blending"/>
-<figcaption id="fig-alpha_blending_ftb-cap"><span class="fig-label">图 6</span><b>Front-to-back α-blending 的透射率衰减与提前退出。</b>透射率 T 从 1.0 单调递减，低于 10⁻⁴ 时标记 done。右侧对比 front-to-back 与 back-to-front 的优劣。</figcaption>
+<figcaption id="fig-alpha_blending_ftb-cap"><span class="fig-label">图 6</span><b>Front-to-back α-blending 的透射率衰减与提前退出（示意）。</b>透射率 T 从 1.0 单调递减，即将低于 10⁻⁴ 时标记 done。右侧对比 front-to-back 与 back-to-front 的优劣。</figcaption>
 </figure>
 
-<p>提前终止的效果取决于场景的遮挡程度（<a href="#fig-alpha_blending_ftb">图 6</a>）。在室内场景中，大量像素被近处物体遮挡，很多 Gaussian 的 \(T\) 在前几十个就降到阈值以下，提前终止可以减少 50% 以上的求值量。在稀疏的户外场景中，很多像素能&ldquo;看穿&rdquo;到远处，T 衰减慢，提前终止的收益较小。数值上看：假设每个 Gaussian 平均 \(\alpha = 0.3\)，则 \(T_i = (1-0.3)^i = 0.7^i\)，约 30 个 Gaussian 后 \(T = 0.7^{30} \approx 0.002\)，约 40 个后低于 \(10^{-4}\)——在一个典型 tile 有 200 个 Gaussian 的密集场景中，提前终止可以跳过后面 160 个的求值（80% 的工作量）。</p>
+<p>提前终止的效果取决于场景的遮挡程度（<a href="#fig-alpha_blending_ftb">图 6</a>）：表面致密、遮挡多的区域 \(T\) 衰减快，能&ldquo;看穿&rdquo;到远处的区域衰减慢。数值上看：假设每个参与混合的 Gaussian 都有 \(\alpha = 0.3\)，则 \(T_i = 0.7^i\)，\(0.7^{20} \approx 8 \times 10^{-4}\)，第 26 个之后低于 \(10^{-4}\)（\(\ln 10^{-4} / \ln 0.7 \approx 25.8\)）——若该 tile 列表有 200 个 Gaussian，这个像素只需处理前 26 个左右。实际中 \(\alpha\) 往往小得多、且很多 Gaussian 因 \(\alpha < 1/255\) 被跳过，所以真实收益要看场景。</p>
 
 <h3 id="sec-smem-size">Shared Memory 用量分析</h3>
 
@@ -571,24 +571,23 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li><code>s_opacity</code>：不透明度，4 B。</li>
 </ul>
 
-<p>合计 36 B/Gaussian &times; 256 = 9 KB。A100 每 SM 最大 164 KB smem<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>，9 KB 只占约 5%——smem 完全不是瓶颈。这意味着可以把 batch size 加大（比如 512 或 1024），减少 round 数和 <code>__syncthreads()</code> 调用次数，但代价是降低 occupancy（更大的 block 占用更多寄存器）。原始 3DGS 选择 256（16&times;16）是 tile 大小和 block 大小的自然匹配。</p>
+<p>合计 36 B/Gaussian &times; 256 = 9 KB（官方实现只存 4 B id + 8 B xy + 16 B conic/opacity = 28 B，共 7 KB）。A100 每 SM 最大 164 KB smem<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>，9 KB 只占约 5%——smem 容量不是瓶颈。原始 3DGS 让 batch 大小等于 block 大小 256（16&times;16），每个线程恰好搬一个 Gaussian。</p>
 
-<p>另一个值得注意的细节：smem 数组是 Structure of Arrays（SoA）而非 AoS——<code>s_xy[256], s_con_x[256], ...</code> 而不是 <code>s_gaussian[256].xy, s_gaussian[256].con, ...</code>。SoA 让同一个 warp 中 32 个线程读取连续的 smem 地址（如 <code>s_con_x[0..31]</code>），避免 bank conflict（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>）。</p>
+<p>smem 布局与 bank conflict（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>）：求值循环里一个 warp 的 32 个线程在同一次迭代读的是<b>同一个</b> <code>s_xy[j]</code>，这是广播，不冲突，与布局无关；布局只影响加载阶段——本文代码用 SoA（<code>s_con_x[tid]</code> 等），32 个线程写连续地址，无冲突。官方实现用 <code>float2</code>/<code>float4</code> 数组，每个线程一次向量化写入。</p>
 
 <h3 id="sec-perf">性能特征</h3>
 
-<p>光栅化 kernel 的算术强度取决于每像素平均 Gaussian 数：</p>
+<p>先数一次&ldquo;像素 &times; Gaussian&rdquo;求值的指令（按本文代码粗略计）：</p>
 <ul>
-<li>每个 Gaussian 求值：2&times;乘法 + 2&times;FMA + 1&times;exp + 3&times;FMA &asymp; 15 FLOP。</li>
-<li>每个 Gaussian 从 smem 读取 &asymp; 32 B（xy, conic, color, opacity）。</li>
-<li>算术强度 &asymp; 15/32 &asymp; 0.5 FLOP/B（smem 读取）。</li>
+<li>2 次减法（dx, dy）+ 约 5 次乘/乘加（power）+ 1 次指数 + 1 次乘法（alpha）+ 比较，再加混合的约 5 次乘加（3 通道颜色 + T 更新）——约十几条 FP32 指令、1 条 SFU 指令。</li>
+<li>smem 读取在一个 warp 内是广播：一次读服务 32 个像素。</li>
 </ul>
 
-<p>看起来 smem 读取是 memory-bound，但 shared memory 带宽远高于 HBM——从 smem 角度看并行度足够。真正的瓶颈在 <code>__expf</code>：SFU（Special Function Unit）每 SM 每时钟只能产出 16 个结果<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>，而 A100 一个 SM 最多 2048 个驻留线程、每时钟可以调度多个 warp——SFU 吞吐远远跟不上。</p>
+<p>SFU（Special Function Unit）每 SM 每时钟产出 16 个 exp2 结果<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>，而 A100 每 SM 每时钟可做 64 条 FP32 FMA<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>。一次求值约 1 条 SFU 指令（1/16 时钟）对十几条 FP32 指令（约 12/64 &asymp; 0.19 时钟），所以按指令计数，FP32 流水比 SFU 更早饱和——SFU 不是这里的约束单元。</p>
 
-<p>更具体地估算：A100 有 108 SM，SFU 吞吐 = 108 &times; 16 &times; 1.41 GHz &asymp; 2.44 T results/s。如果 1920&times;1080 图像每像素平均处理 50 个 Gaussian，则总 <code>__expf</code> 调用 = 1920 &times; 1080 &times; 50 &asymp; 1.04 &times; 10<sup>8</sup>。理论下界 = 1.04 &times; 10<sup>8</sup> / 2.44 &times; 10<sup>12</sup> &asymp; 0.043 ms——对于目标 30 fps（33 ms/帧），SFU 不是绝对瓶颈，但在高分辨率或密集场景下会变得显著。换言之，光栅化 kernel 是 <b>SFU-bound</b> 的，因为其他操作（乘法、加法）的吞吐远高于 SFU。</p>
+<p>再看绝对量：A100 有 108 SM，SFU 吞吐 = 108 &times; 16 &times; 1.41 GHz &asymp; 2.44 T results/s。假设 1920&times;1080 图像每像素平均处理 50 个 Gaussian，则总 <code>__expf</code> 调用 = 1920 &times; 1080 &times; 50 &asymp; 1.04 &times; 10<sup>8</sup>。SFU 下界 = 1.04 &times; 10<sup>8</sup> / 2.44 &times; 10<sup>12</sup> &asymp; 0.043 ms——相对 30 fps 的 33 ms/帧预算可以忽略。真实耗时远高于这类峰值下界，主要来自 tile 间负载不均（列表长度差异大）、warp 内早停不一致造成的空转，以及按 id 间接读取全局属性的延迟；具体比例需要用 profiler 实测。</p>
 
-<p>一个实用优化：在调用 <code>__expf</code> 之前，先检查 <code>power</code> 是否小于某个阈值（如 &minus;4.0，对应 \(G < 0.02\)），直接跳过贡献极小的 Gaussian，避免浪费 SFU 周期。代码中 <code>if (power &gt; 0.0f) continue</code> 已经做了一半——它排除了像素在 Gaussian 中心之外的情况（power 应该是负的），但没有排除贡献极小的远处 Gaussian。</p>
+<p>一个小优化：因为 \(\alpha = o \cdot e^{\text{power}} \le e^{\text{power}}\)，当 \(\text{power} < \ln(1/255) \approx -5.54\) 时 \(\alpha\) 必然低于 1/255，可以在求指数之前就跳过。代码中的 <code>if (power &gt; 0.0f) continue</code> 只是排除数值上不合法的正值（conic 正定时 power &le; 0）。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
@@ -599,10 +598,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <tr><th>特性</th><th>影响</th></tr>
 </thead>
 <tbody>
-<tr><td>HBM 带宽（A100 2.0 &rarr; H100 3.35 &rarr; B200 8.0 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>预处理 kernel 读 Gaussian 数据、排序的全局内存吞吐提升</td></tr>
-<tr><td>L2 容量（A100 40 MB &rarr; H100 50 MB &rarr; GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>排序阶段的 key/value 数组更可能驻留 L2</td></tr>
-<tr><td>Shared memory 容量（A100 164 KB &rarr; H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>每批可加载更多 Gaussian，减少 round 数</td></tr>
-<tr><td>SFU 吞吐（Blackwell Ultra 2&times;<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>直接加速 <code>__expf</code>，缓解光栅化的 SFU 瓶颈</td></tr>
+<tr><td>HBM 带宽（A100 2.0 &rarr; H100 3.35 &rarr; B200 8.0 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>）</td><td>预处理 kernel 读 Gaussian 数据、排序的全局内存吞吐提升</td></tr>
+<tr><td>L2 容量（A100 40 MB &rarr; H100 50 MB &rarr; GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>）</td><td>排序阶段的 key/value 数组更可能驻留 L2</td></tr>
+<tr><td>Shared memory 容量（A100 164 KB &rarr; H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>）</td><td>每批可加载更多 Gaussian，减少 round 数</td></tr>
+<tr><td>SFU EX2 吞吐（Blackwell Ultra 相对 Blackwell 约 2&times;<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>）</td><td>加速 <code>__expf</code>；但按上文计数，SFU 本来就不是光栅化的约束单元，收益有限</td></tr>
 <tr><td>TMA</td><td>可用于预处理 kernel 的 Gaussian 数据加载，但 one-thread-per-Gaussian 模式已足够，收益有限</td></tr>
 </tbody>
 </table>
@@ -610,50 +609,49 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>更值得关注的是算法层面的优化：</p>
 
 <ul>
-<li><b>gsplat 的 tile-local sort</b><span class="cite">[<a href="#ref-gsplat" title="Ye et al. (2024). gsplat: An Open-Source Library for Gaussian Splatting. arXiv:2409.06765.">3</a>]</span>：不做全局 radix sort，而是在光栅化 kernel 内部对每个 tile 的 Gaussian 子集做 smem 内的 bitonic sort。好处是省掉全局排序的内存流量和 kernel launch 开销；代价是 tile 内排序受限于 smem 容量。</li>
-<li><b>延迟 SH 求值</b>：把 SH 求值从预处理推迟到光栅化——只在一个 Gaussian 确实对某像素有贡献时才算颜色。对于 3 阶 SH（48 floats = 192 B），这省掉了预处理写 + 光栅化读的 HBM 流量（每 Gaussian 192 B 写 + 12 B 读变成 192 B smem 读），在 HBM 带宽受限时有明显收益。</li>
+<li><b>更紧的 tile 分配</b>：轴对齐包围盒会把椭圆没覆盖的角落 tile 也算进来，做更精确的椭圆&ndash;tile 相交测试可以减少 pair 数，从而同时减轻排序和光栅化的负担。</li>
 <li><b>层次化剔除</b>：在预处理后、排序前做一次 frustum + occlusion 剔除，减少参与排序的 Gaussian 数量。</li>
 </ul>
 
-<p>在 Hopper 和 Blackwell 上，3DGS 的优化方向与 LLM/diffusion 截然不同：后者靠 Tensor Core 加速矩阵运算，前者需要的是更快的 SFU（指数函数）和更大的 L2/smem（减少排序和光栅化的全局内存流量）。Blackwell Ultra 的 SFU 加速（2&times; exp2 吞吐<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）对 3DGS 光栅化有直接收益。</p>
+<p>在 Hopper 和 Blackwell 上，3DGS 的优化方向与 LLM/diffusion 截然不同：后者靠 Tensor Core 加速矩阵运算，前者受益的是 HBM 带宽、L2/smem 容量和通用 FP32 吞吐，以及算法上减少 pair 数与负载不均。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：3DGS 为什么用 tile-based 而不是 per-pixel ray marching？</b></p>
-<p>Tile-based 让同一 tile 的 256 个像素共享 Gaussian 数据（通过 shared memory），一次全局读取服务 256 个像素，数据复用率是 256&times;。Per-pixel ray marching 每个像素独立遍历空间数据结构（如 BVH 或 kd-tree）——假设 100 万个 Gaussian，每像素都要做一次 BVH 查询和若干次全局内存随机访问，全局内存流量和延迟都会爆炸。Tile-based 把&ldquo;哪些 Gaussian 影响这个区域&rdquo;的问题在排序阶段一次解决，光栅化时只需顺序遍历。追问：tile 大小为什么是 16&times;16？因为 256 = 8 warps，刚好一个 block 的高效大小；太大则 tile 内 Gaussian 列表过长（更多 Gaussian 与 tile 相交），太小则 smem 利用率低、block launch overhead 占比增大。</p>
+<p>Tile-based 让同一 tile 的 256 个像素共享 Gaussian 数据（通过 shared memory），一次全局读取服务 256 个像素，数据复用率是 256&times;。Per-pixel ray marching 每个像素独立遍历空间数据结构（如 BVH 或 kd-tree）——假设 100 万个 Gaussian，每像素都要做一次 BVH 查询和若干次全局内存随机访问，全局内存流量和延迟都会爆炸。Tile-based 把&ldquo;哪些 Gaussian 影响这个区域&rdquo;的问题在排序阶段一次解决，光栅化时只需顺序遍历。追问：tile 大小为什么是 16&times;16？论文和官方代码（<code>BLOCK_X = BLOCK_Y = 16</code>）都用这个值<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>：256 个像素 = 8 个 warp，正好一个 block；tile 越大，每个 tile 的列表越长、tile 内像素间差异越大，tile 越小，一个 Gaussian 被复制成的 pair 越多、smem 中每个 Gaussian 服务的像素越少。</p>
 
 <p id="sec-q2"><b>Q2：排序为什么用 radix sort 而不是比较排序？</b></p>
-<p>Radix sort 是 O(K &middot; N) 而非 O(N log N)——K = 64 bit 的趟数（实际只排有效位数，如 48 bit = 6 趟 &times; 8 bit），且 GPU 上 radix sort 有极高的并行度和内存吞吐利用率（Onesweep 只需约 2 趟全局 pass）。追问：为什么 key 的高位放 tile_id？保证排序后同一 tile 的 Gaussian 连续存储，光栅化时顺序读取。</p>
+<p>Radix sort 是 O(K &middot; N) 而非 O(N log N)——K 是 digit 趟数（官方实现只排 32 + tile_id 位数，1080p 下 45 位 = 6 趟 &times; 8 bit），且 GPU 上 radix sort 有极高的并行度和内存吞吐利用率（Onesweep 每趟约 2n 次全局读写<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">5</a>]</span>）。追问：为什么 key 的高位放 tile_id？保证排序后同一 tile 的 Gaussian 连续存储，光栅化时顺序读取。</p>
 
 <p id="sec-q3"><b>Q3：front-to-back 和 back-to-front &alpha;-blending 有什么区别？</b></p>
 <p>数学上等价，但 front-to-back 可以提前终止（T &lt; &epsilon; 时后续贡献可忽略）。Back-to-front（传统画家算法）必须从最远处画到最近处，无法提前退出。追问：提前终止的线程为什么不能直接 return？因为 block 内有 <code>__syncthreads()</code>，所有线程必须到达 barrier，否则 deadlock。</p>
 
 <p id="sec-q4"><b>Q4：3DGS 光栅化的 occupancy 和内存分析。</b></p>
-<p>每 block 256 线程，smem 用量 &asymp; 256 &times; 36 B &asymp; 9 KB，不是 smem-bound。瓶颈在寄存器（每线程的累加器 C_r, C_g, C_b, T 和循环变量约 15&ndash;20 个 32-bit 寄存器）和 SFU 吞吐（<code>__expf</code>）。追问：如何减少 <code>__expf</code> 调用？可以先检查距离平方是否大于阈值（cheap check），跳过远处的 Gaussian。</p>
+<p>每 block 256 线程，smem 用量 &asymp; 256 &times; 36 B &asymp; 9 KB，不是 smem-bound；occupancy 主要由每线程寄存器数决定（累加器 C_r, C_g, C_b, T 加循环变量，具体数量看编译结果）。更现实的性能问题是负载不均（tile 列表长短差异大）和 warp 内早停不一致。追问：如何减少 <code>__expf</code> 调用？先检查 power 是否小于 \(\ln(1/255)\)，此时 \(\alpha\) 必然低于 1/255，可直接跳过。</p>
 
 <p id="sec-q5"><b>Q5：为什么 3DGS 光栅化的 smem 数组用 SoA 而不是 AoS？</b></p>
-<p>SoA 布局（如 <code>s_xy[256], s_con_x[256], ...</code>）让一个 warp 的 32 个线程读取 <code>s_con_x[0..31]</code> 时访问连续的 smem 地址——每个线程读一个 4 B 的 float，32 线程覆盖连续的 128 B（32 个 bank，每 bank 一次访问，零冲突）。AoS 布局（如 <code>s_gauss[256].con_x</code>）则会导致 stride 访问，36 B 的 stride 与 4 B 的 bank 宽度不对齐，产生多路 bank conflict。追问：在光栅化内循环中，每次迭代的所有线程都读同一个 <code>s_xy[j]</code>——这不是 bank conflict，而是 broadcast（同一地址被所有线程读取时广播，不产生冲突）。再追问：加载阶段（每线程写不同的 smem 位置）也是 SoA 布局优——32 个线程写 <code>s_con_x[tid..tid+31]</code> 是连续的，完美避免 bank conflict。</p>
+<p>先分清两个阶段。求值内循环里，同一次迭代所有线程读同一个 <code>s_xy[j]</code>——这是 broadcast，不产生冲突，SoA 还是 AoS 都一样。布局只影响加载阶段：SoA 下 32 个线程写 <code>s_con_x[tid]</code> 是连续的 32 个字，零冲突。AoS 下线程 t 写第 \(9t\) 个字（36 B = 9 个字的 stride）：因为 9 是奇数，\(9t \bmod 32\) 在 32 个线程上互不相同，同样零冲突；若结构体是 32 B（8 个字、偶数 stride），\(8t \bmod 32\) 只落在 4 个 bank 上，就会有 8 路冲突。所以真正的规则是&ldquo;以字为单位的 stride 与 32 互素&rdquo;，SoA 只是最省心的做法；官方实现用 <code>float2</code>/<code>float4</code> 向量写入。</p>
 
 <p id="sec-q6"><b>Q6：EWA 投影中的低通滤波 \(0.3\,I\) 是怎么回事？去掉会怎样？</b></p>
-<p>当 Gaussian 离相机很远时，投影后的 2D 椭圆可能小于一个像素——特征值接近零。此时高斯函数在像素网格上的采样不满足 Nyquist 条件，产生走样（高频闪烁）。加上 \(0.3\,I\) 相当于把最小特征值 clamp 到 0.3，保证 2D 椭圆至少有 \(\sqrt{0.3} \approx 0.55\) 像素的半宽。去掉后远处场景会出现严重的 z-fighting 式闪烁。追问：Mip-Splatting 用了更精确的方案——根据像素的 footprint 大小自适应调整滤波核，而不是用固定常数 0.3。</p>
+<p>当 Gaussian 离相机很远时，投影后的 2D 椭圆可能小于一个像素——特征值接近零。此时高斯函数在像素网格上的采样不满足 Nyquist 条件，产生走样（高频闪烁）。加上 \(0.3\,I\) 让两个特征值都增加 0.3，保证 2D 椭圆每个方向的标准差至少 \(\sqrt{0.3} \approx 0.55\) 像素。去掉后过小的 Gaussian 在像素网格上采样不足，出现走样和闪烁。追问：Mip-Splatting<span class="cite">[<a href="#ref-mipsplat" title="Yu, Chen, Huang, Sattler &amp; Geiger (2024). Mip-Splatting: Alias-free 3D Gaussian Splatting. CVPR 2024; arXiv:2311.16493.">7</a>]</span> 指出这种固定的 2D 膨胀本身会在改变采样率（缩放、改焦距）时带来伪影，改用两部分：按训练视图的最大采样频率约束 3D Gaussian 大小的 3D 平滑滤波，加上模拟 2D 盒式滤波的 2D Mip 滤波。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
 <li>本文代码<b>未在 GPU 上运行</b>，仅通过 host-only 语法检查；实际 3DGS 实现（diff-gaussian-rasterization、gsplat）有大量工程优化（如 warp-level 协作加载、每 Gaussian 的 view-space 裁剪等），此处做了简化。</li>
 <li>反向传播（梯度计算）在<a href="../r3d42-3dgs-backward/r3d42-3dgs-backward.html">下一篇</a>详述——反向的关键挑战是后到前重放和原子争用。</li>
-<li>本文没有覆盖的 3DGS 训练组件：adaptive density control（根据梯度大小动态 clone、split、prune Gaussian）、anti-aliasing（Mip-Splatting 的多尺度滤波）、GSplat 的 tile-local sort 优化、压缩（codebook 量化、pruning 到 &lt; 10% Gaussian 数量保持质量）。</li>
-<li>SFU 吞吐数字来自 CUDA Programming Guide 的 Table 4<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>：CC 8.0&ndash;9.0 每 SM 每时钟 16 个 SFU 结果。Blackwell Ultra 的 SFU 加速来自 [BWU-BLOG] &ldquo;Accelerated attention&rdquo; 小节<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>。</li>
-<li>CUB radix sort 吞吐的数量级（16&ndash;20 GB/s on A100）为公开基准的典型值<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">4</a>]</span>，非本文实测。</li>
+<li>本文没有覆盖的 3DGS 训练组件：adaptive density control（根据梯度大小动态 clone、split、prune Gaussian）、anti-aliasing（Mip-Splatting 的 3D 平滑 + 2D Mip 滤波）、压缩（codebook 量化、pruning 等）。</li>
+<li>SFU 吞吐数字来自 CUDA Programming Guide 的算术指令吞吐表<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>：CC 8.0&ndash;9.0 每 SM 每时钟 16 个 SFU 结果。Blackwell Ultra 的 SFU 加速来自 [BWU-BLOG] &ldquo;Accelerated attention&rdquo; 小节<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>。</li>
+<li>排序耗时只给出按 HBM 流量推的下界；Onesweep 的 29.4 GKey/s 是论文对 32-bit key 的测量<span class="cite">[<a href="#ref-onesweep" title="Adinets &amp; Merrill (2022). Onesweep: A Faster Least Significant Digit Radix Sort for GPUs. arXiv:2206.01784.">5</a>]</span>，本文的 64-bit key + 32-bit value 场景未实测。</li>
 </ul>
 
 <h2 id="sec-summary" class="no-toc">小结</h2>
 
-<p>3DGS 的前向渲染是一个精巧的三级 GPU pipeline。预处理 kernel（one-thread-per-Gaussian，约 250&ndash;350 FLOP/线程）把 3D 高斯通过 EWA 投影压缩成 2D 属性——conic、2D 均值、深度、颜色、包围半径。全局 radix sort 以 tile_id|depth 为 key 建立每个 tile 的深度有序 Gaussian 列表——这是唯一涉及全局同步的步骤。光栅化 kernel（one-block-per-tile，256 threads = 256 pixels）分批把 Gaussian 加载进 shared memory，逐像素做 front-to-back &alpha;-blending，透射率低于阈值时提前退出。</p>
+<p>3DGS 的前向渲染是一个精巧的三级 GPU pipeline。预处理 kernel（one-thread-per-Gaussian，几百 FLOP/线程，受 HBM 带宽约束）把 3D 高斯通过 EWA 投影压缩成 2D 属性——conic、2D 均值、深度、颜色、包围半径。全局 radix sort 以 tile_id|depth 为 key 建立每个 tile 的深度有序 Gaussian 列表——这是唯一涉及全局同步的步骤。光栅化 kernel（one-block-per-tile，256 threads = 256 pixels）分批把 Gaussian 加载进 shared memory，逐像素做 front-to-back &alpha;-blending，透射率低于阈值时提前退出。</p>
 
-<p>核心性能瓶颈在光栅化的 <code>__expf</code>（SFU 吞吐），而非 Tensor Core 算力——这使得 3DGS 与 LLM/diffusion 的优化方向截然不同。LLM 靠 WGMMA 加速 attention 和 FFN 的矩阵乘法，diffusion 靠 Tensor Core 加速 UNet/DiT 的卷积和注意力，而 3DGS 需要的是更快的特殊函数单元和更高效的内存层次结构。在 Hopper/Blackwell 上，更大的 L2/smem 和更快的 SFU 是 3DGS 获益最大的硬件改进。</p>
+<p>3DGS 不用 Tensor Core——这使它与 LLM/diffusion 的优化方向截然不同。按指令计数，光栅化里 FP32 流水比 SFU 更早饱和，实际耗时则更多取决于负载不均、早停不一致和间接访存；预处理和排序则受 HBM 带宽约束。在 Hopper/Blackwell 上，3DGS 主要从更高的带宽、更大的 L2/smem 和更强的通用算力中获益。</p>
 
-<p>前向渲染只是训练循环的一半。每次迭代：（1）前向渲染当前 Gaussian 集合得到图像；（2）计算渲染图像与 ground truth 照片的 loss（L1 + SSIM）；（3）反向传播 loss 到每个 Gaussian 的属性梯度（位置、协方差参数、opacity、SH 系数）；（4）optimizer 更新这些属性。反向传播需要在光栅化阶段维护每个像素的&ldquo;贡献者列表&rdquo;（哪些 Gaussian 参与了这个像素的颜色），然后按 back-to-front 顺序重放——涉及原子争用和梯度累加的精细设计，在<a href="../r3d42-3dgs-backward/r3d42-3dgs-backward.html">下一篇</a>详述。</p>
+<p>前向渲染只是训练循环的一半。每次迭代：（1）前向渲染当前 Gaussian 集合得到图像；（2）计算渲染图像与 ground truth 照片的 loss（L1 + SSIM）；（3）反向传播 loss 到每个 Gaussian 的属性梯度（位置、协方差参数、opacity、SH 系数）；（4）optimizer 更新这些属性。原论文的反向传播不存每像素的贡献者列表，而是只记下每个像素的最终透射率和最后一个贡献者的位置，复用前向的排序结果按 back-to-front 顺序重新遍历每个 tile 的列表<span class="cite">[<a href="#ref-kerbl23" title="Kerbl, Kopanas, Leimkühler &amp; Drettakis (2023). 3D Gaussian Splatting for Real-Time Radiance Field Rendering. ACM Trans. Graphics (SIGGRAPH) 42(4).">1</a>]</span>——涉及原子争用和梯度累加的精细设计，在<a href="../r3d42-3dgs-backward/r3d42-3dgs-backward.html">下一篇</a>详述。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -668,17 +666,18 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
   <li id="ref-kerbl23">Kerbl, Kopanas, Leimk&uuml;hler &amp; Drettakis (2023). <a href="https://arxiv.org/abs/2308.04079">3D Gaussian Splatting for Real-Time Radiance Field Rendering</a>. ACM Trans. Graphics (SIGGRAPH) 42(4).</li>
-  <li id="ref-zwicker02">Zwicker, Pfister, van Baar &amp; Gross (2002). <a href="https://doi.org/10.1109/TVCG.2002.1021579">EWA Splatting</a>. IEEE TVCG 8(3).</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，FP32 与 SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-zwicker02">Zwicker, Pfister, van Baar &amp; Gross (2002). <a href="https://doi.org/10.1109/TVCG.2002.1021576">EWA Splatting</a>. IEEE TVCG 8(3).</li>
   <li id="ref-gsplat">Ye et al. (2024). <a href="https://arxiv.org/abs/2409.06765">gsplat: An Open-Source Library for Gaussian Splatting</a>. arXiv:2409.06765.</li>
   <li id="ref-onesweep">Adinets &amp; Merrill (2022). <a href="https://arxiv.org/abs/2206.01784">Onesweep: A Faster Least Significant Digit Radix Sort for GPUs</a>. arXiv:2206.01784.</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
   <li id="ref-cc">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide</a>. Table 4 &ldquo;Throughput of Native Arithmetic Instructions&rdquo;; &sect;5.1 Compute Capabilities.</li>
+  <li id="ref-mipsplat">Yu, Chen, Huang, Sattler &amp; Geiger (2024). <a href="https://arxiv.org/abs/2311.16493">Mip-Splatting: Alias-free 3D Gaussian Splatting</a>. CVPR 2024; arXiv:2311.16493.</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 41 篇。文中代码完整版在系列目录的 <code>code/r3d41-3dgs-forward/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 41 篇。文中代码完整版在系列目录的 <code>code/r3d41-3dgs-forward/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。除每个 Gaussian 的字节数等由属性个数推得的数字外，图均为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

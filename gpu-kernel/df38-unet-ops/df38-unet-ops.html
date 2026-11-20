@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 25 分钟阅读</span>
+    <span data-reading-time>约 24 分钟阅读</span>
   </div>
 </header>
 
@@ -230,11 +230,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>Diffusion 去噪步里，卷积占 ~40% 时间（compute-bound）、GroupNorm + 激活占 ~20%（memory-bound）——后者通过融合可削减一半 kernel launch 和 HBM 流量。</li>
-<li>GroupNorm + SiLU 融合：一个 kernel 完成归约、归一化、激活——关键是 NHWC 布局下按 (n, group) 划分 block，两遍归约避免全局同步。</li>
-<li>Channels-last（NHWC）布局让卷积的 Tensor Core 路径不需要转置——cuDNN 默认对 diffusion 常见尺寸选 implicit GEMM。</li>
-<li>CFG（Classifier-Free Guidance）把 cond/uncond 拼 batch 避免两次前向——最后的 guidance 合并是纯 elementwise 融合。</li>
-  </ul>
+<li>UNet 去噪步里，3&times;3 卷积是 compute-bound 的主力；GroupNorm、SiLU、残差加等是 memory-bound 的&ldquo;小算子&rdquo;，数量多、每次都读写整张 feature map，是融合的首要目标。各类算子的时间占比随模型、分辨率和硬件而变，要实测。</li>
+<li>GroupNorm + SiLU 融合：按 (n, group) 划分 block，统计一遍、归一化 + 激活一遍，feature map 的 HBM 读写从 5 次降到 3 次。</li>
+<li>Channels-last（NHWC）布局让卷积的 Tensor Core 路径不需要转置——NVIDIA 的卷积指南写明 Tensor Core 卷积要求 NHWC。</li>
+<li>CFG（Classifier-Free Guidance）把 cond/uncond 拼 batch 避免两次前向——最后的 guidance 合并是纯 elementwise，可以并进调度器的 step。</li>
+</ul>
 </div>
 
 <!-- mainline -->
@@ -243,38 +243,38 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-profile">去噪步的 Kernel 构成</h2>
 
-<p>一个 UNet-based diffusion 模型<span class="cite">[<a href="#ref-ho22" title="Ho, Jain &amp; Abbeel (2020). Denoising Diffusion Probabilistic Models. arXiv:2006.11239。">1</a>]</span>（如 Stable Diffusion<span class="cite">[<a href="#ref-rombach22" title="Rombach, Blattmann, Lorenz, Esser &amp; Ommer (2022). High-Resolution Image Synthesis with Latent Diffusion Models. arXiv:2112.10752。">2</a>]</span>）的单步去噪包含数十次 kernel launch。对典型的 512&times;512 图像、batch=2（CFG 拼 batch），kernel 时间大致分布如下（<a href="#fig-kernel_time_pie">图 1</a>）：</p>
+<p>一个 UNet-based diffusion 模型<span class="cite">[<a href="#ref-ho22" title="Ho, Jain &amp; Abbeel (2020). Denoising Diffusion Probabilistic Models. arXiv:2006.11239。">1</a>]</span>（如 Stable Diffusion<span class="cite">[<a href="#ref-rombach22" title="Rombach, Blattmann, Lorenz, Esser &amp; Ommer (2022). High-Resolution Image Synthesis with Latent Diffusion Models. arXiv:2112.10752。">2</a>]</span>）的单步去噪包含上百次 kernel launch。按计算特征可以把它们分成几类（<a href="#fig-kernel_time_pie">图 1</a>）：</p>
 
 <figure id="fig-kernel_time_pie" data-kind="diagram">
 <img aria-labelledby="fig-kernel_time_pie-cap" src="figs/kernel_time_pie.svg" alt="去噪步 kernel 时间构成"/>
-<figcaption id="fig-kernel_time_pie-cap"><span class="fig-label">图 1</span><b>单步去噪的 kernel 时间构成（示意）。</b>卷积占主导（compute-bound），GroupNorm + 激活占约 20%（memory-bound），是融合优化的首要目标。比例随分辨率和模型大小变化。</figcaption>
+<figcaption id="fig-kernel_time_pie-cap"><span class="fig-label">图 1</span><b>单步去噪的算子分类（示意，不表示时间比例）。</b>卷积是 compute-bound；GroupNorm、激活、残差加等是 memory-bound，是融合优化的首要目标。各类的实际时间占比随模型、分辨率、batch 和硬件变化，需要用 profiler 实测。</figcaption>
 </figure>
 
-<p>两个关键观察：（1）卷积在 Tensor Core 上已经很快（cuDNN implicit GEMM<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Documentation. Convolution algorithms、fusion API。">3</a>]</span>），优化空间有限；（2）GroupNorm、SiLU、residual add 这些 memory-bound 算子频繁出现——每个 ResBlock 至少两次 GroupNorm + SiLU，每次都要读写整个 feature map。融合这些算子能大幅减少 HBM 流量和 kernel launch 开销。</p>
+<p>两个关键观察：（1）卷积走 Tensor Core 的 implicit GEMM<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §3（implicit GEMM）、§4.1（NCHW vs NHWC）。">3</a>]</span>，kernel 本身已由库高度优化；（2）GroupNorm、SiLU、residual add 这些 memory-bound 算子频繁出现——每个 ResBlock 至少两次 GroupNorm + SiLU，每次都要读写整个 feature map。融合这些算子能大幅减少 HBM 流量和 kernel launch 开销。</p>
 
-<p>以 Stable Diffusion 1.5 的 UNet 为例：模型有约 25 个 ResBlock，每个 ResBlock 包含 2 次 GroupNorm + SiLU + Conv、1 次 timestep injection、1 次 residual add。总共约 50 次 GroupNorm 和 50 次 SiLU——如果每个都独立启动 kernel，就是 100+ 次 kernel launch，仅这些 memory-bound 算子的 HBM 流量就达到数 GB（每次读写整个 feature map，feature map 从浅层的 64&times;64&times;320 到深层的 8&times;8&times;1280 不等）。通过融合把 GroupNorm + SiLU + timestep injection 压缩成单个 kernel，launch 次数减少 3 倍，HBM 流量减少 2&ndash;3 倍。</p>
+<p>以 Stable Diffusion 1.5 的 UNet 为例（diffusers 配置：<code>block_out_channels</code> = [320, 640, 1280, 1280]，<code>layers_per_block</code> = 2，<code>norm_num_groups</code> = 32<span class="cite">[<a href="#ref-sd15cfg" title="Stable Diffusion v1.5 UNet 配置. unet/config.json（diffusers <code>UNet2DConditionModel</code>：block_out_channels、layers_per_block、norm_num_groups、down/up_block_types）。">4</a>]</span>）：下采样路径 4 级 &times; 2 个 ResBlock，中间 2 个，上采样路径 4 级 &times; 3 个，共 22 个 ResBlock。每个 ResBlock 含 2 次 GroupNorm + SiLU + Conv、1 次时间步注入、1 次残差加，所以共有 44 次 GroupNorm + SiLU（另外 16 个 Transformer 块各有一个输入 GroupNorm）。latent 为 64&times;64 时，feature map 从 64&times;64&times;320 到 8&times;8&times;1280 不等。如果这些算子都独立启动，每次都读写整张 feature map；后文会算到，仅 GroupNorm + SiLU 一项，融合就能把 feature map 的 HBM 读写从 5 次降到 3 次。</p>
 
-<p>更细致地分析 kernel 构成：除了卷积和 GroupNorm 之外，UNet 还包含 self-attention 和 cross-attention（约 15% 时间，主要在低分辨率的 Transformer block 中）、elementwise 操作（residual add、timestep 广播、SiLU 激活，约 10%）、上下采样（约 5%）、以及其他操作（Linear 投影、LayerNorm 等，约 10%）。优化的优先级应该是：(1) 融合 GroupNorm + SiLU + timestep（收益最大、实现最成熟），(2) 用 FlashAttention 优化 attention（减少 HBM 流量），(3) NHWC 卷积走 Tensor Core 快速路径，(4) CUDA Graph 消除 launch 延迟，(5) cuDNN epilogue fusion（conv + bias + residual add + activation）。</p>
+<p>除了卷积和 GroupNorm 之外，UNet 还包含 self-attention 和 cross-attention（SD 1.5 在 64&times;64、32&times;32、16&times;16 三级和中间块都有 Transformer 块）、elementwise 操作（残差加、时间步注入、SiLU）、上下采样以及 Linear 投影、LayerNorm 等。一个合理的优化顺序是：(1) 融合 GroupNorm + SiLU（+ 时间步注入），(2) 用 FlashAttention 类 kernel 处理 attention，(3) NHWC 卷积走 Tensor Core 快速路径，(4) CUDA Graph 消除 launch 开销，(5) 卷积 epilogue 融合（bias、残差加、激活）。具体先做哪一项，应以目标模型上的 profile 为准。</p>
 
 <h2 id="sec-groupnorm">GroupNorm 并行与 GN+SiLU 融合</h2>
 
-<p>GroupNorm<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.24 Warp Shuffle、§B.18 Cooperative Groups。">4</a>]</span> 把 C 个 channel 分成 G 组（典型 G=32），对每组内的 H&times;W&times;(C/G) 个元素计算均值和方差，然后归一化。和 BatchNorm 不同，GroupNorm 不跨 batch 维度归约，所以每个 (n, g) pair 完全独立（<a href="#fig-groupnorm_reduce">图 2</a>）。</p>
+<p>GroupNorm<span class="cite">[<a href="#ref-wu18" title="Wu &amp; He (2018). Group Normalization. arXiv:1803.08494（ECCV 2018）。">5</a>]</span> 把 C 个 channel 分成 G 组（原论文默认 G=32，SD 1.5 也是 32），对每组内的 H&times;W&times;(C/G) 个元素计算均值和方差，然后归一化。和 BatchNorm 不同，GroupNorm 不跨 batch 维度归约，所以每个 (n, g) pair 完全独立（<a href="#fig-groupnorm_reduce">图 2</a>）。</p>
 
 <figure id="fig-groupnorm_reduce" data-kind="diagram">
 <img aria-labelledby="fig-groupnorm_reduce-cap" src="figs/groupnorm_reduce.svg" alt="GroupNorm 归约维度"/>
 <figcaption id="fig-groupnorm_reduce-cap"><span class="fig-label">图 2</span><b>GroupNorm 的归约维度。</b>每个 (n, g) pair 独立归约 H&times;W&times;(C/G) 个元素，grid 设为 N&times;G 个 block，无需跨 block 同步。NHWC 布局下，同组 channel 在内存中不连续——需要步幅访问。</figcaption>
 </figure>
 
-<p>GroupNorm 的归约量分析：对 C=320、G=32、H=W=64，每组归约 64&times;64&times;10 = 40960 个元素。这足够大——一个 block（256 线程）每个线程处理约 160 个元素，可以很好地隐藏 HBM 延迟。对 C=1280（UNet 的 bottleneck 层），每组归约 64&times;64&times;40 = 163840 个元素——归约量更大，带宽利用率更高。grid 大小 = N &times; G：对 batch=2、G=32，有 64 个 block——A100 的 108 个 SM 中约 60% 被占用，利用率尚可。如果 batch 更大（如 batch=8），256 个 block，SM 利用率接近 100%。</p>
+<p>GroupNorm 的归约量分析：对 C=320、G=32、H=W=64，每组归约 64&times;64&times;10 = 40960 个元素。这足够大——一个 block（256 线程）每个线程处理约 160 个元素，可以很好地隐藏 HBM 延迟。对 C=1280（SD 1.5 中出现在 16&times;16 和 8&times;8 两级），每组只有 16&times;16&times;40 = 10240 或 8&times;8&times;40 = 2560 个元素。grid 大小 = N &times; G：对 batch=2、G=32，只有 64 个 block——A100 的 108 个 SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span> 只用上约 60%。batch=8 时有 256 个 block，能铺满所有 SM。小 batch 下若想用满 GPU，就得让多个 block 合作归约同一个 (n, g)，再多一步跨 block 合并。</p>
 
-<p>与 BatchNorm 和 LayerNorm 的对比值得展开。BatchNorm 归约维度是 (N, H, W)——需要跨 batch 维度，在分布式训练中需要 all-reduce（多 GPU 同步），这使得推理时必须用预计算的 running mean/var 而非在线计算。GroupNorm 完全不跨 batch，所以推理时 batch=1 也能正常工作——这是 diffusion 模型几乎全部使用 GroupNorm 的核心原因。LayerNorm 归约整个 (C, H, W) 维度——对图像 feature map 来说归约量更大（如 320&times;64&times;64 = 1.3M 元素），但没有 group 间的并行——只有 N 个独立 block，并行度低于 GroupNorm 的 N&times;G。因此图像模型偏好 GroupNorm，而 NLP 的 Transformer 使用 LayerNorm（无空间维度，C 维归约量适中）。</p>
+<p>与 BatchNorm 和 LayerNorm 的对比值得展开。BatchNorm 归约维度是 (N, H, W)——跨 batch，分布式训练时还要跨 GPU 同步统计量，推理时则使用训练中累积的 running mean/var。GroupNorm 完全不跨 batch，训练和推理的计算方式一致，batch=1 也能正常工作；原论文正是为了解决小 batch 下 BatchNorm 退化的问题<span class="cite">[<a href="#ref-wu18" title="Wu &amp; He (2018). Group Normalization. arXiv:1803.08494（ECCV 2018）。">5</a>]</span>。LayerNorm 在图像上若归约整个 (C, H, W)，每个样本只有一个归约单元，并行度只有 N，低于 GroupNorm 的 N&times;G。</p>
 
-<p>G=32 这个常见选择并非随意——它是统计稳定性与 GPU 并行度之间的权衡结果。如果 G 过大（极端情况 G=C，退化为 Instance Norm），每组内参与归约的元素急剧减少：对 C=320、spatial=64&times;64，G=C 意味着每组只有 4096 个元素，方差估计的相对标准误约 1/&radic;4096 &asymp; 1.6%，统计噪声会在训练后期导致归一化不稳定，体现为 FID 波动增大。如果 G 过小（G=1，退化为对整个 C&times;H&times;W 的空间 LayerNorm 变体），并行度降至 N——batch=2 时只有 2 个 block，A100 的 108 个 SM 绝大多数空闲，归约延迟被单个 block 的串行遍历所主导。G=32 在两端之间取平衡：每组 C/G=10 个 channel 提供 40960 个归约元素（统计量充足），同时 N&times;G=64 个 block 保证合理的 SM 占用。实际生产中如果模型宽度特别大（如 C=2560），有些实现会把 G 增大到 64，保持每组 channel 数在 40 左右——避免单 block 归约量过大导致 tail latency 不均衡。这种&ldquo;固定每组 channel 数&rdquo;的策略在大模型中比&ldquo;固定 G&rdquo;更鲁棒。</p>
+<p>G=32 这个默认值来自 GroupNorm 原论文：作者在 ImageNet 上比较了不同的组数和&ldquo;每组固定通道数&rdquo;两种设定，G=32 是默认配置<span class="cite">[<a href="#ref-wu18" title="Wu &amp; He (2018). Group Normalization. arXiv:1803.08494（ECCV 2018）。">5</a>]</span>——它是一个精度上的经验选择，而不是为 GPU 选的。从 kernel 的角度看，G 同时决定两件事：每个 (n, g) 的归约量 \(H \cdot W \cdot C/G\)（G 越大越小）和独立归约单元的个数 N&middot;G（G 越大越多）。G=C 退化为 Instance Norm，G=1 退化为对 (C, H, W) 的 LayerNorm。</p>
 
 <p><b>两遍融合 kernel</b>：</p>
 <ul>
-<li><b>Pass 1（统计）</b>：每个 block 负责一个 (n, g)，线程协作遍历 H&times;W&times;(C/G) 个元素，用 shared memory 做 block-level 归约得到 &mu; 和 &sigma;&sup2;。NHWC 布局下同组 channel 不连续（步幅 = C），但每个位置读 C/G 个连续 channel——只要 C/G &ge; 4（通常是 10 或更大），可以用 float4 向量化加载。归约用经典的 shared memory parallel reduction：先每个线程局部累加，写入 shared memory，然后 log2(blockDim) 步对半归约。</li>
-<li><b>Pass 2（归一化 + SiLU）</b>：同样按 (n, g) 划分 block，读入 &mu;、&sigma;&sup2;，逐元素归一化、仿射变换、然后立即做 SiLU（x &middot; &sigma;(x)）写回。关键是 pass 2 不需要全局同步——每个 block 只依赖自己 pass 1 算出的 &mu; 和 &sigma;&sup2;（通过 global memory 传递，2 个 float，远小于 L2 cache line）。</li>
+<li><b>Pass 1（统计）</b>：每个 block 负责一个 (n, g)，线程协作遍历 H&times;W&times;(C/G) 个元素，用 shared memory 做 block-level 归约得到 &mu; 和 &sigma;&sup2;。NHWC 布局下一个像素里同组的 C/G 个 channel 是连续的，相邻像素之间步幅为 C——当 C/G 是 4 的倍数且地址 16 字节对齐时，可以用 float4 向量化加载（C=320、G=32 时 C/G=10，不满足，见 Q1 追问）。归约用经典的 shared memory parallel reduction：先每个线程局部累加，写入 shared memory，然后 log2(blockDim) 步对半归约。</li>
+<li><b>Pass 2（归一化 + SiLU）</b>：同样按 (n, g) 划分 block，读入 &mu;、&sigma;&sup2;，逐元素归一化、仿射变换、然后立即做 SiLU（x &middot; &sigma;(x)）写回。关键是 pass 2 不需要全局同步——每个 block 只依赖自己 pass 1 算出的 &mu; 和 &sigma;&sup2;（通过 global memory 传递，每个 (n, g) 2 个 float）。</li>
 </ul>
 
 <pre data-code="code/df38-unet-ops/groupnorm_silu_fused.cu#L8-L52"><code>__global__ void groupnorm_stats(
@@ -360,39 +360,39 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/df38-unet-ops/groupnorm_silu_fused.cu</code> 第 55&ndash;83 行（未在 GPU 上运行）</p>
 
-<p>注意 <code>rsqrtf(var + eps)</code>——reciprocal square root 是一条 SFU 指令（Special Function Unit），比分开算 sqrtf 再取倒数快。gamma 和 beta 是 per-channel 的仿射参数（长度 C），通常 &lt;5 KB，常驻 L1/L2 cache。</p>
+<p>注意 <code>rsqrtf(var + eps)</code>——reciprocal square root 是一条 SFU 指令（Special Function Unit），比分开算 sqrtf 再取倒数快。gamma 和 beta 是 per-channel 的仿射参数（长度 C，C=1280 时各 5 KB），很容易留在 L1/L2 cache 中。</p>
 
-<p>为什么不用 Welford 单遍？Welford 的在线更新需要每步一次除法，当元素量大时（64&times;64&times;(320/32) = 40960）两遍法的总 FLOP 更低。而且两遍法的 pass 1 只做加法累加——可以用 FP32 accumulator + FP16 input，数值稳定性好。Welford 的优势在元素量小时（如 LayerNorm 的 hidden dim 2048），但 GroupNorm 的归约量通常上万，两遍法更合适。实际实现中 pass 2 还可以融合时间步嵌入的 scale/shift 操作（下一节详述）。</p>
+<p><b>关于数值稳定性</b>：这里的 pass 1 用 \(\sum x\) 和 \(\sum x^2\) 一次扫描算出均值和方差（\(\text{Var} = E[x^2] - E[x]^2\)），实现简单，但当均值远大于标准差时两项相减会损失有效位，FP32 累加也会随元素数增长积累舍入误差。更稳的做法是 Welford 在线更新或分块计算后按 Chan 等人的公式合并（每个线程先算局部 (count, mean, M2)，再在 block 内合并），代价是每步多一次除法。两种做法读 X 的次数相同，差别只在算术。实际实现中 pass 2 还可以融合时间步的 scale/shift 操作（下一节详述）。</p>
 
-<p><b>性能分析</b>：不融合时，GroupNorm + SiLU 需要 3 个 kernel：(1) 计算 mean/var（读 X），(2) 归一化（读 X + mean/var，写 Y），(3) SiLU（读 Y，写 Y'）。总 HBM 流量 = 读 X 两次 + 写 Y + 读 Y + 写 Y' = 5 次 feature map 读写。融合后：pass 1 读 X 一次，pass 2 读 X + 写 Y' 各一次——总共 3 次。HBM 流量减少 40%，kernel launch 从 3 次减到 2 次（pass 1 和 pass 2 之间仍需同步，所以仍是两个 kernel）。对 C=320、H=W=64、batch=2 的 feature map（约 5 MB），每次 HBM 读写在 A100 上约 2.5 &mu;s——省掉 2 次读写 = 省 5 &mu;s。看起来不多，但 UNet 有约 50 个 GroupNorm+SiLU，总共省 250 &mu;s，占去噪步总时间（约 10 ms）的 2.5%。</p>
+<p><b>性能分析</b>：不融合时，GroupNorm + SiLU 需要 3 个 kernel：(1) 计算 mean/var（读 X），(2) 归一化（读 X + mean/var，写 Y），(3) SiLU（读 Y，写 Y'）。总 HBM 流量 = 读 X 两次 + 写 Y + 读 Y + 写 Y' = 5 次 feature map 读写。融合后：pass 1 读 X 一次，pass 2 读 X + 写 Y' 各一次——总共 3 次。HBM 流量减少 40%，kernel 从 3 个减到 2 个（pass 1 和 pass 2 之间需要全局同步，所以仍是两个 kernel）。对 C=320、H=W=64、batch=2 的 FP16 feature map（约 5.2 MB），按 A100 80GB 的 2.04 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span>，一次读或写至少约 2.6 &mu;s，省掉 2 次约 5 &mu;s。SD 1.5 有 44 次 GroupNorm + SiLU，但只有 64&times;64 那一级是这么大，更深的层 feature map 小得多，所以总节省是这个数乘 44 的上界之下。</p>
 
-<p>SiLU 的融合价值比 ReLU 更大，原因在于计算密度差异。ReLU 是分支操作（max(0, x)），计算量几乎为零；而 SiLU（x&middot;&sigma;(x)）需要一次指数运算（expf）和一次除法——这两条指令走 SFU，每个 warp 耗时 4&ndash;8 cycle，远高于 ReLU 的 1 cycle。如果 SiLU 作为独立 kernel 启动，瓶颈仍然是 HBM 带宽（读 X 写 Y），计算延迟完全被访存延迟掩盖——等于白白浪费了一次完整的 feature map 读写，仅为了做几个 SFU 指令。融合进 GroupNorm 的 pass 2 后，这些 SFU 指令填入了等待 HBM 数据的空闲 cycle，计算免费搭便车。如果当初选择 ReLU 而非 SiLU，独立 kernel 的开销也一样是完整的 HBM 读写——但 ReLU 太便宜，融合带来的&ldquo;计算免费搭便车&rdquo;效果几乎感知不到。换言之，SiLU 的高计算成本恰好让融合的收益更加明显：不融合时白付 HBM 流量，融合后计算完全被掩盖——净收益等于整个独立 kernel 的时间。这是 diffusion 模型普遍选择 SiLU（而非更便宜的 ReLU）后反而更适合融合优化的一个有趣现象。</p>
+<p><b>SiLU 融合在哪里省时间</b>：独立的 SiLU kernel 和独立的 ReLU kernel 一样，都是读一遍、写一遍整张 feature map 的 memory-bound kernel，代价几乎全在 HBM 流量上。SiLU 需要一次指数（编译成 SFU 上的 <code>ex2</code> 近似）和一次除法，比 ReLU 多几条指令，但在 memory-bound 的 kernel 里这些指令可以被访存延迟掩盖。把 SiLU 并进 GroupNorm 的 pass 2，省掉的是那一整次读写；多出的算术在 pass 2 里同样被访存掩盖。</p>
 
 <h2 id="sec-conv">Channels-Last 卷积与 Tensor Core</h2>
 
-<p>Diffusion 模型的 3&times;3 卷积是时间占比最大的算子。PyTorch 默认用 NCHW 布局，但 Tensor Core 的 implicit GEMM 卷积<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Documentation. Convolution algorithms、fusion API。">3</a>]</span>在 NHWC 下效率更高——NHWC 让一个 warp 读取连续的 C 维元素，刚好对齐 Tensor Core 的 K 维（<a href="#fig-nhwc_layout">图 3</a>）。</p>
+<p>Diffusion UNet 的 FLOP 主要在 3&times;3 卷积上。PyTorch 默认用 NCHW 布局，但 NVIDIA 的卷积指南写明 Tensor Core 卷积要求 NHWC，NCHW 输入会带来自动转置的开销<span class="cite">[<a href="#ref-dlperf" title="NVIDIA. Convolutional Layers User&#x27;s Guide. NVIDIA Deep Learning Performance Documentation, §3（implicit GEMM）、§4.1（NCHW vs NHWC）。">3</a>]</span>——NHWC 让一个 warp 读取连续的 C 维元素，刚好对齐 Tensor Core 的 K 维（<a href="#fig-nhwc_layout">图 3</a>）。</p>
 
 <figure id="fig-nhwc_layout" data-kind="diagram">
 <img aria-labelledby="fig-nhwc_layout-cap" src="figs/nhwc_layout.svg" alt="NCHW vs NHWC 内存布局"/>
 <figcaption id="fig-nhwc_layout-cap"><span class="fig-label">图 3</span><b>NCHW 和 NHWC 的内存布局对比。</b>NHWC 下 channel 维连续——Tensor Core implicit GEMM 的 K 维（= 9&times;C_in）可以合并读取。NCHW 下 channel 维散布，需要转置。</figcaption>
 </figure>
 
-<p>cuDNN 的 implicit GEMM 把卷积映射为 GEMM：把输入的每个 patch（3&times;3&times;C_in）展成一行，权重展成 [C_out, 9&times;C_in] 矩阵。&ldquo;Implicit&rdquo;的含义是不需要显式地做 im2col（把 patch 展开到一个新的矩阵中，消耗额外显存），而是在 GEMM 的 tile 加载时&ldquo;虚拟&rdquo;地计算每个元素在输入 tensor 中的位置——按 stride 和 dilation 动态偏移。这省掉了一个 H&times;W&times;(K&times;K&times;C_in) 大小的临时矩阵。对 diffusion 常见尺寸（C=320/640/1280，spatial=64&times;64 或 32&times;32），M（= H&times;W = 4096 或 1024）和 N（= C_out）都足够大，Tensor Core 的 MMA tile（如 m16n8k16）能充分利用。</p>
+<p>Implicit GEMM 把卷积映射为 GEMM：把输入的每个 patch（3&times;3&times;C_in）展成一行，权重展成 [C_out, 9&times;C_in] 矩阵。&ldquo;Implicit&rdquo;的含义是不需要显式地做 im2col（把 patch 展开到一个新的矩阵中，消耗额外显存），而是在 GEMM 的 tile 加载时&ldquo;虚拟&rdquo;地计算每个元素在输入 tensor 中的位置——按 stride 和 dilation 动态偏移。这省掉了一个 H&times;W&times;(K&times;K&times;C_in) 大小的临时矩阵。对 diffusion 常见尺寸（C=320/640/1280，spatial=64&times;64 到 8&times;8），M（= N&middot;H&middot;W）和 N（= C_out）在高分辨率层足够大；8&times;8 这一级 M 只有 64&middot;batch，tile 填充率会下降。</p>
 
-<p>具体地，对 C_in=320、C_out=320、spatial=64&times;64 的 3&times;3 卷积：GEMM 形状为 M=4096、N=320、K=2880（= 9&times;320）。FP16 的 FLOP = 2&times;4096&times;320&times;2880 &asymp; 7.5 GFLOP。A100 FP16 Tensor Core 峰值 312 TFLOPS → 理论延迟 = 7.5 GFLOP / 312 TFLOPS = 24 &mu;s。实际由于 tile 效率和访存延迟，通常达到理论的 50&ndash;70%，即 35&ndash;50 &mu;s。这是 UNet 中耗时最多的单个 kernel。</p>
+<p>具体地，对 C_in=320、C_out=320、spatial=64&times;64 的 3&times;3 卷积：GEMM 形状为 M=4096、N=320、K=2880（= 9&times;320）。FP16 的 FLOP = 2&times;4096&times;320&times;2880 &asymp; 7.5 GFLOP。A100 FP16 Tensor Core 稠密峰值 312 TFLOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span> → 下界 = 7.5 GFLOP / 312 TFLOPS &asymp; 24 &mu;s（batch=1；CFG 拼 batch 后 M 和 FLOP 都翻倍）。实际能达到峰值的多少取决于 kernel 和形状，本篇没有实测。</p>
 
-<p>实践建议：在 PyTorch 中用 <code>model = model.to(memory_format=torch.channels_last)</code> 一次性转换整个模型。训练时 cuDNN 会自动选择 Tensor Core 路径；推理时配合 TF32（Ampere 及之后的架构默认开启）或 FP16 进一步加速。需要注意的是布局转换本身有开销——如果模型的一部分用 NCHW（如某些自定义 kernel），会在边界处产生 layout transpose，抵消收益。一次 NCHW &rarr; NHWC 转换本质是一个 tensor permute，对 C=320、spatial=64&times;64 的 feature map 需要移动约 2.5 MB 数据，约 1&ndash;2 &mu;s 的 HBM 延迟。如果每个 ResBlock 都需要转换两次（进出自定义 kernel），25 个 ResBlock = 50 次转换 = 约 100 &mu;s——不可忽略。最好让整个 data path 都保持 NHWC——包括数据加载、预处理、模型、后处理。PyTorch 的 channels_last 格式会在算子边界自动维护 NHWC，除非遇到不支持 channels_last 的算子（此时自动插入 contiguous 调用触发转换）。</p>
+<p>实践建议：在 PyTorch 中用 <code>model = model.to(memory_format=torch.channels_last)</code> 一次性转换整个模型。训练时 cuDNN 会自动选择 Tensor Core 路径；FP32 模型的卷积在 PyTorch 中默认允许走 TF32（<code>torch.backends.cudnn.allow_tf32</code> 默认为 True），推理时用 FP16/BF16 更快。需要注意的是布局转换本身有开销——如果模型的一部分用 NCHW（如某些自定义 kernel），会在边界处产生 layout transpose，抵消收益。一次 NCHW &rarr; NHWC 转换本质是一个 tensor permute，对 C=320、spatial=64&times;64、batch=1 的 FP16 feature map 要读写共约 5.2 MB，按 A100 带宽至少约 2.6 &mu;s。如果每个 ResBlock 都需要转换两次（进出自定义 kernel），22 个 ResBlock 就是 44 次转换——累积起来不可忽略。最好让整个 data path 都保持 NHWC——包括数据加载、预处理、模型、后处理。支持 channels_last 的 PyTorch 算子会保持这个内存格式；遇到不支持的算子，输出可能回到默认的 contiguous 格式，下游又要转回来——用 profiler 检查有没有多余的转置 kernel。</p>
 
 <h2 id="sec-timestep">时间步嵌入与 FiLM 调制</h2>
 
-<p>Diffusion 模型把去噪时间步 t 编码为一个向量，注入到每个 ResBlock 中（<a href="#fig-film_pipeline">图 4</a>）。典型流程：sinusoidal 编码 → Linear → SiLU → Linear → 得到 [scale, shift] 向量（维度 = C）。</p>
+<p>Diffusion 模型把去噪时间步 t 编码为一个向量，注入到每个 ResBlock 中（<a href="#fig-film_pipeline">图 4</a>）。SD 1.5 的流程是：sinusoidal 编码（320 维）→ Linear(320&rarr;1280) → SiLU → Linear(1280&rarr;1280) 得到 temb；每个 ResBlock 再用 SiLU + Linear(1280&rarr;C) 投影，把结果作为 per-channel 偏置<b>加</b>在第一个卷积的输出上。另一种做法是 ADM 的 AdaGN：投影出 2C 维的 [scale, shift]，在 GroupNorm 之后做 \(y_s \cdot \text{GN}(h) + y_b\)<span class="cite">[<a href="#ref-adm" title="Dhariwal &amp; Nichol (2021). Diffusion Models Beat GANs on Image Synthesis. arXiv:2105.05233。§3 AdaGN。">7</a>]</span>——这就是 FiLM 式调制，下面的融合讨论针对这种形式。</p>
 
 <figure id="fig-film_pipeline" data-kind="diagram">
 <img aria-labelledby="fig-film_pipeline-cap" src="figs/film_pipeline.svg" alt="FiLM 调制流程"/>
-<figcaption id="fig-film_pipeline-cap"><span class="fig-label">图 4</span><b>FiLM 调制流程。</b>时间步 t 经过 sinusoidal 编码和两层 MLP 得到 per-channel 的 [scale, shift]，注入到 GroupNorm 之后。红色虚线框内的操作可以融合为一个 kernel。</figcaption>
+<figcaption id="fig-film_pipeline-cap"><span class="fig-label">图 4</span><b>FiLM / AdaGN 调制流程（示意）。</b>时间步 t 经过 sinusoidal 编码和 MLP 得到 per-channel 的 [scale, shift]，注入到 GroupNorm 之后（ADM 的做法；SD 1.5 则是在卷积后加偏置）。虚线框内的操作可以融合为一个 kernel。</figcaption>
 </figure>
 
-<p>注入方式是 FiLM（Feature-wise Linear Modulation）：<code>y = scale &middot; GN(x) + shift</code>。kernel 视角看，这个 add/multiply 操作可以融合进 GroupNorm 的 pass 2——归一化后直接乘 scale、加 shift，不需要额外的 kernel launch 和 HBM 读写。具体修改：pass 2 中把 <code>float normed = xn * gamma[c] + beta[c]</code> 改为 <code>float normed = (xn * gamma[c] + beta[c]) * t_scale[c] + t_shift[c]</code>。t_scale 和 t_shift 是 per-channel 向量（长度 C，通常 320&ndash;1280），数据量仅几 KB，第一次读取后常驻 L1/L2 cache——不增加 HBM 流量。每个线程在内层循环中多做两次乘加（multiply-add），在 memory-bound 的场景下计算完全被访存延迟掩盖，所以融合 FiLM 的开销几乎为零。</p>
+<p>FiLM（Feature-wise Linear Modulation）式注入是 <code>y = scale &middot; GN(x) + shift</code>。kernel 视角看，这个 add/multiply 操作可以融合进 GroupNorm 的 pass 2——归一化后直接乘 scale、加 shift，不需要额外的 kernel launch 和 HBM 读写。具体修改：pass 2 中把 <code>float normed = xn * gamma[c] + beta[c]</code> 改为 <code>float normed = (xn * gamma[c] + beta[c]) * t_scale[c] + t_shift[c]</code>。t_scale 和 t_shift 是 per-channel 向量（长度 C，320&ndash;1280），数据量仅几 KB，第一次读取后基本留在 L1/L2 cache 中——几乎不增加 HBM 流量。每个线程在内层循环中多做两次乘加（multiply-add），在 memory-bound 的场景下计算完全被访存延迟掩盖，所以融合 FiLM 的开销几乎为零。</p>
 
 <p>融合后的 kernel 只需在 pass 2 的内层循环中多做两次乘加——下面展示了完整的 GroupNorm + SiLU + FiLM 融合逻辑：</p>
 
@@ -412,31 +412,31 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>对比未融合的 pass 2（groupnorm_silu_apply），多出的只有两行：<code>t_scale</code> 和 <code>t_shift</code> 的读取与乘加。这两个向量是 per-channel 的（长度 C=320&ndash;1280），每个线程在一次 warp 中只读取一个 c 对应的值——第一次读取时从 HBM 进入 L2/L1 cache，后续同 channel 的空间位置全部命中 cache。因此 FiLM 融合实际增加的 HBM 流量仅约 2&times;C&times;sizeof(float) = 2&ndash;10 KB——可忽略不计。而如果不融合，单独的 FiLM kernel 需要重新读写整个 feature map（H&times;W&times;C&times;sizeof(float) = 数 MB），代价大两到三个数量级。</p>
 
-<p>时间步嵌入本身（两层 Linear + SiLU）在整个去噪步中只计算一次（维度很小，如 1280&times;1280 的矩阵乘法 + 1280 维的 SiLU），时间可忽略——约 0.01 ms。但它的输出被 UNet 的每个 ResBlock 共享——通过 broadcast 到空间维度注入。广播操作在 FiLM fusion kernel 中自然发生：scale[c] 和 shift[c] 对所有空间位置 (h, w) 相同，不需要额外的 broadcast kernel。</p>
+<p>时间步嵌入的 MLP 每个去噪步只算一次，各 ResBlock 的投影也只是 [batch, 1280] &times; [1280, C] 的小矩阵乘，相对卷积可以忽略。它的输出通过广播注入到空间维度：scale[c] 和 shift[c] 对所有空间位置 (h, w) 相同，在融合 kernel 里按 c 索引即可，不需要额外的 broadcast kernel。</p>
 
-<p>FiLM 调制的一个变体是 adaLN（adaptive LayerNorm），在 DiT（Diffusion Transformer）架构中使用——区别是归一化算子从 GroupNorm 变成 LayerNorm，调制参数从 timestep 嵌入扩展为 timestep + class label 的联合嵌入。adaLN 的 kernel 融合思路与 GroupNorm + FiLM 完全一致——将在下一篇详述。另一种变体是 adaLN-Zero：初始化时 scale=1、shift=0、gate=0——gate 参数乘在 ResBlock 的输出上，使初始时 ResBlock 输出为零（identity skip connection），有助于训练稳定性。这增加了一个 per-channel 的逐元素乘法操作，同样可以融合进 pass 2 的 kernel 中。</p>
+<p>FiLM 调制的一个变体是 adaLN（adaptive LayerNorm），在 DiT（Diffusion Transformer）架构中使用——区别是归一化算子从 GroupNorm 变成 LayerNorm，调制参数来自 timestep 与 class label 嵌入之和。adaLN 的 kernel 融合思路与 GroupNorm + FiLM 一致——将在下一篇详述。DiT 实际用的是 adaLN-Zero：产生 shift/scale/gate 的 MLP 初始化为输出全零，于是初始时有效缩放为 1（实现写成 \(x(1+\text{scale}) + \text{shift}\)）、gate=0，残差分支输出为零、整个 block 是恒等映射。这增加了一个 per-channel 的逐元素乘法操作，同样可以融合进 pass 2 的 kernel 中。</p>
 
 <h2 id="sec-upsample">上/下采样 + 卷积融合</h2>
 
 <p>UNet 的 encoder 做 downsample（2&times; stride 或 interpolate + conv），decoder 做 upsample（nearest interpolate + conv）。朴素实现是两个 kernel：一个 interpolate（memory-bound），一个 conv（compute-bound）。</p>
 
-<p>融合思路：把 nearest-neighbor upsample 吸收进 conv 的 input gather——在 implicit GEMM 的 im2col 阶段，直接从下采样后的 feature map 用最近邻索引读取，省掉 upsample 的临时 buffer。cuDNN 的 fused upsample+conv 路径在 Hopper 上已支持<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Documentation. Convolution algorithms、fusion API。">3</a>]</span>。这省掉了 upsample 输出 buffer 的 HBM 写 + conv 输入的 HBM 读——对 2&times; upsample（spatial 增大 4 倍），省下的 buffer 大小 = 4 &times; 原 feature map。对 32&times;32 → 64&times;64（C=640）的 upsample，省掉约 10 MB 的临时显存和对应的 HBM 流量。</p>
+<p>融合思路：把 nearest-neighbor upsample 吸收进 conv 的 input gather——在 implicit GEMM 的 im2col 阶段，直接从下采样后的 feature map 用最近邻索引读取，省掉 upsample 的临时 buffer。这省掉了 upsample 输出 buffer 的 HBM 写 + conv 输入的 HBM 读——对 2&times; upsample（spatial 增大 4 倍），省下的 buffer 大小 = 4 &times; 原 feature map。SD 1.5 中从 32&times;32 上采样到 64&times;64 的那一处 C=640，FP16、batch=2 时上采样输出约 \(640 \times 64^2 \times 2 \times 2\) B &asymp; 10.5 MB。主流库是否提供现成的 upsample + conv 融合要看具体版本，手写时可以在 implicit GEMM 的激活加载里把坐标除以 2。</p>
 
-<p>Downsample 的融合更简单：stride=2 的 conv 天然就是下采样——cuDNN 的 implicit GEMM 在 im2col 时按 stride=2 采样，不需要额外 kernel。不过有些 UNet（如 SDXL）使用 interpolate + conv 而非 strided conv 进行下采样——此时 downsample 也可以类似 upsample 的方式融合进 conv 的 im2col 阶段。</p>
+<p>Downsample 更简单：SD 的下采样本来就是 stride=2 的 3&times;3 conv，implicit GEMM 在取数时按 stride=2 采样，不需要额外 kernel。</p>
 
-<p><b>Residual add 融合</b>：ResBlock 的最后一步是 residual = conv_out + shortcut。这是纯 elementwise 操作（2 reads + 1 write），可以融合进最后一个 conv 的 epilogue——cuDNN 的 fusion API 支持 conv + bias + activation + residual add 的 epilogue 融合，在 conv kernel 写回输出时直接加上 residual，省掉一次额外的 HBM 读写。对 C=1280、spatial=32&times;32 的 feature map（约 5 MB），这省掉了 10 MB 的 HBM 流量（读 conv_out + 读 shortcut + 写 result → 只写 result）。</p>
+<p><b>Residual add 融合</b>：ResBlock 的最后一步是 residual = conv_out + shortcut。这是纯 elementwise 操作（2 reads + 1 write），可以融合进最后一个 conv 的 epilogue——GEMM 式 epilogue 天然支持 \(D = \alpha \cdot AB + \beta \cdot C\)，把 shortcut 当作 C 传入，在写回输出时直接加上，省掉 conv_out 的一次写和一次读。未融合时要写 conv_out、读 conv_out、读 shortcut、写 result 共 4 次；融合后只剩读 shortcut、写 result 2 次。对 C=1280、16&times;16、batch=2 的 FP16 feature map（约 1.3 MB），省下约 2.6 MB 的流量。</p>
 
-<p>Residual add 还有一个更深层的优化维度：in-place 与 out-of-place 的选择。Out-of-place 写法是 <code>result = conv_out + shortcut</code>，需要分配一个新 tensor 接收输出——对 C=1280、spatial=32&times;32 意味着额外 5 MB 显存。In-place 写法直接把 conv_out 累加到 shortcut 上（<code>shortcut += conv_out</code>），省掉这块临时显存。但 in-place 有前提条件：shortcut 不能被后续操作再次引用。在 UNet 中这恰好是问题所在——encoder 的 skip connection 会把 shortcut tensor 传递给 decoder 对应层。如果 in-place 修改了 encoder 的输出，decoder 读到的就是被污染的值。解决方案有两种：一是在 skip connection 传递前显式 clone（付出一次拷贝代价，但只对 encoder 的输出层做），二是区分&ldquo;最后一次使用&rdquo;和&ldquo;仍被引用&rdquo;——编译器层面的 liveness analysis 可以自动判断哪些 residual add 可以安全 in-place。TensorRT 和 torch.compile 都做了这种分析。对 UNet 的 encoder-decoder 结构，skip connection 保存的中间 feature map（从 64&times;64 到 8&times;8 共约 6 层）总计占用约 100&ndash;200 MB 显存——这些 tensor 从 encoder 写入到 decoder 读取之间间隔数百个 kernel，期间一直 pin 在 HBM 中。如果显存紧张，可以把低优先级的 skip tensor 暂时 offload 到 CPU 内存（PCIe 带宽约 32 GB/s，传输 50 MB 约 1.5 ms），在 decoder 需要时再 prefetch 回 GPU——用少量延迟换显存空间，这在 SDXL 的高分辨率推理中是实用的优化手段。</p>
+<p>Residual add 还有一个优化维度：in-place 与 out-of-place。Out-of-place 写法 <code>result = conv_out + shortcut</code> 需要一块新 buffer；in-place 写法直接累加到 shortcut 上，省掉这块显存。但 in-place 要求 shortcut 之后不再被引用——UNet 中 encoder 的输出要通过 skip connection 传给 decoder，如果被 in-place 修改，decoder 读到的就是错的值。这类判断需要 liveness 分析，图编译器会在 buffer 复用时考虑它。skip connection 的 tensor 从 encoder 写入到 decoder 读取之间隔着大量 kernel，一直占着显存。</p>
 
 <h2 id="sec-crossattn">Cross-Attention（文本条件）</h2>
 
 <p>UNet 中的 cross-attention 把图像 token（query）和文本 token（key/value，来自 CLIP/T5）对齐。关键特点：KV 序列很短（文本通常 77 token），而 Q 序列较长（64&times;64=4096 token）。</p>
 
-<p>这意味着 cross-attention 的算术强度较低——N_kv=77 太小，\(QK^T\) 的 GEMM 形状为 [4096, 77]，N 维太短导致 Tensor Core 利用率不高。FlashAttention 仍然适用（减少 HBM 流量），但提升不如 self-attention 上显著。实际上对于 77-token 的 KV，标准 attention 的 score 矩阵只有 4096&times;77 &asymp; 315K 个 float（1.2 MB），放得进 shared memory，FlashAttention 几乎一个 tile 就完成。</p>
+<p>这意味着 cross-attention 每个 head 的 \(QK^T\) 形状为 [4096, 77]，N 维太短（还要 pad 到 tile 边界），Tensor Core 利用率不高。每个 head 的 score 矩阵约 315K 个元素（FP32 约 1.2 MB），比 shared memory 大，但 FlashAttention 类 kernel 的 KV 方向一个 tile（如 128）就能装下全部 77 个 token，KV 循环只有一轮。</p>
 
-<p>Self-attention 的情况不同：Q 和 KV 都是 4096 token，score 矩阵 = 4096&times;4096 = 16M float（64 MB），不可能放进 SRAM——FlashAttention 的 tiling 是必须的。Self-attention 在 UNet 中通常只在低分辨率（32&times;32 = 1024 token 和 16&times;16 = 256 token）使用，高分辨率（64&times;64 = 4096 token）的 self-attention 代价太高（N&sup2; 的显存和计算——4096&sup2; = 16M 次内积），一般省略或替换为 linear attention。对 32&times;32 的 self-attention（1024 token），score 矩阵 = 1024&times;1024 = 1M float（4 MB），FlashAttention 用 2&ndash;4 个 tile 就完成——比 64&times;64 快约 16 倍。</p>
+<p>Self-attention 的情况不同：在 64&times;64 这一级，Q 和 KV 都是 4096 token，每个 head 的 score 矩阵 = 4096&times;4096 &asymp; 16.8M 个元素（FP32 约 64 MiB），不可能放进片上存储——FlashAttention 的 tiling 是必须的。SD 1.5 在 64&times;64 这一级就有 Transformer 块<span class="cite">[<a href="#ref-sd15cfg" title="Stable Diffusion v1.5 UNet 配置. unet/config.json（diffusers <code>UNet2DConditionModel</code>：block_out_channels、layers_per_block、norm_num_groups、down/up_block_types）。">4</a>]</span>；SDXL 则在最高分辨率那一级去掉了 attention 块，只在较低分辨率使用。32&times;32 这一级（1024 token）的 self-attention 的 \(QK^T\) 计算量只有 64&times;64 的 1/16。</p>
 
-<p>从 kernel 优化的角度看，cross-attention 和 self-attention 的内存访问模式有根本差异，这直接影响优化优先级。Self-attention 的 score 矩阵是 N&times;N（N 为 token 数），访存量随序列长度平方增长——FlashAttention 的 tiling 在此场景下收益巨大，因为它把 O(N&sup2;) 的 HBM 读写压缩为 O(N&sup2;/B_r) 次 tile 加载（B_r 是 tile 行数）。Cross-attention 的 score 矩阵是 N&times;77，访存量与 N 线性相关——FlashAttention 的 tiling 意义减弱（矩阵太窄，一个 tile 就覆盖整个 KV 维度）。因此实际工程中的优先级是：先用 FlashAttention 优化 self-attention（收益可达 2&ndash;4 倍），cross-attention 的优化收益有限（约 10&ndash;20%），更值得投入的是 KV cache 复用和 Q/K/V 投影的 GEMM 融合。如果在 cross-attention 上过度优化 tiling 策略而忽视了 self-attention 的 FlashAttention 集成，等于把工程精力花在了回报最低的地方——这是 diffusion 推理优化中常见的优先级错误。</p>
+<p>从 kernel 优化的角度看，两者的访存模式不同：self-attention 的 score 矩阵是 N&times;N，不做 tiling 时访存量随 token 数平方增长，FlashAttention 把它变成片上计算，收益随 N 增长；cross-attention 的 score 矩阵是 N&times;77，访存量与 N 线性相关，tiling 的意义减弱，更值得关注的是 K/V 投影的复用（见下一段）。因此一般先保证 self-attention 用上 FlashAttention 类 kernel。</p>
 
 <p>Cross-attention 和 self-attention 还有一个区别：cross-attention 的 KV 是固定的（文本嵌入在去噪步之间不变），所以可以把文本 KV 缓存起来——在第一步计算 K = W_K &middot; text_embed 和 V = W_V &middot; text_embed 后保存，后续步直接复用。这省掉了 49 次（50 步中的后 49 步）KV 投影计算。对 self-attention 则不行——每步的图像特征不同，KV 必须重新计算。</p>
 
@@ -450,8 +450,8 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>两种实现策略（<a href="#fig-unet_block_ops">图 5</a>）：</p>
 <ul>
-<li><b>拼 batch</b>：把 cond 和 uncond 拼成 batch=2（或原 batch 的 2 倍），一次前向。优点是只启动一次 UNet 的所有 kernel，Tensor Core 利用率更高（更大的 batch 意味着 GEMM 的 M 维更大——从 M=4096 变为 M=8192，Tensor Core tile 填充率更高）。缺点是所有中间 activation 显存翻倍——对 SD 1.5 约增加 1&ndash;2 GB。KV cache（cross-attention 的 text KV）也需要复制一份（虽然对 CFG 来说 cond 和 uncond 的 text embedding 不同，不能共享 KV）。</li>
-<li><b>两次前向</b>：分别跑 cond 和 uncond。显存省一半，但 kernel launch 翻倍（从约 200 次到 400 次，额外增加约 1 ms 的 launch 延迟），卷积的 Tensor Core 利用率降低（batch=1 时 GEMM 的 M 维更小，tile 浪费更多）。对显存紧张的场景（如 4090 24GB 跑 SDXL 1024&times;1024）可能是唯一选择。还有一种折中方案：只对 UNet 的 encoder 拼 batch（因为 encoder 的 feature map 较大、卷积占比高），decoder 分开跑——在显存和性能之间取平衡。</li>
+<li><b>拼 batch</b>：把 cond 和 uncond 拼成 batch=2（或原 batch 的 2 倍），一次前向。优点是只启动一次 UNet 的所有 kernel，Tensor Core 利用率更高（卷积 GEMM 的 M 维从 4096 变为 8192，深层的小 feature map 尤其受益）。缺点是所有中间 activation 显存翻倍。cross-attention 的 K/V 来自两份不同的文本嵌入（条件文本和空文本），各自缓存一份。</li>
+<li><b>两次前向</b>：分别跑 cond 和 uncond。激活显存峰值减半，但 kernel launch 翻倍，小 feature map 上的卷积 GEMM 更难填满 GPU。显存紧张时这是常见的退路。</li>
 </ul>
 
 <figure id="fig-unet_block_ops" data-kind="diagram">
@@ -490,23 +490,23 @@ void launch_cfg_combine(
 }</code></pre>
 <p class="src-note">完整代码：<code>code/df38-unet-ops/cfg_combine.cu</code> 第 19–28 行（未在 GPU 上运行）</p>
 
-<p>这个 launch pattern 看起来简单，但隐藏着几个值得思考的细节。threads=256 是 elementwise kernel 的常见选择——每 block 8 个 warp，足以让 warp scheduler 在一个 warp 等 HBM 数据时切换到另一个 warp 做延迟隐藏，同时不超过 SM 的最大线程容量（Ampere 和 Hopper 最多 2048 线程/SM）。如果选 128（4 个 warp），延迟隐藏能力减半；如果选 512（16 个 warp），每个 block 占用更多寄存器和 shared memory，可能降低 occupancy。256 是两者的平衡点。</p>
+<p>这个 launch pattern 看起来简单，但有几个值得想清楚的细节。threads=256 是 elementwise kernel 的常见默认值（8 个 warp）。对这种不用 shared memory、寄存器很少的 kernel，block 大小本身并不决定延迟隐藏能力——决定它的是每个 SM 上同时驻留的 warp 数：128 线程的 block 可以多驻留几个，同样能填满 SM 的线程上限（Ampere 和 Hopper 都是 2048 线程/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span>）。256 只是一个不容易出错的选择。</p>
 
-<p><code>blocks = (total + threads - 1) / threads</code> 是经典的向上取整——保证即使 total 不被 256 整除，最后一个 block 的多余线程通过 <code>if (idx &gt;= total) return</code> 退出。对 diffusion 的 latent space（C=4、spatial=64&times;64），total = 16384，blocks = 64——A100 的 108 个 SM 中只有约 60% 被占用。提高利用率的方向有两个：增大 total（拼 batch 或在 pixel space 操作），或每个线程处理多个元素（用 float4 向量化加载，把 grid 缩小到 1/4 但每个线程做更多工作）。实际生产中 CFG combine 通常被融合进 scheduler step 函数——不需要单独 launch。</p>
+<p><code>blocks = (total + threads - 1) / threads</code> 是经典的向上取整——保证即使 total 不被 256 整除，最后一个 block 的多余线程通过 <code>if (idx &gt;= total) return</code> 退出。对 diffusion 的 latent space（C=4、spatial=64&times;64），total = 16384，blocks = 64——A100 的 108 个 SM 中只有约 60% 有活干。不过这么小的 kernel 本身只要几微秒，整体上 launch 开销更值得关心。用 float4 向量化可以减少指令数；更好的办法是把 CFG combine 并进调度器的 step 函数，不再单独 launch。</p>
 
-<p>在 diffusion 推理的完整 pipeline 中，这种 elementwise kernel 的 launch 开销常被低估。一个去噪步中除了 CFG combine，还有 timestep injection（逐元素乘加）、residual add、guidance direction 计算等多个类似 kernel。如果每个独立 launch，50 步去噪 &times; 5 个 elementwise kernel/步 = 250 次 launch，仅 CPU 端 dispatch 延迟就约 1.25 ms（250 &times; 5 &mu;s）。CUDA Graph 可以消除这些延迟——第一步录制完整的 kernel 执行图，后续步直接 replay。但更好的做法是从源头减少 kernel 数量：把 CFG combine + scheduler step + noise prediction 融合成一个 kernel，三个 elementwise 操作共享一次 HBM 读写，总 HBM 流量从 3&times;(3 reads + 1 write) = 12 次减少到 1&times;(5 reads + 1 write) = 6 次。这种&ldquo;kernel fusion chain&rdquo;在 TensorRT 的 layer fusion 中被自动完成。</p>
+<p>在 diffusion 推理的完整 pipeline 中，这种 elementwise kernel 的 launch 开销常被低估。一个去噪步中除了 CFG combine，还有调度器 step 里的若干线性组合，每个独立 launch 都要付 CPU 端的 dispatch 开销，50 步就乘以 50。CUDA Graph 可以消除这部分开销——录制一次 kernel 执行图，后续步直接 replay。更好的做法是从源头减少 kernel 数量：把 CFG combine 和调度器 step 融合成一个 kernel，中间结果不落地。</p>
 
-<p>这个 kernel 是纯 memory-bound（3 次读 + 1 次写，算术强度 ~0.75 FLOP/B）。对 C=4（latent space 通道数）、spatial=64&times;64、batch=1 的 latent：总元素 = 4 &times; 64 &times; 64 = 16384，数据量 = 16384 &times; 4 B（FP32）= 64 KB。这种小 tensor 放得进 L2 cache——多次读写的实际延迟远低于 HBM 访问。但如果在 pixel space（C=3、spatial=512&times;512），总数据量 = 3 &times; 512 &times; 512 &times; 4 = 3 MB，需要走 HBM。</p>
+<p>这个 kernel 是纯 memory-bound：每个元素读 cond、uncond 两次、写一次（FP32 共 12 B），做一次减法和一次乘加（3 FLOP），算术强度约 0.25 FLOP/B。对 C=4（latent space 通道数）、spatial=64&times;64、batch=1 的 latent：总元素 = 4 &times; 64 &times; 64 = 16384，数据量 = 16384 &times; 4 B（FP32）= 64 KB。这种小 tensor 放得进 L2 cache。即使在 pixel space（C=3、spatial=512&times;512），总数据量 = 3 &times; 512 &times; 512 &times; 4 &asymp; 3 MB，也小于 A100 的 40 MB L2<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span>。</p>
 
-<p>优化方向：(1) 用 float4 向量化加载/存储，一条指令读 128 bit，减少 load/store 指令数；(2) 和 scheduler 的 noise predictor step 融合——很多扩散调度器（DDIM、DPM-Solver、Euler）的 step 函数也是 elementwise 操作（线性组合），可以和 CFG 合并成一个 kernel，省掉一次中间 buffer 的读写。以 DDIM 为例：step 函数是 \(x_{t-1} = \alpha_{t-1} \cdot \text{pred\_x0} + \sqrt{1-\alpha_{t-1}^2} \cdot \text{pred\_noise}\)，其中 pred_x0 和 pred_noise 本身就是从 CFG 输出计算来的——把 CFG combine → pred_x0 计算 → DDIM step 融合成一个 kernel，三个 elementwise 操作共享一次 HBM 读写。实际框架中常把它融合进 scheduler 的 step 函数里。</p>
+<p>优化方向：(1) 用 float4 向量化加载/存储，一条指令读 128 bit，减少 load/store 指令数；(2) 和 scheduler 的 noise predictor step 融合——很多扩散调度器（DDIM、DPM-Solver、Euler）的 step 函数也是 elementwise 操作（线性组合），可以和 CFG 合并成一个 kernel，省掉一次中间 buffer 的读写。以确定性 DDIM（&eta;=0）为例：step 函数是 \(x_{t-1} = \sqrt{\bar\alpha_{t-1}} \cdot \hat{x}_0 + \sqrt{1-\bar\alpha_{t-1}} \cdot \hat\epsilon\)，其中 \(\hat{x}_0 = (x_t - \sqrt{1-\bar\alpha_t}\,\hat\epsilon)/\sqrt{\bar\alpha_t}\)，\(\hat\epsilon\) 就是 CFG 的输出<span class="cite">[<a href="#ref-ddim" title="Song, Meng &amp; Ermon (2020). Denoising Diffusion Implicit Models. arXiv:2010.02502。">8</a>]</span>——把 CFG combine → pred_x0 计算 → DDIM step 融合成一个 kernel，三个 elementwise 操作共享一次 HBM 读写。这些都是逐元素运算，标量系数每步算一次即可。</p>
 
 <h2 id="sec-cuda-graph">CUDA Graph 与 Launch 延迟</h2>
 
-<p>UNet 单步去噪包含 100&ndash;200 次 kernel launch。每次 launch 在 CPU 端有约 5&ndash;10 &mu;s 的延迟（driver overhead + 参数拷贝），总计 0.5&ndash;2 ms——占去噪步总时间（10&ndash;20 ms）的 5&ndash;10%。</p>
+<p>UNet 单步去噪包含上百次 kernel launch。每次 launch 在 CPU 端都有固定的 driver 开销；当 GPU 上的 kernel 本身很短（小 batch、小 feature map）时，CPU 发射速度跟不上 GPU，GPU 就会出现空闲间隙。</p>
 
-<p>CUDA Graph 的解决方案：第一步去噪时，CPU 端录制整个 kernel launch 序列到一个 graph；后续步直接 replay graph，CPU 端只有一次 cudaGraphLaunch 调用（延迟约 10 &mu;s），不再逐个启动 kernel。这把 launch 开销从 ~1 ms 降到 ~0.01 ms——对 batch=1 的低延迟推理尤为明显。</p>
+<p>CUDA Graph 的解决方案：第一步去噪时，CPU 端录制整个 kernel launch 序列到一个 graph；后续步直接 replay graph，CPU 端只有一次 <code>cudaGraphLaunch</code> 调用，不再逐个启动 kernel——对 batch=1 的低延迟推理尤为明显。</p>
 
-<p>CUDA Graph 的限制：graph 中的 kernel 参数和数据指针必须固定——不能动态改变形状或地址。对 diffusion 推理来说，每步的 tensor shape 相同（只有噪声和 timestep 不同），所以天然适合 graph capture。timestep 嵌入可以通过固定地址的 buffer 传入——在 graph replay 前更新 buffer 内容即可（cudaMemcpy 不在 graph 内，在 launch 前执行）。但如果使用动态分辨率（如 SDXL 的多分辨率训练）或动态 batch size，就需要为每种形状预录一个 graph——通常准备 3&ndash;5 个常见分辨率的 graph，运行时按实际分辨率选择。CUDA Graph 和算子融合可以叠加：graph 录制时已经包含了融合后的 kernel 序列，replay 时既省 launch 延迟又享受融合带来的 HBM 流量减少。</p>
+<p>CUDA Graph 的限制：graph 中的 kernel 参数和数据指针必须固定——不能动态改变形状或地址。对 diffusion 推理来说，每步的 tensor shape 相同（只有噪声和 timestep 不同），所以天然适合 graph capture。timestep 嵌入可以通过固定地址的 buffer 传入——在 graph replay 前更新 buffer 内容即可（cudaMemcpy 不在 graph 内，在 launch 前执行）。但如果推理时分辨率或 batch size 会变，就需要为每种形状预录一个 graph，运行时按实际形状选择。CUDA Graph 和算子融合可以叠加：graph 录制时已经包含了融合后的 kernel 序列，replay 时既省 launch 延迟又享受融合带来的 HBM 流量减少。</p>
 
 <p>另一个减少 launch 延迟的技术是 persistent kernel——一个长生命周期的 kernel 驻留在 GPU 上，通过 global memory flag 或 grid sync 来切换不同阶段的计算，省掉中间的 kernel launch。这对 UNet 来说实现复杂度太高（算子种类多、形状各异），但对重复结构（如 DiT 的 N 个相同 Transformer block）更实用。</p>
 
@@ -515,48 +515,48 @@ void launch_cfg_combine(
 <table>
 <thead><tr><th>特性</th><th>Ampere (A100)</th><th>Hopper (H100)</th><th>Blackwell (B200)</th></tr></thead>
 <tbody>
-<tr><td>卷积<span class="cite">[<a href="#ref-cudnn" title="NVIDIA. cuDNN Documentation. Convolution algorithms、fusion API。">3</a>]</span></td><td>Tensor Core FP16 implicit GEMM</td><td>+ TMA prefetch、warp specialization</td><td>+ tcgen05、TMEM 累加</td></tr>
-<tr><td>GroupNorm 融合</td><td>手写 kernel（2-pass reduce）</td><td>+ DSMEM cluster reduce（跨 SM 共享）</td><td>+ TMEM 用于累加器</td></tr>
-<tr><td>精度</td><td>FP16 / TF32</td><td>+ FP8（E4M3/E5M2<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.16.19（TMA）、§9.7.17（MMA）。">5</a>]</span>）</td><td>+ FP4（micro-scaling）</td></tr>
-<tr><td>HBM 带宽<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>2.0 TB/s</td><td>3.35 TB/s</td><td>8.0 TB/s</td></tr>
-<tr><td>memory-bound 改善</td><td>基线</td><td>~1.7&times; 带宽提升</td><td>~4&times; 带宽提升</td></tr>
+<tr><td>卷积</td><td>Tensor Core FP16 implicit GEMM（mma.sync）</td><td>+ WGMMA、TMA im2col、warp specialization</td><td>+ tcgen05、TMEM 累加</td></tr>
+<tr><td>GroupNorm 融合</td><td>手写 kernel（2-pass reduce）</td><td>可选：cluster 内用 DSMEM 合并部分和</td><td>同 Hopper（TMEM 是 MMA 累加器，与归约无关）</td></tr>
+<tr><td>Tensor Core 精度</td><td>FP16 / BF16 / TF32</td><td>+ FP8（E4M3/E5M2）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>+ FP6 / FP4<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span></td></tr>
+<tr><td>HBM 带宽<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>2.0 TB/s（80GB）</td><td>3.35 TB/s</td><td>8.0 TB/s</td></tr>
+<tr><td>memory-bound 改善</td><td>基线</td><td>~1.6&times; 带宽提升</td><td>~4&times; 带宽提升</td></tr>
 </tbody>
 </table>
 
-<p>对 diffusion 推理，memory-bound 算子（GroupNorm、attention、elementwise）直接受益于 HBM 带宽提升——从 A100 到 B200 理论上 ~4&times; 加速。卷积的提升则来自更多 Tensor Core 和更高时钟——Blackwell 的 FP16 Tensor Core 峰值约为 A100 的 4 倍以上。FP8 卷积在 Hopper 上已可用（cuDNN 8.9+），能把 compute-bound 的卷积时间再减半——FP8 的精度对 diffusion 的图像质量影响有限（FID 降幅通常 &lt;0.5），因此生产环境广泛采用。Blackwell 的 FP4 可以进一步压缩，但需要量化感知训练来维持图像质量。</p>
+<p>对 diffusion 推理，memory-bound 算子（GroupNorm、elementwise，以及小 batch 下的部分 attention）直接受益于 HBM 带宽提升——从 A100 到 B200 理论上约 4&times;。卷积的提升来自 Tensor Core 算力：HGX B200 每 GPU 的 FP16/BF16 稠密峰值约 2.25 PFLOPS，约为 A100 的 7 倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。">6</a>]</span>。FP8 卷积能把 compute-bound 部分的峰值算力再翻倍，但对图像质量的影响需要按模型评估；FP4 更激进，通常需要更仔细的量化方案。</p>
 
-<p>FP8/INT8 量化对算子设计提出了额外约束：量化友好的算子流水线需要在融合 kernel 内部管理精度转换的位置。以 GroupNorm+SiLU 融合为例，输入 X 可以是 FP8（从上游卷积的 FP8 输出直接传入），但归约累加必须在 FP32 中完成（FP8 的动态范围仅 &plusmn;448，40960 个元素的累加会溢出）。归一化后的仿射变换和 SiLU 同样需要至少 FP16 精度——SiLU 中的 exp(-x) 对输入敏感，FP8 的 3&ndash;4 bit 尾数会引入明显的近似误差。因此融合 kernel 的内部路径是：FP8 输入 → FP32 累加（pass 1）→ FP32 归一化 + FP16/FP32 SiLU（pass 2）→ FP8 输出（量化回低精度供下游卷积使用）。输出的 FP8 量化需要 per-tensor 或 per-channel 的 scale factor——如果用 per-tensor 量化（一个 scale 用于整个 tensor），scale 的计算本身需要一次额外的 max-abs 归约；如果用 per-channel 量化（每个 channel 独立 scale），则可以在 pass 2 的循环中顺便计算每组的 max-abs，无需额外 kernel。这种精度管理增加了融合 kernel 的实现复杂度，但回报是整个 ResBlock 的数据在 HBM 中以 FP8 存储——显存占用和带宽需求均减半，对 memory-bound 算子的加速效果与提高 HBM 带宽等价。</p>
+<p>FP8/INT8 量化对算子设计提出了额外约束：量化友好的算子流水线需要在融合 kernel 内部管理精度转换的位置。以 GroupNorm+SiLU 融合为例，输入 X 可以是 FP8（从上游卷积的 FP8 输出直接传入），但归约累加必须在 FP32 中完成（E4M3 的最大值只有 448，40960 个元素的和很容易超出）。归一化后的仿射变换和 SiLU 也应在 FP16/FP32 中做——FP8 只有 2&ndash;3 位尾数（E5M2 / E4M3）。因此融合 kernel 的内部路径是：FP8 输入 → FP32 累加（pass 1）→ FP32 归一化 + FP16/FP32 SiLU（pass 2）→ FP8 输出（量化回低精度供下游卷积使用）。输出的 FP8 量化需要 per-tensor 或 per-channel 的 scale factor——如果用 per-tensor 量化（一个 scale 用于整个 tensor），scale 的计算本身需要一次额外的 max-abs 归约；如果用 per-channel 量化（每个 channel 独立 scale），则可以在 pass 2 的循环中顺便计算每组的 max-abs，无需额外 kernel。这种精度管理增加了融合 kernel 的实现复杂度，但回报是整个 ResBlock 的数据在 HBM 中以 FP8 存储——显存占用和带宽需求均减半，对 memory-bound 算子的加速效果与提高 HBM 带宽等价。</p>
 
-<p>Hopper 上一个特别值得关注的特性是 cluster（CTA cluster）——多个 SM 可以通过 DSMEM（Distributed Shared Memory）直接共享数据。这对 GroupNorm 有潜在收益：如果同一个 group 的归约分布在多个 block 上（当归约量特别大时），cluster 内的 block 可以通过 DSMEM 做 partial reduce 而不走 global memory。但对典型的 diffusion 尺寸（每组 ~40K 元素），一个 block 就足以处理，cluster 的优势不明显。cluster 的更大价值在 DiT 架构的长序列 attention 中——将在下一篇讨论。</p>
+<p>Hopper 上一个特别值得关注的特性是 cluster（CTA cluster）——多个 SM 可以通过 DSMEM（Distributed Shared Memory）直接共享数据。这对 GroupNorm 有潜在收益：如果同一个 group 的归约分布在多个 block 上（当归约量特别大时），cluster 内的 block 可以通过 DSMEM 做 partial reduce 而不走 global memory。但对典型的 diffusion 尺寸（每组 ~40K 元素），一个 block 就足以处理，cluster 的优势不明显。小 batch 下 (n, g) 个数不足以铺满 SM 时，cluster 才更有意义。</p>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <dl>
 <dt id="sec-q1">Q1：GroupNorm 怎么并行？和 BatchNorm/LayerNorm 有什么区别？</dt>
 <dd>GroupNorm 按 (n, g) 划分——每个 (n, g) pair 独立归约 H&times;W&times;(C/G) 个元素，天然并行，grid = N&times;G。不跨 batch 归约（BatchNorm 要跨 N 归约，需要 all-reduce 或多轮 kernel）；也不跨所有 channel（LayerNorm 归约整个 C&times;H&times;W）。推理时 GroupNorm 不需要 running mean/var，所以和训练一致——这也是 diffusion 模型选 GroupNorm 而非 BatchNorm 的原因之一：推理时 batch=1 也能正常工作。<br>
-<b>追问</b>：NHWC 下同组 channel 不连续怎么办？答：步幅访问（stride = C），用 vectorized load（float4）可以在 C 维连续读 4 个同组 channel，只要 C/G 是 4 的倍数——对 G=32、C=320 来说 C/G=10，不能整除 4。实践中会 pad C/G 到 4 的倍数，或者用标量循环处理余数。</dd>
+<b>追问</b>：NHWC 下同组 channel 不连续怎么办？答：一个像素内同组的 C/G 个 channel 是连续的，像素之间步幅为 C。用 vectorized load（float4）需要 C/G 是 4 的倍数且地址对齐——对 G=32、C=320 来说 C/G=10，不满足。可以用 half2/float2 这类更窄的向量，或者标量循环处理余数。</dd>
 
 <dt id="sec-q2">Q2：Diffusion 推理的主要瓶颈是什么？怎么分析？</dt>
-<dd>瓶颈在去噪步数（典型 20&ndash;50 步）&times; 每步的 UNet/DiT 前向。分析方法：用 Nsight Systems 对单步去噪做 profile，按 kernel 类型分类统计时间占比。每步里，卷积是 compute-bound（Tensor Core 已经很快，占约 40%），真正的优化空间在 memory-bound 算子的融合（GroupNorm+SiLU+timestep、residual add，占约 20%&ndash;30%）和减少步数（蒸馏、consistency model——从算法层面减少前向次数）。batch=1 推理时 GPU 利用率低——CFG 拼 batch 到 2 能提升利用率。另一个容易忽视的瓶颈是 CPU 端的 Python 调度开销——PyTorch 的 eager 模式每次 op 调用都要经过 Python dispatch，这在 GPU kernel 本身很快时（如小 tensor 的 elementwise）会成为瓶颈。torch.compile 或 CUDA Graph 可以消除这一层开销。<br>
-<b>追问</b>：如果不改模型，kernel 层面能做什么？答：算子融合（减少 launch 和 HBM 流量）、FP8/INT8 卷积（减少 compute 时间）、FlashAttention（减少 attention 的 HBM 流量）、CUDA Graph（消除 launch 延迟）。四者叠加通常能把单步延迟降低 30&ndash;50%。具体数字因模型而异——SD 1.5 相对简单（约 860M 参数），优化后单步可到约 5 ms（A100）；SDXL（约 2.6B 参数）更慢但优化收益也更大。</dd>
+<dd>瓶颈在去噪步数（典型 20&ndash;50 步）&times; 每步的 UNet/DiT 前向。分析方法：用 Nsight Systems 对单步去噪做 profile，按 kernel 类型分类统计时间占比。每步里，卷积是 compute-bound（由库的 Tensor Core kernel 处理），kernel 层面的优化空间主要在 memory-bound 算子的融合（GroupNorm+SiLU+timestep、residual add）、attention 和 launch 开销；算法层面则是减少步数（蒸馏、consistency model）。batch=1 推理时 GPU 利用率低——CFG 拼 batch 到 2 能提升利用率。另一个容易忽视的瓶颈是 CPU 端的 Python 调度开销——PyTorch 的 eager 模式每次 op 调用都要经过 Python dispatch，这在 GPU kernel 本身很快时（如小 tensor 的 elementwise）会成为瓶颈。torch.compile 或 CUDA Graph 可以消除这一层开销。<br>
+<b>追问</b>：如果不改模型，kernel 层面能做什么？答：算子融合（减少 launch 和 HBM 流量）、FP8/INT8 卷积（减少 compute 时间）、FlashAttention（减少 attention 的 HBM 流量）、CUDA Graph（消除 launch 延迟）。收益多大因模型、分辨率、batch 和硬件而异，需要实测。作为规模参照，SD 1.5 的 UNet 约 860M 参数，SDXL 的 UNet 约 2.6B 参数。</dd>
 
 <dt id="sec-q3">Q3：CFG 如何减少开销？guidance scale 对 kernel 有什么影响？</dt>
-<dd>CFG 需要 cond 和 uncond 两次前向。拼 batch（batch&times;2）只需一次前向——所有 kernel 只启动一次，卷积的 Tensor Core 利用率更高（更大的 M 维）。代价是所有中间 activation 显存翻倍。guidance 合并 output = uncond + scale &times; (cond - uncond) 是纯 elementwise（3 reads + 1 write，算术强度约 0.75 FLOP/B），通常融合进 scheduler step。guidance scale 本身是一个标量广播——不影响 kernel 的形状或性能，但值太大（如 s &gt; 20）会导致数值溢出，需要 FP32 累加。<br>
-<b>追问</b>：有没有不拼 batch 的 CFG？答：有——两次前向但用 CUDA stream 并行（如果 GPU 显存足够，两个 stream 的 kernel 可以重叠执行——前提是 GPU 有足够的 SM 空闲），或者只对 UNet 的一部分做 CFG（如只在高分辨率阶段用 guidance，低分辨率阶段直接用 cond 前向）。Distilled model 可以完全去掉 CFG（如 LCM、SDXL-Turbo），直接省掉一半的前向计算——这可能是最有效的&ldquo;优化&rdquo;。</dd>
+<dd>CFG 需要 cond 和 uncond 两次前向。拼 batch（batch&times;2）只需一次前向——所有 kernel 只启动一次，卷积的 Tensor Core 利用率更高（更大的 M 维）。代价是所有中间 activation 显存翻倍。guidance 合并 output = uncond + scale &times; (cond - uncond) 是纯 elementwise（2 次读 + 1 次写，算术强度约 0.25 FLOP/B），可以融合进 scheduler step。guidance scale 本身是一个标量——不影响 kernel 的形状或性能。<br>
+<b>追问</b>：有没有不拼 batch 的 CFG？答：有——两次前向但用 CUDA stream 并行（如果 GPU 显存足够，两个 stream 的 kernel 可以重叠执行——前提是 GPU 有足够的 SM 空闲），或者只在一部分去噪步上用 guidance——Kynkäänniemi 等人发现只在中间一段噪声水平上施加 guidance 反而能提升质量<span class="cite">[<a href="#ref-kynk24" title="Kynkäänniemi, Aittala, Karras, Laine, Aila &amp; Lehtinen (2024). Applying Guidance in a Limited Interval Improves Sample and Distribution Quality in Diffusion Models. arXiv:2404.07724。">9</a>]</span>，其余步只需一次前向。蒸馏模型（如 LCM、SDXL-Turbo）可以完全去掉 CFG，直接省掉一半的前向计算。</dd>
 
 <dt id="sec-q4">Q4：为什么 diffusion 模型要用 NHWC？</dt>
 <dd>Tensor Core 的 implicit GEMM 卷积把 patch 的 C 维映射为 GEMM 的 K 维——NHWC 下 C 是最内维，warp 内线程读取连续 K 元素，无需转置。NCHW 下 C 在外维，im2col 产生不连续访问。cuDNN 对 NHWC 有专门优化的 kernel，NCHW 通常需要先转置或走效率较低的传统 im2col 路径。PyTorch 的 <code>channels_last</code> memory format 让模型在 NHWC 下端到端运行。<br>
-<b>追问</b>：除了卷积，NHWC 对其他算子有什么影响？答：GroupNorm 在 NHWC 下同组 channel 步幅为 C（不连续），但可以 vectorize——只要 C/G 是 4 的倍数就能用 float4 读取；attention 不受影响（reshape 到 [B, N, H, d] 后布局无关）；elementwise 操作布局无关。总体来说 NHWC 对卷积有利，对 GroupNorm 略微不利但可补偿，对其他算子中性——卷积占 40% 时间，NHWC 的收益远超对 GroupNorm 的微小不利。</dd>
+<b>追问</b>：除了卷积，NHWC 对其他算子有什么影响？答：GroupNorm 在 NHWC 下同组 channel 步幅为 C（不连续），但可以 vectorize——只要 C/G 是 4 的倍数就能用 float4 读取；attention 不受影响（reshape 到 [B, N, H, d] 后布局无关）；elementwise 操作布局无关。总体来说 NHWC 对卷积有利，对 GroupNorm 影响不大，对其他算子中性；卷积是 FLOP 的大头，所以整体选 NHWC。</dd>
 
 <dt id="sec-q5">Q5：CUDA Graph 对 diffusion 推理有多大提升？</dt>
-<dd>单步去噪有 100&ndash;200 次 kernel launch，每次 CPU 端 5&ndash;10 &mu;s——总 launch 延迟约 1 ms，占去噪步（10&ndash;20 ms）的 5&ndash;10%。CUDA Graph 把这些 launch 合并成一次 replay（~10 &mu;s），等效省 1 ms/step。50 步推理省 50 ms，对总推理时间 500&ndash;1000 ms 来说约 5&ndash;10% 的提速。CUDA Graph 的限制是 tensor shape 必须固定——diffusion 推理天然满足（每步形状相同），所以是最容易落地的优化之一。</dd>
+<dd>收益取决于 launch 开销在单步时间里的占比：单步有上百次 kernel launch，GPU kernel 越短（小 batch、小分辨率、算子已融合），CPU 端的 launch 开销越可能成为瓶颈，CUDA Graph 的收益越大；大 batch 时 GPU 本身很忙，收益就小。应当用 Nsight Systems 看 GPU 时间线上的空隙来判断。CUDA Graph 的限制是 tensor shape 必须固定——diffusion 推理天然满足（每步形状相同），所以是最容易落地的优化之一。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
 <ul>
-<li>本篇所有代码是教学用途，<b>未在 GPU 上编译或运行</b>。延迟估算基于理论峰值，实际受 cache 命中率、调度效率、warp occupancy 等因素影响，可能与理论值相差 2&ndash;3 倍。</li>
-<li>kernel 时间占比是示意值——实际比例随分辨率、模型大小、batch size 和硬件代际变化。建议用 Nsight Systems 或 PyTorch Profiler 实测目标场景的时间分布。</li>
+<li>本篇所有代码是教学用途，<b>未在 GPU 上编译或运行</b>。文中的延迟都是按峰值带宽或峰值算力算出的下界，实际受 cache 命中率、调度效率、occupancy 等因素影响。</li>
+<li>本篇没有给出各类算子的时间占比——它随分辨率、模型大小、batch size 和硬件代际变化，没有可靠的通用数字。建议用 Nsight Systems 或 PyTorch Profiler 实测目标场景的时间分布。</li>
 <li>未展示 cuDNN implicit GEMM 的完整实现细节（im2col 虚拟化、tile 选择启发式、workspace 管理、算法自动调优的 benchmark 过程）。</li>
 <li>未覆盖 VAE encoder/decoder 的 kernel 优化（将在第 40 篇讨论——VAE 的卷积和 attention 有独特的尺寸特征）。</li>
 <li>未覆盖 SDPA（Scaled Dot-Product Attention）在 cross-attention 中的具体 tile 策略——由于 KV 序列极短（77 token），tile 选择和标准 self-attention 有显著差异。</li>
@@ -567,16 +567,16 @@ void launch_cfg_combine(
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>UNet-based diffusion 模型的去噪步由大量 kernel 构成：卷积主导计算时间（~40%，compute-bound），GroupNorm + 激活主导 memory-bound 开销（~20%）。优化策略围绕&ldquo;识别 bound 类型、对症下药&rdquo;展开：</p>
+<p>UNet-based diffusion 模型的去噪步由大量 kernel 构成：卷积是 FLOP 的大头（compute-bound），GroupNorm、激活、残差加等是数量众多的 memory-bound 小算子。优化策略围绕&ldquo;识别 bound 类型、对症下药&rdquo;展开：</p>
 
 <ul>
-<li><b>Compute-bound（卷积）</b>：NHWC 布局让 Tensor Core implicit GEMM 高效运行——warp 读取连续 C 维元素对齐 MMA 的 K 维；FP8 卷积进一步翻倍吞吐。</li>
+<li><b>Compute-bound（卷积）</b>：NHWC 布局让 Tensor Core implicit GEMM 高效运行——warp 读取连续 C 维元素对齐 MMA 的 K 维；FP8 卷积把峰值算力再翻倍。</li>
 <li><b>Memory-bound（GroupNorm、SiLU、elementwise）</b>：融合 kernel 把多次 HBM 读写压缩为一次——两遍法的 GroupNorm + SiLU + FiLM 融合是最典型的例子。</li>
 <li><b>Launch overhead</b>：CUDA Graph 把上百次 kernel launch 的 CPU 端延迟压缩到一次 replay 调用。</li>
 <li><b>冗余计算（CFG）</b>：拼 batch 把两次前向合并为一次，减少 launch 次数并提高 Tensor Core 利用率。</li>
 </ul>
 
-<p>这些优化层层叠加——在生产级推理引擎（如 TensorRT、AITemplate、OneDiff）中全部落地，可把单步延迟降低 40&ndash;60%。理解每个算子的 bound 类型（compute vs memory）是选择优化策略的关键。下一篇将讲 DiT 架构的算子——adaLN 融合、RoPE kernel 和长序列 attention，以及从 UNet 到 DiT 的架构迁移如何改变了优化的优先级。</p>
+<p>这些优化可以层层叠加，生产级推理引擎（如 TensorRT、AITemplate、OneDiff）都在做这类事情。理解每个算子的 bound 类型（compute vs memory）是选择优化策略的关键。下一篇将讲 DiT 架构的算子——adaLN 融合、RoPE kernel 和长序列 attention，以及从 UNet 到 DiT 的架构迁移如何改变了优化的优先级。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -593,16 +593,19 @@ void launch_cfg_combine(
 <ol class="references">
   <li id="ref-ho22">Ho, Jain &amp; Abbeel (2020). <a href="https://arxiv.org/abs/2006.11239">Denoising Diffusion Probabilistic Models</a>. arXiv:2006.11239。</li>
   <li id="ref-rombach22">Rombach, Blattmann, Lorenz, Esser &amp; Ommer (2022). <a href="https://arxiv.org/abs/2112.10752">High-Resolution Image Synthesis with Latent Diffusion Models</a>. arXiv:2112.10752。</li>
-  <li id="ref-cudnn">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/cudnn/latest/">cuDNN Documentation</a>. Convolution algorithms、fusion API。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.24 Warp Shuffle、§B.18 Cooperative Groups。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.16.19（TMA）、§9.7.17（MMA）。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-dlperf">NVIDIA. <a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-convolutional/index.html">Convolutional Layers User&#39;s Guide</a>. NVIDIA Deep Learning Performance Documentation, §3（implicit GEMM）、§4.1（NCHW vs NHWC）。</li>
+  <li id="ref-sd15cfg">Stable Diffusion v1.5 UNet 配置. <a href="https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/blob/main/unet/config.json">unet/config.json</a>（diffusers <code>UNet2DConditionModel</code>：block_out_channels、layers_per_block、norm_num_groups、down/up_block_types）。</li>
+  <li id="ref-wu18">Wu &amp; He (2018). <a href="https://arxiv.org/abs/1803.08494">Group Normalization</a>. arXiv:1803.08494（ECCV 2018）。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 108 SM / 40 MB L2 / 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s，各代 Tensor Core 峰值与精度。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-adm">Dhariwal &amp; Nichol (2021). <a href="https://arxiv.org/abs/2105.05233">Diffusion Models Beat GANs on Image Synthesis</a>. arXiv:2105.05233。§3 AdaGN。</li>
+  <li id="ref-ddim">Song, Meng &amp; Ermon (2020). <a href="https://arxiv.org/abs/2010.02502">Denoising Diffusion Implicit Models</a>. arXiv:2010.02502。</li>
+  <li id="ref-kynk24">Kynkäänniemi, Aittala, Karras, Laine, Aila &amp; Lehtinen (2024). <a href="https://arxiv.org/abs/2404.07724">Applying Guidance in a Limited Interval Improves Sample and Distribution Quality in Diffusion Models</a>. arXiv:2404.07724。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 38 篇。文中代码完整版在系列目录的 <code>code/df38-unet-ops/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–5 为手绘示意图（kernel_time_pie、groupnorm_reduce、nhwc_layout、film_pipeline、unet_block_ops），kernel 时间比例为示意值。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 38 篇。文中代码完整版在系列目录的 <code>code/df38-unet-ops/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–5 为手绘示意图（算子分类、groupnorm_reduce、nhwc_layout、film_pipeline、unet_block_ops），不含时间比例数据。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

@@ -47,8 +47,8 @@
   <text x="125" y="282" text-anchor="middle" class="sublabel" fill="#388E3C">fprop: M=C_out, N=N&middot;P, K=C_in&middot;R&middot;S</text>
 
   <rect x="255" y="260" width="210" height="34" rx="4" fill="#E3F2FD" stroke="#1976D2"/>
-  <text x="360" y="282" text-anchor="middle" class="sublabel" fill="#1976D2">dgrad: M=C_in, N=N&middot;H&middot;W, K=C_out</text>
+  <text x="360" y="282" text-anchor="middle" class="sublabel" fill="#1976D2">dgrad: M=C_in, N=N&middot;H&middot;W, K=C_out&middot;R&middot;S</text>
 
   <rect x="490" y="260" width="210" height="34" rx="4" fill="#F3E5F5" stroke="#7B1FA2"/>
-  <text x="595" y="282" text-anchor="middle" class="sublabel" fill="#7B1FA2">wgrad: M=C_out, N=K, K=N&middot;P (split-K)</text>
+  <text x="595" y="282" text-anchor="middle" class="sublabel" fill="#7B1FA2">wgrad: M=C_out, N=C_in&middot;R&middot;S, K=N&middot;P</text>
 </svg>

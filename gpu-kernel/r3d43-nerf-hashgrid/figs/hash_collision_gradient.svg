@@ -33,7 +33,7 @@
 <text x="350" y="210" text-anchor="middle" class="code" font-size="10">grad_table[k] += grad_A  (thread 1)</text>
 <text x="350" y="225" text-anchor="middle" class="code" font-size="10">grad_table[k] += grad_B  (thread 2)</text>
 
-<text x="350" y="255" text-anchor="middle" class="label" font-size="10">Conflicting gradients average out over training &mdash; quality loss is mild</text>
+<text x="350" y="255" text-anchor="middle" class="label" font-size="10">Colliding gradients average; the larger (more important) one dominates</text>
 
 <defs><marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
   <path d="M0,0 L8,3 L0,6" fill="#888"/>

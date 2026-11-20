@@ -10,7 +10,7 @@
 
 <!-- No conflict side -->
 <rect x="20" y="35" width="310" height="275" class="box" fill="#dcfce7" stroke="#22c55e"/>
-<text x="175" y="55" text-anchor="middle" class="title" fill="#16a34a">No Conflict (with padding)</text>
+<text x="175" y="49" text-anchor="middle" class="title" fill="#16a34a">No Conflict (with padding)</text>
 
 <!-- Banks row -->
 <g transform="translate(35,65)">
@@ -44,9 +44,9 @@
   <line x1="192" y1="0" x2="192" y2="10" stroke="#22c55e" stroke-width="1.5"/>
 </g>
 
-<text x="175" y="135" text-anchor="middle" class="code" font-size="10" fill="#16a34a">smem[ty][tx + 1]  // +1 padding</text>
+<text x="175" y="135" text-anchor="middle" class="code" font-size="10" fill="#16a34a">read s[tx][ty]  // column read</text>
 <text x="175" y="152" text-anchor="middle" class="label" font-size="10">Each thread hits different bank</text>
-<text x="175" y="168" text-anchor="middle" class="title" fill="#16a34a">1 cycle (no serialization)</text>
+<text x="175" y="168" text-anchor="middle" class="title" fill="#16a34a">1 access (no serialization)</text>
 
 <!-- Memory layout visualization -->
 <rect x="35" y="180" width="280" height="55" rx="3" fill="#f0fdf4" stroke="#bbf7d0"/>
@@ -56,7 +56,7 @@
 
 <!-- Conflict side -->
 <rect x="370" y="35" width="310" height="275" class="box" fill="#fef2f2" stroke="#ef4444"/>
-<text x="525" y="55" text-anchor="middle" class="title" fill="#dc2626">32-way Conflict (naive)</text>
+<text x="525" y="49" text-anchor="middle" class="title" fill="#dc2626">32-way Conflict (naive)</text>
 
 <!-- Banks row -->
 <g transform="translate(385,65)">
@@ -89,9 +89,9 @@
   <line x1="192" y1="0" x2="52" y2="10" stroke="#ef4444" stroke-width="1"/>
 </g>
 
-<text x="525" y="135" text-anchor="middle" class="code" font-size="10" fill="#dc2626">smem[ty][tx]  // naive</text>
+<text x="525" y="135" text-anchor="middle" class="code" font-size="10" fill="#dc2626">read s[tx][ty]  // column read</text>
 <text x="525" y="152" text-anchor="middle" class="label" font-size="10">All 32 threads hit bank 0</text>
-<text x="525" y="168" text-anchor="middle" class="title" fill="#dc2626">32 cycles (serialized!)</text>
+<text x="525" y="168" text-anchor="middle" class="title" fill="#dc2626">32 serialized accesses</text>
 
 <!-- Memory layout - conflict -->
 <rect x="385" y="180" width="280" height="55" rx="3" fill="#fef2f2" stroke="#fecaca"/>

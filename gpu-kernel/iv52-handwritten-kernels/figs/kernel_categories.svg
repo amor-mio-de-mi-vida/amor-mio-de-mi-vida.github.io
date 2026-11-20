@@ -6,44 +6,38 @@
   .code{font-family:ui-monospace,monospace;font-size:10.5px}
   .box{rx:5;ry:5;stroke-width:1.2}
 </style>
-<text x="340" y="18" text-anchor="middle" class="title">15 Whiteboard Kernels by Category</text>
+<text x="340" y="18" text-anchor="middle" class="title">13 Whiteboard Kernels by Category (numbers = sections in this post)</text>
 
 <!-- Category 1: Basic -->
 <rect x="20" y="35" width="200" height="100" class="box" fill="#dcfce7" stroke="#22c55e"/>
 <text x="120" y="55" text-anchor="middle" class="title" fill="#166534">Basic Patterns</text>
 <text x="35" y="75" class="code">1. Vector Add (grid-stride)</text>
 <text x="35" y="92" class="code">2. Block Reduce (shuffle)</text>
-<text x="35" y="109" class="code">7. Prefix Sum</text>
-<text x="35" y="126" class="code">8. Histogram (smem)</text>
+<text x="35" y="109" class="code">10. Prefix Sum</text>
+<text x="35" y="126" class="code">11. Histogram (smem)</text>
 
 <!-- Category 2: Norm/Activation -->
 <rect x="240" y="35" width="200" height="100" class="box" fill="#eff6ff" stroke="#3b82f6"/>
 <text x="340" y="55" text-anchor="middle" class="title" fill="#3b82f6">Norm &amp; Activation</text>
 <text x="255" y="75" class="code">3. Softmax (online)</text>
 <text x="255" y="92" class="code">4. RMSNorm</text>
-<text x="255" y="109" class="code">11. LayerNorm</text>
-<text x="255" y="126" class="code">9. RoPE</text>
+<text x="255" y="109" class="code">5. LayerNorm</text>
+<text x="255" y="126" class="code">6. RoPE</text>
 
 <!-- Category 3: Linear Algebra -->
 <rect x="460" y="35" width="200" height="100" class="box" fill="#fef9c3" stroke="#eab308"/>
 <text x="560" y="55" text-anchor="middle" class="title" fill="#854d0e">Linear Algebra</text>
-<text x="475" y="75" class="code">5. Transpose (smem)</text>
-<text x="475" y="92" class="code">6. SGEMM (tiled)</text>
-<text x="475" y="109" class="code">10. GEMV</text>
+<text x="475" y="75" class="code">7. Transpose (smem)</text>
+<text x="475" y="92" class="code">8. SGEMM (tiled)</text>
+<text x="475" y="109" class="code">9. GEMV</text>
 
-<!-- Category 4: Advanced -->
-<rect x="130" y="155" width="200" height="80" class="box" fill="#fef2f2" stroke="#ef4444"/>
-<text x="230" y="175" text-anchor="middle" class="title" fill="#ef4444">Search &amp; Selection</text>
-<text x="145" y="195" class="code">12. Top-K</text>
-<text x="145" y="212" class="code">13. Atomic Float Max</text>
+<!-- Category 4: Search -->
+<rect x="240" y="155" width="200" height="80" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="340" y="175" text-anchor="middle" class="title" fill="#ef4444">Search &amp; Selection</text>
+<text x="255" y="195" class="code">12. Top-K</text>
+<text x="255" y="212" class="code">13. Atomic Float Max</text>
 
-<!-- Category 5: Complex -->
-<rect x="350" y="155" width="220" height="80" class="box" fill="#ede9fe" stroke="#8b5cf6"/>
-<text x="460" y="175" text-anchor="middle" class="title" fill="#8b5cf6">Complex Patterns</text>
-<text x="365" y="195" class="code">14. FlashAttention (简)</text>
-<text x="365" y="212" class="code">15. Im2col</text>
-
-<text x="340" y="260" text-anchor="middle" class="label">Each kernel: 30&ndash;60 lines, writable on a whiteboard in 15&ndash;25 minutes</text>
+<text x="340" y="260" text-anchor="middle" class="label">Each kernel: roughly 10&ndash;30 lines of code, meant to be written on a whiteboard</text>
 
 <text x="340" y="278" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative</text>
 </svg>

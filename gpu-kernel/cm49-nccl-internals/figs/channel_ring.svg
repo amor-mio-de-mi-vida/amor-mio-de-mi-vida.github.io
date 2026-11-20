@@ -88,7 +88,7 @@
 
     <text x="0" y="225" class="d-note" style="font-size:10px">多 channel 并行传输同一集合操作的</text>
     <text x="0" y="241" class="d-note" style="font-size:10px">不同数据分片，聚合所有 NVLink 带宽。</text>
-    <text x="0" y="261" class="d-note" style="font-size:10px">H100: 默认 NCCL_NCHANNELS=32</text>
+    <text x="0" y="261" class="d-note" style="font-size:10px">channel 数由 NCCL 按拓扑决定（一个 channel = 一个 CUDA block）</text>
     <text x="0" y="277" class="d-note" style="font-size:10px">每 channel 独立 ring + 独立 buffer。</text>
   </g>
 

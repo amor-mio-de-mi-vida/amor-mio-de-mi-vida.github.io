@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Diffusion（三）：视频生成与加速 kernel</title>
-<meta name="description" content="从零精通 GPU Kernel 第 40 篇：视频 DiT 的 3D attention 成本、块稀疏 FlashAttention、量化 attention（SageAttention INT8/FP8）、VAE tiling 解码、步间缓存、采样器融合、序列并行。">
+<meta name="description" content="从零精通 GPU Kernel 第 40 篇：视频 DiT 的 3D attention 成本、块稀疏 FlashAttention、量化 attention（SageAttention INT8 QK / FP16 或 FP8 PV）、VAE tiling 解码、步间缓存、采样器融合、序列并行。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 22 分钟阅读</span>
+    <span data-reading-time>约 23 分钟阅读</span>
   </div>
 </header>
 
@@ -230,9 +230,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>视频 DiT 的 3D full attention 成本随帧数平方增长，长视频的序列长度可达几十万个 token，物化 S 矩阵根本放不下，FlashAttention 式的分块是唯一可行路径。</li>
+<li>视频 DiT 的 3D full attention 成本随帧数平方增长，长视频的 token 数可达数万，物化 S 矩阵代价极高，FlashAttention 式的分块是唯一可行路径。</li>
 <li>块稀疏 attention 把 3D token 分成 tile，只和邻居 tile 做 attention——FlashAttention 内循环加一行 block_mask 判断即可跳过整个 KV 块。</li>
-<li>量化 attention（SageAttention 思路）：INT8 计算 QK^T（__dp4a），FP8 计算 PV——Tensor Core 的 INT8/FP8 吞吐是 FP16 的 2 倍。</li>
+<li>量化 attention：SageAttention 用 INT8 算 QK^T、FP16 算 PV，SageAttention2 再把 PV 换成 FP8——H100 上 INT8/FP8 Tensor Core 稠密峰值是 FP16 的 2 倍。</li>
 <li>VAE 解码是显存峰值——3D 因果卷积的中间特征巨大，tiling 解码把视频切成重叠段，每段独立解码后线性混合。</li>
   </ul>
 </div>
@@ -243,9 +243,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-cost">3D Full Attention 的成本</h2>
 
-<p>上一篇讨论了 DiT 的基本算子——adaLN 融合、3D RoPE、长序列 attention。本篇聚焦视频 diffusion 的特有挑战：序列长度从图像的 4K-16K tokens 暴增到 64K-262K tokens（更多帧、更高分辨率），使得 attention 成为绝对的计算瓶颈，且单卡 HBM 容量可能放不下中间特征。解决思路从五个层面展开：减少计算量（稀疏化）、加速单次计算（量化）、降低显存峰值（VAE tiling）、减少前向次数（步间缓存）、多卡扩展（序列并行）。</p>
+<p>上一篇讨论了 DiT 的基本算子——adaLN 融合、3D RoPE、长序列 attention。本篇聚焦视频 diffusion 的特有挑战：序列长度随帧数线性增长（下面的算例中 64 帧即有 16K–64K 个 token），使得 attention 成为绝对的计算瓶颈，且单卡 HBM 容量可能放不下中间特征。解决思路从五个层面展开：减少计算量（稀疏化）、加速单次计算（量化）、降低显存峰值（VAE tiling）、减少前向次数（步间缓存）、多卡扩展（序列并行）。</p>
 
-<p>视频 diffusion（如 Open-Sora<span class="cite">[<a href="#ref-opensora" title="Open-Sora Team (2024). Open-Sora: Democratizing Efficient Video Production for All. GitHub。">1</a>]</span>、CogVideoX）在每个去噪步对所有时空 token 做 full attention。以 64 帧 &times; 64&times;64 空间分辨率、patch 4&times;4 为例：</p>
+<p>采用 3D full attention 的视频 DiT（如 CogVideoX<span class="cite">[<a href="#ref-cogvideox" title="Yang et al. (2024). CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer. arXiv:2408.06072。">1</a>]</span>）在每个去噪步对所有时空 token 做 attention。以一个假设配置——64 帧 latent、每帧 64&times;64、patch 4&times;4——为例：</p>
 
 <ul>
 <li>Token 数 \(N = 64 \times (64/4) \times (64/4) = 64 \times 16 \times 16 = 16384\)（单帧 256 tokens &times; 64 帧）</li>
@@ -254,13 +254,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li>单层 attention 计算量：\(4 \times N^2 \times d = 4 \times 16384^2 \times 128 \approx 138\) GFLOP（16K tokens），或 \(4 \times 65536^2 \times 128 \approx 2.2\) TFLOP（64K tokens）</li>
 </ul>
 
-<p>这里 4 倍来自两次矩阵乘（QK&#x1D40; 和 PV）各含两次浮点运算（乘 + 加）。视频 DiT 通常 28 层、24 个 head——64K tokens 的单步 attention 总计算量 \(28 \times 24 \times 2.2 = 1478\) TFLOP，H100 的 FP16 算力 989 TFLOP/s 需要约 1.5 秒——这只是 attention 部分，还不包括 FFN（约 0.8 秒）和 elementwise（约 0.1 秒）。单步总延迟约 2.4 秒，50 步去噪总延迟约 120 秒——用户等两分钟生成一段短视频，远超可接受范围。这就是为什么视频 DiT 的推理加速如此紧迫。</p>
+<p>这里 4 倍来自两次矩阵乘（QK&#x1D40; 和 PV）各含两次浮点运算（乘 + 加）。再假设一个 28 层、每层 24 个 head（head dim 128）的模型（示意配置，不对应某个具体模型）：64K tokens 的单步 attention 总计算量 \(28 \times 24 \times 2.2 \approx 1478\) TFLOP，按 H100 SXM 稠密 FP16 峰值 989 TFLOP/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span> 计也要约 1.5 秒；50 步去噪仅 attention 就约 75 秒——这还是 100% 峰值利用率的下界，没有算 FFN 和其他算子。这就是为什么视频 DiT 的推理加速如此紧迫。</p>
 
-<p>FlashAttention 不存 S 矩阵——在 SRAM 中逐 tile 计算 softmax，HBM 流量从 \(O(N^2)\) 降到 \(O(N^2 d / M)\)（M 是 SRAM 大小）。这解决了&ldquo;存不下&rdquo;的问题，但 <b>计算量</b>仍是 \(O(N^2 d)\)——这是 attention 算法本身的下界，FlashAttention 无法改变。减少计算量只能靠稀疏化（减少参与计算的 token 对数）或量化（用更快的低精度指令），两者都是算法层面的改变、需要 kernel 支持。本篇讨论的五种技术（稀疏 attention、量化 attention、VAE tiling、步间缓存、序列并行）分别从不同角度攻克这个挑战。</p>
+<p>FlashAttention 不存 S 矩阵——在 SRAM 中逐 tile 计算 softmax，HBM 访问量从 \(\Theta(N d + N^2)\) 降到 \(\Theta(N^2 d^2 / M)\)（M 是 SRAM 大小，FlashAttention 原论文的分析<span class="cite">[<a href="#ref-fa1" title="Dao et al. (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>]</span>）。这解决了&ldquo;存不下&rdquo;的问题，但 <b>计算量</b>仍是 \(O(N^2 d)\)——这是 attention 算法本身的下界，FlashAttention 无法改变。减少计算量只能靠稀疏化（减少参与计算的 token 对数），提高单位时间完成的计算量则靠量化（用更快的低精度指令），两者都是算法层面的改变、需要 kernel 支持。本篇讨论的五种技术（稀疏 attention、量化 attention、VAE tiling、步间缓存、序列并行）分别从不同角度攻克这个挑战。</p>
 
 <h2 id="sec-sparse">稀疏 Attention 与滑动 Tile</h2>
 
-<p>视频的时空结构天然适合稀疏 attention：相距很远的 token（不同帧的不同位置）相关性弱——直觉是：一个像素主要受同一帧的相邻像素和相邻帧的同一位置影响，而和 30 帧之外的另一个角落几乎无关。这种局部性可以用实验验证：测量 full attention 的 S 矩阵中，跨越 k 帧以上的元素的平均 softmax 权重——通常 k &gt; 8 时权重不到 1%。常见策略（<a href="#fig-sparse_tile_3d">图 1</a>）：</p>
+<p>视频的时空结构天然适合稀疏 attention：相距很远的 token（不同帧的不同位置）相关性弱——直觉是：一个像素主要受同一帧的相邻像素和相邻帧的同一位置影响，而和 30 帧之外的另一个角落关系较弱。常见策略（<a href="#fig-sparse_tile_3d">图 1</a>）：</p>
 
 <figure id="fig-sparse_tile_3d" data-kind="diagram">
 <img aria-labelledby="fig-sparse_tile_3d-cap" src="figs/sparse_tile_3d.svg" alt="3D 稀疏 attention"/>
@@ -271,14 +271,14 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li><b>空间 + 时间分解</b>：先对同一帧内的 token 做空间 attention（每帧独立，序列长度 HW），再对同一空间位置跨帧的 token 做时间 attention（每位置独立，序列长度 T）。计算量从 \(O((T \times HW)^2 d)\) 降到 \(O(T \times (HW)^2 d + HW \times T^2 d)\)——对 T=64、HW=256 来说，full attention = \((64 \times 256)^2 = 268M\)，分解后 = \(64 \times 256^2 + 256 \times 64^2 = 4.2M + 1.0M = 5.2M\)——约 50 倍的节省。但分解破坏了时空联合建模——第 1 帧左上角的 token 不能直接 attend 到第 30 帧右下角的 token，需要通过中间层传递信息。</li>
 <li><b>滑动窗口</b>：每个 token 只看时间轴前后 w 帧内的 token。有效序列长度从 T&times;HW 降到 (2w+1)&times;HW。例如 w=4 时，每个 token 只看 9 帧的 token，计算量降到约 9/64 &asymp; 14% 的 full attention。在 FlashAttention 中实现滑动窗口：内循环只遍历时间范围在 [t_q-w, t_q+w] 内的 KV 块，需要 block_mask 或修改循环边界。代价是不能建模长距离时间依赖（如首帧和末帧的一致性），适合连续运动的场景。</li>
 <li><b>滑动 tile</b>：把 token 按 3D tile 组织（如 4 帧 &times; 4&times;4 空间 = 64 tokens/tile），每个 tile 和 3D 邻域的 tile 做 attention。对齐 kernel 的 block size——FlashAttention 的 tile size 通常是 64 或 128，3D tile 的大小设计要和这个对齐，避免 tile 内部 padding 浪费。</li>
-<li><b>全局 token</b>：保留少量&ldquo;全局 token&rdquo;（如每帧的中心 token、可学习的 CLS token、或每隔 K 帧取一个&ldquo;关键帧 token&rdquo;）和所有 tile 做 attention（类似 Longformer 的 global token 机制），让远距离信息可以通过全局 token 做中继传播。全局 token 数通常是 L 的 1-5%（如 16K tokens 中 160-800 个），额外的 attention 计算量约 \(2 \times N_g \times L \times d\)——对 N_g=160、L=16K、d=128 来说仅 0.7 GFLOP，相比 full attention 的 138 GFLOP 不到 0.5%。kernel 实现上，全局 token 的 block_mask 行全为 1（和所有 KV 块做 attention），普通 token 的 block_mask 只在邻居和全局 token 列为 1。</li>
+<li><b>全局 token</b>：保留少量&ldquo;全局 token&rdquo;（如每帧的中心 token、可学习的 CLS token、或每隔 K 帧取一个&ldquo;关键帧 token&rdquo;）和所有 tile 做 attention（类似 Longformer 的 global token 机制），让远距离信息可以通过全局 token 做中继传播。全局 token 数 \(N_g\) 是超参数。额外计算量来自全局 token 的行（对全部 L 个 key）和全局 token 的列（被全部 query 访问），按与上文相同的 \(4 \times \text{行} \times \text{列} \times d\) 计约 \(8 N_g L d\)——取 N_g=160（约占 16K 的 1%）、L=16K、d=128 时约 2.7 GFLOP，约为 full attention 138 GFLOP 的 2%。kernel 实现上，全局 token 的 block_mask 行全为 1（和所有 KV 块做 attention），普通 token 的 block_mask 只在邻居和全局 token 列为 1。</li>
 </ul>
 
-<p>实践中通常组合使用：前几层用 full attention（让模型学全局结构和物体关系），中间层用时空分解或滑动窗口（节省计算、保持局部细节），最后几层再用 full attention（全局精细化）。这种&ldquo;混合稀疏&rdquo;策略的 kernel 实现需要灵活的 attention 接口——同一个 FlashAttention kernel 需要根据 layer index 接受不同的 block_mask（或无 mask），用函数指针或模板参数在编译时选择。Open-Sora 1.2 采用类似策略，CogVideoX 则用时空交替 attention（偶数层空间、奇数层时间）。</p>
+<p>也可以组合使用，例如前几层用 full attention（让模型学全局结构和物体关系），中间层用时空分解或滑动窗口（节省计算、保持局部细节），最后几层再用 full attention（全局精细化）。这种&ldquo;混合稀疏&rdquo;策略的 kernel 实现需要灵活的 attention 接口——同一个 FlashAttention kernel 需要根据 layer index 接受不同的 block_mask（或无 mask），用函数指针或模板参数在编译时选择。具体模型的选择差别很大：Open-Sora 1.0 的 STDiT 在每个空间 attention 之后紧接一个时间 attention<span class="cite">[<a href="#ref-opensora" title="Open-Sora Team (2024). Open-Sora: Democratizing Efficient Video Production for All. GitHub。">4</a>]</span>；CogVideoX 则明确选择 3D full attention，并报告换成 2D+1D（空间 + 时间分离）attention 后 FVD 更高、训练更不稳定<span class="cite">[<a href="#ref-cogvideox" title="Yang et al. (2024). CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer. arXiv:2408.06072。">1</a>]</span>。</p>
 
 <h2 id="sec-blocksparse">块稀疏 FlashAttention</h2>
 
-<p>在 FlashAttention<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">2</a>]</span> 框架下实现块稀疏只需一行改动：在 KV 块的内循环开头，检查 <code>block_mask[q_blk][kv_blk]</code>，为 0 则 <code>continue</code>——跳过该 KV 块的加载、GEMM 和 softmax 更新。这是 FlashAttention 架构的优雅之处：因为是 tiled 计算（外循环遍历 KV 块），添加 block-level 稀疏不需要修改核心的 online softmax 逻辑——被跳过的块就像不存在一样，softmax 的 row_max 和 row_sum 自动只反映保留块的贡献。</p>
+<p>在 FlashAttention<span class="cite">[<a href="#ref-fa2" title="Dao (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691。">5</a>]</span> 框架下实现块稀疏只需一行改动：在 KV 块的内循环开头，检查 <code>block_mask[q_blk][kv_blk]</code>，为 0 则 <code>continue</code>——跳过该 KV 块的加载、GEMM 和 softmax 更新。这是 FlashAttention 架构的优雅之处：因为是 tiled 计算（外循环遍历 KV 块），添加 block-level 稀疏不需要修改核心的 online softmax 逻辑——被跳过的块就像不存在一样，softmax 的 row_max 和 row_sum 自动只反映保留块的贡献。</p>
 
 <p>先看 kernel 的完整签名和初始化——网格维度和 block 索引决定了每个线程块处理哪个 Q tile：</p>
 
@@ -303,7 +303,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   int tid = threadIdx.x;</code></pre>
 <p class="src-note">完整代码：<code>code/df40-video-diffusion-accel/block_sparse_attn.cu</code> 第 10–28 行</p>
 
-<p>网格配置是 <code>dim3((Lq+BR-1)/BR, N*H)</code>——x 维度对应 Q tile 索引，y 维度对应 batch &times; head。每个线程块负责一个 Q tile（BR=64 个 token）对所有 KV tile 的 attention 计算。为什么用 blockIdx.x 做 Q tile 而不是 KV tile？因为 FlashAttention 的 online softmax 要求一个 Q tile 的所有 KV 贡献<b>串行累积</b>——row_max 和 row_sum 是每行的全局状态，必须逐 KV 块更新；而不同 Q tile 之间完全独立，可以并行。如果反过来（每个 block 处理一个 KV tile 对所有 Q tile），就需要在 Q 维度做跨 block 的 reduction——这正是 FlashAttention backward pass 面临的挑战。row_max 初始化为 <code>-1e30f</code>（负无穷的近似值）而非 <code>-INFINITY</code>，是因为 <code>-INFINITY</code> 在某些 GPU 上参与 max 运算时行为不一致（特别是和 NaN 的交互），用一个足够小的有限值更安全。</p>
+<p>网格配置是 <code>dim3((Lq+BR-1)/BR, N*H)</code>——x 维度对应 Q tile 索引，y 维度对应 batch &times; head。每个线程块负责一个 Q tile（BR=64 个 token）对所有 KV tile 的 attention 计算。为什么用 blockIdx.x 做 Q tile 而不是 KV tile？因为 FlashAttention 的 online softmax 要求一个 Q tile 的所有 KV 贡献<b>串行累积</b>——row_max 和 row_sum 是每行的全局状态，必须逐 KV 块更新；而不同 Q tile 之间完全独立，可以并行。如果反过来（每个 block 处理一个 KV tile 对所有 Q tile），就需要在 Q 维度做跨 block 的 reduction——这正是 FlashAttention backward pass 面临的挑战。row_max 初始化为 <code>-1e30f</code>（负无穷的近似值）而非 <code>-INFINITY</code>，是为了避免 online softmax 的重缩放项 \(e^{m_{\text{old}} - m_{\text{new}}}\) 在两者都是 \(-\infty\) 时变成 \(e^{\text{NaN}}\)（\(-\infty - (-\infty)\) 是 NaN）——用一个足够小的有限值，差值始终有定义。</p>
 
 <p>内循环遍历所有 KV 块，用 block_mask 跳过不需要的块：</p>
 
@@ -335,17 +335,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-quant">量化 Attention</h2>
 
-<p>SageAttention<span class="cite">[<a href="#ref-sage" title="Guo et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">3</a>]</span> 的核心思路：attention 计算中精度要求最高的是 softmax——S 矩阵（logits）的微小误差经过 exp 后被放大。但 S 矩阵的计算本身（\(Q \cdot K^T\)）和加权求和（\(P \cdot V\)）对精度的要求相对宽松，可以用低精度完成。SageAttention 把这两步分别量化到 INT8 和 FP8，在 Tensor Core 吞吐翻倍的同时把精度损失控制在可接受范围（<a href="#fig-quant_attention_flow">图 2</a>）。</p>
+<p>SageAttention<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span> 的出发点：attention 里的两次矩阵乘（\(Q \cdot K^T\) 和 \(P \cdot V\)）可以交给低精度 Tensor Core 指令，只要处理好量化误差；softmax 仍用全精度。SageAttention（v1）把 Q、K 量化到 INT8 计算 QK&#x1D40;，而 P、V 保持 FP16、用 FP16 累加器计算 PV；论文报告在 RTX4090 上其 OPS 约为 FlashAttention2 的 2.1 倍、xformers 的 2.7 倍<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。后续的 SageAttention2<span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span> 把 QK&#x1D40; 推到 INT4（per-thread 粒度），并把 P、V 量化到 FP8（E4M3）计算 PV；它的 INT8 变体 SageAttn2-8b 就是&ldquo;INT8 QK&#x1D40; + FP8 PV&rdquo;，即 <a href="#fig-quant_attention_flow">图 2</a> 画的数据流。</p>
 
 <figure id="fig-quant_attention_flow" data-kind="diagram">
 <img aria-labelledby="fig-quant_attention_flow-cap" src="figs/quant_attention_flow.svg" alt="量化 attention"/>
-<figcaption id="fig-quant_attention_flow-cap"><span class="fig-label">图 2</span><b>量化 attention 数据流。</b>Stage 1：Q 和 K 量化到 INT8（per-row absmax），用 INT8 Tensor Core（或 __dp4a）算 S = QK^T，反量化回 FP32 做 softmax。Stage 2：P 和 V 量化到 FP8（e4m3），用 FP8 Tensor Core 算 O = PV。两个 stage 的 Tensor Core 吞吐都是 FP16 的 2 倍。</figcaption>
+<figcaption id="fig-quant_attention_flow-cap"><span class="fig-label">图 2</span><b>量化 attention 数据流（SageAttn2-8b）。</b>Stage 1：Q 和 K 量化到 INT8（K 先减去沿 token 的均值），用 INT8 Tensor Core（或 __dp4a）算 S = QK^T，反量化回 FP32 做 softmax。Stage 2：P 和 V 量化到 FP8（E4M3），用 FP8 Tensor Core 算 O = PV；SageAttention v1 在这一步用的是 FP16。H100 上 INT8 与 FP8 Tensor Core 的稠密峰值都是 FP16 的 2 倍<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>。</figcaption>
 </figure>
 
 <ul>
-<li><b>QK&#x1D40; 用 INT8</b>：Q 和 K 做 per-row absmax 量化——找到每行的最大绝对值 amax，然后 <code>x_int8 = round(x / amax * 127)</code>。K 需要&ldquo;平滑（smooth）&rdquo;处理——对 K 的每个 channel 除以其标准差，防止异常值（outlier）破坏量化精度。<code>__dp4a</code> 指令做 4 路 INT8 dot product：一条指令完成 4 个 int8 乘法并累加到 int32 结果，吞吐是 FP16 乘法的 4 倍（按元素计）。</li>
-<li><b>PV 用 FP8</b>：softmax 输出 P 在 [0,1] 范围内——绝大多数值接近 0（因为 softmax 是 sparse 的），FP8 e4m3 的动态范围（约 &#xb1;240）足够覆盖。V 也量化到 FP8 e4m3，对精度敏感的模型也可以用 e5m2 格式（更大动态范围、更小精度）。Hopper 和 Blackwell 都支持 FP8 Tensor Core。</li>
-<li><b>精度保持</b>：softmax 始终在 FP32 中计算——这是精度的关键：softmax 涉及 exp 和求和，FP16 在大 logits 时会溢出，更不用说 INT8。反量化后的 S 用于 online softmax，累加器 (row_max, row_sum) 也是 FP32。</li>
+<li><b>QK&#x1D40; 用 INT8</b>：Q 和 K 按块（per-block）或按 token 做 absmax 量化——找到该组的最大绝对值 amax，然后 <code>x_int8 = round(x / amax * 127)</code>。K 先做&ldquo;平滑（smooth）&rdquo;——减去 K 沿 token 维的均值 mean(K)（形状 1&times;d）。对同一个 query，\(q \cdot \text{mean}(K)\) 是所有 key 共享的常数，softmax 结果不变；而 K 中按 channel 分布的异常值被去掉，INT8 量化误差显著下降。论文报告这一步的开销低于 0.2%，并且对 Q、K 而言 INT8 比 FP8 更准<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。<code>__dp4a</code> 指令做 4 路 INT8 dot product：一条指令完成 4 个 int8 乘法并累加到 int32 结果。</li>
+<li><b>PV 用 FP16 或 FP8</b>：SageAttention v1 发现把 P、V 量化到 INT8 在部分层精度很差，于是保留 FP16，并改用 FP16 累加器——在 RTX4090/3090 上这比 FP32 累加器的 FP16 mma 快 2 倍，且论文报告无精度损失<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。SageAttention2 改用 FP8 E4M3：P 在 [0,1] 内，用固定 scale 1/448 映射到 E4M3 的范围（E4M3 最大有限值为 448），V 按 channel 量化；它还发现 FP8 mma 的&ldquo;FP32&rdquo;累加器实际只有 22 bit（1 符号 + 8 指数 + 13 尾数），于是用两级累加——块内用该累加器，再加到 FP32 输出缓冲<span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span>。Hopper 和 Blackwell 都支持 FP8 Tensor Core<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>。</li>
+<li><b>精度保持</b>：softmax 始终在 FP32 中计算——反量化后的 S 用于 online softmax，累加器 (row_max, row_sum) 也是 FP32。</li>
 </ul>
 
 <p>per-row absmax 量化的实现如下——每行独立计算 scale factor，然后把 FP32 值映射到 [-127, 127] 的 INT8 范围：</p>
@@ -391,9 +391,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>这段代码揭示了 <code>__dp4a</code> 的关键设计：把 <code>signed char*</code> 强制转换为 <code>int*</code>——因为 <code>__dp4a</code> 的硬件接口接受两个 32-bit 整数，每个整数的 4 个字节分别被解释为 4 个 INT8 值。一次 <code>__dp4a</code> 调用计算 <code>acc += a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]</code>（其中 a、b 是 int8），等价于 4 次乘法和 4 次加法——但在硬件上是一条指令完成。对 d=128 的 head dimension，循环只需 32 次迭代（128/4=32），远少于 FP16 的 128 次乘加。为什么 <code>__dp4a</code> 用 INT32 累加器而不是 INT16？因为 4 个 INT8 乘法的结果范围是 [-16129, 16129]，4 路累加后已经超过 INT16 的 &plusmn;32767 范围；整个 d=128 的 dot product 累加后范围约 &plusmn;2M——INT32（&plusmn;2.1B）绰绰有余。这种&ldquo;窄输入、宽累加&rdquo;模式在 GPU 计算中反复出现：FP8 Tensor Core 用 FP32 累加器，FP16 HMMA 也用 FP32 累加器。</p>
 
-<p>需要注意 <code>__dp4a</code> 是 CUDA core 指令（sm_61+），而非 Tensor Core 指令。在 A100 上 <code>__dp4a</code> 的吞吐约 64 IPC/SM，而 INT8 HMMA（Tensor Core）的吞吐约 256 IPC/SM——约 4 倍差距。Hopper 上 INT8 WGMMA 吞吐进一步提升。因此实际部署 SageAttention 时应优先使用 Tensor Core 的 INT8 矩阵乘，<code>__dp4a</code> 版本主要用于原型验证和不支持 INT8 Tensor Core 的旧架构（Pascal、Volta）。</p>
+<p>需要注意 <code>__dp4a</code>（PTX <code>dp4a</code>，需要 sm_61+<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7（dp4a、mma、wgmma、tcgen05 等指令）。">8</a>]</span>）走的是 CUDA core 的整数通路，而非 Tensor Core。A100 的 INT8 Tensor Core 稠密峰值是 624 TOPS、H100 SXM 是 1979 TOPS<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>，dp4a 远达不到这个量级（本文不给具体比值）。SageAttention 的 kernel 用的是 Tensor Core 的 INT8 mma 指令<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>；<code>__dp4a</code> 版本适合原型验证和没有 INT8 Tensor Core 的旧架构（Pascal、Volta）。</p>
 
-<p>这种&ldquo;量化 + GEMM 融合&rdquo;避免了把量化后的 INT8 值写回 HBM 再读——和 adaLN 融合的思路一脉相承：减少不必要的 HBM round-trip。数据流为：读 FP32 Q/K tile &rarr; shared memory 中量化为 INT8（warp reduce 找 amax + 每线程量化）&rarr; INT8 GEMM（__dp4a 或 Tensor Core）&rarr; 反量化为 FP32 S 值 &rarr; online softmax。整个过程 Q/K 只从 HBM 读一次，不需要写回中间的 INT8 矩阵。对 d=128 的 head，per-row 量化需要 128 次比较（找 amax）和 128 次乘法 + clamp（量化）——相比 QK&#x1D40; 的 128 次 dp4a（约 512 次乘加），量化开销约 50%——这也是为什么只有 Tensor Core 的 INT8 吞吐显著高于 FP16 时，量化 attention 才有性能收益。在 Hopper 上 INT8 Tensor Core 吞吐约是 FP16 的 2 倍，扣除量化开销后的有效加速约 1.3-1.5 倍。</p>
+<p>量化放在哪里也有讲究：如果单独起一个量化 kernel，就要把 INT8 的 Q/K 写回 HBM 再读一遍。一种做法是在 attention kernel 内部量化（读 FP16/FP32 Q/K tile &rarr; 片上量化 &rarr; INT8 GEMM &rarr; 反量化 &rarr; online softmax）；SageAttention 的做法是把 Q、K 的量化融合进 attention 之前的算子（RoPE）里，同样省掉一次额外的读写<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。量化每行只做一次，代价被该行与所有 key 的点积分摊；端到端能快多少要看实测：SageAttention2 报告在 H100 上与 FlashAttention3(fp8) 速度相当（相对 FlashAttention2 分别约 2.61&times; 与 2.63&times;），在 RTX4090 上 CogVideoX(1.5-5B) 端到端从 1040 s 降到 577 s（SageAttn2-8b）<span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span>。</p>
 
 <pre data-code="code/df40-video-diffusion-accel/int8_qk_attn.cu#L41-L59"><code>__global__ void int8_qk_kernel(
     const float* __restrict__ Q,  // [L, d]
@@ -418,7 +418,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-vae">VAE 解码与 Tiling</h2>
 
-<p>视频 diffusion 的 VAE 解码器通常包含 3D 因果卷积——沿时间轴的卷积核只看当前和过去的帧（因果性），保证生成时可以逐帧解码。中间特征的尺寸是输出视频的 4-8 倍（channel 数多，如 latent 256 通道 → 中间层 512 通道），64 帧 &times; 512&times;512 的视频解码需要 \(64 \times 512 \times 512 \times 512 \times 4 \approx 34\) GB 的中间特征——超过 H100 的 80 GB HBM 容量的 40%。加上梯度（如果训练的话），显存很容易爆。推理时虽然不需要梯度，但中间特征仍然是瓶颈——尤其是同时解码多段视频时（<a href="#fig-vae_tiling">图 3</a>）。</p>
+<p>视频 diffusion 的 VAE 解码器通常包含 3D 因果卷积——沿时间轴的卷积核只看当前和过去的帧（因果性），保证生成时可以逐帧解码。解码器把 latent 逐级上采样回像素分辨率，高分辨率层的通道数又不少，所以中间特征远大于输出视频本身。以一个假设配置估算：若某一层在 64 帧 &times; 512&times;512 上有 512 个通道、按 FP32 存储，单个激活张量就是 \(64 \times 512 \times 512 \times 512 \times 4 \approx 34\) GB，已占 H100 80 GB HBM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span> 的四成多（<a href="#fig-vae_tiling">图 3</a>）。</p>
 
 <figure id="fig-vae_tiling" data-kind="diagram">
 <img aria-labelledby="fig-vae_tiling-cap" src="figs/vae_tiling.svg" alt="VAE tiling"/>
@@ -428,31 +428,31 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>Tiling 的实现分三步：</p>
 <ol>
 <li><b>切分</b>：沿时间轴切分，每个 tile T_tile 帧（如 16 帧），重叠 overlap 帧（如 4 帧）。64 帧视频切成 5 个 tile：[0-15]、[12-27]、[24-39]、[36-51]、[48-63]（overlap=4）。</li>
-<li><b>独立解码</b>：每个 tile 独立过 VAE 解码器。显存峰值 = 单个 tile 的中间特征（\(16 \times 512 \times 512 \times 512 \times 4 \approx 8.5\) GB），而非整段视频的 34 GB。</li>
+<li><b>独立解码</b>：每个 tile 独立过 VAE 解码器。显存峰值 = 单个 tile 的中间特征（同一假设配置下 \(16 \times 512 \times 512 \times 512 \times 4 \approx 8.6\) GB），而非整段视频的 34 GB。</li>
 <li><b>重叠区混合</b>：<code>out[t] = w(t) * left[t] + (1 - w(t)) * right[t]</code>，w 从 1 线性衰减到 0。这是一个纯 elementwise kernel，对重叠的 4 帧各做一次读 2 写 1。</li>
 </ol>
 
-<p>空间维度也可以 tile（沿 H 或 W 切），但通常空间尺寸较小（潜空间是原图的 1/8，如 512&times;512 图像在潜空间是 64&times;64），一次能放下。空间 tiling 更复杂——不仅要时间方向重叠，还要上下左右四个方向重叠，混合权重变成 2D 的双线性插值。CogVideoX 的 VAE 解码器实现了时间 + 空间双维度 tiling，支持长达 200+ 帧的视频解码，单卡显存控制在 16 GB 以内。</p>
+<p>空间维度也可以 tile（沿 H 或 W 切），但通常空间尺寸较小（潜空间是原图的 1/8，如 512&times;512 图像在潜空间是 64&times;64），一次能放下。空间 tiling 更复杂——不仅要时间方向重叠，还要上下左右四个方向重叠，混合权重变成 2D 的双线性插值。CogVideoX 的 3D causal VAE（时空压缩 8&times;8&times;4）对时间因果卷积采用 context parallel——沿时间轴切分到多卡、把边界帧在卡间传递<span class="cite">[<a href="#ref-cogvideox" title="Yang et al. (2024). CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer. arXiv:2408.06072。">1</a>]</span>，解决的是同一个&ldquo;边界需要上文&rdquo;的问题。</p>
 
-<p>为什么视频 VAE 的 tiling 比图像更复杂？根本原因是<b>因果卷积</b>（causal convolution）的单向依赖性。3D 因果卷积核的时间维度只看当前帧和过去的帧——卷积核形状如 (k_t, k_h, k_w) = (3, 3, 3)，但时间方向只取 [t-2, t-1, t]，不看 t+1。这意味着：tile 的第一帧需要前一个 tile 的最后 k_t-1 帧作为&ldquo;上文&rdquo;（和 causal attention 的 KV cache 类似）。如果不重叠，第一帧的卷积窗口缺少 k_t-1 帧的输入——卷积库通常用零填充（zero padding），导致边界帧的特征偏暗或偏色（因为零填充相当于输入了黑色帧）。重叠区的大小至少要等于网络中最深层因果卷积的<b>有效感受野</b>——如果有 4 层卷积、每层 k_t=3，有效感受野 = 4 &times; (3-1) = 8 帧。实际实现中通常取 4-8 帧的重叠，对应 2-4 层因果卷积的感受野。</p>
+<p>为什么视频 VAE 的 tiling 比图像更复杂？根本原因是<b>因果卷积</b>（causal convolution）的单向依赖性。3D 因果卷积核的时间维度只看当前帧和过去的帧——卷积核形状如 (k_t, k_h, k_w) = (3, 3, 3)，但时间方向只取 [t-2, t-1, t]，不看 t+1。这意味着：tile 的第一帧需要前一个 tile 的最后 k_t-1 帧作为&ldquo;上文&rdquo;（和 causal attention 的 KV cache 类似）。如果不重叠，第一帧的卷积窗口缺少 k_t-1 帧的输入，只能用填充值代替，边界帧的特征就和连续解码时不一致，拼接处出现跳变。重叠区的大小至少要等于网络中最深层因果卷积的<b>有效感受野</b>——如果有 4 层卷积、每层 k_t=3，有效感受野 = 4 &times; (3-1) = 8 帧。按同一算法，k_t=3 时 2 层需要 4 帧重叠、4 层需要 8 帧。</p>
 
 <h2 id="sec-cache">步间缓存</h2>
 
-<p>Diffusion 的去噪过程中，相邻步的中间特征变化不大——特别是早期步骤（噪声大，特征相似）。直觉是：从纯噪声到清晰图像的过程中，早期的去噪步只是在做粗粒度的降噪（如确定整体色调和大致形状），不需要精确的特征计算；后期步骤在精细化细节，每步差异更大。<b>步间缓存</b>利用这一点（<a href="#fig-step_caching_flow">图 4</a>）：</p>
+<p>Diffusion 的去噪过程中，相邻步的模型输入和中间特征往往高度相似；而且相邻步输出的差异随时间步变化并不均匀，其形状因模型而异（TeaCache 论文中 Open-Sora 呈 U 形，Latte 与 Open-Sora-Plan 则是另一种形状<span class="cite">[<a href="#ref-teacache" title="Liu et al. (2024). Timestep Embedding Tells: It&#x27;s Time to Cache for Video Diffusion Model. arXiv:2411.19108。">9</a>]</span>）。<b>步间缓存</b>利用这种冗余（<a href="#fig-step_caching_flow">图 4</a>）：</p>
 
 <figure id="fig-step_caching_flow" data-kind="diagram">
 <img aria-labelledby="fig-step_caching_flow-cap" src="figs/step_caching_flow.svg" alt="步间缓存"/>
-<figcaption id="fig-step_caching_flow-cap"><span class="fig-label">图 4</span><b>步间缓存策略对比。</b>DeepCache 固定每 N 步跳过一步（简单但可能浪费或精度不足）。TeaCache 根据特征距离自适应决定——早期步骤特征变化小，跳过更多；后期步骤变化大，每步都算。</figcaption>
+<figcaption id="fig-step_caching_flow-cap"><span class="fig-label">图 4</span><b>步间缓存策略对比（示意）。</b>DeepCache 按固定间隔做完整前向，其余步复用 U-Net 深层特征、只重算浅层分支。TeaCache 用 timestep embedding 调制后的输入估计输出变化，累加到阈值才重算，因此跳步位置随模型和内容自适应。</figcaption>
 </figure>
 
 <ul>
-<li><b>DeepCache</b>：跳过某些步的 DiT 计算，复用上一步的中间特征。例如每 2 步算一次完整前向，中间步直接用缓存的特征加上当前步的 noise schedule 调整。这可以省约 50% 的计算，但对质量敏感的后期步骤可能损失较大。一种改进是渐进策略：前 20 步每 3 步算一次，后 30 步每步都算。</li>
-<li><b>TeaCache</b>：更精细——在每步开始前，计算当前输入和上一步输入的 L2 距离（或余弦距离）。距离小于阈值 → 跳过整步，用缓存；距离大于阈值 → 重算。这个&ldquo;距离计算&rdquo;本身是一个 reduction kernel（和 LayerNorm 的 variance 计算同构），开销约 0.1 ms——远小于一步完整前向的 30-50 ms。TeaCache 的自适应特性使它能在不同内容上都维持较好的质量-速度权衡。</li>
+<li><b>DeepCache</b><span class="cite">[<a href="#ref-deepcache" title="Ma, Fang, Wang (2023). DeepCache: Accelerating Diffusion Models for Free. arXiv:2312.00858。">10</a>]</span>：为 U-Net 设计——利用 U-Net 的跳连结构，每隔 N 步做一次完整前向并缓存深层（high-level）特征，中间步只更新浅层（low-level）特征、复用缓存的深层特征。论文报告 Stable Diffusion v1.5 上加速 2.3&times;、CLIP Score 仅降 0.05，LDM-4-G 上加速 4.1&times;、FID 升 0.22。固定间隔的问题是：不同时间步的特征变化幅度不同，统一间隔要么浪费、要么在变化大的步上损失质量。</li>
+<li><b>TeaCache</b><span class="cite">[<a href="#ref-teacache" title="Liu et al. (2024). Timestep Embedding Tells: It&#x27;s Time to Cache for Video Diffusion Model. arXiv:2411.19108。">9</a>]</span>：面向视频 DiT，更精细——不直接比较模型输出（那需要先算一遍），而是比较模型<b>输入</b>：用 timestep embedding 调制后的 noisy input 计算相邻步的相对 L1 距离，再用多项式拟合把它重标定成对输出差异的估计；估计值逐步累加，低于阈值就复用缓存的输出，否则完整计算并把累加器清零。论文报告在 Open-Sora-Plan 上最高 4.41&times; 加速、VBench 分数仅下降 0.07%。距离计算本身是一个 reduction kernel（和 LayerNorm 的 variance 计算同构），相比一次完整的 DiT 前向可以忽略。</li>
 </ul>
 
-<p>对 kernel 的影响：缓存命中时，大量 GEMM 和 attention kernel 不需要 launch——该步的计算变成&ldquo;距离检查（1 个 kernel）+ 采样器更新（1 个 elementwise kernel）&rdquo;，从数百次 kernel launch 降到 2 次。50 步中如果 30 步命中缓存，则总 kernel launch 数从 ~25000 降到 ~10060——减少约 60%。</p>
+<p>对 kernel 的影响：缓存命中时，大量 GEMM 和 attention kernel 不需要 launch——该步的计算变成&ldquo;距离检查（1 个 kernel）+ 采样器更新（1 个 elementwise kernel）&rdquo;，从数百次 kernel launch 降到 2 次。若假设每步完整前向需要 500 次 launch（示意值），50 步中 30 步命中缓存时，总 launch 数从 \(50 \times 500 = 25000\) 降到 \(20 \times 500 + 30 \times 2 = 10060\)，约少 60%。</p>
 
-<p>步间缓存的核心权衡是<b>质量损失</b>与<b>计算节省</b>的比率——而且这个比率在不同内容类型上差异很大。高频细节丰富的视频（如人脸、文字）在后期步骤的特征变化更快——即使相邻步的 L2 距离看起来不大，跳过后可能丢失眼睛的高光细节或文字的笔画。低频内容（如风景、抽象画）则更容忍跳步。实践中的启发式：对 SSIM &gt; 0.95 的相邻步对，跳过的质量损失通常不可感知（FID 增加 &lt; 2%）；SSIM 在 0.90-0.95 时需要逐场景测试；低于 0.90 则不建议跳过。TeaCache 的阈值通常需要根据具体模型和内容类型调参——这也是为什么 DeepCache 的&ldquo;固定每 N 步&rdquo;策略虽然简单但难以做到通用：N=2 对风景视频足够，但对人脸视频可能太激进。</p>
+<p>步间缓存的核心权衡是<b>质量损失</b>与<b>计算节省</b>的比率，而这个比率随模型和内容而变：直觉上，高频细节丰富的内容（人脸、文字）对跳步更敏感。TeaCache 本身就提供了不同阈值（论文中 0.1 与 0.2 两档）对应的&ldquo;慢/快&rdquo;两种配置<span class="cite">[<a href="#ref-teacache" title="Liu et al. (2024). Timestep Embedding Tells: It&#x27;s Time to Cache for Video Diffusion Model. arXiv:2411.19108。">9</a>]</span>，阈值需要按模型调参——这也是固定间隔策略难以通用的原因。</p>
 
 <h2 id="sec-sampler">采样器融合</h2>
 
@@ -460,17 +460,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <ul>
 <li><b>DDIM</b>：\(x_{t-1} = \sqrt{\bar\alpha_{t-1}}\cdot x_0^{\text{pred}} + \sqrt{1-\bar\alpha_{t-1}}\cdot \epsilon\)。需要先从模型输出反推 \(x_0^{\text{pred}}\)（读 \(x_t\) 和 \(\epsilon_\theta\)，做 2 次 elementwise），再计算 \(x_{t-1}\)（3 次 elementwise）。总共 5 次 elementwise——5 个独立 kernel launch。</li>
-<li><b>Euler</b>：\(x_{t-1} = x_t + (t_{i} - t_{i-1}) \cdot v_\theta\)。只需 1 次 scale + 1 次 add = 2 次 elementwise，最简单。视频 DiT 常用的 Flow Matching 也是 Euler 风格的采样器，因为线性插值更适合长视频的时间连贯性。</li>
-<li><b>DPM-Solver</b>：多步采样器，利用前几步的预测做高阶近似。虽然步数更少（如 20 步达到 DDIM 50 步的质量），但每步的 elementwise 操作更多（需要存储和读取前几步的中间值）。</li>
+<li><b>Euler</b>：\(x_{t-1} = x_t + (t_{i} - t_{i-1}) \cdot v_\theta\)。只需 1 次 scale + 1 次 add = 2 次 elementwise，最简单。用 Flow Matching / rectified flow 训练的模型常配这种 Euler 采样器。</li>
+<li><b>DPM-Solver</b>：多步采样器，利用前几步的预测做高阶近似。步数可以更少，但每步的 elementwise 操作更多（需要存储和读取前几步的中间值）。</li>
 </ul>
 
-<p>这些都是纯 elementwise 操作，可以和 DiT 最后一层的输出写回融合——DiT 输出 → unpatchify → 采样器更新 → 写回，一个 kernel 完成。以 DDIM 为例：原本需要读 \(x_0^{\text{pred}}\) + 读 \(\epsilon\) + 读 \(\bar\alpha\) 系数 → 计算 → 写 \(x_{t-1}\)（2 次读 + 1 次写）；如果和 unpatchify 融合，可以在 unpatchify 的 GEMM 输出写回时顺便做采样器更新——省一次 HBM 读。对 64K tokens、D=3072，省约 \(64K \times 3072 \times 2 \approx 400\) MB 的 HBM 流量。50 步累计省 20 GB——在 H100 上约 6 ms。</p>
+<p>这些都是纯 elementwise 操作，可以和 DiT 最后一层的输出写回融合——DiT 输出 → unpatchify → 采样器更新 → 写回，一个 kernel 完成。以 DDIM 为例：原本需要读 \(x_0^{\text{pred}}\) + 读 \(\epsilon\) + 读 \(\bar\alpha\) 系数 → 计算 → 写 \(x_{t-1}\)（2 次读 + 1 次写）；如果和 unpatchify 融合，可以在 unpatchify 的 GEMM 输出写回时顺便做采样器更新——省一次 HBM 读。但要注意采样器作用在 latent 上，而不是 DiT 的 hidden state：最后一层把每个 token 投影回 \(p^2 C\) 个 latent 值（如 patch 2&times;2、16 通道 latent 时为 64 个）。对 64K tokens，FP16 的一次读约 \(64\text{K} \times 64 \times 2 \approx 8\) MB，50 步累计约 0.4 GB——按 H100 的 3.35 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span> 约 0.1 ms。所以采样器融合省的主要是 kernel launch，而不是带宽。</p>
 
-<p>值得注意的是，采样器融合的收益与 diffusion 模型的维度 D 成正比——D 越大，每次省下的 HBM 流量越多。当前主流视频 DiT 的 D 已从早期的 1024 增长到 3072 甚至 4096，因此融合的绝对收益在持续增大。但融合也引入了 kernel 复杂度：不同采样器的公式差异大，每换一种采样器就要重写融合 kernel。一种折中是只融合最后一步的 scale-add（所有采样器都有），而把前面的 \(x_0\) 反推留作独立 kernel。</p>
+<p>因为收益主要是 launch 次数，这类融合在每步其余计算很少时（例如步间缓存命中的步）相对更显著。但融合也引入了 kernel 复杂度：不同采样器的公式差异大，每换一种采样器就要重写融合 kernel。一种折中是只融合最后一步的 scale-add（所有采样器都有），而把前面的 \(x_0\) 反推留作独立 kernel。</p>
 
 <h2 id="sec-sp">序列并行</h2>
 
-<p>当序列太长单卡放不下（64K+ tokens 的 Q/K/V 本身就需要数 GB）或想加速时，可以把序列切到多张卡上（<a href="#fig-sequence_parallel">图 5</a>）：</p>
+<p>当序列太长单卡放不下或想加速时，可以把序列切到多张卡上（<a href="#fig-sequence_parallel">图 5</a>）：</p>
 
 <figure id="fig-sequence_parallel" data-kind="diagram">
 <img aria-labelledby="fig-sequence_parallel-cap" src="figs/sequence_parallel.svg" alt="序列并行"/>
@@ -478,24 +478,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 </figure>
 
 <ul>
-<li><b>Ulysses</b>（DeepSpeed-Ulysses）：把 Q/K/V 沿序列维度切分到 P 张卡——每张卡持有 L/P 个 token 的 Q/K/V。attention 前做 all-to-all 通信：重排使得每张卡拿到完整序列（L 个 token）的 H/P 个 head。每张卡对自己的 head 做完整 FlashAttention（序列长度 L），然后再 all-to-all 把结果重排回来。通信量：2 次 all-to-all，每次交换 \(N \times L \times d \times 2\) 字节——P=4 时每张卡发送 \(3/4 \times N \times L \times d \times 2\) 字节。优点：每张卡的 FlashAttention 是标准的、不需要修改 kernel。缺点：all-to-all 通信延迟较高（需要全部 P 张卡同步）。</li>
-<li><b>Ring Attention</b>：把 KV 沿序列维度切分，Q 不动——每张卡持有完整的 Q（L/P 个 token）和本地的 KV 块。KV 块在卡间&ldquo;转圈&rdquo;传递：每张卡用当前收到的 KV 块做一轮 FlashAttention tile 计算（更新 row_max 和 row_sum），同时把当前 KV 块传给下一张卡。P-1 轮后，每张卡看到了完整的 KV。通信量：每轮发送 \(2 \times L/P \times d \times 2\) 字节的 KV 块。优点：通信和计算完全重叠（双缓冲），延迟隐藏效果好。缺点：需要修改 FlashAttention kernel 以支持增量 softmax 更新。</li>
+<li><b>Ulysses</b>（DeepSpeed-Ulysses）：把 Q/K/V 沿序列维度切分到 P 张卡——每张卡持有 L/P 个 token 的 Q/K/V。attention 前做 all-to-all 通信：重排使得每张卡拿到完整序列（L 个 token）的 H/P 个 head。每张卡对自己的 head 做完整 FlashAttention（序列长度 L），然后再 all-to-all 把结果重排回来，因此 head 数必须能被 P 整除。通信量：attention 前对 Q、K、V 各做一次 all-to-all，之后对输出 O 做一次；每次每张卡发出本地 \((L/P) \times H \times d\) 个元素中的 \((P-1)/P\)。DeepSpeed-Ulysses 论文据此指出：序列长度和卡数按比例增长时，每张卡的通信量保持不变<span class="cite">[<a href="#ref-ulysses" title="Jacobs et al. (2023). DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509。">11</a>]</span>。优点：每张卡的 FlashAttention 是标准的、不需要修改 kernel。缺点：all-to-all 通信延迟较高（需要全部 P 张卡同步）。</li>
+<li><b>Ring Attention</b>：把 KV 沿序列维度切分，Q 不动——每张卡持有本地的 Q 块（L/P 个 token）和本地的 KV 块。KV 块在卡间&ldquo;转圈&rdquo;传递：每张卡用当前收到的 KV 块做一轮 FlashAttention tile 计算（更新 row_max 和 row_sum），同时把当前 KV 块传给下一张卡。P-1 轮后，每张卡看到了完整的 KV。通信量：每轮发送 K、V 各一块，共 \(2 \times (L/P) \times H \times d \times 2\) 字节（FP16）。优点：只要每轮的块计算时间不短于 KV 块的传输时间，通信就能被计算完全隐藏（双缓冲）<span class="cite">[<a href="#ref-ring" title="Liu, Zaharia, Abbeel (2023). Ring Attention with Blockwise Transformers for Near-Infinite Context. arXiv:2310.01889。">12</a>]</span>。缺点：kernel 需要输出每行的 log-sum-exp（或 row_max/row_sum），以便跨轮做增量 softmax 合并。</li>
 </ul>
 
-<p>对于视频 DiT，序列并行的选择取决于 GPU 间的互联拓扑。NVLink 连接的 8 卡节点内，Ulysses 的 all-to-all 延迟可控（NVLink 4 的 900 GB/s 双向带宽下，16K tokens 的 Q/K/V 约 100 MB，传输仅 ~0.1 ms）。跨节点（InfiniBand 400 Gb/s）时，Ring Attention 的通信-计算重叠更关键——否则 all-to-all 的延迟会成为瓶颈。实践中也可以两者混合：节点内 Ulysses、节点间 Ring。</p>
+<p>对于视频 DiT，序列并行的选择取决于 GPU 间的互联拓扑。NVLink 连接的 8 卡节点内（H100 的 NVLink 4 为每卡 900 GB/s 双向<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span>），Ulysses 的 all-to-all 开销相对可控。跨节点（InfiniBand 400 Gb/s）时，Ring Attention 的通信-计算重叠更关键——否则 all-to-all 的延迟会成为瓶颈。实践中也可以两者混合：节点内 Ulysses、节点间 Ring。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
 <table>
 <thead><tr><th>特性</th><th>Ampere (A100)</th><th>Hopper (H100)</th><th>Blackwell (B200)</th></tr></thead>
 <tbody>
-<tr><td>稀疏 attention</td><td>FlashAttention-2 + block mask</td><td>FA3 + block mask + TMA 跳过<span class="cite">[<a href="#ref-pg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.30 Warpgroup MMA。">4</a>]</span></td><td>FA4 + block mask + TMEM</td></tr>
-<tr><td>INT8 attention</td><td>__dp4a（CUDA core，慢）</td><td>INT8 Tensor Core（WGMMA）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7.17（MMA / tcgen05）。">5</a>]</span></td><td>INT8 tcgen05（更高吞吐）</td></tr>
-<tr><td>FP8 attention</td><td>不支持</td><td>FP8 WGMMA（e4m3/e5m2）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、FP8 Tensor Core 等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>FP8 + FP4 tcgen05</td></tr>
-<tr><td>HBM 带宽<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、FP8 Tensor Core 等规格。各项均标有 NVIDIA 官方出处。">6</a>]</span></td><td>2.0 TB/s</td><td>3.35 TB/s</td><td>8.0 TB/s</td></tr>
+<tr><td>稀疏 attention</td><td>FA2 式 kernel + block mask</td><td>WGMMA/TMA kernel（如 FA3）+ block mask</td><td>tcgen05/TMEM kernel + block mask</td></tr>
+<tr><td>INT8 attention</td><td>__dp4a（CUDA core，慢）</td><td>INT8 Tensor Core（WGMMA）<span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4. §9.7（dp4a、mma、wgmma、tcgen05 等指令）。">8</a>]</span></td><td>INT8 tcgen05（更高吞吐）</td></tr>
+<tr><td>FP8 attention</td><td>不支持</td><td>FP8 WGMMA（e4m3/e5m2）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span></td><td>FP8 + FP4 tcgen05</td></tr>
+<tr><td>HBM 带宽<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span></td><td>2.0 TB/s</td><td>3.35 TB/s</td><td>8.0 TB/s</td></tr>
 <tr><td>VAE tiling I/O</td><td>基线</td><td>~1.7&times;（带宽比）</td><td>~4&times;（带宽比）</td></tr>
 <tr><td>序列并行通信</td><td>PCIe/NVLink 3</td><td>NVLink 4（900 GB/s 双向）</td><td>NVLink 5（1.8 TB/s 双向）</td></tr>
-<tr><td>FP16 Tensor Core</td><td>312 TFLOP/s</td><td>989 TFLOP/s</td><td>~2500 TFLOP/s</td></tr>
+<tr><td>FP16 Tensor Core（稠密）<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。">2</a>]</span></td><td>312 TFLOP/s</td><td>989 TFLOP/s</td><td>2250 TFLOP/s（HGX B200）</td></tr>
 </tbody>
 </table>
 
@@ -503,24 +503,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <dl>
 <dt id="sec-q1">Q1：视频生成怎么降低 attention 成本？</dt>
-<dd>三条路互补：(1) 稀疏化——用 3D tile 结构让每个 token 只看邻居 tile，计算量从 \(O(N^2)\) 降到 \(O(N \cdot k)\)（k 是邻居数），典型 k=9-27（3D 邻域），节省 90%+ 计算。(2) 量化——QK&#x1D40; 用 INT8、PV 用 FP8，Tensor Core 吞吐翻倍，每个 tile 的计算加速约 1.7-2&times;。(3) 步间缓存——跳过特征变化不大的去噪步，复用上一步结果，最多省 50-70% 的步数。三者组合可以把 64K tokens 的视频 DiT 推理延迟从 75 秒降到 10 秒以内。<br>
-<b>追问</b>：稀疏 attention 会不会损失生成质量？答：对视频这种有强时空局部性的数据，稀疏 attention 的质量损失很小（FID 增加通常 &lt; 5%）。但全局一致性（如首尾帧的色调统一、镜头切换）可能受影响，通常用少量全局 token（占 1-5%）或&ldquo;前后几层 full attention + 中间层 sparse&rdquo;的混合策略补偿。</dd>
+<dd>三条路互补：(1) 稀疏化——用 3D tile 结构让每个 token 只看邻居 tile，计算量从 \(O(N^2)\) 降到 \(O(N \cdot k)\)（k 是邻居 token 数）。例如 16K tokens 按 64 个一组分成 256 个 tile，若每个 tile 只看 3&times;3&times;3 = 27 个邻居 tile，计算量约为 full 的 27/256 &asymp; 11%。(2) 量化——QK&#x1D40; 用 INT8，PV 用 FP16（SageAttention）或 FP8（SageAttention2），论文报告 RTX4090 上 kernel OPS 分别约为 FlashAttention2 的 2.1&times; 和 3&times;<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span><span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span>。(3) 步间缓存——跳过输入变化小的去噪步，TeaCache 报告在 Open-Sora-Plan 上最高 4.41&times;<span class="cite">[<a href="#ref-teacache" title="Liu et al. (2024). Timestep Embedding Tells: It&#x27;s Time to Cache for Video Diffusion Model. arXiv:2411.19108。">9</a>]</span>。三者作用在不同层面、可以叠加，但组合后的收益和质量要逐模型实测。<br>
+<b>追问</b>：稀疏 attention 会不会损失生成质量？答：会有影响，程度取决于模型和稀疏模式，需要实测。直觉上局部细节受影响较小，而全局一致性（如首尾帧的色调统一、镜头切换）更容易受损，可以用少量全局 token 或&ldquo;前后几层 full attention + 中间层 sparse&rdquo;的混合策略补偿。</dd>
 
 <dt id="sec-q2">Q2：块稀疏 attention 如何保持 kernel 高效？</dt>
-<dd>关键是粒度对齐：稀疏 mask 的块大小 = FlashAttention 的 tile size（64 或 128）。这样 <code>continue</code> 跳过的是整个 tile——没有 tile 内部的条件分支，不影响 Tensor Core 利用率。被跳过的 tile 省掉了三笔开销：(1) K/V 的 HBM &rarr; SRAM 加载（256&times;128&times;2 = 64 KB），(2) 两次 GEMM（S=QK&#x1D40; 和 O=PV），(3) softmax 更新。如果稀疏模式更细，要么 pad 到 tile 边界，要么在 tile 内用 mask 乘零（浪费计算但避免分支）。<br>
+<dd>关键是粒度对齐：稀疏 mask 的块大小 = FlashAttention 的 tile size（64 或 128）。这样 <code>continue</code> 跳过的是整个 tile——没有 tile 内部的条件分支，不影响 Tensor Core 利用率。被跳过的 tile 省掉了三笔开销：(1) K/V 的 HBM &rarr; SRAM 加载（tile=128、d=128、FP16 时 K、V 各 128&times;128&times;2 B，共 64 KB），(2) 两次 GEMM（S=QK&#x1D40; 和 O=PV），(3) softmax 更新。如果稀疏模式更细，要么 pad 到 tile 边界，要么在 tile 内用 mask 乘零（浪费计算但避免分支）。<br>
 <b>追问</b>：block_mask 放在哪？答：通常在 global memory，因为很小（num_q_blk &times; num_kv_blk &times; 4 bytes，16K tokens、tile=64 时只有 256&times;256&times;4 = 256 KB）。这远小于 H100 的 50 MB L2 cache，所以实际读取基本命中 L2，不产生 HBM 流量。也可以用 bitmap（每个 entry 1 bit），进一步压缩到 8 KB。</dd>
 
 <dt id="sec-q3">Q3：量化 attention 的精度怎么保持？</dt>
-<dd>三个要点：(1) softmax 始终 FP32——不量化 softmax 过程，因为 exp 函数对输入误差极度敏感（INT8 的 &#xb1;0.5 量化误差经过 exp 后变成 1.6&times; 的乘法误差）；(2) K 做 per-channel smooth——对 K 矩阵的每个维度除以该维度的标准差，把 outlier 压缩到正常范围，使 INT8 量化更均匀。这个 smooth 操作是离线完成的（或每次 attention 前做一次 warp reduce），不影响推理性能；(3) 量化粒度是 per-row（或 per-block）而非 per-tensor——每行有自己的 scale factor，动态范围匹配更好。per-row 的额外开销是每行存一个 FP32 scale（L 个 float = L&times;4 字节），相比 Q/K 矩阵本身（L&times;d&times;2 字节）微乎其微。SageAttention 在 Flux、SD3、Open-Sora 等多种模型上实测精度损失可控<span class="cite">[<a href="#ref-sage" title="Guo et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">3</a>]</span>。<br>
-<b>追问</b>：为什么 QK&#x1D40; 用 INT8 而 PV 用 FP8？答：QK&#x1D40; 的元素是&ldquo;相似度分数&rdquo;，范围和分布取决于 Q、K 的值——可能有正有负、范围跨数个量级。INT8 提供 [-127, 127] 的整数级量化，配合 per-row scale 可以精确覆盖。P 矩阵是 softmax 输出，值在 [0,1] 且绝大多数接近 0——FP8 e4m3 的非均匀量化（接近 0 时精度高）恰好匹配这个分布。V 矩阵的值范围类似 Q/K，但 PV 乘法的误差被 P 的稀疏性（大部分接近 0）天然抑制了。</dd>
+<dd>三个要点：(1) softmax 始终 FP32——只量化两次矩阵乘的输入，不量化 softmax 本身；(2) K 做平滑——减去 K 沿 token 维的均值。对同一个 query，\(q \cdot \text{mean}(K)\) 是所有 key 共享的常数，softmax 不变，但 K 中按 channel 分布的异常值被去掉，INT8 量化误差大幅下降；这一步在线完成，论文报告开销低于 0.2%<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。SageAttention2 进一步对 Q 按块减均值，并把被减掉的项作为偏置加回 S<span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span>；(3) 量化粒度是 per-block / per-token（SageAttention2 用 per-thread）而非 per-tensor——每组有自己的 scale factor，动态范围匹配更好。per-row 的额外开销是每行存一个 FP32 scale（L 个 float = L&times;4 字节），相比 Q/K 矩阵本身（L&times;d&times;2 字节）微乎其微。SageAttention 论文在 Llama2、CogVideoX、Unidiffuser、UltraPixel、TIMM、Llava1.6 上评测，报告端到端指标与全精度 attention 基本一致<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。<br>
+<b>追问</b>：为什么 QK&#x1D40; 用 INT8，而 PV 不用 INT8？答：SageAttention 论文做过比较：对 Q、K，INT8 比 FP8 更准，且在 RTX4090/3090 上 INT8 mma 更快；而把 P、V 量化到 INT8 在部分层精度很差，所以 v1 保留 FP16 的 PV，用 FP16 累加器换速度<span class="cite">[<a href="#ref-sage" title="Zhang et al. (2024). SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration. arXiv:2410.02367。">6</a>]</span>。SageAttention2 改用 FP8 E4M3 计算 PV：P 在 [0,1] 内，用固定 scale 1/448 映射到 E4M3 范围，V 按 channel 量化，并用两级累加弥补 FP8 mma 累加器只有 22 bit 的问题<span class="cite">[<a href="#ref-sage2" title="Zhang et al. (2024). SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization. arXiv:2411.10958。">7</a>]</span>。</dd>
 
 <dt id="sec-q4">Q4：VAE tiling 的重叠混合为什么需要？</dt>
-<dd>不重叠直接拼接 → 因果卷积在 tile 边界看不到前一个 tile 的帧，输出有明显的不连续伪影（闪烁、颜色跳变）。这是因为 3D 因果卷积的感受野通常是 3-5 帧——边界帧缺少&ldquo;前文&rdquo;，特征计算不完整。重叠让相邻 tile 共享一些帧，混合区用线性权重过渡——左 tile 的权重从 1 衰减到 0，右 tile 从 0 到 1。重叠帧数通常取卷积核的时间感受野大小（如 4-8 帧），确保边界帧有完整的上下文。代价是重叠区的帧被解码两次（两个 tile 各算一次），额外计算量约 overlap/tile_size = 4/16 = 25%。<br>
-<b>追问</b>：能不能用别的方式代替线性混合？答：可以用 cosine blending（\(w(t) = 0.5 + 0.5\cos(\pi t / \text{overlap})\)），过渡更平滑。也有论文用 learned blending weights（可训练的权重），但效果提升有限，不值得额外的复杂度。</dd>
+<dd>不重叠直接拼接 → 因果卷积在 tile 边界看不到前一个 tile 的帧，输出有明显的不连续伪影（闪烁、颜色跳变）。这是因为因果卷积需要前文：单层 k_t=3 就要前 2 帧，多层叠加后更多——边界帧缺少&ldquo;前文&rdquo;，特征计算不完整。重叠让相邻 tile 共享一些帧，混合区用线性权重过渡——左 tile 的权重从 1 衰减到 0，右 tile 从 0 到 1。重叠帧数应不小于有效时间感受野（按正文的算法，4 层 k_t=3 需要 8 帧），确保边界帧有完整的上下文。代价是重叠区的帧被解码两次（两个 tile 各算一次），额外计算量约 overlap/tile_size = 4/16 = 25%。<br>
+<b>追问</b>：能不能用别的方式代替线性混合？答：可以用 cosine blending（\(w(t) = 0.5 + 0.5\cos(\pi t / \text{overlap})\)），过渡更平滑。</dd>
 
 <dt id="sec-q5">Q5：Ulysses 和 Ring Attention 怎么选？</dt>
-<dd>取决于互联带宽和是否能修改 FlashAttention kernel。Ulysses 用标准 FlashAttention（不需要改 kernel），但需要 2 次 all-to-all 通信——在 NVLink 连接的节点内延迟可控。Ring Attention 需要修改 FlashAttention 支持增量 softmax 更新，但通信和计算可以完全重叠（双缓冲），适合跨节点的长序列场景。实践中混合使用：节点内 Ulysses（利用 NVLink 的高带宽 all-to-all），节点间 Ring（利用通信-计算重叠隐藏 IB 延迟）。<br>
-<b>追问</b>：两者的通信量哪个大？答：对 P 张卡、序列长度 L、head 维度 d、H 个 head：Ulysses 每张卡发送 \(2 \times (P-1)/P \times L \times H \times d \times 2\) 字节（两次 all-to-all）；Ring 每张卡发送 \(2 \times (P-1) \times L/P \times H \times d \times 2\) 字节（P-1 轮 send/recv）。两者总通信量相同，但 Ring 把通信分散到 P-1 轮、可以和计算重叠，而 Ulysses 的 all-to-all 需要集中传输。</dd>
+<dd>取决于互联带宽和是否能修改 FlashAttention kernel。Ulysses 用标准 FlashAttention（不需要改 kernel），但需要 2 次 all-to-all 通信——在 NVLink 连接的节点内延迟可控。Ring Attention 需要修改 FlashAttention 支持增量 softmax 更新，但通信可以和计算重叠（双缓冲），适合跨节点的长序列场景。实践中混合使用：节点内 Ulysses（利用 NVLink 的高带宽 all-to-all），节点间 Ring（利用通信-计算重叠隐藏 IB 延迟）。<br>
+<b>追问</b>：两者的通信量哪个大？答：对 P 张卡、序列长度 L、H 个 head、head 维度 d、FP16：Ulysses 每张卡对 Q、K、V、O 共做 4 次 all-to-all，每次发出本地 \((L/P) H d\) 个元素中的 \((P-1)/P\)，合计 \(4 \cdot \frac{P-1}{P} \cdot \frac{L}{P} H d \cdot 2\) 字节；Ring 每张卡在 P&minus;1 轮里各发一块 K 和 V，合计 \(2(P-1) \cdot \frac{L}{P} H d \cdot 2\) 字节。两者之比 Ring : Ulysses = P/2——P=8 时 Ring 每卡多发 4 倍数据，而 Ulysses 的每卡通信量随 P 增大而下降<span class="cite">[<a href="#ref-ulysses" title="Jacobs et al. (2023). DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509。">11</a>]</span>。Ring 的优势不在通信量，而在于点对点传输能和块计算重叠，且不受 head 数限制。</dd>
 </dl>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
@@ -530,7 +530,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <li>INT8 attention 的 quantize_row_int8 实现是串行版——实际应在 shared memory 中 tile 化，用 warp reduce 找 amax，然后每个线程量化自己的元素。</li>
 <li>未展示 FP8 PV GEMM 的具体实现——需要 Hopper 的 WGMMA FP8 指令或 Blackwell 的 tcgen05 FP8 指令，api 和 FP16 WGMMA 差异较大。</li>
 <li>稀疏 attention 的块稀疏 kernel 省略了 tile 加载和 online softmax 细节——参考 <a href="../at34-flashattention-bwd/at34-flashattention-bwd.html">FlashAttention 篇</a>的在线 softmax 实现。</li>
-<li>未覆盖 DiT 蒸馏（如 consistency distillation、rectified flow distillation）——这些方法从算法层面减少去噪步数（如从 50 步降到 1-4 步），效果远超 kernel 优化，但改变了训练 pipeline。</li>
+<li>未覆盖 DiT 蒸馏（如 consistency distillation、rectified flow distillation）——这些方法从算法层面减少去噪步数（如从几十步降到几步），但需要改变训练 pipeline。</li>
 <li>序列并行的通信 kernel 细节（ring send/recv 与 NCCL 的 overlap 实现）未展开——这涉及 CUDA stream 管理和 NCCL group call 的 non-blocking 模式。</li>
 <li>S 矩阵大小的计算基于&ldquo;不用 FlashAttention、完整实例化 S 矩阵&rdquo;的假设——FlashAttention 不存 S，但计算量 \(O(N^2 d)\) 不变。</li>
 <li>未讨论视频 DiT 的 Tensor Parallel（TP）——对于宽模型（D=3072+），TP 可以把权重和激活分到多张卡上，减少单卡显存压力。TP 和序列并行可以组合（SP 切序列，TP 切 hidden dimension）。</li>
@@ -538,7 +538,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>视频 diffusion 的核心挑战是 3D full attention 的平方成本——64K tokens 时单步 attention 就需要 1478 TFLOP（28 层 &times; 24 head）。本篇覆盖了五种互补的加速技术：块稀疏 attention 利用时空局部性跳过整个 KV tile（省 90%+ 计算），量化 attention 用 INT8/FP8 Tensor Core 加速剩余 tile（加速 1.7-2&times;），VAE tiling 解决解码的显存瓶颈（峰值从 34 GB 降到 8.5 GB），步间缓存跳过特征变化小的去噪步（省 50-70% 步数），序列并行把超长序列分到多卡（线性扩展到数十万 token）。这些技术可以叠加——一套完整的视频 DiT 推理 pipeline 可能同时使用稀疏 + 量化 + 步间缓存 + 序列并行，将推理延迟从分钟级降到秒级。下一篇将进入 3D 领域：3D Gaussian Splatting 的 tile-based 光栅化前向。</p>
+<p>视频 diffusion 的核心挑战是 3D full attention 的平方成本——在 28 层 &times; 24 head 的假设配置下，64K tokens 时单步 attention 就需要约 1478 TFLOP。本篇覆盖了五种互补的加速技术：块稀疏 attention 利用时空局部性跳过整个 KV tile（27/256 邻居时只剩约 11% 的计算），量化 attention 用 INT8/FP8 Tensor Core 做两次矩阵乘（SageAttention / SageAttention2 报告 RTX4090 上 kernel OPS 约为 FlashAttention2 的 2.1&times; / 3&times;），VAE tiling 解决解码的显存瓶颈（假设配置下峰值从 34 GB 降到约 8.6 GB），步间缓存跳过输入变化小的去噪步，序列并行把超长序列分到多卡。这些技术可以叠加，但叠加后的实际收益和画质需要逐模型测量。下一篇将进入 3D 领域：3D Gaussian Splatting 的 tile-based 光栅化前向。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -552,18 +552,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
+  <li id="ref-cogvideox">Yang et al. (2024). <a href="https://arxiv.org/abs/2408.06072">CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer</a>. arXiv:2408.06072。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、Tensor Core 峰值、NVLink 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-fa1">Dao et al. (2022). <a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a>. arXiv:2205.14135。</li>
   <li id="ref-opensora">Open-Sora Team (2024). <a href="https://github.com/hpcaitech/Open-Sora">Open-Sora: Democratizing Efficient Video Production for All</a>. GitHub。</li>
   <li id="ref-fa2">Dao (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691。</li>
-  <li id="ref-sage">Guo et al. (2024). <a href="https://arxiv.org/abs/2410.02367">SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration</a>. arXiv:2410.02367。</li>
-  <li id="ref-pg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.30 Warpgroup MMA。</li>
-  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7.17（MMA / tcgen05）。</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100/H100/B200 HBM 带宽、FP8 Tensor Core 等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-sage">Zhang et al. (2024). <a href="https://arxiv.org/abs/2410.02367">SageAttention: Accurate 8-Bit Attention for Plug-and-play Inference Acceleration</a>. arXiv:2410.02367。</li>
+  <li id="ref-sage2">Zhang et al. (2024). <a href="https://arxiv.org/abs/2411.10958">SageAttention2: Efficient Attention with Thorough Outlier Smoothing and Per-thread INT4 Quantization</a>. arXiv:2411.10958。</li>
+  <li id="ref-ptx">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/index.html">Parallel Thread Execution ISA, Version 9.4</a>. §9.7（dp4a、mma、wgmma、tcgen05 等指令）。</li>
+  <li id="ref-teacache">Liu et al. (2024). <a href="https://arxiv.org/abs/2411.19108">Timestep Embedding Tells: It's Time to Cache for Video Diffusion Model</a>. arXiv:2411.19108。</li>
+  <li id="ref-deepcache">Ma, Fang, Wang (2023). <a href="https://arxiv.org/abs/2312.00858">DeepCache: Accelerating Diffusion Models for Free</a>. arXiv:2312.00858。</li>
+  <li id="ref-ulysses">Jacobs et al. (2023). <a href="https://arxiv.org/abs/2309.14509">DeepSpeed Ulysses: System Optimizations for Enabling Training of Extreme Long Sequence Transformer Models</a>. arXiv:2309.14509。</li>
+  <li id="ref-ring">Liu, Zaharia, Abbeel (2023). <a href="https://arxiv.org/abs/2310.01889">Ring Attention with Blockwise Transformers for Near-Infinite Context</a>. arXiv:2310.01889。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 40 篇。文中代码完整版在系列目录的 <code>code/df40-video-diffusion-accel/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–3 为手绘示意图；S 矩阵大小为说明性计算，FlashAttention 实际不存 S。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 40 篇。文中代码完整版在系列目录的 <code>code/df40-video-diffusion-accel/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。所有图均为手绘示意图；S 矩阵大小为说明性计算，FlashAttention 实际不存 S。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

@@ -6,16 +6,16 @@
     .box     { rx: 5; ry: 5; stroke-width: 1.2; }
   </style>
 
-  <text x="360" y="20" text-anchor="middle" class="d-label">FP8 两级累加：局部 + 全局 FP32 累加器</text>
+  <text x="360" y="20" text-anchor="middle" class="d-label">FP8 两级累加：Tensor Core 部分和 + CUDA core FP32 累加</text>
 
   <!-- K axis -->
-  <text x="360" y="46" text-anchor="middle" class="d-note">K 维度 tile 序列（BK=64, K=8192, 共 128 个 tile）</text>
+  <text x="360" y="46" text-anchor="middle" class="d-note">K 维度按 N_C = 128 个元素分段（= 4 条 k32 的 FP8 WGMMA），K=4096 时共 32 段</text>
 
   <!-- Tile blocks row -->
   <g transform="translate(30, 58)">
     <!-- Group 1: tiles 0-4, local acc -->
     <rect x="0" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
-    <text x="60" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 0–4 → local_acc</text>
+    <text x="60" y="20" text-anchor="middle" class="d-code" style="font-size:10px">k 0–127 → part</text>
 
     <!-- Promote arrow -->
     <line x1="120" y1="16" x2="136" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
@@ -23,14 +23,14 @@
 
     <!-- Group 2 -->
     <rect x="138" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
-    <text x="198" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 5–9 → local_acc</text>
+    <text x="198" y="20" text-anchor="middle" class="d-code" style="font-size:10px">k 128–255 → part</text>
 
     <line x1="258" y1="16" x2="274" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
     <text x="266" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
 
     <!-- Group 3 -->
     <rect x="276" y="0" width="120" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
-    <text x="336" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 10–14 → local</text>
+    <text x="336" y="20" text-anchor="middle" class="d-code" style="font-size:10px">k 256–383 → part</text>
 
     <line x1="396" y1="16" x2="412" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
     <text x="404" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
@@ -40,52 +40,52 @@
 
     <!-- Group N -->
     <rect x="454" y="0" width="140" height="32" rx="3" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
-    <text x="524" y="20" text-anchor="middle" class="d-code" style="font-size:10px">tile 125–127 → local</text>
+    <text x="524" y="20" text-anchor="middle" class="d-code" style="font-size:10px">k 3968–4095 → part</text>
 
     <line x1="594" y1="16" x2="610" y2="16" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
     <text x="602" y="8" text-anchor="middle" class="d-note" style="fill:#dc2626;font-size:9px">P</text>
 
     <!-- P = promote (local → global) -->
-    <text x="660" y="20" text-anchor="middle" class="d-note" style="fill:#dc2626">P = promote</text>
+    <text x="650" y="20" text-anchor="middle" class="d-note" style="fill:#dc2626">P = promote</text>
   </g>
 
   <!-- Two-level detail box -->
   <rect x="30" y="108" width="310" height="210" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1"/>
-  <text x="185" y="128" text-anchor="middle" class="d-label" style="fill:#2563eb">局部累加器 (local_acc)</text>
+  <text x="185" y="128" text-anchor="middle" class="d-label" style="fill:#2563eb">Tensor Core 部分和 (part)</text>
 
-  <text x="45" y="150" class="d-note">每 WGMMA 输出：FP8×FP8 → FP32</text>
-  <text x="45" y="168" class="d-note">连续累加 PROMOTION_INTERVAL=5 次</text>
-  <text x="45" y="186" class="d-note">最大值 ≈ 5 × 64 × 448² ≈ 6.4×10⁷</text>
-  <text x="45" y="204" class="d-note">FP32 精确表示范围内 ✓</text>
+  <text x="45" y="150" class="d-note">FP8×FP8 的 WGMMA，dtype 写 .f32</text>
+  <text x="45" y="168" class="d-note">但内部累加精度低于 FP32（PTX 注记）</text>
+  <text x="45" y="186" class="d-note">DeepSeek-V3 在 H800 上测得约保留 14 位</text>
+  <text x="45" y="204" class="d-note">所以只连续累加 N_C = 128 个元素</text>
 
   <rect x="50" y="215" width="270" height="36" rx="4" fill="#dbeafe" stroke="#93c5fd"/>
-  <text x="185" y="230" text-anchor="middle" class="d-code">for k in 0..4:</text>
-  <text x="185" y="245" text-anchor="middle" class="d-code">  local_acc += wgmma(A[k], B[k])</text>
+  <text x="185" y="230" text-anchor="middle" class="d-code">for i in 0..3:  // 4 × k32</text>
+  <text x="185" y="245" text-anchor="middle" class="d-code">  part += wgmma(A[i], B[i])</text>
 
   <rect x="50" y="260" width="270" height="24" rx="4" fill="#fef2f2" stroke="#fca5a5"/>
-  <text x="185" y="276" text-anchor="middle" class="d-code" style="fill:#dc2626">global_acc += local_acc; local=0</text>
+  <text x="185" y="276" text-anchor="middle" class="d-code" style="fill:#dc2626">acc += part × sA × sB; part = 0</text>
 
   <!-- Global accumulator box -->
   <rect x="380" y="108" width="310" height="210" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1"/>
-  <text x="535" y="128" text-anchor="middle" class="d-label" style="fill:#16a34a">全局累加器 (global_acc)</text>
+  <text x="535" y="128" text-anchor="middle" class="d-label" style="fill:#16a34a">CUDA core FP32 累加器 (acc)</text>
 
-  <text x="395" y="150" class="d-note">每次 promote 收到一个精确的 FP32 值</text>
-  <text x="395" y="168" class="d-note">总共 promote ⌈128/5⌉ = 26 次</text>
-  <text x="395" y="186" class="d-note">每次加法：大数 + 小数，FP32 精度足够</text>
-  <text x="395" y="204" class="d-note">最终结果精度 ≈ 直接 FP32 累加</text>
+  <text x="395" y="150" class="d-note">每段结束：部分和拷到 FP32 寄存器</text>
+  <text x="395" y="168" class="d-note">K=4096：32 次 promote</text>
+  <text x="395" y="186" class="d-note">同时乘上该段 K 方向的 scale（反量化）</text>
+  <text x="395" y="204" class="d-note">累加本身是完整的 FP32</text>
 
   <rect x="400" y="218" width="270" height="48" rx="4" fill="#bbf7d0" stroke="#86efac"/>
-  <text x="535" y="234" text-anchor="middle" class="d-code">if (k % 5 == 4):</text>
-  <text x="535" y="248" text-anchor="middle" class="d-code">  global_acc += local_acc</text>
-  <text x="535" y="262" text-anchor="middle" class="d-code">  local_acc = 0</text>
+  <text x="535" y="234" text-anchor="middle" class="d-code">每 128 个 k（一个 scale 组）：</text>
+  <text x="535" y="248" text-anchor="middle" class="d-code">  acc += part * scale_a * scale_b</text>
+  <text x="535" y="262" text-anchor="middle" class="d-code">  part = 0</text>
 
-  <text x="535" y="290" text-anchor="middle" class="d-note">寄存器成本：2 组 FP32 acc = 2×(M_tile×N_tile) regs</text>
-  <text x="535" y="305" text-anchor="middle" class="d-note">128×256 tile → 2×256 = 512 个 FP32 寄存器</text>
+  <text x="535" y="290" text-anchor="middle" class="d-note">寄存器成本：每线程两组累加器</text>
+  <text x="535" y="305" text-anchor="middle" class="d-note">warpgroup tile 64×N → 每组 N/2 个，共 N 个</text>
 
   <!-- Arrow between boxes -->
   <line x1="340" y1="275" x2="380" y2="245" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr-r)"/>
 
-  <text x="360" y="335" text-anchor="middle" class="d-note" style="font-style:italic;fill:#aaa">data-source: illustrative (DeepGEMM strategy)</text>
+  <text x="360" y="335" text-anchor="middle" class="d-note" style="font-style:italic;fill:#aaa">data-source: DeepSeek-V3 report §3.3.2; PTX ISA wgmma note</text>
 
   <defs>
     <marker id="arr-r" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">

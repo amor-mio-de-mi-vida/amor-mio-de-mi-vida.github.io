@@ -39,30 +39,21 @@
   <text x="360" y="315" text-anchor="middle" class="d-label" style="font-size:12px">InfiniBand / RoCE (远程节点)</text>
 
   <!-- Bandwidth annotations (right side) -->
-  <text x="690" y="80" text-anchor="end" class="d-note" style="fill:#E69F00">~80 TB/s</text>
-  <text x="690" y="125" text-anchor="end" class="d-note" style="fill:#56B4E9">~30 TB/s</text>
-  <text x="690" y="170" text-anchor="end" class="d-note" style="fill:#009E73">~12 TB/s</text>
+  <text x="690" y="80" text-anchor="end" class="d-note" style="fill:#E69F00">片上</text>
+  <text x="690" y="125" text-anchor="end" class="d-note" style="fill:#56B4E9">片上</text>
+  <text x="690" y="170" text-anchor="end" class="d-note" style="fill:#009E73">片上</text>
   <text x="690" y="215" text-anchor="end" class="d-note" style="fill:#D55E00">3.35 TB/s</text>
   <text x="690" y="265" text-anchor="end" class="d-note" style="fill:#CC79A7">900 GB/s</text>
   <text x="690" y="315" text-anchor="end" class="d-note" style="fill:#0072B2">400 Gb/s</text>
 
-  <!-- Latency annotations (left side) -->
-  <text x="30" y="80" text-anchor="start" class="d-note" style="fill:#E69F00">~1 ns</text>
-  <text x="30" y="125" text-anchor="start" class="d-note" style="fill:#56B4E9">~30 ns</text>
-  <text x="30" y="170" text-anchor="start" class="d-note" style="fill:#009E73">~200 ns</text>
-  <text x="30" y="215" text-anchor="start" class="d-note" style="fill:#D55E00">~400 ns</text>
-  <text x="30" y="265" text-anchor="start" class="d-note" style="fill:#CC79A7">~1 μs</text>
-  <text x="30" y="315" text-anchor="start" class="d-note" style="fill:#0072B2">~1–5 μs</text>
-
   <!-- Axis labels -->
-  <text x="30" y="45" text-anchor="start" class="d-label" style="font-size:11px">延迟</text>
-  <text x="690" y="45" text-anchor="end" class="d-label" style="font-size:11px">带宽</text>
+    <text x="690" y="45" text-anchor="end" class="d-label" style="font-size:11px">带宽</text>
 
   <!-- Divider: intra-GPU vs inter-GPU -->
   <line x1="50" y1="235" x2="670" y2="235" stroke="var(--ink-3,#8a8a86)" stroke-width="1" stroke-dasharray="6,3"/>
   <text x="360" y="355" text-anchor="middle" class="d-note">↑ GPU 内部 ｜ GPU 之间 ↓</text>
 
   <!-- H100 SXM note -->
-  <text x="360" y="390" text-anchor="middle" class="d-note" style="font-size:10px">以 H100 SXM 为例；带宽为双向峰值；延迟为典型值</text>
-  <text x="360" y="406" text-anchor="middle" class="d-note" style="font-size:10px">InfiniBand 400 Gb/s = NDR (ConnectX-7)；NVLink 4.0 = 18 links × 50 GB/s</text>
+  <text x="360" y="390" text-anchor="middle" class="d-note" style="font-size:10px">以 H100 SXM 为例（hw-facts.md）；片上各层不标数值，仅示意相对位置</text>
+  <text x="360" y="406" text-anchor="middle" class="d-note" style="font-size:10px">NDR 单网卡 400 Gb/s = 50 GB/s 每方向；NVLink 4.0 = 18 links × 50 GB/s（双向）</text>
 </svg>

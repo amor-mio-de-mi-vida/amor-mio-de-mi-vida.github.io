@@ -66,5 +66,5 @@
   <text x="30" y="215" class="label" fill="#388E3C" font-weight="600">PagedAttention 的优势</text>
   <text x="30" y="235" class="sublabel">消除碎片：KV cache 不需要连续显存——不同请求可以共享物理 block（prefix caching、beam search）。</text>
   <text x="30" y="250" class="sublabel">动态分配：生成每个新 token 时按需分配一个 block，不用预留最大长度的连续空间。</text>
-  <text x="30" y="265" class="sublabel" fill="#D55E00">代价：kernel 中要做间接寻址（block table lookup），增加少量延迟。vLLM 的核心机制。</text>
+  <text x="30" y="265" class="sublabel" fill="#D55E00">代价：间接寻址等开销让 attention kernel 比 FasterTransformer 的慢 20–26%（vLLM 论文 &#xa7;7.1）。</text>
 </svg>

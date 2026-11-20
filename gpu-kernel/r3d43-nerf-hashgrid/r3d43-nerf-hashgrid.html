@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NeRF 加速：体渲染、多分辨率哈希编码与全融合 MLP</title>
-<meta name="description" content="从零精通 GPU Kernel 第 43 篇：NeRF 体渲染离散化、射线行进与占用网格、多分辨率哈希编码前向/反向、tiny-cuda-nn 全融合 MLP（smem 权重 + WMMA）、packed rays 变长射线打包、端到端性能分析。">
+<meta name="description" content="从零精通 GPU Kernel 第 43 篇：NeRF 体渲染离散化、射线行进与占用网格、多分辨率哈希编码前向/反向、tiny-cuda-nn 全融合 MLP（寄存器权重 + smem 激活 + WMMA）、packed rays 变长射线打包、端到端性能分析。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -216,11 +216,11 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <header class="post-header">
   <div class="kicker">从零精通 GPU Kernel · 第 43 篇</div>
   <h1>NeRF 加速<br>体渲染与哈希编码</h1>
-  <p class="subtitle">体渲染离散化与透射率前缀积、Instant-NGP 多分辨率哈希编码的前向三线性插值与反向 scatter-add、tiny-cuda-nn 全融合 MLP（权重常驻 smem + Tensor Core）、占用网格跳过空区域与 packed rays。</p>
+  <p class="subtitle">体渲染离散化与透射率前缀积、Instant-NGP 多分辨率哈希编码的前向三线性插值与反向 scatter-add、tiny-cuda-nn 全融合 MLP（权重进寄存器、激活留 smem、Tensor Core）、占用网格跳过空区域与 packed rays。</p>
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 19 分钟阅读</span>
+    <span data-reading-time>约 18 分钟阅读</span>
   </div>
 </header>
 
@@ -230,10 +230,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-<li>NeRF 用<b>体渲染</b>（volume rendering）把 3D 场景投影到 2D 图像：沿每条射线采样数百个点，对每个点查询 MLP 得到颜色和密度，然后按透射率加权求和。</li>
-<li>Instant-NGP 的核心加速是<b>多分辨率哈希编码</b>（multi-resolution hash encoding）：16 个不同分辨率的 3D 哈希表，查询时三线性插值 8 个角点，最终拼接成高维特征向量送入 MLP。</li>
-<li>哈希编码的反向传播用 <code>atomicAdd</code> 做 scatter-add——和 3DGS 的原子争用类似，但更轻（每个采样点只写 8 个角点，不像 3DGS 那样 256 个像素写同一地址）。</li>
-<li><b>全融合 MLP</b>（tiny-cuda-nn）把 2 层宽度 64 的小网络放进一个 kernel：权重常驻 shared memory，中间激活在寄存器和 smem 间流转，用 Tensor Core 做矩阵乘——不走 HBM。</li>
+<li>NeRF 用<b>体渲染</b>（volume rendering）把 3D 场景投影到 2D 图像：沿每条射线采样许多点（原始 NeRF 为 64 + 128 个），对每个点查询 MLP 得到颜色和密度，然后按透射率加权求和。</li>
+<li>Instant-NGP 的核心加速是<b>多分辨率哈希编码</b>（multi-resolution hash encoding）：多个分辨率的哈希表，每级查询时三线性插值 8 个角点，各级特征拼接后送入小 MLP。</li>
+<li>哈希编码的反向传播用 <code>atomicAdd</code> 做 scatter-add——每个采样点每级写 8 个角点；争用程度取决于空间局部性和哈希碰撞。</li>
+<li><b>全融合 MLP</b>（tiny-cuda-nn）把宽度 64 的小网络放进一个 kernel：每个 warp 把自己那一片权重载入寄存器（WMMA fragment），中间激活留在 shared memory，用 Tensor Core 做矩阵乘——层间激活不走 HBM。</li>
 <li>变长射线打包（packed rays）用 stream compaction 消除 padding，每条射线的采样数不同但内存连续。</li>
   </ul>
 </div>
@@ -244,12 +244,12 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-overview">从 NeRF 到 Instant-NGP</h2>
 
-<p>NeRF <span class="cite">[<a href="#ref-mildenhall20" title="Mildenhall, Srinivasan, Tancik, Barron, Ramamoorthi &amp; Ng (2020). NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis. ECCV 2020.">1</a>]</span>（Neural Radiance Fields）用一个 MLP 表示整个 3D 场景：输入是 3D 坐标 \((\mathbf{x})\) 和观察方向 \((\mathbf{d})\)，输出是颜色 \((c)\) 和体积密度 \((\sigma)\)。渲染一个像素需要沿该像素的射线采样 64&ndash;256 个点，对每个点调用 MLP，然后做体渲染积分。原始 NeRF 的 MLP 有 8 层、宽度 256——单张图要做数百万次 MLP 前向传播，训练单个场景需要 1&ndash;2 天。</p>
+<p>NeRF <span class="cite">[<a href="#ref-mildenhall20" title="Mildenhall, Srinivasan, Tancik, Barron, Ramamoorthi &amp; Ng (2020). NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis. ECCV 2020.">1</a>]</span>（Neural Radiance Fields）用一个 MLP 表示整个 3D 场景：输入是 3D 坐标 \((\mathbf{x})\) 和观察方向 \((\mathbf{d})\)，输出是颜色 \((c)\) 和体积密度 \((\sigma)\)。渲染一个像素需要沿该像素的射线采样 64&ndash;256 个点，对每个点调用 MLP，然后做体渲染积分。原始 NeRF 的 MLP 有 8 层、宽度 256，粗、细两阶段分别采样 64 和 128 个点；论文报告单个场景在一块 V100 上训练约 1&ndash;2 天<span class="cite">[<a href="#ref-mildenhall20" title="Mildenhall, Srinivasan, Tancik, Barron, Ramamoorthi &amp; Ng (2020). NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis. ECCV 2020.">1</a>]</span>。</p>
 
-<p>Instant-NGP <span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>（M&uuml;ller et al. 2022）把训练时间从天级压缩到 5 秒——加速 1000&times; 以上。这不是算法微调，而是用 GPU 专有的数据结构和 kernel 设计从根本上重构了计算流程。核心是三个 GPU 优化：</p>
+<p>Instant-NGP <span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>（M&uuml;ller et al. 2022）在 RTX 3090 上把训练缩短到秒级到分钟级：论文 Table 2 中，训练 15 秒的平均 PSNR（31.41）已超过原始 NeRF（31.01，训练约数小时），训练 5 分钟（33.18）与 mip-NeRF（33.09）相当；论文称组合起来获得了&ldquo;数个数量级&rdquo;的加速。核心是三个 GPU 优化：</p>
 <ol>
-<li><b>多分辨率哈希编码</b>：用可学习的哈希表替代位置编码（positional encoding），MLP 从 8 层 256 宽缩小到 2 层 64 宽——FLOP 降低约 100&times;。</li>
-<li><b>全融合 MLP</b>（tiny-cuda-nn <span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research.">3</a>]</span>）：小 MLP 完全在一个 kernel 内完成，不需要多次 kernel launch 和 HBM 往返。</li>
+<li><b>多分辨率哈希编码</b>：用可学习的哈希表替代位置编码（positional encoding），MLP 缩小到宽度 64 的小网络（NeRF 中为 1 个隐藏层的密度 MLP 加 2 个隐藏层的颜色 MLP）。按每层 \(2 \times \text{in} \times \text{out}\) 粗算，8 层 256 宽每个采样点约 \(8 \times 2 \times 256^2 \approx 1\) MFLOP；32 维编码 &rarr; 64 &rarr; 16 的密度 MLP 加 32 &rarr; 64 &rarr; 64 &rarr; 3 的颜色 MLP 约 2 万 FLOP，差约 50 倍。</li>
+<li><b>全融合 MLP</b>（tiny-cuda-nn <span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>）：小 MLP 完全在一个 kernel 内完成，不需要多次 kernel launch 和 HBM 往返。</li>
 <li><b>占用网格</b>（occupancy grid）+ <b>射线打包</b>（packed rays）：跳过空区域的采样，消除变长射线的 padding 浪费。</li>
 </ol>
 
@@ -268,9 +268,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <figcaption id="fig-ray_marching-cap"><span class="fig-label">图 1</span><b>射线行进与占用网格。</b>占用网格标记场景中哪些区域有物体，射线跳过空区域只在占用区域采样——大幅减少 MLP 评估次数。</figcaption>
 </figure>
 
-<p>这和 3DGS 的 &alpha;-blending 形式完全一致——只是 3DGS 的 &ldquo;采样点&rdquo;是排好序的 2D splat，NeRF 的采样点是射线上等间距或自适应的 3D 位置。透射率 \(T_i\) 同样单调递减，同样可以提前终止（\(T < 10^{-4}\) 时停止采样）。</p>
+<p>这和 3DGS 的 &alpha;-blending 形式完全一致——只是 3DGS 的 &ldquo;采样点&rdquo;是排好序的 2D splat，NeRF 的采样点是射线上等间距或自适应的 3D 位置。透射率 \(T_i\) 同样单调递减，同样可以提前终止（例如 nerfacc 采样器的默认阈值 <code>early_stop_eps = 1e-4</code><span class="cite">[<a href="#ref-nerfacc" title="Li et al. (2023). nerfacc: Efficient Sampling Accelerates NeRFs. arXiv:2305.04966.">4</a>]</span>）。</p>
 
-<p>离散化的关键参数是采样间距 \(\delta_i = t_{i+1} - t_i\)。均匀采样在空气区域浪费计算，分层采样（stratified sampling）在每个 bin 内随机扰动采样位置——引入随机性但减少混叠伪影。原始 NeRF 还使用了 coarse-to-fine 两阶段采样：先用 64 个粗采样点计算权重分布，然后在高权重区域追加 128 个细采样点——相当于用粗采样的结果做 importance sampling。Instant-NGP 用占用网格替代了这个两阶段方案，效果类似但实现更简单。</p>
+<p>离散化的关键参数是采样间距 \(\delta_i = t_{i+1} - t_i\)。均匀采样在空气区域浪费计算，分层采样（stratified sampling）在每个 bin 内随机扰动采样位置——引入随机性但减少混叠伪影。原始 NeRF 还使用了 coarse-to-fine 两阶段采样：先用 64 个粗采样点计算权重分布，然后在高权重区域追加 128 个细采样点——相当于用粗采样的结果做 importance sampling<span class="cite">[<a href="#ref-mildenhall20" title="Mildenhall, Srinivasan, Tancik, Barron, Ramamoorthi &amp; Ng (2020). NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis. ECCV 2020.">1</a>]</span>。Instant-NGP 改用一个与编码无关的占用网格来跳过空区域<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</p>
 
 <h3 id="sec-volrender-kernel">体渲染 Kernel</h3>
 
@@ -297,7 +297,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float r = 0.f, g = 0.f, b = 0.f;</code></pre>
 <p class="src-note">完整代码：<code>code/r3d43-nerf-hashgrid/volume_render.cu</code> 第 3&ndash;21 行（未在 GPU 上运行）</p>
 
-<p>体渲染反向和 3DGS 光栅化反向类似——需要知道每个采样点的透射率 \(T_i\)。但因为每条射线独立处理（one-thread-per-ray），有两种实现策略。第一种：前向保存 weights \(w_i = \alpha_i T_i\)，反向直接复用——简单但需要额外内存（每个采样点一个 float）。第二种：反向中重新从前向同序遍历，重算 \(\alpha_i\) 和 \(T_i\)——省内存但多一遍计算。前者在采样点数量可控时更常用，后者在显存紧张的大场景中有优势。注意这里不需要 3DGS 那样的 back-to-front 重放——因为每条射线只有一个线程处理，不存在需要恢复的共享状态。</p>
+<p>体渲染反向和 3DGS 光栅化反向类似——需要知道每个采样点的透射率 \(T_i\)。但因为每条射线独立处理（one-thread-per-ray），有两种实现策略。第一种：前向保存 weights \(w_i = \alpha_i T_i\)，反向直接复用——简单但需要额外内存（每个采样点一个 float）。第二种：反向中重新从前向同序遍历，重算 \(\alpha_i\) 和 \(T_i\)——省内存但多一遍计算。前者实现简单，后者省显存。注意这里不需要 3DGS 那样的 back-to-front 重放——因为每条射线只有一个线程处理，不存在需要恢复的共享状态。</p>
 
 <p>体渲染反向 kernel 同样是 one-thread-per-ray——每个线程从前向同序遍历自己的采样点，利用保存的 weights 计算梯度：</p>
 
@@ -323,7 +323,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   float dL_dg = dL_dcolor[3*ray + 1];</code></pre>
 <p class="src-note">完整代码：<code>code/r3d43-nerf-hashgrid/volume_render.cu</code> 第 48–67 行</p>
 
-<p>注意反向的签名中 <code>weights</code> 是 <code>const</code>——前向保存的权重在反向中只读不写。这和 3DGS 反向需要从 <code>final_T</code> 逐步恢复透射率不同：NeRF 前向已经把每个采样点的权重 \(w_i = \alpha_i T_i\) 完整保存了，反向直接用 <code>dL_drgb[s] = w * dL_dr</code> 即可。代价是额外的内存：每个采样点多存一个 float（4 B），\(2^{18}\) 个采样点约 1 MB。这是典型的时间-空间权衡——3DGS 选择省内存（只存 final_T）但反向更复杂，NeRF 选择多存一点但反向简单高效。</p>
+<p>注意反向的签名中 <code>weights</code> 是 <code>const</code>——前向保存的权重在反向中只读不写。这和 3DGS 反向需要从 <code>final_T</code> 逐步恢复透射率不同：NeRF 前向已经把每个采样点的权重 \(w_i = \alpha_i T_i\) 完整保存了，反向直接用 <code>dL_drgb[s] = w * dL_dr</code> 即可。代价是额外的内存：每个采样点多存一个 float（4 B），\(2^{18}\) 个采样点（Instant-NGP 的训练 batch 大小<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>）约 1 MB。这是典型的时间-空间权衡——3DGS 选择省内存（只存 final_T）但反向更复杂，NeRF 选择多存一点但反向简单高效。</p>
 
 <p>体渲染反向也不存在原子争用问题——每个采样点只属于一条射线，梯度只被一个线程写入。这和 3DGS 截然不同：3DGS 的一个 Gaussian 被多个像素共享，而 NeRF 的每个采样点是射线私有的。NeRF 的原子争用出现在哈希编码反向（见下文），不在体渲染本身。</p>
 
@@ -337,10 +337,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 </figure>
 
 <ul>
-<li>级别 \(l\) 的分辨率为 \(N_l = \lfloor N_{\min} \cdot b^l \rfloor\)，其中 \(b = \exp\!\left(\frac{\ln N_{\max} - \ln N_{\min}}{L-1}\right)\) 是几何增长因子。</li>
-<li>低分辨率级别的网格小（如 4&times;4&times;4 = 64 个体素），哈希表大小 \(T \geq 64\)，无碰撞——等价于直接查表。</li>
-<li>高分辨率级别的网格大（如 4096&times;4096&times;4096），远超哈希表大小 \(T\)（通常 \(T = 2^{14}\) 到 \(2^{24}\)），大量碰撞——但不同区域的哈希碰撞在训练中被平均掉，不影响最终质量。</li>
-<li>每个体素存 \(F = 2\) 个 FP16 特征。所有 \(L = 16\) 个级别共 \(16 \times T \times 2\) 个参数——总内存约 16 &times; 2<sup>19</sup> &times; 4 B &asymp; 32 MB（典型配置）。</li>
+<li>级别 \(l\) 的分辨率为 \(N_l = \lfloor N_{\min} \cdot b^l \rfloor\)，其中 \(b = \exp\!\left(\frac{\ln N_{\max} - \ln N_{\min}}{L-1}\right)\) 是几何增长因子；论文中 \(N_{\min} = 16\)，各应用的 \(b \in [1.26, 2]\)<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</li>
+<li>低分辨率级别的网格小：当 \((N_l + 1)^3 \le T\) 时（例如 \(N_l = 16\)，\(17^3 = 4913\)），论文用 1:1 映射，等价于直接查表，没有碰撞。</li>
+<li>高分辨率级别的网格远超哈希表大小 \(T\)（论文的取值范围是 \(2^{14}\) 到 \(2^{24}\)），于是用哈希函数索引、不做显式碰撞处理。碰撞的训练梯度会被平均，而梯度更大（对 loss 更重要，例如可见表面附近）的样本占主导<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</li>
+<li>每个条目存 \(F = 2\) 个半精度特征。所有 \(L = 16\) 个级别最多 \(16 \times T \times 2\) 个参数——\(T = 2^{19}\) 时约 16 &times; 2<sup>19</sup> &times; 2 &times; 2 B = 32 MB。</li>
 </ul>
 
 <h3 id="sec-hash-fwd">哈希编码前向</h3>
@@ -349,14 +349,14 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <ol>
 <li>对每个级别 \(l\)：把 \(\mathbf{x}\) 缩放到该级别的网格坐标 \(\lfloor x \cdot N_l \rfloor\)。</li>
 <li>找到包含 \(\mathbf{x}\) 的体素的 8 个角点。</li>
-<li>对 8 个角点用空间哈希函数 \(h(\mathbf{p}) = (p_x \oplus p_y \cdot 2654435761 \oplus p_z \cdot 805459861) \mod T\) 索引哈希表。</li>
+<li>对 8 个角点用空间哈希函数 \(h(\mathbf{p}) = (p_x \cdot 1 \oplus p_y \cdot 2654435761 \oplus p_z \cdot 805459861) \mod T\) 索引哈希表（粗级别直接用 1:1 索引）。</li>
 <li>用三线性插值权重（小数部分 \(f_x, f_y, f_z\)）加权求和 8 个角点的特征。</li>
 <li>拼接 \(L\) 个级别的结果，得到 \(L \times F\) 维特征向量。</li>
 </ol>
 
 <figure id="fig-trilinear_interp" data-kind="diagram">
 <img aria-labelledby="fig-trilinear_interp-cap" src="figs/trilinear_interp.svg" alt="Trilinear interpolation detail"/>
-<figcaption id="fig-trilinear_interp-cap"><span class="fig-label">图 3</span><b>三线性插值的 8 角点查表。</b>每个级别对 3D 体素的 8 个角点做哈希查表，用小数坐标作为三线性权重加权求和，16 级共 256 次哈希查表。</figcaption>
+<figcaption id="fig-trilinear_interp-cap"><span class="fig-label">图 3</span><b>三线性插值的 8 角点查表（示意）。</b>每个级别对 3D 体素的 8 个角点做哈希查表，用小数坐标作为三线性权重加权求和，16 级共 128 次查表，每次取 F = 2 个特征。</figcaption>
 </figure>
 
 <pre data-code="code/r3d43-nerf-hashgrid/hash_encoding.cu#L16-L34"><code>__global__ void hashEncodingForward(
@@ -380,13 +380,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     float sz = pz * res;</code></pre>
 <p class="src-note">完整代码：<code>code/r3d43-nerf-hashgrid/hash_encoding.cu</code> 第 16&ndash;34 行（未在 GPU 上运行）</p>
 
-<p>每个线程处理一个采样点的所有 16 个级别。总访存量：每个采样点 &times; 16 级 &times; 8 角点 &times; 2 特征 = 256 次 FP16 load。看起来很多，但由于同一 batch 的采样点在空间上接近（同一射线的采样点在 3D 空间中连续，邻近射线也接近），同一级别的相邻角点往往命中 L2 cache——实际 HBM 带宽消耗远低于理论值。对于高分辨率级别，哈希碰撞反而有助于提高 cache 命中率——不同空间位置映射到相同的哈希表条目，自然被 cache。</p>
+<p>本文的简化代码让每个线程处理一个采样点的所有 16 个级别。访存量：每个采样点 16 级 &times; 8 角点 = 128 次查表，每次取 2 个 FP16 特征（4 B）。论文的实现则是<b>逐级</b>调度：先对整个 batch 查第 0 级，再查第 1 级……这样同一时刻只有少数几张表需要待在 cache 里<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</p>
 
-<p>量化分析：假设 batch 中有 \(2^{18}\) 个采样点，理论总读取量为 \(2^{18} \times 256 \times 2\,\mathrm{B} = 128\,\mathrm{MB}\)（FP16）。A100 的 HBM 带宽为 2 TB/s，如果全部 miss 则需要 64 微秒。但实际中低分辨率级别（级别 0&ndash;5）的哈希表只有几 KB 到几十 KB，完全可以驻留在 L2 cache（A100 有 40 MB L2）；高分辨率级别的哈希表虽然大（\(T = 2^{19}\) 时单级 2 MB），但碰撞导致的地址聚合也提升了 cache 复用。实测中 L2 命中率可达 60%&ndash;80%，有效带宽需求降到理论值的 20%&ndash;40%。这也解释了为什么把 \(T\) 从 \(2^{19}\) 提升到 \(2^{24}\) 时，训练质量虽然有改善但速度几乎不受影响——更大的表虽然 cache 命中率下降，但只影响最高几个分辨率级别，低级别的 cache 行为完全不变。</p>
+<p>量化分析：假设 batch 中有 \(2^{18}\) 个采样点，查表读取的数据量为 \(2^{18} \times 128 \times 4\,\mathrm{B} = 128\,\mathrm{MB}\)。按 A100 的 2.04 TB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>，若全部来自 HBM 约需 64 微秒；实际上大量读取会命中 cache。cache 容量的影响在论文里很明显：只要 \(T \le 2^{19}\)，编码的性能基本不变；超过之后性能显著下降，因为单级表的大小 \(2 \cdot T \cdot F\) 字节超过了 RTX 3090 的 6 MB L2<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。\(T = 2^{19}\) 时单级表正好 2 MB。</p>
 
-<p>哈希函数的选择很重要。上面代码中的哈希函数 \(h = (x \oplus y \cdot 2654435761 \oplus z \cdot 805459861) \mod T\) 使用了质数乘法和 XOR——目标是让相邻体素映射到不同的哈希表位置，减少空间局部的碰撞聚集。如果用简单的线性哈希（如 \(x + y \cdot N + z \cdot N^2 \mod T\)），相邻体素会映射到相邻的表位置——碰撞集中在特定区域，训练质量下降。质数乘法的 XOR 组合能把碰撞均匀分散到整个哈希表空间。</p>
+<p>哈希函数来自 Teschner et al. 的空间哈希：\(h = (x \cdot \pi_1 \oplus y \cdot \pi_2 \oplus z \cdot \pi_3) \mod T\)，\(\pi_i\) 是互不相同的大质数。论文的解释是：每一维乘质数相当于一个线性同余的伪随机置换，XOR 把各维的影响去相关；而要做到伪独立只需要置换 \(d-1\) 个维度，所以取 \(\pi_1 = 1\)、\(\pi_2 = 2654435761\)、\(\pi_3 = 805459861\)<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</p>
 
-<p>哈希函数本身只有 3 次整数乘法和 2 次 XOR——在 GPU 上几乎零开销：</p>
+<p>哈希函数本身只有 2 次有效的整数乘法（\(\pi_1 = 1\)）和 2 次 XOR，开销很小：</p>
 
 <pre data-code="code/r3d43-nerf-hashgrid/hash_encoding.cu#L7-L14"><code>__device__ __forceinline__
 uint32_t hash_index(int x, int y, int z,
@@ -398,7 +398,7 @@ uint32_t hash_index(int x, int y, int z,
 }</code></pre>
 <p class="src-note">完整代码：<code>code/r3d43-nerf-hashgrid/hash_encoding.cu</code> 第 7–14 行</p>
 
-<p><code>__forceinline__</code> 确保这个函数在每个调用点被内联展开——因为它在三线性插值的 8 个角点处各调用一次（16 个级别 &times; 8 = 128 次/采样点），函数调用的开销（压栈、跳转、返回）如果不内联会显著影响性能。两个质数常量（2654435761 和 805459861）是 Knuth 乘法散列的经典选择——它们接近 \(2^{32}\) 的黄金比例分割点，使得连续整数的哈希值在 32 位空间中均匀分散。<code>h % T</code> 的取模操作在 <code>T</code> 是 2 的幂时会被编译器优化为位与（<code>h &amp; (T-1)</code>），吞吐从整数除法的 ~20 cycle 降到位操作的 1 cycle——这也是为什么 Instant-NGP 的哈希表大小总取 2 的幂。</p>
+<p><code>__forceinline__</code> 确保这个函数在每个调用点被内联展开——因为它在三线性插值的 8 个角点处各调用一次（16 个级别 &times; 8 = 128 次/采样点），内联还能让编译器把公共子表达式（如 <code>y * 2654435761u</code> 在 8 个角点间只有两种取值）提出来。2654435761 是接近 \(2^{32}/\varphi\)（\(\varphi\) 为黄金比例）的质数，即 Knuth 乘法散列的经典常数；805459861 论文只说是大质数。<code>h % T</code>：GPU 没有整数除法指令，取模要展开成一串乘法与修正；论文的 \(T\) 都取 2 的幂（\(2^{14}\)&ndash;\(2^{24}\)），这时可以写成 <code>h &amp; (T-1)</code>——但本文代码中 <code>T</code> 是运行时参数，编译器无法自动做这个替换，需要手写。</p>
 
 <h3 id="sec-hash-bwd">哈希编码反向</h3>
 
@@ -406,52 +406,52 @@ uint32_t hash_index(int x, int y, int z,
 
 <figure id="fig-hash_collision_gradient" data-kind="diagram">
 <img aria-labelledby="fig-hash_collision_gradient-cap" src="figs/hash_collision_gradient.svg" alt="Hash collision gradient averaging"/>
-<figcaption id="fig-hash_collision_gradient-cap"><span class="fig-label">图 4</span><b>哈希碰撞下的梯度行为。</b>不同空间区域映射到同一哈希条目时，反向传播的 atomicAdd 把来自不同语义的梯度累加在一起——训练中平均化使质量损失温和。</figcaption>
+<figcaption id="fig-hash_collision_gradient-cap"><span class="fig-label">图 4</span><b>哈希碰撞下的梯度行为（示意）。</b>不同空间区域映射到同一哈希条目时，反向传播的 atomicAdd 把两处的梯度累加在一起；论文指出梯度更大、对 loss 更重要的那一方会占主导。</figcaption>
 </figure>
 
-<p>原子争用程度取决于哈希碰撞率和空间局部性。低分辨率级别的网格小于哈希表大小，无碰撞——每个角点只被空间上相邻的少数采样点引用，争用很低。高分辨率级别碰撞严重，不同空间位置的采样点可能映射到同一个哈希条目——争用类似 3DGS 但数量级更小。量化比较：3DGS 中一个 tile 的 256 个像素同时原子更新同一个 Gaussian 的梯度，而哈希编码中同时写同一个哈希条目的线程数取决于碰撞率——典型配置下平均碰撞率约 2&ndash;4 倍（即每个条目平均被 2&ndash;4 个线程同时更新），远轻于 3DGS 的 256 路争用。</p>
+<p>原子争用程度取决于空间局部性和哈希碰撞。细级别的体素很小，一个角点通常只被附近少数采样点引用，但碰撞会让相距很远的采样点写到同一条目；粗级别没有碰撞，却容易出现另一种争用：网格很小，同一批里大量采样点落在同一个体素附近，同时写同一组角点。具体争用程度依赖场景和 batch 的空间分布，本文没有测量数据。</p>
 
-<p>优化手段：（1）和 3DGS 类似的 warp 归约——但由于每个线程处理不同的采样点，同一 warp 内的线程不太可能写同一个哈希条目，warp 归约的收益有限。（2）用 FP16 atomicAdd（<code>atomicAdd(half*, half)</code>）——带宽减半，但需要 CC &geq; 7.0。（3）梯度累积多步再更新——减少原子操作频率。（4）按级别分离反向 kernel——低分辨率级别无碰撞，可以用非原子写入（直接赋值而非 atomicAdd），只有高分辨率级别才需要原子操作。这种分级策略能把 30% 左右的原子操作替换为更快的普通写入。</p>
+<p>优化手段：（1）用半精度原子加——论文的 F = 2 正是因为 RTX 3090 上半精度原子累加只对二维向量（<code>__half2</code>）高效，F = 1 反而慢<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。（2）warp 内归约：如果同一 warp 的采样点经常落在同一组角点上（粗级别），可以先合并再原子写；细级别收益有限。（3）跳过零梯度条目：论文对梯度恰好为 0 的哈希表条目跳过 Adam 更新，在梯度稀疏时约省 10% 的时间<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。注意&ldquo;粗级别无碰撞&rdquo;不等于&ldquo;不需要原子操作&rdquo;：不同采样点仍会写同一个角点。</p>
 
-<p>值得注意的是，哈希碰撞虽然在反向中引入了&ldquo;梯度污染&rdquo;（不同空间位置的梯度被合并到同一个条目），但这种污染在数学上等价于一种隐式的正则化——碰撞区域的特征被迫在多个语义之间折中，起到平滑的效果。Instant-NGP 的论文实验表明，只有当碰撞率极高（\(T\) 远小于活跃体素数，比如 \(T = 2^{14}\) 用于 \(4096^3\) 网格）时，质量才会明显下降；\(T = 2^{19}\) 已经足够产生高质量结果。这种碰撞容忍性是哈希编码能用远小于显式网格的参数量达到同等精度的根本原因。</p>
+<p>为什么碰撞能被容忍？论文给出两点：碰撞在空间中伪随机分布，一对点在所有级别同时碰撞的概率很低，多分辨率结构让后面的 MLP 有机会区分它们；而碰撞时梯度被平均，对重建更重要（可见表面附近、梯度更大）的样本占主导，于是哈希表会自动把容量留给重要的细节<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。增大 \(T\) 能提高质量，但内存线性增长，并且如上所述超过 cache 容量后训练明显变慢。</p>
 
 <h2 id="sec-occupancy">占用网格与射线打包</h2>
 
 <h3 id="sec-occ-grid">占用网格</h3>
 
-<p>原始 NeRF 沿射线均匀采样——大量采样点落在空气中（\(\sigma \approx 0\)），浪费了 MLP 评估。占用网格是一个低分辨率（如 128&times;128&times;128）的二值 3D 网格，标记每个体素是否&ldquo;占用&rdquo;（含有物体）。射线行进时跳过未占用的体素，只在占用区域密集采样。</p>
+<p>原始 NeRF 沿射线均匀采样——大量采样点落在空气中（\(\sigma \approx 0\)），浪费了 MLP 评估。Instant-NGP 的占用网格是 128&times;128&times;128 的位图（大场景再叠加多级 cascade），标记每个格子是否&ldquo;占用&rdquo;（含有物体）<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。射线行进时跳过未占用的体素，只在占用区域密集采样。</p>
 
-<p>占用网格的更新规则：每隔几个训练步（如 16 步），对网格中的随机位置评估当前 MLP，如果 \(\sigma\) 超过阈值则标记为占用。同时使用指数移动平均（EMA）平滑更新——避免因为训练中 \(\sigma\) 的波动而频繁翻转占用状态。随着训练进行，网格越来越准确，跳过的空区域越来越多。典型场景中，占用网格可以跳过 80%&ndash;95% 的采样点——MLP 评估次数减少 5&ndash;20&times;。占用网格本身的内存开销很小：128<sup>3</sup> 个 bit = 256 KB。更新网格的 MLP 评估也很轻——每次只评估几千个随机采样点，不影响训练速度。</p>
+<p>占用网格的更新规则（论文附录 E）：另存一套同布局的浮点密度网格，每 16 个训练步更新一次——(1) 所有格子的密度乘以 0.95 衰减；(2) 随机抽 M 个候选格子，在格子内随机位置评估当前模型的密度，取与旧值的较大者；(3) 用阈值 \(t = 0.01 \cdot 1024/\sqrt{3}\) 重新生成占用位。前 256 步抽 \(M = K \cdot 128^3\) 个格子，之后取一半<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。跳过的比例取决于场景，本文不给数字。位图本身很小：\(128^3\) 个 bit = 256 KB（每级）。</p>
 
 <h3 id="sec-packed">变长射线打包</h3>
 
-<p>跳过空区域后，不同射线的采样点数量差异很大——靠近物体表面的射线可能有 200 个采样点，穿过天空的射线可能只有 3 个。如果用固定长度数组，必须 pad 到最大长度——浪费大量内存和计算（<a href="#fig-packed_rays">图 5</a>）。</p>
+<p>跳过空区域后，不同射线的采样点数量差异很大——穿过多个占用区域的射线采样多，大部分路径为空的射线采样少。如果用固定长度数组，必须 pad 到最大长度——浪费大量内存和计算（<a href="#fig-packed_rays">图 5</a>）。</p>
 
 <figure id="fig-packed_rays" data-kind="diagram">
 <img aria-labelledby="fig-packed_rays-cap" src="figs/packed_rays.svg" alt="Packed rays format"/>
 <figcaption id="fig-packed_rays-cap"><span class="fig-label">图 5</span><b>Packed vs Padded 射线格式。</b>Packed 格式用 offset/count 数组索引连续存储的采样点，消除 padding 浪费。</figcaption>
 </figure>
 
-<p>解决方案是 packed rays（nerfacc <span class="cite">[<a href="#ref-nerfacc" title="Li et al. (2023). nerfacc: Efficient Sampling Accelerates NeRFs. arXiv:2305.04966.">4</a>]</span> 的做法）：所有射线的采样点连续存储在一个大数组中，用 <code>ray_offsets</code> 和 <code>ray_counts</code> 两个数组记录每条射线在大数组中的起始位置和采样数。这就是 stream compaction（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）的应用：先确定每条射线的采样数（prefix sum 得到 offset），然后紧凑存储。</p>
+<p>解决方案是 packed rays：所有射线的采样点连续存储在一个大数组中，用 <code>ray_offsets</code> 和 <code>ray_counts</code> 两个数组记录每条射线在大数组中的起始位置和采样数（nerfacc<span class="cite">[<a href="#ref-nerfacc" title="Li et al. (2023). nerfacc: Efficient Sampling Accelerates NeRFs. arXiv:2305.04966.">4</a>]</span> 用的是等价的扁平格式，为每个采样点记录 <code>ray_indices</code>）。这就是 stream compaction（<a href="../pp12-scan/pp12-scan.html">第 12 篇</a>）的应用：先确定每条射线的采样数（prefix sum 得到 offset），然后紧凑存储。</p>
 
-<p>Packed 格式的体渲染 kernel 和前面展示的代码完全一致——只需要用 <code>ray_offsets[ray]</code> 和 <code>ray_counts[ray]</code> 索引采样点。但 packed 格式引入了负载不均衡问题：不同射线的采样数差异可能很大（靠近物体边缘的射线可能有 300+ 个采样点，穿过天空的射线只有 3 个），同一 warp 内的 32 个线程处理时间差异极大。短射线的线程早早结束后空闲等待长射线，GPU 利用率下降。</p>
+<p>Packed 格式的体渲染 kernel 和前面展示的代码完全一致——只需要用 <code>ray_offsets[ray]</code> 和 <code>ray_counts[ray]</code> 索引采样点。但 packed 格式引入了负载不均衡问题：不同射线的采样数差异可能很大，同一 warp 内的 32 个线程处理时间差异极大。短射线的线程早早结束后空闲等待长射线，GPU 利用率下降。</p>
 
-<p>缓解方案有三种：（1）按采样数排序射线——把类似长度的射线分到同一 warp，减少 warp 内的等待时间。排序本身用 radix sort（<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>），开销很小。（2）把长射线分成多个固定长度的段——每段独立处理，最后归约合并。这平衡了负载但增加了归约开销。（3）动态任务分配——用原子计数器给线程分配射线，短射线完成后立即取下一条。nerfacc 主要使用第一种方案（排序），在实际中效果最好。</p>
+<p>缓解方案有三种：（1）按采样数排序射线——把类似长度的射线分到同一 warp，减少 warp 内的等待时间。排序本身用 radix sort（<a href="../pp13-sort-topk/pp13-sort-topk.html">第 13 篇</a>），开销很小。（2）把长射线分成多个固定长度的段——每段独立处理，最后归约合并。这平衡了负载但增加了归约开销。（3）动态任务分配——用原子计数器给线程分配射线，短射线完成后立即取下一条。哪种更好取决于射线长度分布，需要实测。</p>
 
 <h2 id="sec-fused-mlp">全融合 MLP</h2>
 
-<p>Instant-NGP 的 MLP 很小：2 层、宽度 64、ReLU 激活。用 cuBLAS 做这个矩阵乘效率极低——cuBLAS 为大矩阵优化，64&times;64 的矩阵乘 launch 一次 kernel 的开销可能比计算本身还高。tiny-cuda-nn 的全融合 MLP 把整个网络放进一个 kernel（<a href="#fig-fused_mlp_data">图 6</a>）。</p>
+<p>Instant-NGP 的 MLP 很小：宽度 64、ReLU 激活，一两个隐藏层。每层是一个 [batch &times; 64] &times; [64 &times; 64] 的瘦长 GEMM：K 只有 64，算术强度很低，如果每层单独调用 cuBLAS，激活就要在每层之间写回、读出 HBM。tiny-cuda-nn 的全融合 MLP 把整个网络放进一个 kernel（<a href="#fig-fused_mlp_data">图 6</a>）。</p>
 
 <figure id="fig-fused_mlp_data" data-kind="diagram">
 <img aria-labelledby="fig-fused_mlp_data-cap" src="figs/fused_mlp_data.svg" alt="Fused MLP data residency"/>
-<figcaption id="fig-fused_mlp_data-cap"><span class="fig-label">图 6</span><b>标准 cuBLAS MLP vs 全融合 MLP 的数据驻留。</b>全融合 MLP 的权重常驻 smem，中间激活不回 HBM——消除层间的内存往返。</figcaption>
+<figcaption id="fig-fused_mlp_data-cap"><span class="fig-label">图 6</span><b>标准 cuBLAS MLP vs 全融合 MLP 的数据驻留（示意，参照 tiny-cuda-nn 源码）。</b>tiny-cuda-nn 中每个 warp 把自己负责的权重切片读进 WMMA fragment（寄存器），中间激活存在 shared memory 且不回 HBM——消除层间的内存往返。</figcaption>
 </figure>
 
 <h3 id="sec-fused-design">设计要点</h3>
 
 <ol>
-<li><b>权重常驻 smem</b>：两层权重 \(W_0, W_1\) 各 64&times;64 &times; 2 B（FP16）= 8 KB，总共 16 KB。A100 每 SM 可配 164 KB smem<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>——充裕。权重在 kernel 开始时加载一次，之后被整个 batch 的样本复用。</li>
-<li><b>激活在 smem 和寄存器中流转</b>：一个 block 处理 128 个样本的 batch。输入和中间激活存在 smem 中（128&times;64 &times; 2 B = 16 KB/层）。矩阵乘用 WMMA（Tensor Core），结果暂存在 fragment 寄存器中，ReLU 直接在 fragment 上做，然后写回 smem 作为下一层的输入。</li>
+<li><b>权重进片上存储</b>：每层权重 64&times;64 &times; 2 B（FP16）= 8 KB。tiny-cuda-nn 的做法是每个 warp 负责输出的 16 列，把对应的 64&times;16 权重切片直接从全局内存载入 WMMA fragment（寄存器）<span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>；本文的简化代码则把两层权重整个放进 smem（共 16 KB，A100 每 SM 最多 164 KB smem<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）。两种做法都让一块权重被 block 内 128 个样本复用。</li>
+<li><b>激活在 smem 和寄存器中流转</b>：宽度 64 时一个 block 是 4 个 warp、处理 128 个样本（tiny-cuda-nn 中 <code>16 &times; N_ITERS</code>，N_ITERS = 8）。中间激活存在 smem 中，每行额外 8 个 half 的 skew 用于错开 bank（128 &times; 72 &times; 2 B = 18 KB）。矩阵乘用 WMMA（Tensor Core），结果暂存在 fragment 寄存器中，ReLU 直接在 fragment 上做，然后写回 smem 作为下一层的输入<span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>。</li>
 <li><b>全部在一个 kernel 内完成</b>：没有 kernel launch 间隔，没有 HBM 往返。HBM 只在最开始读输入和最后写输出时被访问。</li>
 </ol>
 
@@ -477,40 +477,24 @@ void fusedMLP2Layer(
   }</code></pre>
 <p class="src-note">完整代码：<code>code/r3d43-nerf-hashgrid/fused_mlp.cu</code> 第 8&ndash;27 行（未在 GPU 上运行）</p>
 
-<p>WMMA 的 fragment 大小是 16&times;16&times;16——128 个样本 &times; 64 宽度需要 (128/16) &times; (64/16) = 32 个 warp 级的矩阵乘操作。128 个线程 = 4 个 warp，每个 warp 做 8 个 WMMA 操作。每个 WMMA 操作的计算量是 16&times;16&times;16&times;2 = 8192 FLOP（FP16 FMA），总共 32 &times; 8192 = 262144 FLOP/层——两层约 524288 FLOP/block，对比 smem 读写 ~64 KB。计算密度约 8 FLOP/B，刚好在 Tensor Core 的算力和 smem 带宽的平衡点附近。</p>
+<p>WMMA 的 fragment 形状是 16&times;16&times;16。一层 [128 &times; 64] &times; [64 &times; 64] 的输出有 (128/16) &times; (64/16) = 32 个 16&times;16 的输出块，每块要沿 K = 64 累加 4 次，共 128 次 WMMA。128 个线程 = 4 个 warp，每个 warp 做 32 次。每次 WMMA 是 16&times;16&times;16&times;2 = 8192 FLOP，一层合计 128 &times; 8192 &asymp; 1.05 MFLOP（= 2 &times; 128 &times; 64 &times; 64），两层约 2.1 MFLOP/block。</p>
 
 <h3 id="sec-fused-vs-cublas">为什么不用 cuBLAS</h3>
 
 <p>cuBLAS 的 GEMM 内部也用 Tensor Core，但它的设计目标是大矩阵（M, N, K &geq; 256）。64&times;64 的矩阵乘有几个问题：</p>
 <ul>
-<li><b>Kernel launch 开销</b>：每层一次 launch（~5 &mu;s），两层 MLP + 两次 ReLU = 4 次 launch。全融合 MLP 只有 1 次。</li>
+<li><b>Kernel launch 开销</b>：两层 MLP + 两次 ReLU 若分开写是 4 次 launch（GEMM 的 epilogue 融合 ReLU 后也至少 2 次），每次都有固定开销。全融合 MLP 只有 1 次。</li>
 <li><b>HBM 往返</b>：cuBLAS 每层的输出写到 HBM，ReLU kernel 再读回来、处理、写回去。两层 MLP 需要 4 次 HBM 往返（中间激活各一来一回）。全融合 MLP 零次。</li>
-<li><b>Wave 效率</b>：cuBLAS 的 tile 大小（如 128&times;128）大于整个矩阵（64&times;64），导致大部分 SM 空闲。全融合 MLP 的并行维度是 batch 维——一个 batch 128 个样本一个 block，batch 越大并行度越高。</li>
+<li><b>算术强度</b>：batch 维很大（\(2^{18}\)），并行度本身不缺；问题是 N = K = 64 时每读一个激活元素只做 128 FLOP，单层 GEMM 受带宽限制。全融合把层间激活留在片上，只在开头读输入、结尾写输出。</li>
 </ul>
 
-<p>实测中，全融合 MLP 比 cuBLAS 快 5&ndash;10&times;（对于宽度 64 的 2 层网络）。这个优势随着网络变宽变深而减小——当网络宽度达到 256 以上时，cuBLAS 的 Tensor Core 利用率追上来，全融合的优势缩小到 2&times; 以内。全融合 MLP 的另一个限制是灵活性——它的网络结构（层数、宽度、激活函数）在编译时固定，修改结构需要重写 kernel。这和 cuBLAS 的通用性形成对比——cuBLAS 可以处理任意大小的矩阵乘。但对于 NeRF 这样结构固定的推理密集型场景，全融合的性能优势远大于灵活性的代价。</p>
+<p>tiny-cuda-nn 的 README 给出了与 TensorFlow v2.5.0（XLA）在 RTX 3090 上对比 64、128 宽 MLP 的基准图；Instant-NGP 论文把与 ACORN 相比的约 10 倍加速归于 tiny-cuda-nn 的全融合 CUDA kernel<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。全融合 MLP 的限制是灵活性和规模：tiny-cuda-nn 的 <code>FullyFusedMLP</code> 只实例化了宽度 16、32、64、128 四种（源码末尾的模板实例化），更宽的网络要用 <code>CutlassMLP</code><span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>；宽度是编译期常数。这和 cuBLAS 的通用性形成对比——cuBLAS 可以处理任意大小的矩阵乘。对于 NeRF 这样结构固定的小网络，这个代价可以接受。</p>
 
 <h2 id="sec-perf">端到端性能</h2>
 
-<p>Instant-NGP 的端到端训练时间分布（典型场景，A100）：</p>
+<p>论文报告，在合成 NeRF 场景上 &ldquo;Ours: Hash&rdquo; 每个训练步约 6 ms（RTX 3090），5 分钟约 5 万步；同一实现换成频率编码和大 MLP 后每步约 30 ms<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。论文没有给出各阶段的耗时拆分，下面只从操作次数上看哪一步天然重。</p>
 
-<table>
-<thead>
-<tr><th>阶段</th><th>占比</th><th>瓶颈</th></tr>
-</thead>
-<tbody>
-<tr><td>射线生成 + 占用网格查询</td><td>~5%</td><td>简单 elementwise</td></tr>
-<tr><td>哈希编码前向</td><td>~15%</td><td>L2 cache 带宽（三线性插值访存）</td></tr>
-<tr><td>全融合 MLP 前向</td><td>~10%</td><td>Tensor Core + smem 带宽</td></tr>
-<tr><td>体渲染前向</td><td>~5%</td><td>简单循环，低计算密度</td></tr>
-<tr><td>体渲染反向</td><td>~5%</td><td>同前向</td></tr>
-<tr><td>全融合 MLP 反向</td><td>~20%</td><td>Tensor Core（需要保存激活做反向）</td></tr>
-<tr><td>哈希编码反向</td><td>~30%</td><td>atomicAdd（scatter-add 到哈希表）</td></tr>
-<tr><td>优化器更新</td><td>~10%</td><td>elementwise Adam</td></tr>
-</tbody>
-</table>
-
-<p>哈希编码反向占最大比例——因为每个采样点需要对 16 个级别 &times; 8 个角点 = 128 次 atomicAdd（FP16 或 FP32）。假设 batch 中有 \(2^{18}\) 个采样点，总共 \(2^{18} \times 128 = 2^{25}\) 次原子操作——约 3300 万次。即使每次原子操作只需几十个 cycle，累积的延迟和带宽压力仍然可观。这和 3DGS 的模式类似：前向是 gather（从哈希表读），反向是 scatter（往哈希表写），scatter 涉及原子操作，永远比 gather 慢。前向的 gather 可以被 L2 cache 高效服务（只读、可预取），而反向的 scatter 需要 L2 的 read-modify-write 原子单元处理——吞吐量天然更低。</p>
+<p>哈希编码反向的原子操作很多：每个采样点需要对 16 个级别 &times; 8 个角点 = 128 个条目做原子加（F = 2 时可用一次 <code>__half2</code> 原子加）。batch 为 \(2^{18}\) 个采样点时，总共 \(2^{18} \times 128 = 2^{25}\) 次——约 3300 万次。这和 3DGS 的模式类似：前向是 gather（从哈希表读），反向是 scatter（往哈希表写），scatter 需要 L2 的 read-modify-write 原子单元处理，同一地址上的更新会串行化。</p>
 
 <h2 id="sec-hb">Hopper 与 Blackwell 上的变化</h2>
 
@@ -521,33 +505,33 @@ void fusedMLP2Layer(
 <tr><th>特性</th><th>影响</th></tr>
 </thead>
 <tbody>
-<tr><td>L2 容量（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>哈希表更可能驻留 L2，前向的三线性插值和反向的 atomicAdd 都受益</td></tr>
-<tr><td>Tensor Core 代际（FP16 TFLOPS 翻倍）</td><td>全融合 MLP 的计算部分直接加速</td></tr>
-<tr><td>smem 容量（A100 164 KB → H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>更宽的网络也能全融合——权重 128&times;128 &times; 2 B = 32 KB 仍可放入 smem</td></tr>
+<tr><td>L2 容量（A100 40 MB → H100 50 MB → GB200 126 MB<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>哈希表更可能驻留 L2，前向的三线性插值和反向的 atomicAdd 都受益</td></tr>
+<tr><td>Tensor Core 代际（稠密 FP16：A100 312 &rarr; H100 989 TFLOP/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>全融合 MLP 的计算部分直接加速；但宽度 64 的小 MLP 很难吃满峰值</td></tr>
+<tr><td>smem 容量（A100 164 KB → H100 228 KB/SM<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。">5</a>]</span>）</td><td>可容纳更大的激活 tile；tiny-cuda-nn README 提醒全融合 MLP 默认配置需要很大的 shared memory</td></tr>
 <tr><td>TMA（Tensor Memory Accelerator）</td><td>哈希编码的三线性插值访存可以用 TMA 加速，但模式不规则，收益有限</td></tr>
-<tr><td>FP8 Tensor Core</td><td>哈希编码的 FP16 特征可以量化到 FP8——前向精度损失可接受，反向需要 FP16 累加</td></tr>
+<tr><td>FP8 Tensor Core</td><td>可用于 MLP 的矩阵乘；哈希编码本身不走 Tensor Core，表项用什么精度是另一个问题（本文未验证 FP8 表项的精度）</td></tr>
 </tbody>
 </table>
 
 <h2 id="sec-interview">面试怎么问</h2>
 
 <p id="sec-q1"><b>Q1：多分辨率哈希编码为什么快？</b></p>
-<p>两个原因。（1）它把空间信息压缩到可学习的哈希表中，MLP 只需要 2 层 64 宽——FLOP 降低约 100&times;。原始 NeRF 的 8 层 256 宽 MLP 是训练的主要瓶颈。（2）哈希表查询是简单的 gather 操作——三线性插值只需 8 次查表和 7 次 FMA，远快于一次 MLP 前向传播。追问：哈希碰撞不影响质量吗？低分辨率级别无碰撞（网格小于表），高分辨率级别碰撞被训练平均掉——不同区域的梯度方向大概率不同，碰撞条目的特征会收敛到某种折中。</p>
+<p>两个原因。（1）它把空间信息放进可学习的哈希表，MLP 缩到宽度 64、一两个隐藏层——按每层 \(2 \cdot \text{in} \cdot \text{out}\) 粗算，每个采样点的 MLP FLOP 比原始 NeRF 的 8 层 256 宽少约 50 倍。（2）每级查表是 8 次 gather 加十几次乘加的三线性插值，每个采样点只影响 \(16 \times 8\) 个表项，反向也只更新这些表项。追问：哈希碰撞不影响质量吗？粗级别 1:1 映射无碰撞；细级别碰撞时梯度被平均，对 loss 更重要的样本梯度更大、占主导，且多分辨率让 MLP 能区分在某一级碰撞的点<span class="cite">[<a href="#ref-mueller22" title="Müller, Evans, Schied &amp; Keller (2022). Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM Trans. Graphics (SIGGRAPH) 41(4).">2</a>]</span>。</p>
 
 <p id="sec-q2"><b>Q2：全融合 MLP 和 cuBLAS 比有什么优势？</b></p>
-<p>对于小矩阵（宽度 64），三个优势：（1）1 次 kernel launch vs 4+ 次。（2）中间激活不回 HBM——全部在 smem/寄存器间流转。（3）batch 维并行——每个 block 处理 128 个样本，SM 利用率高。cuBLAS 为大矩阵优化，64&times;64 的 tile 无法填满 SM。追问：什么时候 cuBLAS 更好？网络宽度 &geq; 256 时 cuBLAS 的 Tensor Core 利用率追上来；或者需要 FP64 / INT8 等全融合不支持的类型。</p>
+<p>对于小矩阵（宽度 64），三个优势：（1）1 次 kernel launch vs 4+ 次。（2）中间激活不回 HBM——全部在 smem/寄存器间流转。（3）每个 warp 的权重切片在寄存器里被 block 内 128 个样本复用，按层分开调用时 K = 64 的瘦长 GEMM 是带宽受限的。追问：什么时候不用全融合？tiny-cuda-nn 的 <code>FullyFusedMLP</code> 只支持宽度 16/32/64/128，更宽的网络要用 <code>CutlassMLP</code><span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>。</p>
 
 <p id="sec-q3"><b>Q3：NeRF 体渲染的反向和 3DGS 反向有什么区别？</b></p>
-<p>体渲染反向是 one-thread-per-ray，每条射线独立——没有原子争用。3DGS 反向是 one-block-per-tile，多个像素更新同一个 Gaussian——大量原子争用。NeRF 的原子争用出现在哈希编码反向（scatter-add 到哈希表），不在体渲染本身。追问：NeRF 的哈希编码反向争用严重吗？比 3DGS 轻——每个采样点只写 8 个角点，不是 256 个像素写同一地址。但高分辨率级别哈希碰撞多，碰撞条目的争用仍然存在。</p>
+<p>体渲染反向是 one-thread-per-ray，每条射线独立——没有原子争用。3DGS 反向是 one-block-per-tile，多个像素更新同一个 Gaussian——大量原子争用。NeRF 的原子争用出现在哈希编码反向（scatter-add 到哈希表），不在体渲染本身。追问：NeRF 的哈希编码反向争用严重吗？每个采样点每级只写 8 个角点；争用来自空间上相邻的采样点（粗级别尤其明显）和细级别的哈希碰撞，具体程度依赖场景，本文没有测量数据。</p>
 
 <p id="sec-q4"><b>Q4：Packed rays 解决什么问题？</b></p>
-<p>不同射线的采样数差异很大（靠近物体 200+，穿过天空 3 个）。Padded 格式浪费内存和计算——所有射线 pad 到最大长度。Packed 格式把所有采样点连续存储，用 offset/count 数组索引——stream compaction 消除 padding。追问：packed 的挑战？同一 warp 内射线长度差异大导致负载不均衡。缓解方案：按采样数对射线排序（radix sort），把类似长度的射线分到同一 warp，减少线程空闲等待。</p>
+<p>跳过空区域后，不同射线的采样数差异很大。Padded 格式浪费内存和计算——所有射线 pad 到最大长度。Packed 格式把所有采样点连续存储，用 offset/count 数组索引——stream compaction 消除 padding。追问：packed 的挑战？同一 warp 内射线长度差异大导致负载不均衡。缓解方案：按采样数对射线排序（radix sort），把类似长度的射线分到同一 warp，减少线程空闲等待。</p>
 
 <p id="sec-q5"><b>Q5：Instant-NGP 的哈希编码和传统位置编码（positional encoding）相比，在 GPU 实现上有什么本质区别？</b></p>
-<p>位置编码（\(\sin/\cos\) 频率展开）是纯计算：每个采样点独立算若干 <code>sinf/cosf</code>，无需访存，无可学习参数，反向不存在。哈希编码是查表：每个采样点需要访问 16 级 &times; 8 角点 = 128 次哈希表读取，前向是 gather（三线性插值），反向是 scatter（atomicAdd）。GPU 上的区别在于：位置编码是 compute-bound 的 SFU 密集操作（\(\sin/\cos\) 由 SFU 执行），对带宽几乎无要求；哈希编码是 memory-bound 的随机访存操作，严重依赖 L2 cache 命中率。但哈希编码用小表就能捕捉高频细节，让 MLP 从 8 层 256 宽缩到 2 层 64 宽——总的 FLOP 和内存带宽消耗反而大幅减少。追问：SFU 上的 \(\sin/\cos\) 吞吐有多高？A100 的 SFU 每个 SM 每 cycle 出 32 个结果<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>，对于位置编码的几十个频率来说绰绰有余——但下游的大 MLP 才是真正的瓶颈。</p>
+<p>位置编码（\(\sin/\cos\) 频率展开）是纯计算：每个采样点独立算若干 <code>sinf/cosf</code>，无需访存，无可学习参数，反向不存在。哈希编码是查表：每个采样点需要访问 16 级 &times; 8 角点 = 128 次哈希表读取，前向是 gather（三线性插值），反向是 scatter（atomicAdd）。GPU 上的区别在于：位置编码是纯计算，对带宽几乎无要求（快速版 <code>__sinf/__cosf</code> 走 SFU，标准 <code>sinf</code> 则是一串 FMA 加范围约简）；哈希编码是 memory-bound 的随机访存操作，严重依赖 L2 cache 命中率。但哈希编码让 MLP 可以小很多——总的 FLOP 大幅减少。追问：SFU 上的 \(\sin/\cos\) 吞吐有多高？CC 8.0&ndash;9.0 的 SFU 每个 SM 每时钟出 16 个结果<span class="cite">[<a href="#ref-cc" title="NVIDIA. CUDA C++ Programming Guide. Table 4 “Throughput of Native Arithmetic Instructions”; §5.1 Compute Capabilities.">6</a>]</span>；位置编码每个采样点只需几十个三角函数，真正的开销在下游的大 MLP。</p>
 
 <p id="sec-q6"><b>Q6：全融合 MLP 中的 WMMA fragment 布局对 bank conflict 有什么影响？如何处理？</b></p>
-<p>WMMA 的输入输出 fragment 在 smem 和寄存器间传输时涉及特定的数据布局。当 128 个样本 &times; 64 宽度的激活矩阵存放在 smem 中时，列优先布局会导致同一 warp 内的 32 个线程访问连续列中同一 bank 的地址——产生 32 路 bank conflict，访问退化为串行。解决方法有两个：（1）行优先 + padding——在每行末尾加 8 字节的 padding，让相邻行的对齐位置错开 bank。（2）swizzle 布局——对 smem 地址做位操作使同一 warp 内的线程分散到不同 bank。tiny-cuda-nn 实际使用的是 swizzle 方案：对地址的高位和低位做 XOR，使得连续的 16&times;16 tile 内没有 bank conflict。追问：bank conflict 对性能影响有多大？全融合 MLP 的 smem 读写是关键路径（WMMA 的输入来自 smem），32 路 bank conflict 会把 smem 带宽降到 1/32——这足以让 smem 成为瓶颈。用 swizzle 消除 bank conflict 后，性能提升可达 2&ndash;3&times;。</p>
+<p>激活矩阵 [128 &times; 64] FP16 按行存放时，每行 128 B，正好是 32 个 bank 的一整圈：<code>load_matrix_sync</code> 读一个 16&times;16 块时，16 行的同一列偏移全部落在同一组 bank 上，产生多路 bank conflict。解决方法有两种：（1）padding（skew）——每行末尾多留几个元素，让相邻行错开 bank；（2）swizzle——对 smem 地址做 XOR 置换。tiny-cuda-nn 用的是 padding：源码中 <code>SKEW = WIDTH % 16 == 0 ? 8 : 0</code>，即每行多 8 个 half（16 B），行跨度从 128 B 变成 144 B<span class="cite">[<a href="#ref-tcnn" title="Müller (2021). tiny-cuda-nn. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。">3</a>]</span>。追问：影响有多大？没有 skew 时冲突路数取决于 fragment 的访问方式，具体的性能差异本文没有测量。</p>
 
 <h2 id="sec-limits">局限与未覆盖</h2>
 
@@ -556,14 +540,14 @@ void fusedMLP2Layer(
 <li>全融合 MLP 反向的完整实现（保存中间激活、Tensor Core 反向）从简——篇幅限制，只展示了前向骨架。</li>
 <li>哈希编码的具体配置（每级表大小、分辨率增长因子 b、特征维度 F）对质量和性能的影响未详细讨论——参见原始论文。</li>
 <li>本文没有覆盖：分层采样（coarse-to-fine）的具体实现、Mip-NeRF 的抗锯齿积分椎体采样、3D Gaussian 和 NeRF 的混合表示方案、动态场景的时间建模。</li>
-<li>性能数据（各阶段占比、全融合 MLP 相对 cuBLAS 的加速比）为公开文献的典型值，非本文实测，不同场景和硬件配置下会有差异。</li>
+<li>文中的性能数字均来自 Instant-NGP 论文（RTX 3090）和 tiny-cuda-nn 源码，非本文实测；各阶段的耗时拆分没有可引用的数据，本文不给出。</li>
 </ul>
 
 <h2 id="sec-summary" class="no-toc">小结</h2>
 
-<p>Instant-NGP 的三大 GPU 优化——多分辨率哈希编码、全融合 MLP、占用网格——把 NeRF 的训练时间从天级压缩到秒级。哈希编码用空间换时间：可学习的查表替代 MLP 中大量的矩阵乘法计算。全融合 MLP 用 smem 换 HBM：权重常驻 shared memory，中间激活不写回全局内存。占用网格用粗粒度空间索引跳过空气中的无效采样——减少 MLP 评估次数 5&ndash;20 倍。三个优化各自独立但相互配合：哈希编码把 MLP 缩小到全融合可处理的大小，占用网格减少了需要编码和推理的采样点数量。</p>
+<p>Instant-NGP 的三大 GPU 优化——多分辨率哈希编码、全融合 MLP、占用网格——把 NeRF 的训练从天级压缩到秒级到分钟级。哈希编码用空间换时间：可学习的查表替代 MLP 中大量的矩阵乘法计算。全融合 MLP 用 smem 换 HBM：权重常驻 shared memory，中间激活不写回全局内存。占用网格用粗粒度空间索引跳过空气中的无效采样。三个优化各自独立但相互配合：哈希编码把 MLP 缩小到全融合可处理的大小，占用网格减少了需要编码和推理的采样点数量。</p>
 
-<p>从 GPU kernel 的角度看，NeRF 和 3DGS 的瓶颈模式有本质区别：3DGS 的瓶颈在光栅化反向的原子争用（多个像素更新同一个 Gaussian），NeRF 的瓶颈在哈希编码反向的 scatter-add（多个采样点更新同一个哈希条目）。两者都是&ldquo;多对一写入&rdquo;模式——但并行维度和争用的严重程度不同。3DGS 中 tile 内的 256 个线程写同一个 Gaussian 梯度，而哈希编码中同一条目的并发写入者通常只有 2&ndash;4 个。此外，NeRF 的全融合 MLP 展示了一种重要的优化思路：当网络足够小、结构固定时，把整个推理流程塞进一个 kernel 并让数据完全驻留在 smem 和寄存器中——这个思路不仅适用于 NeRF，也适用于 LLM 推理中的小型 attention head 和 MoE 路由网络。下一篇我们进入点云处理和稀疏三维卷积的世界。</p>
+<p>从 GPU kernel 的角度看，NeRF 和 3DGS 的瓶颈模式有本质区别：3DGS 的原子操作集中在光栅化反向（多个像素更新同一个 Gaussian），NeRF 的原子操作集中在哈希编码反向的 scatter-add（多个采样点更新同一个哈希条目）。两者都是&ldquo;多对一写入&rdquo;模式——但并行维度和争用的严重程度不同。3DGS 中 tile 内最多 256 个线程写同一个 Gaussian 的梯度，哈希编码中同一条目的并发写入者数量则取决于空间局部性和碰撞。此外，NeRF 的全融合 MLP 展示了一种重要的优化思路：当网络足够小、结构固定时，把整个前向/反向塞进一个 kernel，让层间数据只在 smem 和寄存器里流转。下一篇我们进入点云处理和稀疏三维卷积的世界。</p>
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
 <div class="callout note">
@@ -579,16 +563,16 @@ void fusedMLP2Layer(
 <ol class="references">
   <li id="ref-mildenhall20">Mildenhall, Srinivasan, Tancik, Barron, Ramamoorthi &amp; Ng (2020). <a href="https://arxiv.org/abs/2003.08934">NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis</a>. ECCV 2020.</li>
   <li id="ref-mueller22">M&uuml;ller, Evans, Schied &amp; Keller (2022). <a href="https://arxiv.org/abs/2201.05989">Instant Neural Graphics Primitives with a Multiresolution Hash Encoding</a>. ACM Trans. Graphics (SIGGRAPH) 41(4).</li>
-  <li id="ref-tcnn">M&uuml;ller (2021). <a href="https://github.com/NVlabs/tiny-cuda-nn">tiny-cuda-nn</a>. GitHub / NVIDIA Research.</li>
+  <li id="ref-tcnn">M&uuml;ller (2021). <a href="https://github.com/NVlabs/tiny-cuda-nn">tiny-cuda-nn</a>. GitHub / NVIDIA Research（README 与 <code>src/fully_fused_mlp.cu</code>）。</li>
   <li id="ref-nerfacc">Li et al. (2023). <a href="https://arxiv.org/abs/2305.04966">nerfacc: Efficient Sampling Accelerates NeRFs</a>. arXiv:2305.04966.</li>
-  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，smem 容量，SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
+  <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：A100 2.0 TB/s、H100 3.35 TB/s、B200 8.0 TB/s HBM 带宽，Tensor Core 峰值、smem 与 L2 容量、SFU 吞吐等规格。各项均标有 NVIDIA 官方出处。</li>
   <li id="ref-cc">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide</a>. Table 4 &ldquo;Throughput of Native Arithmetic Instructions&rdquo;; &sect;5.1 Compute Capabilities.</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 43 篇。文中代码完整版在系列目录的 <code>code/r3d43-nerf-hashgrid/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图 1–4 为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
+  本文是「从零精通 GPU Kernel」系列第 43 篇。文中代码完整版在系列目录的 <code>code/r3d43-nerf-hashgrid/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。图均为手绘示意图。所有代码仅通过 host-only 语法检查，未在 GPU 上运行。
 </footer>
 
 </div>

@@ -20,8 +20,8 @@
 <text x="40" y="181" class="code">val = data[i];       // may be STALE!</text>
 
 <rect x="35" y="198" width="290" height="50" rx="3" fill="#fee2e2" stroke="#ef4444"/>
-<text x="180" y="216" text-anchor="middle" class="label" fill="#dc2626">NVLink 可能把 flag store 先于 data store</text>
-<text x="180" y="232" text-anchor="middle" class="label" fill="#dc2626">传播到 GPU 1 → GPU 1 看到 flag=1 但 data 是旧值</text>
+<text x="180" y="216" text-anchor="middle" class="label" fill="#dc2626">内存模型允许 GPU 1 先看到 flag store、</text>
+<text x="180" y="232" text-anchor="middle" class="label" fill="#dc2626">后看到 data store → 读到 flag=1 但 data 是旧值</text>
 
 <!-- Right way -->
 <rect x="360" y="35" width="320" height="225" rx="5" fill="#dcfce7" stroke="#22c55e" stroke-width="1.2"/>

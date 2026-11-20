@@ -23,7 +23,7 @@
 
   <!-- Producer row -->
   <text x="40" y="90" class="label">Producer</text>
-  <text x="40" y="103" class="sublabel">(1 warp)</text>
+  <text x="40" y="103" class="sublabel">(1 warpgroup)</text>
 
   <rect x="110" y="72" width="100" height="28" rx="3" class="prod"/>
   <text x="160" y="90" text-anchor="middle" class="sublabel" fill="white">TMA s0</text>
@@ -99,6 +99,6 @@
 
   <!-- Annotation -->
   <rect x="110" y="260" width="500" height="55" rx="4" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
-  <text x="120" y="280" class="sublabel" fill="#333">稳态时 producer 领先 consumer 2–3 个 stage——总有 tile 在搬运路上、至少一个在被计算。</text>
-  <text x="120" y="296" class="sublabel" fill="#333">每 stage 48 KB（BM=128 BN=256 BK=64），4 stage = 192 KB &le; H100 的 256 KB SMEM/SM。</text>
+  <text x="120" y="280" class="sublabel" fill="#333">示意：producer 最多领先 consumer N_STAGES 个 stage——有 tile 在搬运路上、同时有一个在被计算。</text>
+  <text x="120" y="296" class="sublabel" fill="#333">每 stage 48 KB（BM=128 BN=256 BK=64），4 stage = 192 KB &le; H100 每 block 227 KB 共享内存上限。</text>
 </svg>

@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-11-11</span>
-    <span data-reading-time>约 23 分钟阅读</span>
+    <span data-reading-time>约 24 分钟阅读</span>
   </div>
 </header>
 
@@ -376,7 +376,7 @@ static double floor_time(const Gpu&amp; g, const Work&amp; w) {
 
 <p>字节账问的是 \(W / W_{\min}\)：实际搬的字节是下界的几倍。它排在第一，理由很简单：带宽账、等待账优化的都是&ldquo;怎么搬&rdquo;，而字节账删掉的是&ldquo;要不要搬&rdquo;。先删再优化，顺序反过来就会在注定要删的字节上白花功夫。多出来的字节有三个常见来源。</p>
 
-<p><b>中间结果落回显存。</b>以 softmax 为例。按 PyTorch eager 的写法，它是四个 kernel：求每行最大值（读 \(x\)）、减最大值再取指数（读 \(x\)，写 \(e\)）、求每行和（读 \(e\)）、除以和（读 \(e\)，写 \(y\)）。对整张张量读了 4 遍、写了 2 遍，共 6 遍；而下界只要读 \(x\) 一遍、写 \(y\) 一遍。把一行留在片上的融合版本正好是 2 遍：</p>
+<p><b>中间结果落回显存。</b>以 softmax 为例。如果把它拆成四个独立的 kernel（用框架的基本算子逐步拼出来时就会这样；PyTorch 自带的 <code>softmax</code> 本身是一个融合好的 kernel）：求每行最大值（读 \(x\)）、减最大值再取指数（读 \(x\)，写 \(e\)）、求每行和（读 \(e\)）、除以和（读 \(e\)，写 \(y\)）。对整张张量读了 4 遍、写了 2 遍，共 6 遍；而下界只要读 \(x\) 一遍、写 \(y\) 一遍。把一行留在片上的融合版本正好是 2 遍：</p>
 
 <pre data-code="code/p01-optimization-mainline/softmax_passes.cu#L72-L92"><code>__global__ void softmax_fused(const float* x, float* y, int n) {
 // ...
@@ -403,7 +403,7 @@ static double floor_time(const Gpu&amp; g, const Work&amp; w) {
 <p>每个 block 处理一行，这一行从显存读进 shared memory 之后，求最大值、求指数和、归一化三步都在片上完成，显存只被读写各一次。在带宽屋顶下，耗时大致与字节数成正比，所以融合版本的上限是未融合版本的 3 倍（<a href="#tab-bytes">表 1</a>）。<a href="../op17-softmax-norm/op17-softmax-norm.html">第 17 篇</a>还讲了行太长、放不进片上时的在线 softmax：它读两遍 \(x\)，共 3 遍。</p>
 
 <figure id="tab-bytes" class="table" data-source="computed" data-script="plots/common.py">
-  <figcaption id="tab-bytes-cap"><span class="fig-label">表 1</span><b>同一个算子，搬运量可以差几十倍，差的全是中间结果。</b>单位是&ldquo;对整张张量读或写一遍&rdquo;的字节数。softmax 一行按 PyTorch eager 的四个 kernel 计；attention 一行按 \(N = 8192\)、\(d = 128\)、BF16、单个 head 计，标准实现把 \(S = QK^\top\) 和 \(P = \operatorname{softmax}(S)\) 各写一遍、读一遍，下界只算 \(Q, K, V, O\) 四个 \(N \times d\) 张量 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>]</span>。均为按公式计算（<code>plots/common.py</code>）。</figcaption>
+  <figcaption id="tab-bytes-cap"><span class="fig-label">表 1</span><b>同一个算子，搬运量可以差几十倍，差的全是中间结果。</b>单位是&ldquo;对整张张量读或写一遍&rdquo;的字节数。softmax 一行按拆成四个 kernel 的朴素写法计；attention 一行按 \(N = 8192\)、\(d = 128\)、BF16、单个 head 计，标准实现把 \(S = QK^\top\) 和 \(P = \operatorname{softmax}(S)\) 各写一遍、读一遍，下界只算 \(Q, K, V, O\) 四个 \(N \times d\) 张量 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>]</span>。均为按公式计算（<code>plots/common.py</code>）。</figcaption>
   <div class="table-wrap"><table>
     <thead><tr><th>算子</th><th>实现</th><th class="num">实际搬运</th><th class="num">下界</th><th class="num">\(W / W_{\min}\)</th></tr></thead>
     <tbody>
@@ -446,7 +446,7 @@ static double inflight_per_sm(const Gpu&amp; g, double lat_s) {
 
 <h2 id="sec-wait" data-short="④ 等待账">④ 等待账：离两条屋顶都远时，时间花在等上</h2>
 
-<p>如果 kernel 的计算和带宽利用率都不高，问题通常不在字节或运算的数量上，而在<b>它们没有同时发生</b>。最清楚的证据来自 MLC 教程在 B200 上的 GEMM 阶梯 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">9</a>]</span>：同一个 \(4096^3\) 的 FP16 GEMM，第 1 步每个 tile 先用线程拷贝、拷完再算，耗时 70 ms；第 4 步把搬运交给 TMA，降到 0.49 ms；第 7 到第 9 步做 warp 特化、双 CTA cluster 与多消费者，降到 0.094 ms，与 cuBLAS 持平。前后约 744 倍，运算量一次没变。按 MLC 的分析，前几步慢在搬运和运算轮流进行，大部分时间两者都没跑满 <span class="cite">[<a href="#ref-mlcperf" title="MLC Community (2026). What Makes a Kernel Fast. In Modern GPU Programming For MLSys.">10</a>]</span>。<a href="#tab-ladder">表 2</a> 把阶梯的每一步归到它主要还的那笔账上。</p>
+<p>如果 kernel 的计算和带宽利用率都不高，问题通常不在字节或运算的数量上，而在<b>它们没有同时发生</b>。最清楚的证据来自 MLC 教程在 B200 上的 GEMM 阶梯 <span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">9</a>]</span>：同一个 \(4096^3\) 的 FP16 GEMM，第 1 步每个 tile 先用线程拷贝、拷完再算，耗时 70 ms；第 4 步把搬运交给 TMA，降到 0.49 ms；第 7 到第 9 步做 warp 特化、双 CTA cluster 与多消费者，降到 0.094 ms，与 cuBLAS 持平。前后约 744 倍，运算量一次没变。MLC 用&ldquo;搬一块、算一块、写一块&rdquo;的串行调度说明硬件单元会轮流闲着 <span class="cite">[<a href="#ref-mlcperf" title="MLC Community (2026). What Makes a Kernel Fast. In Modern GPU Programming For MLSys.">10</a>]</span>；我们据此把前几步的慢归到等待账上：搬运和运算轮流进行，大部分时间两者都没跑满。<a href="#tab-ladder">表 2</a> 把阶梯的每一步归到它主要还的那笔账上。</p>
 
 <figure id="tab-ladder" class="table" data-source="paper">
   <figcaption id="tab-ladder-cap"><span class="fig-label">表 2</span><b>744 倍里，运算量一次都没变，变的是字节怎么搬、谁在等谁。</b>耗时来自 MLC 教程 &ldquo;End-to-End Results&rdquo; 表（B200，\(M = N = K = 4096\)，FP16）<span class="cite">[<a href="#ref-mlcgemm" title="MLC Community (2026). Scaling GEMM with Warp Specialization and Clusters（“End-to-End Results” 表）. In Modern GPU Programming For MLSys.">9</a>]</span>；原表未单独计时的第 2、5、6 步未列出。&ldquo;主要还的账&rdquo;一列是本文按主线所做的归类，不是原文的说法。</figcaption>
@@ -2555,14 +2555,14 @@ L 350.521004 207.99452
 <text class="d-small" x="640" y="384" text-anchor="middle">多角色流水线</text>
 <rect class="d-box soft" x="720" y="340" width="144" height="60" rx="4" opacity="0.35"/>
 </svg></div>
-  <figcaption id="fig-fa-ledger-cap"><span class="fig-label">图 4</span><b>每一代 FlashAttention 都在还上一代留下的最大那笔账。</b>灰色格子是标准实现的问题；有颜色的格子是该版本的主要改进落在哪笔账上，颜色与<a href="#fig-ledger">图 1</a> 对应。FA1、FA2、FA3 的改进点取自各自论文的摘要 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>, <a href="#ref-fa2" title="Dao, T. (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691（摘要列出的三项改进）。">11</a>, <a href="#ref-fa3" title="Shah, J. et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691（摘要列出的三项技术）。">12</a>]</span>；FA4 的 exp 多项式取自 MLC 教程 <span class="cite">[<a href="#ref-mlcfa4" title="MLC Community (2026). Flash Attention 4. In Modern GPU Programming For MLSys.">8</a>]</span>，多角色流水线见<a href="../at36-flashattention4/at36-flashattention4.html">第 36 篇</a>。哪一项归到哪笔账是本文的归类。示意图。</figcaption>
+  <figcaption id="fig-fa-ledger-cap"><span class="fig-label">图 4</span><b>每一代 FlashAttention 都在还上一代留下的最大那笔账。</b>灰色格子是标准实现的问题；有颜色的格子是该版本的主要改进落在哪笔账上，颜色与<a href="#fig-ledger">图 1</a> 对应。FA1、FA2、FA3 的改进点取自各自论文的摘要 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>, <a href="#ref-fa2" title="Dao, T. (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691（摘要列出的三项改进）。">11</a>, <a href="#ref-fa3" title="Shah, J. et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608（摘要列出的三项技术）。">12</a>]</span>；FA4 的 exp 多项式取自 MLC 教程 <span class="cite">[<a href="#ref-mlcfa4" title="MLC Community (2026). Flash Attention 4. In Modern GPU Programming For MLSys.">8</a>]</span>，多角色流水线见<a href="../at36-flashattention4/at36-flashattention4.html">第 36 篇</a>。哪一项归到哪笔账是本文的归类。示意图。</figcaption>
 </figure>
 
 <ul>
   <li><b>标准实现的最大一笔是字节账。</b>按<a href="#tab-bytes">表 1</a>，\(N = 8192\) 时它搬了下界的 65 倍，而且随 \(N^2\) 增长。</li>
   <li><b>FA1 还字节账</b>：分块加在线 softmax，让 \(S\) 和 \(P\) 留在片上 <span class="cite">[<a href="#ref-fa1" title="Dao, Fu, Ermon, Rudra &amp; Ré (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. arXiv:2205.14135。">3</a>]</span>；代价记在算力账上，反向要重算 \(S\)。字节账还清之后，attention 从带宽屋顶下移到了算力屋顶下。</li>
   <li><b>FA2 还算力账和整卡账</b>：减少非矩阵乘的运算，因为 Tensor Core 之外的运算慢得多；单个 head 也沿序列长度切给多个 CTA，提高 occupancy；在 warp 之间重新分工，减少经过 shared memory 的通信 <span class="cite">[<a href="#ref-fa2" title="Dao, T. (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. arXiv:2307.08691（摘要列出的三项改进）。">11</a>]</span>。</li>
-  <li><b>FA3 还等待账</b>：到了 Hopper，搬运和矩阵乘都已异步，最大的一笔变成了它们之间的等待。FA3 用 warp 特化让 TMA 和 WGMMA 重叠，并让一块的 GEMM 与另一块的 softmax 交错执行；FP8 块量化再抬高算力上限 <span class="cite">[<a href="#ref-fa3" title="Shah, J. et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08691（摘要列出的三项技术）。">12</a>]</span>。</li>
+  <li><b>FA3 还等待账</b>：到了 Hopper，搬运和矩阵乘都已异步，最大的一笔变成了它们之间的等待。FA3 用 warp 特化让 TMA 和 WGMMA 重叠，并让一块的 GEMM 与另一块的 softmax 交错执行；FP8 块量化再抬高算力上限 <span class="cite">[<a href="#ref-fa3" title="Shah, J. et al. (2024). FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. arXiv:2407.08608（摘要列出的三项技术）。">12</a>]</span>。</li>
   <li><b>FA4 还的是新出现的算力账</b>：在 Blackwell 上，Tensor Core 的提速远大于 SFU，exp 成了最大的一笔，于是把一部分 exp 搬到 FMA 单元上 <span class="cite">[<a href="#ref-mlcfa4" title="MLC Community (2026). Flash Attention 4. In Modern GPU Programming For MLSys.">8</a>]</span>。</li>
 </ul>
 
@@ -2826,7 +2826,7 @@ L 350.521004 207.99452
   <li id="ref-mlcgemm">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_advanced/index.html">Scaling GEMM with Warp Specialization and Clusters</a>（“End-to-End Results” 表）. In <i>Modern GPU Programming For MLSys</i>.</li>
   <li id="ref-mlcperf">MLC Community (2026). <a href="https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_performance/index.html">What Makes a Kernel Fast</a>. In <i>Modern GPU Programming For MLSys</i>.</li>
   <li id="ref-fa2">Dao, T. (2023). <a href="https://arxiv.org/abs/2307.08691">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</a>. arXiv:2307.08691（摘要列出的三项改进）。</li>
-  <li id="ref-fa3">Shah, J. et al. (2024). <a href="https://arxiv.org/abs/2407.08691">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08691（摘要列出的三项技术）。</li>
+  <li id="ref-fa3">Shah, J. et al. (2024). <a href="https://arxiv.org/abs/2407.08608">FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</a>. arXiv:2407.08608（摘要列出的三项技术）。</li>
   <li id="ref-ncu">NVIDIA. <a href="https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html">Nsight Compute Profiling Guide</a>（各 section 与指标名）.</li>
 </ol>
 

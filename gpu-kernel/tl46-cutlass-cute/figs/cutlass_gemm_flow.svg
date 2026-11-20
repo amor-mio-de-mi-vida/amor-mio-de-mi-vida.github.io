@@ -85,7 +85,7 @@
 <rect x="585" y="195" width="80" height="25" rx="3" fill="#e0e7ff" stroke="#818cf8"/>
 <text x="625" y="212" text-anchor="middle" class="code" font-size="9">GMEM (D)</text>
 
-<text x="350" y="245" text-anchor="middle" class="label" font-size="10">Ampere: cp.async (128B/sector) | Hopper: TMA (bulk copy, addr in HW)</text>
+<text x="350" y="245" text-anchor="middle" class="label" font-size="10">Ampere: cp.async (≤16 B per instr) | Hopper: TMA (bulk copy, addr in HW)</text>
 
 <defs><marker id="arr11" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
   <path d="M0,0 L8,3 L0,6" fill="#888"/>

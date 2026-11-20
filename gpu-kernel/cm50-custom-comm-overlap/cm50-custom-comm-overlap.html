@@ -220,7 +220,7 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <div class="byline">
     <span><b>从零精通 GPU Kernel</b></span>
     <span>2026-10-29</span>
-    <span data-reading-time>约 21 分钟阅读</span>
+    <span data-reading-time>约 22 分钟阅读</span>
   </div>
 </header>
 
@@ -230,10 +230,10 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="tldr">
   <p class="tldr-title">TL;DR</p>
   <ul>
-    <li>NCCL 对小消息有明显的 launch 和 proxy 开销；自定义 AllReduce 通过 IPC 共享内存 + flag 同步绕过所有中间层，延迟可降低数倍到一个数量级。</li>
-    <li>One-shot AllReduce（每 GPU 读所有 peer 数据本地求和）延迟最低但带宽浪费大（总流量 N·D）；Two-shot（ReduceScatter + AllGather）带宽最优（总流量 \(2 \cdot \frac{N-1}{N} \cdot D\)）；实际系统按消息大小自动选择。</li>
-    <li>跨 GPU 的 flag 同步必须使用 <code>st.release.sys</code> / <code>ld.acquire.sys</code> 内存序语义（或 <code>__threadfence_system()</code>），否则 consumer 可能读到 stale data——NVLink 不保证跨 GPU 的 store 顺序。</li>
-    <li>计算-通信重叠的核心思想：GEMM 的第 i 个 tile 做 AllReduce 时，第 i+1 个 tile 同时计算；理想情况下总时间从 \(T_{\text{comp}} + T_{\text{comm}}\) 降到 \(\max(T_{\text{comp}}, T_{\text{comm}})\)，近乎免费通信。</li>
+    <li>NCCL 是通用栈，小消息上固定开销占比高；vLLM、TensorRT-LLM 等的自定义 AllReduce 用 IPC 共享缓冲区 + flag 同步，在一个 kernel 里直接读写 peer 显存。</li>
+    <li>One-shot AllReduce（每 GPU 读所有 peer 数据本地求和）阶段最少，但每卡要读入 \((N-1) \cdot D\)；Two-shot（ReduceScatter + AllGather）每卡只读入 \(2 \cdot \frac{N-1}{N} \cdot D\)；vLLM 按卡数和消息大小在两者之间切换。</li>
+    <li>跨 GPU 的 flag 同步必须使用 <code>st.release.sys</code> / <code>ld.acquire.sys</code> 内存序语义（或 <code>__threadfence_system()</code>），否则 consumer 可能读到旧数据——CUDA 内存模型本身不保证其他设备看到 store 的顺序。</li>
+    <li>计算-通信重叠的核心思想：GEMM 的第 i 个 tile 做 AllReduce 时，第 i+1 个 tile 同时计算；理想情况下总时间从 \(T_{\text{comp}} + T_{\text{comm}}\) 降到接近 \(\max(T_{\text{comp}}, T_{\text{comm}})\)；只有通信不长于计算时，通信才能被完全藏住。</li>
     <li>五大分布式并行模式（TP/SP/EP/CP/PP）各有不同的通信模式和瓶颈，理解它们的通信算子选择是系统级优化的关键。</li>
   </ul>
 </div>
@@ -247,13 +247,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>NCCL 是通用解决方案，但&ldquo;通用&rdquo;意味着妥协。在两个场景下自定义通信能带来显著提升：</p>
 
 <ul>
-  <li><b>小消息低延迟</b>：NCCL 的 kernel launch + proxy 轮询 + 协议选择至少有 ~10 μs 开销。对于 Transformer 中每层 hidden_size × n_heads 大小的 AllReduce（通常只有几十到几百 KB），这个开销占总时间的很大比例。自定义 AllReduce 用 IPC 共享内存 + 一个 fused kernel 搞定，延迟可以从 ~20 μs 降到 ~3 μs——这对推理服务尤其重要，因为推理的 batch size 小、消息量小，通信延迟占总延迟的比例更高。</li>
+  <li><b>小消息低延迟</b>：推理解码时，张量并行每层要对 tokens × hidden_size 的激活做 AllReduce，batch 小时消息也小，此时固定开销而不是带宽决定通信时间。自定义 AllReduce 用 IPC 共享缓冲区 + 一个 kernel 完成同步、读取和求和，省掉通用栈的层层开销——这正是 vLLM 的 custom all-reduce 所针对的场景<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。实际收益要在具体机器上测。</li>
   <li><b>计算-通信重叠</b>：NCCL 的 AllReduce 是一个黑箱——你给它输入，它给你输出，中间你无法控制&ldquo;第 0 个 tile 好了就先发&rdquo;。自定义通信可以把通信嵌入计算 kernel 内部，做 tile 级别的细粒度流水线，让 GEMM 的每个输出 tile 一算完就立即发起对应的 AllReduce，在时间上实现计算和通信的完全重叠。</li>
 </ul>
 
-<p>自定义通信在工业界的应用已经非常广泛。Meta 的 Megascale、ByteDance 的 Flux、DeepSeek 的 DeepEP<span class="cite">[<a href="#ref-deepep" title="DeepSeek (2025). DeepEP. MoE All-to-All 的自定义通信实现：one-shot low-latency + two-shot high-throughput。">1</a>]</span>、以及 TensorRT-LLM 的 custom AllReduce 都是典型代表。它们的共同思路是：用 NVLink + IPC 共享内存构建一个超低延迟的节点内通信路径，绕过 NCCL 的通用栈——不需要 NCCL 的初始化（拓扑检测、图搜索）、不需要 channel 分配、不需要协议选择、不需要 proxy 线程。对于节点间通信（走 IB），仍然使用 NCCL 或手动的 RDMA——因为 IB 的 RDMA 编程复杂度远高于 NVLink 的 load/store，需要处理 QP 状态机、内存注册、完成通知等一系列底层细节。</p>
+<p>自定义通信在工业界已很常见：vLLM 和 TensorRT-LLM 的 custom AllReduce、ByteDance 的 Flux<span class="cite">[<a href="#ref-flux" title="Chang, L.-W., Bao, W., Hou, Q., et al. (2024). FLUX: Fast Software-based Communication Overlap On GPUs Through Kernel Fusion. arXiv:2406.06858（ByteDance；代码 bytedance/flux）。">2</a>]</span>、DeepSeek 的 DeepEP<span class="cite">[<a href="#ref-deepep" title="DeepSeek. DeepEP. README（2026-11 查阅）：EP dispatch/combine kernel；V2 引入 NCCL Gin 后端，V2.5 移除 NVSHMEM 依赖、统一为 <code>EPBuffer</code>。">3</a>]</span> 都是例子。节点内的共同思路是：用 NVLink + IPC 共享缓冲区构建一条低开销的通信路径，绕过 NCCL 的通用栈。节点间（走 IB）则复杂得多，要么仍用 NCCL，要么借助 NVSHMEM、NCCL 的设备端 API 这类库由 GPU 直接发起 RDMA——自己直接写 verbs 需要处理 QP 状态机、内存注册、完成通知等一系列底层细节。</p>
 
-<p>自定义通信的另一个重要优势是<b>与训练框架的计算内核深度融合</b>。NCCL 的 API 是同步点（虽然 enqueue 不阻塞，但 kernel 内部是不可拆分的），框架只能在&ldquo;GEMM 全部算完→AllReduce 全部通信完→下一个 GEMM&rdquo;的粗粒度层面做调度。自定义通信可以把通信逻辑嵌入到 GEMM 的 persistent kernel 内部，实现 tile 级的细粒度流水线——这是 NCCL 无法做到的。</p>
+<p>自定义通信的另一个重要优势是<b>与训练框架的计算内核深度融合</b>。通过 NCCL 的集合操作 API，框架通常只能在&ldquo;GEMM 全部算完 → AllReduce 全部通信完 → 下一个 GEMM&rdquo;的粗粒度层面调度（或者像 async-TP 那样把 GEMM 拆成几块分别和通信重叠）。自定义通信可以把通信逻辑嵌入 GEMM kernel 内部，做 tile 级的细粒度流水线——Flux 就是把通信和计算拆细后融合进更大的 kernel<span class="cite">[<a href="#ref-flux" title="Chang, L.-W., Bao, W., Hou, Q., et al. (2024). FLUX: Fast Software-based Communication Overlap On GPUs Through Kernel Fusion. arXiv:2406.06858（ByteDance；代码 bytedance/flux）。">2</a>]</span>。</p>
 
 <h2 id="sec-ipc" data-short="IPC 共享内存">IPC 共享内存基础设施</h2>
 
@@ -264,17 +264,17 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p><a href="#fig-ipc_memory_setup">图 1</a>展示了 IPC 共享内存的设置过程。自定义 AllReduce 的基础设施是 <b>IPC 共享内存</b>：每个 GPU 用 <code>cudaIpcGetMemHandle</code> 导出自己 buffer 的 handle，其他 GPU 用 <code>cudaIpcOpenMemHandle</code> 映射到自己的地址空间。之后任何 GPU 都可以直接 load/store 任何其他 GPU 的 buffer（通过 NVLink）。</p>
 
-<p>IPC 句柄本质上包含了 GPU 显存的物理页面信息——它允许另一个进程（或另一个 GPU 上下文）在不做 <code>cudaMalloc</code> 的情况下访问那段物理显存。映射后的虚拟地址在本地 GPU 的页表中指向远端 GPU 的物理显存，NVLink 硬件负责透明地完成跨 GPU 的内存访问。</p>
+<p>IPC 句柄是一个不透明的结构，另一个进程打开它就得到一个指向同一块显存的有效设备指针<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与“最后一个 block”示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。">4</a>]</span>。映射后的虚拟地址指向远端 GPU 的显存，跨 GPU 的访问由 NVLink（或 PCIe P2P）硬件完成。注意 <code>cudaMalloc</code> 的分配可能是从更大的块里切出来的，IPC 共享的是整个底层块。</p>
 
-<p>自定义通信中容易忽视的一个陷阱是 <b>NUMA 亲和性对 pinned memory 的影响</b>。自定义 AllReduce 常用 <code>cudaHostAlloc</code> 分配 pinned memory 作为 CPU 端的 flag 缓冲区或 staging buffer。如果分配线程绑定在 NUMA Node 1 但 GPU 在 NUMA Node 0，Linux 的 first-touch 策略会把物理页面分配在 Node 1——GPU 通过 DMA 访问这些页面需要跨 UPI 互联，每次访问多约 2-4 μs 延迟。更隐蔽的问题是 flag 的 spin-wait：consumer GPU 用 <code>ld.acquire.sys</code> 轮询位于 CPU 端 pinned memory 中的 flag 时，如果该 flag 的物理页面不在 GPU 所在的 NUMA 节点上，每次轮询的 PCIe + UPI 往返都更慢，拉高了 spin-wait 的收敛时间。解决方案是：(1) 用 <code>numactl --membind=&lt;gpu_numa_node&gt;</code> 启动进程，确保所有内存分配（包括 CUDA pinned memory 的底层 <code>mlock</code>）发生在正确的 NUMA 节点上；(2) 或者在分配前手动调用 <code>set_mempolicy(MPOL_BIND, &amp;nodemask, ...)</code> 设置当前线程的 NUMA 内存策略；(3) 对于多 GPU 进程，用 <code>numa_alloc_onnode</code> 为每个 GPU 的 staging buffer 显式指定 NUMA 节点。在 TensorRT-LLM 的自定义 AllReduce 实现中，pinned memory 的 NUMA 绑定是初始化的第一步——IPC handle 的交换和映射都在 NUMA 绑定之后进行，确保整个通信路径没有跨 NUMA 的额外开销。</p>
+<p>flag 放在哪里也有讲究。vLLM 的实现把每个 rank 的信号区（flag 计数器）和数据缓冲区都放在 GPU 显存里，同样通过 IPC 映射给其他 rank<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>，轮询走 NVLink，不经过 CPU 内存。如果把 flag 放在主机 pinned memory 里，轮询就要跨 PCIe，并受 NUMA 位置影响。</p>
 
-<p>这个机制有几个限制：(1) IPC handle 只在同一个操作系统上的进程间有效（不能跨节点），因为 handle 编码的是物理页面信息，这些信息在不同机器上没有意义；(2) 导出 handle 的 buffer 不能被 <code>cudaFree</code>，否则物理页面被回收，其他 GPU 的映射变成悬空指针——访问会导致 GPU 页面错误或数据损坏；(3) 每个进程能打开的 IPC handle 数量受 GPU 的 BAR1 空间限制（H100 的 BAR1 为 256 GB，映射的远端显存地址区域要在 BAR1 范围内）。在实际部署中，IPC handle 的管理是自定义通信中最容易出错的部分——进程退出时没有正确关闭 handle、进程重启后 handle 失效、CUDA context 切换导致映射丢失等问题都需要仔细处理。</p>
+<p>这个机制有几个限制：(1) IPC handle 只在同一台机器的进程间有效，不能跨节点（跨节点要用 VMM 的 fabric handle 与 IMEX，见第 48 篇）；(2) 在导入方调用 <code>cudaIpcCloseMemHandle</code> 之前，导出方对这块内存调用 <code>cudaFree</code> 是未定义行为<span class="cite">[<a href="#ref-cuda_rt_ipc" title="NVIDIA. CUDA Runtime API: Device Management. <code>cudaIpcOpenMemHandle</code>：在导入方 <code>cudaIpcCloseMemHandle</code> 之前对导出内存 <code>cudaFree</code> 为未定义行为。">5</a>]</span>；(3) 不支持 <code>cudaMallocManaged</code> 的分配<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与“最后一个 block”示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。">4</a>]</span>。在实际部署中，handle 的生命周期管理（进程退出时关闭、进程重启后重新交换）是自定义通信中最容易出错的部分。</p>
 
 <h2 id="sec-oneshot-twoshot" data-short="One/Two-shot">One-shot vs Two-shot AllReduce</h2>
 
 <figure id="fig-oneshot_vs_twoshot" data-kind="diagram">
   <img aria-labelledby="fig-oneshot_vs_twoshot-cap" src="figs/oneshot_vs_twoshot.svg" alt="One-shot vs Two-shot AllReduce">
-  <figcaption id="fig-oneshot_vs_twoshot-cap"><span class="fig-label">图 2</span><b>小消息用 one-shot 低延迟，大消息用 two-shot 高带宽。</b>One-shot：每个 GPU 读取所有 peer 的数据做本地求和，总 NVLink 流量 = N·D（读放大 N 倍），但只需一次 kernel、无同步屏障。Two-shot：先 ReduceScatter（每 GPU 归约自己负责的 1/N）再 AllGather（广播结果），总流量 = \(2 \cdot \frac{N-1}{N} \cdot D\)（带宽最优），但需要两次 barrier。</figcaption>
+  <figcaption id="fig-oneshot_vs_twoshot-cap"><span class="fig-label">图 2</span><b>小消息用 one-shot 低延迟，大消息用 two-shot 高带宽。</b>One-shot：每个 GPU 读取所有 peer 的数据做本地求和，每卡经 NVLink 读入 \((N-1) \cdot D\)，只有一个阶段。Two-shot：先 ReduceScatter（每 GPU 归约自己负责的 1/N）再 AllGather（广播结果），每卡读入 \(2 \cdot \frac{N-1}{N} \cdot D\)，但两个阶段之间要多一次跨 GPU barrier。</figcaption>
 </figure>
 
 <p><a href="#fig-oneshot_vs_twoshot">图 2</a>对比了两种策略。</p>
@@ -293,9 +293,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cm50-custom-comm-overlap/oneshot_allreduce.cu</code>（未在 GPU 上运行）</p>
 
-<p>One-shot 的关键优势在于<b>零同步开销</b>——整个 AllReduce 只有一次 kernel launch，没有中间 barrier，也没有 ReduceScatter 和 AllGather 之间的全局同步。每个 GPU 的每个线程独立地从所有 peer 读取同一位置的数据并求和。这里的 <code>#pragma unroll</code> 让编译器展开 N_GPUS 次循环，生成 8 条连续的 NVLink load 指令——NVLink 的硬件预取可以将这些 load 流水线化，有效隐藏单次 load 的 1-2 μs 延迟。为了进一步提高带宽利用率，实际实现中每个线程会用向量化 load（如 <code>float4</code> 或 128 位 load）一次读取 16 字节，减少 NVLink 事务数量。</p>
+<p>One-shot 的关键优势在于<b>阶段最少</b>——整个 AllReduce 只有一次 kernel launch，ReduceScatter 和 AllGather 之间不需要全局同步。每个 GPU 的每个线程独立地从所有 peer 读取同一位置的数据并求和。这里的 <code>#pragma unroll</code> 把 N_GPUS 次循环展开，让多条远端 load 可以连续发出、同时在途，而不是一条等一条。注意上面的示意代码省掉了真实实现必需的同步：vLLM 的 one-stage kernel 在开头有一次跨 GPU barrier（确认各 peer 的输入已经写好），结尾还有一次（确认大家都读完、缓冲区可以复用）；它还用 16 字节的打包类型读写，减少访存指令数<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。</p>
 
-<p>One-shot 的选择依据：8 GPU 时读放大 8 倍，对于 128 KB 消息只有 1 MB 总流量，NVLink 4.0（900 GB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。">2</a>]</span>）在 ~1 μs 内传完；但对于 128 MB 消息就是 1 GB 总流量，two-shot 的 224 MB（\(2 \times \frac{7}{8} \times 128\) MB）更划算。实际切换点在 ~256 KB 附近。Two-shot 的第一阶段 ReduceScatter 如下：</p>
+<p>One-shot 的选择依据：8 GPU 时每卡要读入 \(7D\)，two-shot 只读入 \(2 \times \frac{7}{8} D = 1.75D\)，相差 4 倍。对 128 KB 的消息，\(7D\) 约 0.9 MB，按 H100 NVLink 每方向 450 GB/s<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。">6</a>]</span> 算约 2 μs，此时多一次 barrier 的代价更显著，one-shot 划算；对 128 MB 的消息，\(7D\) 是 896 MB，而 two-shot 只要 224 MB，two-shot 明显更好。vLLM 的选择规则是：2 卡总用 one-shot；全互联时，不超过 4 卡且小于 512 KB、或不超过 8 卡且小于 256 KB 用 one-shot，否则用 two-shot<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。Two-shot 的第一阶段 ReduceScatter 如下：</p>
 
 <pre data-code="code/cm50-custom-comm-overlap/oneshot_allreduce.cu#L40-L52"><code>__global__ void twostep_reduce_scatter(
     half** peer_bufs, half* output,
@@ -312,9 +312,9 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 }</code></pre>
 <p class="src-note">code/cm50-custom-comm-overlap/oneshot_allreduce.cu · Two-shot 第一阶段：每 GPU 只归约自己负责的 chunk</p>
 
-<p>与 one-shot 的关键区别在于<b>每个 GPU 只归约全局数据的 1/N 分片</b>（<code>rank * chunk_size</code> 到 <code>(rank+1) * chunk_size</code>），而不是归约全部数据。这使得每个 GPU 从每个 peer 读取的数据量从 D 降到 D/N——8 GPU 时总 NVLink 读流量从 8D 降到 D。ReduceScatter 完成后每个 GPU 持有一个完全归约的 chunk，AllGather 阶段再把各 GPU 的 chunk 收集到一起。两阶段之间需要一个全局 barrier（flag 同步），确保所有 GPU 的 ReduceScatter 完成后才开始 AllGather。这个 barrier 的实现通常是：每个 GPU 完成 ReduceScatter 后设置自己的 flag（release store），然后 spin-wait 所有其他 GPU 的 flag（acquire load）——看到所有 flag 都设好后才开始 AllGather。barrier 的延迟取决于最慢的 GPU——如果某个 GPU 因为 SM 资源竞争或内存带宽瓶颈而落后，所有 GPU 都要等它。</p>
+<p>与 one-shot 的关键区别在于<b>每个 GPU 只归约全局数据的 1/N 分片</b>（<code>rank * chunk_size</code> 到 <code>(rank+1) * chunk_size</code>），而不是归约全部数据。这使得每个 GPU 从每个 peer 读取的数据量从 D 降到 D/N——8 GPU 时这一阶段每卡读入从 \(7D\) 降到 \(\frac{7}{8}D\)，AllGather 阶段再读入 \(\frac{7}{8}D\)。ReduceScatter 完成后每个 GPU 持有一个完全归约的 chunk，AllGather 阶段再把各 GPU 的 chunk 收集到一起。两阶段之间需要一个全局 barrier（flag 同步），确保所有 GPU 的 ReduceScatter 完成后才开始 AllGather。这个 barrier 的实现通常是：每个 GPU 完成 ReduceScatter 后设置自己的 flag（release store），然后 spin-wait 所有其他 GPU 的 flag（acquire load）——看到所有 flag 都设好后才开始 AllGather。barrier 的延迟取决于最慢的 GPU——如果某个 GPU 因为 SM 资源竞争或内存带宽瓶颈而落后，所有 GPU 都要等它。vLLM 正是这样做的：阶段之间的 barrier 用 <code>st.release.sys</code> 写 peer 的计数器、用 <code>ld.acquire.sys</code> 轮询自己的计数器<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。</p>
 
-<p>在实际系统中，two-shot 的 barrier 实现还需要考虑<b>flag 的复位时序</b>。如果用固定值（flag=1 表示就绪），那么在连续两次 AllReduce 之间必须有一个显式的 flag 重置步骤——所有 GPU 把 flag 清零，然后再开始下一轮。这个重置本身又需要一个 barrier（确保所有 GPU 都看到了上一轮的结果再清零），引入额外的同步开销。更优的设计是用<b>递增 flag</b>——第 k 轮操作的 flag 值为 k，consumer 检查 flag >= k 即可。这种方式不需要重置，连续多轮操作可以无间断执行。NCCL 内部的 LL 协议就采用了这种递增 flag 设计——这也是为什么 NCCL 的 LL 协议在连续调用时没有额外的 flag 重置开销。</p>
+<p>在实际系统中，two-shot 的 barrier 实现还需要考虑<b>flag 的复位时序</b>。如果用固定值（flag=1 表示就绪），那么在连续两次 AllReduce 之间必须有一个显式的 flag 重置步骤——所有 GPU 把 flag 清零，然后再开始下一轮。这个重置本身又需要一个 barrier（确保所有 GPU 都看到了上一轮的结果再清零），引入额外的同步开销。更优的设计是用<b>递增 flag</b>——第 k 轮操作的 flag 值为 k，consumer 等 flag 等于 k 即可。这种方式不需要重置，连续多轮操作可以无间断执行。vLLM 的 barrier 就是每个 block 维护一个递增计数器<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>；NCCL 的 LL 协议同样让 flag 随步数递增（见第 49 篇）。</p>
 
 <p>Two-shot 还有一个精妙之处：AllGather 阶段可以用<b>写入代替读取</b>。ReduceScatter 完成后，每个 GPU 持有一个完全归约的 chunk；AllGather 可以让每个 GPU 主动把自己的 chunk 写入所有 peer 的对应位置（NVLink write），而不是让每个 peer 来读取。写入方式的好处是：producer 知道什么时候数据就绪（自己写完就行），不需要读取方去检查 flag。但代价是每个 GPU 要做 N-1 次 NVLink write（写入 N-1 个 peer），而读取方式只需要 N-1 次 NVLink read（从 N-1 个 peer 读取）——在 NVLink 全双工下，读和写可以同时进行，所以哪种方式更快取决于具体的访存模式和 NVLink 拓扑。</p>
 
@@ -333,20 +333,20 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 <p>如<a href="#fig-flag_sync">图 3</a>和<a href="#fig-memory_order">图 4</a>所示，跨 GPU 的通信最难的不是数据传输（NVLink 硬件搞定），而是<b>同步</b>：GPU A 写完数据后，GPU B 怎么知道可以安全读了？答案是 flag + 内存序：</p>
 
 <ul>
-  <li><code>__threadfence_system()</code>：确保当前线程此前的所有 store 对系统中所有设备（包括其他 GPU 和 CPU）可见<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide. §B.5 Memory Fence Functions: __threadfence_system() 语义。">3</a>]</span>。这是一个开销很大的操作（可能需要刷新 L2 cache 中的 pending write），所以只在设置 flag 前调用一次</li>
-  <li><code>st.release.sys</code>（PTX<span class="cite">[<a href="#ref-ptx_isa" title="NVIDIA. PTX ISA Reference. §9.7.12 Memory Ordering: system-scope release/acquire 语义。">4</a>]</span>）：release 语义的 system-scope store，等价于 fence + store。保证此前所有 store 在 flag store 之前对其他设备可见</li>
+  <li><code>__threadfence_system()</code>：等价于 <code>cuda::atomic_thread_fence(cuda::memory_order_seq_cst, cuda::thread_scope_system)</code>，保证调用线程在它之前的所有写，被本设备、主机线程和 peer 设备上的所有线程观察为先于它之后的写<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与“最后一个 block”示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。">4</a>]</span>。它的开销比 device 范围的 fence 大，所以通常只在设置 flag 前调用一次</li>
+  <li><code>st.release.sys</code>（PTX<span class="cite">[<a href="#ref-ptx_isa" title="NVIDIA. PTX ISA Reference. 第 8 章 Memory Consistency Model，以及 <code>ld</code> / <code>st</code> 的 <code>.acquire</code> / <code>.release</code> 与 <code>.sys</code> scope。">7</a>]</span>）：release 语义的 system-scope store。观察到这次 store 的线程，也一定能观察到本线程在它之前的写</li>
   <li><code>ld.acquire.sys</code>（PTX）：acquire 语义的 system-scope load，确保此后的 load 看到最新数据。当 consumer 通过 acquire load 看到 flag=1 时，producer 在 release store 之前写入的所有数据都保证可见</li>
 </ul>
 
-<p>关键点：<b>普通的 <code>volatile</code> 不够</b>。<code>volatile</code> 只保证每次都从内存读（不被优化到寄存器），但不保证跨 GPU 的 store 顺序。没有 release/acquire 语义，GPU B 可能看到 flag = 1 但读到旧数据——因为 NVLink 的写入可以乱序到达。这是 GPU 编程中最常见的跨设备同步 bug，而且极难复现：在大多数情况下 store 恰好按顺序到达，bug 只在极端负载或特定 NVLink 拓扑下才触发。</p>
+<p>关键点：<b>普通的 <code>volatile</code> 不够</b>。<code>volatile</code> 只保证每次都从内存读（不被优化到寄存器），但不保证跨 GPU 的 store 顺序。没有 release/acquire 语义，GPU B 可能看到 flag = 1 但读到旧数据——因为 NVLink 的写入可以乱序到达。这类 bug 极难复现：多数时候 store 恰好按顺序变得可见，问题只在特定负载下偶尔出现。（vLLM 在第一次 barrier 处用的是 volatile flag，那是因为那里不需要对之前的访存做可见性保证，源码注释里专门说明了这一点<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。）</p>
 
-<p>在 CUDA C++ 层面，release/acquire 语义可以用 <code>cuda::atomic_ref</code>（CUDA 12+）或者内联 PTX 实现。<code>cuda::atomic_ref&lt;int, cuda::thread_scope_system&gt;</code> 提供了类型安全的接口——<code>store(1, cuda::memory_order_release)</code> 等价于 PTX 的 <code>st.release.sys</code>，<code>load(cuda::memory_order_acquire)</code> 等价于 <code>ld.acquire.sys</code>。推荐在新代码中使用 <code>cuda::atomic_ref</code> 而不是内联 PTX，因为编译器可以在不影响语义的前提下做更多优化。</p>
+<p>在 CUDA C++ 层面，release/acquire 语义可以用 libcu++ 的 <code>cuda::atomic_ref</code> 或者内联 PTX 实现。<code>cuda::atomic_ref&lt;int, cuda::thread_scope_system&gt;</code> 提供了类型安全的接口——<code>store(1, cuda::memory_order_release)</code> 等价于 PTX 的 <code>st.release.sys</code>，<code>load(cuda::memory_order_acquire)</code> 等价于 <code>ld.acquire.sys</code>。新代码用 <code>cuda::atomic_ref</code> 可读性更好，也不依赖手写 PTX；vLLM 这类成熟实现则直接用内联 PTX。</p>
 
-<p>NCCL 内部的 LL 协议也使用相同的 flag 同步思想——LL 的 4B data + 4B flag 就是一个 8B 的 release store：因为 NVLink 保证 8B 写入的原子性，flag 和 data 在同一个 8B word 中，flag 的 store 不可能先于 data。这是 LL 比手动 flag 同步更简单的原因——不需要显式的 fence。但 LL 的代价是每 4B 数据附带 4B flag，有效带宽只有 67%——而手动 flag 同步可以做到数据和 flag 分开，数据部分没有带宽浪费。这就是自定义 AllReduce 比 NCCL LL 协议带宽更优的原因。</p>
+<p>NCCL 的 LL 协议走的是另一条路：把 4B 数据和 4B flag 放进同一个 8 字节写里，依赖 8 字节写入的原子性——看到新 flag 就意味着同一 8 字节里的数据也到了，因此不需要单独的屏障。代价是每 4B 数据附带 4B flag，有效带宽只有 50%。&ldquo;数据 + 单独的 flag + release/acquire&rdquo;的做法没有这份带宽浪费，但每次同步要付一次屏障的代价——这和 NCCL 的 Simple 协议是同一类取舍（见第 49 篇）。</p>
 
 <h2 id="sec-nvshmem" data-short="NVSHMEM">NVSHMEM：设备发起的通信</h2>
 
-<p><b>NVSHMEM</b><span class="cite">[<a href="#ref-nvshmem_doc" title="NVIDIA. NVSHMEM Documentation. 设备发起通信的 PGAS 编程模型。">5</a>]</span> 是 NVIDIA 的 PGAS（Partitioned Global Address Space）通信库。与 NCCL 最大的区别是：NVSHMEM 的 put/get 操作可以由 GPU 线程直接发起，不需要 CPU 参与。这意味着通信的粒度可以细到单个 warp——一个 warp 可以在计算的间隙发起一次小的 put 操作，而不需要等整个 kernel 执行完再由 CPU 调度 NCCL。NVSHMEM 的通信模型比 NCCL 更底层：NCCL 提供的是集合操作语义（AllReduce、AllGather 等），而 NVSHMEM 提供的是点对点的 put/get 语义——程序员需要自己组合 put/get 来实现集合操作，但获得了更细粒度的控制。</p>
+<p><b>NVSHMEM</b><span class="cite">[<a href="#ref-nvshmem_doc" title="NVIDIA. NVSHMEM Documentation. 设备发起通信的 PGAS 编程模型。">8</a>]</span> 是 NVIDIA 的 PGAS（Partitioned Global Address Space）通信库。与 NCCL 最大的区别是：NVSHMEM 的 put/get 操作可以由 GPU 线程直接发起，不需要 CPU 参与。这意味着通信的粒度可以细到单个线程或 warp——kernel 可以在计算的间隙发起一次小的 put，而不需要等整个 kernel 执行完再由 CPU 发起 NCCL 调用。NVSHMEM 的通信模型比 NCCL 更底层：NCCL 提供的是集合操作语义（AllReduce、AllGather 等），而 NVSHMEM 提供的是点对点的 put/get 语义——程序员需要自己组合 put/get 来实现集合操作，但获得了更细粒度的控制。</p>
 
 <pre data-code="code/cm50-custom-comm-overlap/nvshmem_put_ring.cu#L34-L47"><code>__global__ void ring_put_kernel(
     float* symmetric_buf, int count,
@@ -387,18 +387,18 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <p>这段代码展示了 NVSHMEM 归约的核心模式：每个线程先读本地值，然后用 <code>nvshmem_float_g</code> 从每个远端 PE 读取同一位置的值并累加。与前面的 one-shot AllReduce 类似，这也是&ldquo;每 GPU 读所有 peer&rdquo;的模式，但区别在于 NVSHMEM 的 get 可以透明地跨越节点边界——节点内走 NVLink load，节点间走 IB RDMA READ，程序员无需区分。这种统一的编程模型使得 NVSHMEM 特别适合需要跨节点细粒度通信的场景。</p>
 
-<p>NVSHMEM 的&ldquo;symmetric allocation&rdquo;（<code>nvshmem_malloc</code>）在所有 PE 上分配相同虚拟地址的内存，使得 GPU 线程可以用相同的指针访问任何 PE 的数据。底层通过 NVLink（节点内）或 IB RDMA（节点间）传输。NVSHMEM 对节点内通信直接使用 NVLink 的 load/store（等效于 IPC 共享内存，但 NVSHMEM 框架自动处理了地址映射和同步），对节点间通信通过 GPUDirect Async 让 GPU 直接向 NIC 提交 RDMA 请求——完全绕过 CPU。NVSHMEM 的 symmetric allocation 还有一个重要特性：分配的内存在所有 PE 上的虚拟地址相同，这意味着一个 GPU 可以直接用本地指针加上 PE 号来访问远端数据，不需要额外的地址翻译或查找表。这使得 NVSHMEM 特别适合细粒度的通信模式，比如 MoE 的 token dispatch：每个 token 只需发给一两个 expert GPU，用 NVSHMEM 的 <code>nvshmemx_putmem_nbi_warp</code> 可以在一个 warp 内完成单个 token 的发送，而 NCCL 的 All-to-All 要等所有 token 准备好才能批量发送。</p>
+<p>NVSHMEM 的&ldquo;symmetric allocation&rdquo;（<code>nvshmem_malloc</code>）是集体调用，在每个 PE 的对称堆上分配同样大小的对象，GPU 线程用本地的对称地址加上目标 PE 号就能访问远端对应的对象，不需要自己维护地址表。节点内，NVSHMEM 直接用 NVLink 的 load/store（等效于 IPC 共享内存，但地址映射由库处理）；节点间，传统的 IBRC 传输仍由 CPU 上的 proxy 线程向 NIC 提交请求，而 IBGDA 传输让 GPU 线程直接构造 work request 并通知 NIC，CPU 退出控制路径<span class="cite">[<a href="#ref-ibgda_blog" title="Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async. NVIDIA Technical Blog（IBRC proxy 与 IBGDA）。">9</a>]</span>。这使得 NVSHMEM 特别适合细粒度的通信模式，比如 MoE 的 token dispatch：每个 token 只需发给一两个 expert GPU，用 NVSHMEM 的 <code>nvshmemx_putmem_nbi_warp</code> 可以在一个 warp 内完成单个 token 的发送，而 NCCL 的 All-to-All 要等所有 token 准备好才能批量发送。</p>
 
 <h2 id="sec-overlap" data-short="计算-通信重叠">Tile 级计算-通信重叠</h2>
 
 <figure id="fig-tile_overlap" data-kind="diagram">
   <img aria-labelledby="fig-tile_overlap-cap" src="figs/tile_overlap.svg" alt="Tile 级计算-通信重叠流水线">
-  <figcaption id="fig-tile_overlap-cap"><span class="fig-label">图 5</span><b>流水线化：GEMM tile i 的 AllReduce 与 tile i+1 的计算同时执行。</b>无重叠时总时间 = 计算 + 通信；流水线化后总时间 ≈ 计算 + 通信/N_tiles，当 tile 数足够多时通信几乎被完全掩盖。这是 Flux<span class="cite">[<a href="#ref-flux" title="ByteDance (2024). Flux: Efficient Tensor Parallel Communication in LLM Serving. Tile 级 GEMM-AllReduce 重叠的开源实现。">6</a>]</span> 和 async-TP 的核心思想。</figcaption>
+  <figcaption id="fig-tile_overlap-cap"><span class="fig-label">图 5</span><b>流水线化：GEMM tile i 的 AllReduce 与 tile i+1 的计算同时执行。</b>无重叠时总时间 = 计算 + 通信；流水线化后总时间 ≈ 计算 + 通信/N_tiles，当 tile 数足够多时通信几乎被完全掩盖。这是 Flux<span class="cite">[<a href="#ref-flux" title="Chang, L.-W., Bao, W., Hou, Q., et al. (2024). FLUX: Fast Software-based Communication Overlap On GPUs Through Kernel Fusion. arXiv:2406.06858（ByteDance；代码 bytedance/flux）。">2</a>]</span> 和 PyTorch async-TP<span class="cite">[<a href="#ref-async_tp" title="He, H., Wright, L., Wehrstedt, L., Liu, T., Liang, W. (2024). [Distributed w/ TorchTitan] Introducing Async Tensor Parallelism in PyTorch. PyTorch Forums。">10</a>]</span> 的共同出发点（两者的具体拆分方式不同）。</figcaption>
 </figure>
 
 <p><a href="#fig-tile_overlap">图 5</a>展示了流水线示意。计算-通信重叠的关键是 <b>tile 粒度的信号</b>——GEMM 输出的每个 tile 一旦完成，立即通过 flag 通知通信 kernel：</p>
 
-<pre data-code="code/cm50-custom-comm-overlap/overlap_gemm_allreduce.cu#L22-L44"><code>__global__ void gemm_tile_producer(
+<pre data-code="code/cm50-custom-comm-overlap/overlap_gemm_allreduce.cu#L23-L52"><code>__global__ void gemm_tile_producer(
     half* output, int tile_id,
     int M, int N) {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
@@ -413,27 +413,37 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     }
   }
 
-  if (threadIdx.x == 0 &amp;&amp; threadIdx.y == 0 &amp;&amp;
-      blockIdx.x == 0 &amp;&amp; blockIdx.y == 0) {
+  // The flag may go up only after EVERY block
+  // of this tile has stored its part: each block
+  // fences and counts itself; the last block to
+  // arrive raises the flag.
+  __syncthreads();
+  if (threadIdx.x == 0 &amp;&amp; threadIdx.y == 0) {
     __threadfence_system();
-    tile_flags[tile_id] = 1;
+    int nblk = gridDim.x * gridDim.y;
+    if (atomicAdd(&amp;tile_done[tile_id], 1) == nblk - 1) {
+      __threadfence_system();
+      tile_flags[tile_id] = 1;
+    }
   }
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cm50-custom-comm-overlap/overlap_gemm_allreduce.cu</code>（未在 GPU 上运行）</p>
 
-<p>实际的重叠系统（如 Flux<span class="cite">[<a href="#ref-flux" title="ByteDance (2024). Flux: Efficient Tensor Parallel Communication in LLM Serving. Tile 级 GEMM-AllReduce 重叠的开源实现。">6</a>]</span>、ByteDance 的 async-TP）比示例复杂得多。核心挑战有三：</p>
+<p>注意 flag 的写法：一个 tile 由多个 block 共同写出，只让 block (0,0) 写完就立 flag 是错的——其他 block 可能还没写完。这里沿用 CUDA 编程指南里&ldquo;最后一个到达的 block&rdquo;的套路：每个 block 先 fence，再用原子计数器登记自己，最后到达的那个 block 再 fence 一次后立 flag<span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与“最后一个 block”示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。">4</a>]</span>。</p>
+
+<p>实际的重叠系统（如 Flux<span class="cite">[<a href="#ref-flux" title="Chang, L.-W., Bao, W., Hou, Q., et al. (2024). FLUX: Fast Software-based Communication Overlap On GPUs Through Kernel Fusion. arXiv:2406.06858（ByteDance；代码 bytedance/flux）。">2</a>]</span>、PyTorch 的 async-TP<span class="cite">[<a href="#ref-async_tp" title="He, H., Wright, L., Wehrstedt, L., Liu, T., Liang, W. (2024). [Distributed w/ TorchTitan] Introducing Async Tensor Parallelism in PyTorch. PyTorch Forums。">10</a>]</span>）比示例复杂得多。核心挑战有三：</p>
 
 <ol>
-  <li><b>SM 分配</b>：GEMM 和通信 kernel 需要同时在 GPU 上运行，但 SM 资源是有限的。一种方案是 warp specialization——同一个 persistent kernel 内部，大部分 warp 做 GEMM 计算，少数 warp（比如 4 个）专门做通信。另一种方案是把 SM 硬性划分：比如 H100 的 132 个 SM 中，120 个给 GEMM，12 个给通信——通过 <code>cudaLaunchAttributeCooperative</code> 或 MPS（Multi-Process Service）实现。</li>
-  <li><b>Tile 输出顺序</b>：GEMM 的 CTA（thread block）在 SM 上的调度顺序不确定——CTA 0 不一定比 CTA 7 先完成。但通信 kernel 需要知道哪个 tile 先就绪才能高效流水线。解决方案是<b>确定性 rasterization</b>——GEMM kernel 的 persistent 实现中，用原子计数器控制 CTA 领取 tile 的顺序，保证 tile 0 一定先于 tile 1 完成。</li>
-  <li><b>通信 kernel 的 busy-wait 效率</b>：通信 warp 在等待 tile flag 时做 spin-wait，这占用 SM 但不做有效工作。当 GEMM 很慢时（比如 batch size 小），spin-wait 的时间占比很大。一些实现用 <code>nanosleep</code> PTX 指令在 spin-wait 间插入短暂休眠，释放 SM 资源给 GEMM。</li>
+  <li><b>SM 分配</b>：GEMM 和通信 kernel 需要同时在 GPU 上运行，但 SM 资源是有限的。一种方案是 warp specialization——同一个 persistent kernel 内部，大部分 warp 做 GEMM 计算，少数 warp（比如 4 个）专门做通信。另一种方案是给通信 kernel 固定一小批 SM：最直接的是让通信 kernel 以 persistent 方式只启动少量 CTA（NCCL 的 <code>NCCL_MAX_CTAS</code> 也是这个思路），更硬的划分可以借助 MPS 的活跃线程比例限制或 CUDA green context。</li>
+  <li><b>Tile 输出顺序</b>：GEMM 的 CTA（thread block）在 SM 上的调度顺序不确定——CTA 0 不一定比 CTA 7 先完成。但通信 kernel 需要知道哪个 tile 先就绪才能高效流水线。常见做法是让 persistent GEMM 按约定的顺序领取 tile（例如用原子计数器发号），这样 tile 的<b>开始</b>顺序是确定的，完成顺序也大体有序；通信侧仍要按每个 tile 的 flag 判断是否就绪。</li>
+  <li><b>通信 kernel 的 busy-wait 效率</b>：通信 warp 在等待 tile flag 时做 spin-wait，这占用 SM 但不做有效工作。当 GEMM 很慢时（比如 batch size 小），spin-wait 的时间占比很大。一些实现用 <code>__nanosleep()</code>（PTX <code>nanosleep</code>）在轮询之间插入短暂休眠，把发射槽让给同一 SM 上的计算 warp。</li>
 </ol>
 
-<p>理想情况下，如果计算时间 ≥ 通信时间（compute-bound），通信可以被完全掩盖，总时间 ≈ \(T_{\text{comp}}\)——&ldquo;免费通信&rdquo;。以 H100 上的 TP=8 AllReduce 为例：hidden_size=8192、seq_len=2048 的 GEMM 输出约 32 MB，NVLink 4.0 的 one-shot AllReduce 约 3-5 μs。而 GEMM 本身（8192×2048×8192/8 per GPU，FP16）约 20-30 μs。通信只占计算的 15%——分成 8 个 tile 流水线后，通信延迟几乎完全被隐藏。</p>
+<p>理想情况下，如果计算时间 ≥ 通信时间，通信可以被完全掩盖，总时间 ≈ \(T_{\text{comp}}\)。但先算一算账再下结论。以 H100、TP=8 的行并行 GEMM 为例：2048 个 token、hidden_size=8192，每卡的 GEMM 是 \(2048 \times 8192 \times 1024\)（K 维被 8 卡切分），计算量 \(2 \times 2048 \times 8192 \times 1024 \approx 3.4 \times 10^{10}\) FLOP，在 989 TFLOPS 稠密峰值下约 35 μs。它的输出要做 AllReduce，大小 \(D = 2048 \times 8192 \times 2\) B = 32 MiB；two-shot 每卡至少读入 \(1.75D \approx 58.7\) MB，按 NVLink 每方向 450 GB/s 算约 130 μs<span class="cite">[<a href="#ref-hwfacts" title="本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。">6</a>]</span>。也就是说，这个配置下<b>通信的下界约是计算的 3.8 倍</b>，重叠最多只能把 35 μs 的计算藏进通信里，而不是反过来。只有当每卡计算量相对通信量更大（例如 K 维更大、TP 度更低）时，才谈得上&ldquo;免费通信&rdquo;。</p>
 
-<p>但流水线化不是免费的——它引入了额外的开销：(1) tile flag 的 <code>__threadfence_system()</code> 在每个 tile 完成后都要执行一次，每次约 0.5-1 μs；(2) 通信 warp 的 spin-wait 占用 SM 资源，减少了 GEMM 可用的 SM 数；(3) 更多 tile 意味着更多的 NVLink 事务启动开销（NVLink 的每次传输都有几百纳秒的启动延迟，tile 越小启动开销占比越大）。所以 tile 大小需要仔细调优——太大则流水线粒度粗，通信掩盖效果差；太小则启动开销和 fence 开销占比高。经验值是让每个 tile 的计算时间约等于一次 AllReduce 的通信时间，这样流水线的每个 stage 时间相等，吞吐最高。</p>
+<p>流水线化也不是免费的——它引入了额外的开销：(1) 每个 tile 完成后都要执行 system 范围的 fence 并写 flag；(2) 通信 warp 的轮询占用 SM 资源，减少了 GEMM 可用的算力；(3) tile 越小，每个 tile 的同步和调度固定开销占比越高。所以 tile 大小需要仔细调优——太大则流水线粒度粗，通信掩盖效果差；太小则启动开销和 fence 开销占比高。经验值是让每个 tile 的计算时间约等于一次 AllReduce 的通信时间，这样流水线的每个 stage 时间相等，吞吐最高。</p>
 
-<p>一个经常被忽视的实现细节是<b>通信 kernel 的 tile 消费顺序</b>。如果通信 kernel 按固定顺序（0, 1, 2, ...）消费 tile，而 GEMM 的 tile 完成顺序不同（比如 tile 3 先于 tile 0 完成），通信 kernel 就会在 tile 0 的 flag 上阻塞等待，即使 tile 3 的数据已经就绪。更高效的设计是让通信 kernel 用<b>机会性消费</b>（opportunistic consumption）：扫描所有 tile 的 flag，优先处理已就绪的 tile，而不是按固定顺序等待。这需要通信 kernel 维护一个&ldquo;已处理 tile 位图&rdquo;，用原子操作标记每个 tile 的处理状态。Flux 的实现中采用了一种折衷方案：计算 kernel 的 tile 输出顺序通过确定性 rasterization 保证单调递增，使得通信 kernel 可以安全地按顺序消费——不需要乱序逻辑，降低了实现复杂度和原子操作开销。</p>
+<p>一个经常被忽视的实现细节是<b>通信 kernel 的 tile 消费顺序</b>。如果通信 kernel 按固定顺序（0, 1, 2, ...）消费 tile，而 GEMM 的 tile 完成顺序不同（比如 tile 3 先于 tile 0 完成），通信 kernel 就会在 tile 0 的 flag 上阻塞等待，即使 tile 3 的数据已经就绪。更高效的设计是让通信 kernel 用<b>机会性消费</b>（opportunistic consumption）：扫描所有 tile 的 flag，优先处理已就绪的 tile，而不是按固定顺序等待。这需要通信 kernel 维护一个&ldquo;已处理 tile 位图&rdquo;，用原子操作标记每个 tile 的处理状态。另一种折衷是让计算侧按约定顺序产出 tile，通信侧按顺序消费，用少量乱序等待换取更简单的实现。</p>
 
 <h2 id="sec-patterns" data-short="并行模式">分布式并行通信模式</h2>
 
@@ -451,19 +461,19 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <tbody>
     <tr><td>TP</td><td>AllReduce / RS+AG</td><td>hidden_size × seq_len × batch</td><td>与 GEMM 重叠（Flux）</td></tr>
     <tr><td>SP</td><td>AllGather / RS</td><td>同 TP</td><td>与 LayerNorm 融合</td></tr>
-    <tr><td>EP</td><td>All-to-All</td><td>变长（负载不均衡）</td><td>DeepEP<span class="cite">[<a href="#ref-deepep" title="DeepSeek (2025). DeepEP. MoE All-to-All 的自定义通信实现：one-shot low-latency + two-shot high-throughput。">1</a>]</span> 的 low-latency 路径</td></tr>
+    <tr><td>EP</td><td>All-to-All</td><td>变长（负载不均衡）</td><td>DeepEP<span class="cite">[<a href="#ref-deepep" title="DeepSeek. DeepEP. README（2026-11 查阅）：EP dispatch/combine kernel；V2 引入 NCCL Gin 后端，V2.5 移除 NVSHMEM 依赖、统一为 <code>EPBuffer</code>。">3</a>]</span> 的 low-latency 路径</td></tr>
     <tr><td>PP</td><td>P2P Send/Recv</td><td>micro-batch 的激活</td><td>减少 bubble（interleaved schedule）</td></tr>
     <tr><td>CP</td><td>P2P Send/Recv (KV)</td><td>KV cache 块</td><td>Ring Attention 重叠</td></tr>
   </tbody>
 </table>
 
-<p><b>TP + SP 组合</b>是目前最常见的节点内并行方案。在 Megatron-LM 中，GEMM 内部做 TP 切分（列并行或行并行），GEMM 输出做 AllReduce 或 ReduceScatter；LayerNorm 和 Dropout 在序列维度上切分（SP），在 GEMM 前后用 AllGather 和 ReduceScatter 做转换。TP 和 SP 的通信都走 NVLink，是自定义通信和计算-通信重叠的主要应用场景。具体来说，Megatron-LM 的一个 Transformer 层的通信模式是：(1) AllGather 恢复完整权重或完整序列输入；(2) 列并行 GEMM（每 GPU 计算一部分列）；(3) ReduceScatter 归约 GEMM 输出并按序列维度分片——整个过程中 AllGather 和 ReduceScatter 可以与 GEMM 的计算重叠，把通信延迟隐藏在计算背后。</p>
+<p><b>TP + SP 组合</b>是目前最常见的节点内并行方案。在 Megatron-LM 中，GEMM 内部做 TP 切分（列并行或行并行），GEMM 输出做 AllReduce 或 ReduceScatter；LayerNorm 和 Dropout 在序列维度上切分（SP），在 GEMM 前后用 AllGather 和 ReduceScatter 做转换。TP 和 SP 的通信都走 NVLink，是自定义通信和计算-通信重叠的主要应用场景。具体来说，序列并行下一个 MLP（或 attention）块的通信模式是：(1) AllGather 把按序列切分的输入激活恢复成完整序列；(2) 列并行 GEMM → 激活函数 → 行并行 GEMM；(3) ReduceScatter 归约行并行 GEMM 的输出并重新按序列维度分片——AllGather 和 ReduceScatter 都有机会与相邻的 GEMM 重叠。</p>
 
-<p><b>PP（流水线并行）</b>的通信最简单——相邻 stage 之间只有 P2P Send/Recv。但 PP 的瓶颈不在通信带宽，而在<b>流水线 bubble</b>：当一个 micro-batch 在某个 stage 计算时，其他 stage 在空等。GPipe 的 bubble 比例 = (P-1)/M（P 是 stage 数，M 是 micro-batch 数），interleaved 1F1B 调度可以把 bubble 降到 (P-1)/(M·V)（V 是虚拟 stage 数）。减少 bubble 比优化 P2P 通信延迟重要得多——因为 PP 的一次 P2P 传输只有一个 micro-batch 的激活（通常几 MB），NVLink 上传输只需零点几毫秒。</p>
+<p><b>PP（流水线并行）</b>的通信最简单——相邻 stage 之间只有 P2P Send/Recv。但 PP 的瓶颈不在通信带宽，而在<b>流水线 bubble</b>：当一个 micro-batch 在某个 stage 计算时，其他 stage 在空等。GPipe 和 1F1B 调度的 bubble 时间占比都是 \((P-1)/M\)（P 是 stage 数，M 是 micro-batch 数），interleaved 调度把它降到 \(\frac{1}{V} \cdot \frac{P-1}{M}\)（V 是每个设备上的模型块数），代价是通信量变为 V 倍<span class="cite">[<a href="#ref-narayanan2021" title="Narayanan, D., Shoeybi, M., Casper, J., et al. (2021). Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. SC 2021 / arXiv:2104.04473。">11</a>]</span>。PP 每次只传一个 micro-batch 的边界激活，量不大，所以减少 bubble 往往比优化 P2P 延迟更重要。</p>
 
 <p><b>CP（上下文并行）</b>是处理超长序列的方案——把序列在多个 GPU 之间分段，每段独立计算 QK^T 的一部分，然后通过 P2P Send/Recv 在 GPU 之间轮转 KV 块。Ring Attention 是典型的 CP 实现：KV cache 像 Ring AllReduce 一样在 GPU 环上传递，每个 GPU 依次计算自己持有的 Q 与每段 K、V 的注意力分数。通信和计算天然重叠——当 GPU i 在计算当前 KV 块的注意力时，下一个 KV 块正在通过 NVLink 从邻居 GPU 传来。</p>
 
-<p><b>EP（专家并行）</b>的 All-to-All 是最有挑战性的通信模式。与 AllReduce 的规则拓扑（Ring/Tree）不同，All-to-All 的通信模式取决于 router 的动态决策——哪些 token 发给哪些专家，每次推理都不同。这种不规则性使得 NCCL 的通用 All-to-All（基于 NCCL 的 AllToAll 是用多个 Send/Recv 实现的）效率很低。DeepEP 的做法是针对 MoE 的特定模式优化：节点内用 NVLink 的 one-shot（小消息，延迟优先）或 two-shot（大消息，带宽优先），节点间用 RDMA WRITE 的流水线——把 token 按目标节点分组，一次 RDMA 发送一组，比逐 token 发送高效得多。</p>
+<p><b>EP（专家并行）</b>的 All-to-All 是最有挑战性的通信模式。与 AllReduce 的规则拓扑（Ring/Tree）不同，All-to-All 的通信模式取决于 router 的动态决策——哪些 token 发给哪些专家，每次推理都不同。这种不规则性让通用的 All-to-All（例如用 group 内的一组 send/recv 组合出来的实现）难以针对 MoE 的数据布局做优化。DeepEP 把 MoE 的 dispatch / combine 写成专门的 GPU kernel：节点内走 NVLink，节点间走 RDMA；V2 起 RDMA 部分基于 NCCL 的 Gin 后端（设备端通信 API），V2.5 已完全移除 NVSHMEM 依赖，高吞吐和低延迟两种用法统一在 <code>EPBuffer</code> 接口下<span class="cite">[<a href="#ref-deepep" title="DeepSeek. DeepEP. README（2026-11 查阅）：EP dispatch/combine kernel；V2 引入 NCCL Gin 后端，V2.5 移除 NVSHMEM 依赖、统一为 <code>EPBuffer</code>。">3</a>]</span>。</p>
 
 <h2 id="sec-hb" data-short="H/B 对比">Hopper vs Blackwell 自定义通信</h2>
 
@@ -472,33 +482,32 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
     <tr><th>特性</th><th>Hopper</th><th>Blackwell</th></tr>
   </thead>
   <tbody>
-    <tr><td>NVLink SHARP</td><td>NVSwitch multimem 指令</td><td>增强 + MNNVL SHARP</td></tr>
-    <tr><td>EGM</td><td>节点内 NVLink ld/st</td><td>跨节点 MNNVL ld/st</td></tr>
-    <tr><td>TMA + multicast</td><td>TMA 可广播到 cluster</td><td>增强 TMA + 更大 cluster</td></tr>
-    <tr><td>自定义 AllReduce</td><td>IPC + flag sync</td><td>EGM 原生 ld/st（无需 IPC）</td></tr>
-    <tr><td>计算-通信重叠</td><td>warp specialization</td><td>2-CTA cluster + 更多 SM</td></tr>
+    <tr><td>NVLink SHARP</td><td>第 3 代 NVSwitch 起：<code>multimem</code> 指令</td><td>NVLink 5 Switch 同样支持</td></tr>
+    <tr><td>NVLink 域</td><td>8 GPU（HGX/DGX）</td><td>8 GPU，或 NVL72 的 72 GPU</td></tr>
+    <tr><td>跨 GPU 映射</td><td>节点内：CUDA IPC / VMM</td><td>节点内同左；NVL72 跨 tray：VMM fabric handle + IMEX</td></tr>
+    <tr><td>自定义 AllReduce</td><td>IPC + flag 同步</td><td>同样的 flag 同步，可扩展到 NVL72 域</td></tr>
   </tbody>
 </table>
 
-<p>Blackwell 上自定义通信最大的变化是 <b>EGM 让 IPC 变得多余</b>：在 MNNVL 域内，任意 GPU 可以直接 load/store 任意其他 GPU 的显存，不需要 <code>cudaIpcGetMemHandle</code> / <code>cudaIpcOpenMemHandle</code><span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide. §B.5 Memory Fence Functions: __threadfence_system() 语义。">3</a>]</span> 的复杂流程。这大幅简化了自定义通信的开发——不再需要 MPI 交换 handle、不再需要 Open handle 的进程间协调、不再受 BAR 空间限制。EGM 映射通过 <code>cuMemCreate</code> + <code>cuMemMap</code> 虚拟内存 API 一次性设置，映射后的地址在整个 kernel 生命周期内有效——不需要像 IPC 那样在每次通信前检查映射是否仍然有效。</p>
+<p>Blackwell NVL72 上自定义通信最大的变化是<b>NVLink 域变大了</b>，但映射流程并没有消失：跨 compute tray 共享显存，要用 CUDA VMM 的 fabric handle（<code>CU_MEM_HANDLE_TYPE_FABRIC</code>）导出、经带外通道发给其他节点、导入后再 <code>cuMemMap</code>，并要求各节点组成 IMEX 域<span class="cite">[<a href="#ref-cuda_egm" title="NVIDIA. Extended GPU Memory. CUDA Programming Guide §4.20：EGM 经 NVLink-C2C 访问系统内存；多节点用 <code>CU_MEM_HANDLE_TYPE_FABRIC</code> 导出/导入。">12</a>]</span>。（EGM 是另一回事：它让 GPU 经 NVLink-C2C 访问 Grace 一侧的系统内存，见第 48 篇。）映射建立之后，kernel 里的 load/store 写法与节点内相同。</p>
 
-<p>另一个重要变化是 <b>MNNVL 把节点内和节点间的通信统一了</b>。在 Hopper 上，节点内用 NVLink load/store 或 IPC，节点间必须走 IB RDMA（完全不同的编程模型和性能特征）。在 NVL72 上，72 个 GPU 之间都是 NVLink 5.0，全部可以用 EGM 的 load/store——自定义通信 kernel 不需要区分节点内和节点间，一套代码覆盖所有 GPU。这对 MoE 的 All-to-All 尤其有价值——专家可能分布在不同节点的 GPU 上，但通信方式完全一致。</p>
+<p>另一个重要变化是 <b>MNNVL 把节点内和节点间的通信统一了</b>。在 Hopper 上，节点内用 NVLink load/store 或 IPC，节点间必须走 IB RDMA（完全不同的编程模型和性能特征）。在 NVL72 上，72 个 GPU 之间都是 NVLink 5.0，映射好之后都可以用 load/store 访问——自定义通信 kernel 在这个域内不需要区分节点内和节点间。这对 MoE 的 All-to-All 尤其有价值——专家可能分布在不同节点的 GPU 上，但通信方式完全一致。</p>
 
-<p>从自定义通信开发者的角度看，Blackwell 的变化意味着通信优化的重心从&ldquo;如何高效设置跨 GPU 内存映射&rdquo;转向了&ldquo;如何高效利用更大的 NVLink 域和更低的通信延迟&rdquo;。在 Hopper 上，8 GPU NVLink 域已经是上限——跨节点通信必须走 IB，代码需要区分节点内和节点间的路径。在 Blackwell NVL72 上，72 GPU 全部在一个 NVLink 域内，自定义通信 kernel 可以对 72 GPU 中的任意一对使用相同的 load/store 模式，大幅简化了代码复杂度。但这也带来了新的挑战——72 GPU 的 AllReduce 不再适合 one-shot（读放大 72 倍），必须用多级 tree reduce 或 NVLink SHARP（NVSwitch 内的 in-network reduce），而这些高级拓扑的编程接口目前还不如 IPC 共享内存成熟。总结来说，自定义通信在 Blackwell 上的门槛降低了（EGM 取代 IPC），但最优实现的复杂度反而提高了（更大的 NVLink 域需要更复杂的归约拓扑），工程师需要对硬件拓扑和 CUDA 虚拟内存 API 都有深入理解。</p>
+<p>从自定义通信开发者的角度看，Blackwell 的变化意味着通信优化的重心从&ldquo;如何高效设置跨 GPU 内存映射&rdquo;转向了&ldquo;如何高效利用更大的 NVLink 域和更低的通信延迟&rdquo;。在常见的 Hopper HGX/DGX 机器上，NVLink 域就是一台机器的 8 GPU——跨节点通信必须走 IB，代码需要区分节点内和节点间的路径。在 Blackwell NVL72 上，72 GPU 全部在一个 NVLink 域内，自定义通信 kernel 可以对 72 GPU 中的任意一对使用相同的 load/store 模式，大幅简化了代码复杂度。但这也带来了新的挑战——72 GPU 的 AllReduce 不再适合 one-shot（每卡要从 71 个 peer 各读一份），必须用多级 tree reduce 或 NVLink SHARP（NVSwitch 内的 in-network reduce），而这些高级拓扑的编程接口目前还不如 IPC 共享内存成熟。总结来说，NVL72 让&ldquo;一套 load/store 代码覆盖更多 GPU&rdquo;成为可能，但最优实现的复杂度反而提高了（更大的 NVLink 域需要更复杂的归约拓扑），工程师需要对硬件拓扑和 CUDA 虚拟内存 API 都有深入理解。</p>
 
 <h2 id="sec-interview" data-short="面试 Q&amp;A">面试 Q&amp;A</h2>
 
 <p id="sec-q1" class="interview-q">Q1：One-shot AllReduce 和 NCCL Ring AllReduce 的带宽比较？</p>
-<p>One-shot 的总 NVLink 读流量 = N·D（每 GPU 读所有 peer），Ring 的总流量 = \(2 \cdot \frac{N-1}{N} \cdot D\)。以 8 GPU 为例：One-shot = 8D，Ring = 1.75D——Ring 的带宽利用率好 4.6 倍。但 One-shot 只需一次 kernel launch、无同步屏障，延迟低得多。所以 One-shot 只适合小消息（延迟主导），大消息必须用 Two-shot 或 Ring。切换点取决于硬件——NVLink 带宽越高，One-shot 能覆盖的消息大小越大。在 Blackwell 的 NVLink 5.0（1800 GB/s）上，One-shot 的切换点可以提高到约 512 KB，因为带宽翻倍意味着读放大的代价被更快消化。</p>
+<p>按每卡的传输量比：One-shot 每卡读入 \((N-1) \cdot D\)，Ring（以及 two-shot）每卡收发 \(2 \cdot \frac{N-1}{N} \cdot D\)。以 8 GPU 为例：One-shot = 7D，Ring = 1.75D，Ring 的传输量少 4 倍。但 One-shot 只有一个阶段，Ring 要 \(2(N-1) = 14\) 步，固定开销高得多。所以 One-shot 只适合小消息（延迟主导），大消息用 Two-shot 或 Ring。切换点取决于卡数和硬件，需要实测；vLLM 的取值是 8 卡时 256 KB、4 卡时 512 KB<span class="cite">[<a href="#ref-vllm_car" title="vLLM Project. csrc/custom_all_reduce.cuh 与 csrc/custom_collective_common.cuh（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。">1</a>]</span>。</p>
 
 <p id="sec-q2" class="interview-q">Q2：__threadfence_system() 和 __threadfence() 有什么区别？</p>
-<p><code>__threadfence()</code> 保证当前线程的 store 对同一设备的所有线程可见（scope = device）；<code>__threadfence_system()</code> 保证对系统中所有设备（包括其他 GPU 和 CPU）可见（scope = system）。对于跨 GPU 的 flag 同步，必须用 <code>__threadfence_system()</code>——否则 producer GPU 的 data store 可能还在 producer 的 L2 cache 中，consumer GPU 通过 NVLink 读到的是旧值。代价是 <code>__threadfence_system()</code> 比 <code>__threadfence()</code> 慢得多——前者要等待所有 pending 的 NVLink 写入完成确认。</p>
+<p><code>__threadfence()</code> 保证当前线程的 store 对同一设备的所有线程可见（scope = device）；<code>__threadfence_system()</code> 保证对系统中所有设备（包括其他 GPU 和 CPU）可见（scope = system）。CUDA 编程指南写得很直接：两个线程若在同一设备的不同 block，用 <code>__threadfence()</code>；若是两个不同设备上的 CUDA 线程，必须用 <code>__threadfence_system()</code><span class="cite">[<a href="#ref-cudapg" title="NVIDIA. CUDA C++ Programming Guide 12.8. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与“最后一个 block”示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。">4</a>]</span>。用错 scope 时，consumer 可能先看到 flag、后看到数据。代价是 system scope 的 fence 比 device scope 的更重，所以只在立 flag 之前用一次。</p>
 
 <p id="sec-q3" class="interview-q">Q3：计算-通信重叠的前提条件是什么？什么时候重叠不了？</p>
-<p>前提：(1) GEMM 是 compute-bound 的（否则计算本身就被内存带宽卡住，没有空闲的计算资源来掩盖通信）；(2) GEMM 的输出可以按 tile 增量发出（persistent kernel 或多 kernel 的 tile 流水线）；(3) 有独立的 SM 或 warp 执行通信代码。当模型小（GEMM 不够大）或 TP 度很高（每 GPU 的 GEMM 太小）时，重叠效果打折扣。还有一种失败场景：当 All-to-All 的通信量远大于计算量（如 MoE 的大 token batch），通信时间远超计算时间，重叠只能掩盖计算不能掩盖通信，效果有限。</p>
+<p>前提：(1) 计算和通信争用的资源不能太多——通信 kernel 要占 SM 和显存带宽，如果 GEMM 本身已经是访存受限的，两者会互相拖慢；(2) GEMM 的输出可以按 tile 增量发出（persistent kernel 或多 kernel 的 tile 流水线）；(3) 有独立的 SM 或 warp 执行通信代码。当模型小（GEMM 不够大）或 TP 度很高（每 GPU 的 GEMM 太小）时，重叠效果打折扣。还有一种失败场景：当 All-to-All 的通信量远大于计算量（如 MoE 的大 token batch），通信时间远超计算时间，重叠只能掩盖计算不能掩盖通信，效果有限。</p>
 
 <p id="sec-q4" class="interview-q">Q4：DeepEP 的 low-latency kernel 用了什么自定义通信技术？</p>
-<p>DeepEP v2.5 的 low-latency 路径用了 one-shot AllReduce（对于 MoE dispatch 的小消息）+ IPC 共享内存 + flag 同步 + NVLink SHARP（Hopper 的 multimem 指令做 in-switch reduce）。关键优化是把 All-to-All 拆成节点内 NVLink 通信（one-shot）和节点间 IB 通信（RDMA WRITE + flag），两阶段可以流水线化。节点间的 RDMA WRITE 用 GPUDirect Async 让 GPU 直接触发，不走 CPU proxy——这使得节点间通信的延迟比 NCCL 的 proxy 路径低 5-10 μs。</p>
+<p>先纠正一个常见误解：DeepEP 做的是 MoE 的 dispatch / combine（All-to-All 类通信），不是 AllReduce。按其 README，V1 的低延迟 kernel 用纯 RDMA 路径、基于 NVSHMEM（IBGDA）由 GPU 直接发起；V2 重构了专家并行，RDMA 部分改用 NCCL 的 Gin 后端（轻量的设备端通信 API，可复用已有的 NCCL communicator），V2.5 完全移除了 NVSHMEM 依赖，并把高吞吐和低延迟两种用法统一到 <code>EPBuffer</code>；节点内走 NVLink；dispatch / combine 需要占用 GPU SM，SM 和 QP 数量由解析模型估算<span class="cite">[<a href="#ref-deepep" title="DeepSeek. DeepEP. README（2026-11 查阅）：EP dispatch/combine kernel；V2 引入 NCCL Gin 后端，V2.5 移除 NVSHMEM 依赖、统一为 <code>EPBuffer</code>。">3</a>]</span>。共同点是：通信由 GPU kernel 直接发起，不经过 CPU proxy。具体延迟收益请看其仓库公布的测试结果。</p>
 
 <h2 id="sec-limits" data-short="局限">局限性</h2>
 
@@ -506,13 +515,13 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
   <li>自定义 AllReduce 的代码高度依赖硬件拓扑（GPU 数量、NVLink 连接方式、NVSwitch 配置），不如 NCCL 通用——从 DGX H100 迁移到 DGX B200 可能需要重新调优甚至重写核心通信路径。</li>
   <li>计算-通信重叠的示例是简化版；实际系统（Flux、async-TP）涉及复杂的 SM 分配、warp scheduling 和 tile 顺序控制。</li>
   <li>NVSHMEM 的 API 用 stub 展示，实际需要 NVSHMEM 库和多 GPU 环境。</li>
-  <li>flag 同步的内存序讨论针对 NVLink 拓扑；PCIe 拓扑的原子性和可见性规则有所不同——PCIe 的 posted write 语义在某些情况下可以免去显式 fence，但跨 root complex 时仍需要 system scope 同步。</li>
-  <li>Blackwell EGM/MNNVL 的编程模型细节可能随 CUDA 版本更新——特别是 <code>cuMemCreate</code> 的共享属性和跨节点可见性语义仍在演进。</li>
+  <li>flag 同步的讨论以 NVLink 互联为背景；经 PCIe P2P 时，平台对 P2P 原子操作和写入顺序的支持各不相同，应以 CUDA 内存模型的 system scope 语义为准，不要依赖具体平台的行为。</li>
+  <li>本篇不含实测数字；文中的时间都是按峰值带宽/算力推出的下界估算。</li>
 </ul>
 
 <h2 id="sec-summary" data-short="小结">小结</h2>
 
-<p>本篇介绍了超越 NCCL 的自定义通信技术：IPC 共享内存的设置流程（handle 导出/交换/映射）、one-shot / two-shot AllReduce 的设计权衡（延迟 vs 带宽）、flag 同步的内存序保证（release/acquire 形成跨 GPU 的 happens-before 关系）、NVSHMEM 的设备发起通信（GPU 线程直接 put/get）、tile 级计算-通信重叠的核心挑战（SM 分配、tile 顺序、busy-wait 优化）、以及五大分布式并行模式的通信特征。通信部分（第 48–50 篇）的核心 message 是：<b>通信不是不可优化的黑箱，而是和计算一样可以精细控制的工程</b>。掌握了互联硬件拓扑与协议（第 48 篇）、NCCL 的初始化与运行时选择逻辑（第 49 篇）和自定义通信的全栈技术（本篇），你就有了优化任意分布式训练和推理系统通信瓶颈的完整知识栈。</p>
+<p>本篇介绍了超越 NCCL 的自定义通信技术：IPC 共享内存的设置流程（handle 导出/交换/映射）、one-shot / two-shot AllReduce 的设计权衡（延迟 vs 带宽）、flag 同步的内存序保证（release/acquire 形成跨 GPU 的 happens-before 关系）、NVSHMEM 的设备发起通信（GPU 线程直接 put/get）、tile 级计算-通信重叠的核心挑战（SM 分配、tile 顺序、busy-wait 优化，以及先算清计算与通信谁更长）、以及五大分布式并行模式的通信特征。通信部分（第 48–50 篇）的核心 message 是：<b>通信不是不可优化的黑箱，而是和计算一样可以精细控制的工程</b>。掌握了互联硬件拓扑与协议（第 48 篇）、NCCL 的初始化与运行时选择逻辑（第 49 篇）和自定义通信的全栈技术（本篇），你就有了优化任意分布式训练和推理系统通信瓶颈的完整知识栈。</p>
 
 
 <h2 id="sec-series" class="no-toc">系列导航</h2>
@@ -530,18 +539,24 @@ pre.wrap,pre.wrap code{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <h2 id="sec-references" class="no-toc">参考文献</h2>  <!-- English post: "References" -->
 <ol class="references">
-  <li id="ref-deepep">DeepSeek (2025). <a href="https://github.com/deepseek-ai/DeepEP">DeepEP</a>. MoE All-to-All 的自定义通信实现：one-shot low-latency + two-shot high-throughput。</li>
+  <li id="ref-vllm_car">vLLM Project. <a href="https://github.com/vllm-project/vllm/blob/main/csrc/custom_all_reduce.cuh">csrc/custom_all_reduce.cuh</a> 与 <a href="https://github.com/vllm-project/vllm/blob/main/csrc/custom_collective_common.cuh">csrc/custom_collective_common.cuh</a>（main 分支，2026-11 查阅）：1-stage / 2-stage kernel、选择规则、<code>st.release.sys</code> / <code>ld.acquire.sys</code> barrier。</li>
+  <li id="ref-flux">Chang, L.-W., Bao, W., Hou, Q., et al. (2024). <a href="https://arxiv.org/abs/2406.06858">FLUX: Fast Software-based Communication Overlap On GPUs Through Kernel Fusion</a>. arXiv:2406.06858（ByteDance；代码 <a href="https://github.com/bytedance/flux">bytedance/flux</a>）。</li>
+  <li id="ref-deepep">DeepSeek. <a href="https://github.com/deepseek-ai/DeepEP">DeepEP</a>. README（2026-11 查阅）：EP dispatch/combine kernel；V2 引入 NCCL Gin 后端，V2.5 移除 NVSHMEM 依赖、统一为 <code>EPBuffer</code>。</li>
+  <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/archive/12.8.0/cuda-c-programming-guide/index.html">CUDA C++ Programming Guide 12.8</a>. §7.5 Memory Fence Functions（<code>__threadfence_system()</code> 语义与&ldquo;最后一个 block&rdquo;示例）；§3.2.11 Interprocess Communication（IPC 仅限 Linux 64 位进程、不支持 <code>cudaMallocManaged</code>）。</li>
+  <li id="ref-cuda_rt_ipc">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DEVICE.html">CUDA Runtime API: Device Management</a>. <code>cudaIpcOpenMemHandle</code>：在导入方 <code>cudaIpcCloseMemHandle</code> 之前对导出内存 <code>cudaFree</code> 为未定义行为。</li>
   <li id="ref-hwfacts">本系列 <code>_notes/hw-facts.md</code>：H100 SXM NVLink 4.0 带宽 900 GB/s 等硬件规格。</li>
-  <li id="ref-cudapg">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA C++ Programming Guide</a>. §B.5 Memory Fence Functions: __threadfence_system() 语义。</li>
-  <li id="ref-ptx_isa">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA Reference</a>. §9.7.12 Memory Ordering: system-scope release/acquire 语义。</li>
+  <li id="ref-ptx_isa">NVIDIA. <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX ISA Reference</a>. 第 8 章 Memory Consistency Model，以及 <code>ld</code> / <code>st</code> 的 <code>.acquire</code> / <code>.release</code> 与 <code>.sys</code> scope。</li>
   <li id="ref-nvshmem_doc">NVIDIA. <a href="https://docs.nvidia.com/nvshmem/">NVSHMEM Documentation</a>. 设备发起通信的 PGAS 编程模型。</li>
-  <li id="ref-flux">ByteDance (2024). Flux: <a href="https://github.com/bytedance/flux">Efficient Tensor Parallel Communication in LLM Serving</a>. Tile 级 GEMM-AllReduce 重叠的开源实现。</li>
+  <li id="ref-ibgda_blog">Markthub, P., Dinan, J., Potluri, S., Howell, S. (2022). <a href="https://developer.nvidia.com/blog/improving-network-performance-of-hpc-systems-using-nvidia-magnum-io-nvshmem-and-gpudirect-async/">Improving Network Performance of HPC Systems Using NVIDIA Magnum IO NVSHMEM and GPUDirect Async</a>. NVIDIA Technical Blog（IBRC proxy 与 IBGDA）。</li>
+  <li id="ref-async_tp">He, H., Wright, L., Wehrstedt, L., Liu, T., Liang, W. (2024). <a href="https://discuss.pytorch.org/t/distributed-w-torchtitan-introducing-async-tensor-parallelism-in-pytorch/209487">[Distributed w/ TorchTitan] Introducing Async Tensor Parallelism in PyTorch</a>. PyTorch Forums。</li>
+  <li id="ref-narayanan2021">Narayanan, D., Shoeybi, M., Casper, J., et al. (2021). <a href="https://arxiv.org/abs/2104.04473">Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM</a>. SC 2021 / arXiv:2104.04473。</li>
+  <li id="ref-cuda_egm">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/extended-gpu-memory.html">Extended GPU Memory</a>. CUDA Programming Guide §4.20：EGM 经 NVLink-C2C 访问系统内存；多节点用 <code>CU_MEM_HANDLE_TYPE_FABRIC</code> 导出/导入。</li>
 </ol>
 
 </article>
 
 <footer class="post-footer">
-  本文是「从零精通 GPU Kernel」系列第 50 篇。文中代码完整版在系列目录的 <code>code/cm50-custom-comm-overlap/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。自定义通信代码为简化教学版；Flux 和 DeepEP 的实际实现涉及更复杂的 SM 分配和调度。NVSHMEM API 用 stub 展示，需要 NVSHMEM 库和多 GPU 环境才能运行。
+  本文是「从零精通 GPU Kernel」系列第 50 篇。文中代码完整版在系列目录的 <code>code/cm50-custom-comm-overlap/</code>，只经过 Apple clang 的 CUDA host-only 语法与类型检查（<code>_tools/check_cuda.sh</code>），<b>没有在 GPU 上编译或运行过</b>；本系列没有自己做任何性能测量，文中引用的实测数据均注明了出处。自定义通信代码为简化教学版；vLLM、Flux 和 DeepEP 的实际实现涉及更多同步与调度细节。NVSHMEM API 用 stub 展示，需要 NVSHMEM 库和多 GPU 环境才能运行。
 </footer>
 
 </div>

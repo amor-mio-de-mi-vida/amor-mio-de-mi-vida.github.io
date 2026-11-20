@@ -29,8 +29,8 @@
 <text x="120" y="213" text-anchor="middle" class="code" font-size="10">ReLU kernel: B = relu(B)</text>
 <text x="35" y="237" class="label" fill="#ef4444">4 kernel launches</text>
 <text x="35" y="253" class="label" fill="#ef4444">4&times; HBM round-trips</text>
-<text x="35" y="269" class="label" fill="#ef4444">Width=64 is too small for cuBLAS</text>
-<text x="35" y="285" class="label" fill="#ef4444">(low GPU utilization)</text>
+<text x="35" y="269" class="label" fill="#ef4444">N = K = 64: each layer is a thin GEMM</text>
+<text x="35" y="285" class="label" fill="#ef4444">(low intensity, activations via HBM)</text>
 
 <!-- Fused -->
 <rect x="250" y="35" width="410" height="260" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.2"/>
@@ -39,25 +39,25 @@
 <!-- Smem box -->
 <rect x="270" y="68" width="170" height="90" rx="4" fill="#dcfce7" stroke="#86efac"/>
 <text x="355" y="88" text-anchor="middle" class="title" fill="#16a34a">Shared Memory</text>
-<text x="280" y="108" class="code" font-size="9">W0[64&times;64] = 8 KB (FP16)</text>
-<text x="280" y="125" class="code" font-size="9">W1[64&times;64] = 8 KB (FP16)</text>
-<text x="280" y="142" class="code" font-size="9">act[128&times;64] = 16 KB (FP16)</text>
+<text x="280" y="108" class="code" font-size="9">act[128&times;(64+8)] FP16</text>
+<text x="280" y="125" class="code" font-size="9">= 18 KB (8-half skew/row)</text>
+<text x="280" y="142" class="code" font-size="9">activations only</text>
 
 <!-- Register box -->
 <rect x="470" y="68" width="170" height="90" rx="4" fill="#fef9c3" stroke="#eab308"/>
 <text x="555" y="88" text-anchor="middle" class="title" fill="#854d0e">Registers</text>
-<text x="480" y="108" class="code" font-size="9">WMMA fragments</text>
-<text x="480" y="125" class="code" font-size="9">Intermediate activations</text>
-<text x="480" y="142" class="code" font-size="9">ReLU in-place</text>
+<text x="480" y="108" class="code" font-size="9">per-warp weight slice</text>
+<text x="480" y="125" class="code" font-size="9">(WMMA matrix_b frags)</text>
+<text x="480" y="142" class="code" font-size="9">accumulators + ReLU</text>
 
 <!-- Flow -->
 <rect x="270" y="175" width="370" height="70" rx="4" fill="#f0fdf4" stroke="#22c55e"/>
 <text x="455" y="195" text-anchor="middle" class="title" fill="#22c55e">Execution Flow</text>
-<text x="280" y="215" class="code" font-size="10">1. Load W0, W1 to smem (once), load input batch to smem</text>
+<text x="280" y="215" class="code" font-size="10">1. Warps load weight slices to fragments; batch &rarr; smem</text>
 <text x="280" y="232" class="code" font-size="10">2. WMMA matmul &rarr; ReLU in fragment &rarr; store to smem &rarr; repeat</text>
 
 <text x="270" y="268" class="label" fill="#22c55e">1 kernel launch, 0 HBM round-trips for intermediate activations</text>
-<text x="270" y="284" class="label" fill="#22c55e">Weights stay in smem for entire batch &rarr; amortized load cost</text>
+<text x="270" y="284" class="label" fill="#22c55e">Each layer&apos;s weights loaded once per block, reused for 128 rows</text>
 
 <text x="340" y="312" text-anchor="middle" font-size="11" fill="#aaa" font-style="italic">data-source: illustrative (after tiny-cuda-nn)</text>
 </svg>

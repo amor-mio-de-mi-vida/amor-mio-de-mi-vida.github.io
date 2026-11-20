@@ -6357,7 +6357,7 @@ __global__ void sum4(const float* __restrict__ x, float* out,
 }</code></pre>
 <p class="src-note">完整代码：<code>code/cu07-occupancy-registers/registers.cu</code> 第 42–57 行（未在 GPU 上运行）</p>
 
-<aside class="sidenote">这段代码为了突出 ILP 写得很简单：每个线程连续读 4 个相邻元素，相邻线程之间跨 16 字节，访存合并效果不如直接读一个 <code>float4</code>。第 5 篇讲访存合并时会给出更好的写法。</aside>
+<aside class="sidenote">这段代码为了突出 ILP 写得很简单：每个线程连续读 4 个相邻元素，相邻线程之间跨 16 字节，访存合并效果不如直接读一个 <code>float4</code>。更好的写法（对齐的 <code>float4</code> 向量化加载）见第 5 篇。</aside>
 <p>所以 occupancy 的正确用法是当作诊断工具：如果 profiler 显示 SM 大部分时间没有可发射的 warp，而原因是在等内存或等前一条指令，又没有足够的 ILP，那么提高 occupancy 是一个办法。如果 kernel 已经用 ILP 或异步拷贝把延迟藏住了，occupancy 低一点也没关系。</p>
 
 <div class="callout key"><p class="callout-title">核心结论</p><p>寄存器和共享内存是用来<b>复用数据</b>的，warp 是用来<b>隐藏延迟</b>的，两者争夺同一份片上资源。高性能 kernel 通常把资源优先给数据复用，再用 ILP 和异步搬运来弥补 warp 数的不足。</p></div>
@@ -8829,7 +8829,7 @@ L 114.248192 206.507176
   <li>warp 槽：每 block 8 个 warp，\(\lfloor 64/8 \rfloor = 8\) 个 block。block 槽：32 个。</li>
   <li>寄存器：每 warp \(40\times32 = 1{,}280\) 个（已是 256 的倍数）；\(65{,}536/1{,}280 = 51.2\)，取 51，再按 4 个 warp 取整得 48 个 warp，\(\lfloor 48/8\rfloor = 6\) 个 block。</li>
   <li>共享内存：每 block \(20 + 1 = 21\) KB，\(\lfloor 164/21 \rfloor = 7\) 个 block。</li>
-  <li>取最小值 6 个 block，48 个 warp，occupancy 75%，瓶颈是寄存器。<i>追问</i>：寄存器降到多少能到 100%？（32 个。）</li>
+  <li>取最小值 6 个 block，48 个 warp，occupancy 75%，瓶颈是寄存器。<i>追问</i>：寄存器降到 32 个能到 100% 吗？（不能。寄存器不再是瓶颈后，共享内存只允许 7 个 block，occupancy 是 87.5%；要到 100%，还得把每 block 的共享内存降到 \(164/8 - 1 = 19.5\) KB 以下。）</li>
 </ul>
 
 <h3 id="sec-q2">为什么多用一个寄存器，occupancy 可能掉很多？</h3>

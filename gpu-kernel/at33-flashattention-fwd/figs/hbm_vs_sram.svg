@@ -49,7 +49,7 @@
 <text x="595" y="155" text-anchor="middle" class="label" font-size="10">S never touches</text>
 <text x="595" y="170" text-anchor="middle" class="label" font-size="10">HBM at all!</text>
 
-<text x="525" y="210" text-anchor="middle" class="title" fill="#16a34a" font-size="11">~40&#xd7; less HBM traffic</text>
+<text x="525" y="210" text-anchor="middle" class="title" fill="#16a34a" font-size="11">no N&#xb2; term in HBM traffic</text>
 
-<text x="350" y="245" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (N=4096, d=128, FP16, A100)</text>
+<text x="350" y="245" text-anchor="middle" font-size="10.5" fill="#aaa" font-style="italic">data-source: computed (N=4096, d=128, FP16; sizes, not traffic)</text>
 </svg>

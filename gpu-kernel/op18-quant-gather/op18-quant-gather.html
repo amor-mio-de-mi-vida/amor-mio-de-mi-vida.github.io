@@ -2954,13 +2954,13 @@ z
   </clipPath>
  </defs>
 </svg></div>
-  <figcaption id="fig-error-cap"><span class="fig-label">图 3</span><b>加入离群通道后，INT8 每张量量化的误差从约 1% 涨到约 75%，而 FP8 在任何粒度下都稳定在约 2.6%。</b>横轴是普通通道上的相对均方根误差 \(\lVert Q(x)-x\rVert / \lVert x \rVert\)（对数轴），灰点为纯高斯数据，橙方块为加入 8 个放大 100 倍的离群通道后的数据。量化器按各格式的可表示值网格在 CPU 上实现（<code>plots/fmt.py</code>、<code>plots/error.py</code>），不是硬件逐位复现；NVFP4 的整张量缩放取 \(\max|x|/(448\times6)\)，这是我们选的一种常见取法。数据为合成数据。</figcaption>
+  <figcaption id="fig-error-cap"><span class="fig-label">图 3</span><b>加入离群通道后，INT8 每张量量化的误差从约 1% 涨到约 75%，而 FP8 E4M3 在四种粒度下都稳定在 2.6%–2.9%。</b>横轴是普通通道上的相对均方根误差 \(\lVert Q(x)-x\rVert / \lVert x \rVert\)（对数轴），灰点为纯高斯数据，橙方块为加入 8 个放大 100 倍的离群通道后的数据。量化器按各格式的可表示值网格在 CPU 上实现（<code>plots/fmt.py</code>、<code>plots/error.py</code>），不是硬件逐位复现；NVFP4 的整张量缩放取 \(\max|x|/(448\times6)\)，这是我们选的一种常见取法。数据为合成数据。</figcaption>
 </figure>
 
 <p><a href="#fig-error">图 3</a> 里有三个规律：</p>
 <ol>
-  <li><b>整数格式怕离群值。</b>整数的可表示值是等间距的，间距等于缩放因子。离群值把缩放因子撑大 100 倍，普通值就落在“第一个台阶”以下，大多被舍入成 0。INT8 每张量的误差因此从 1% 涨到 75%，每 token 好一些，因为每个 token 只有 8 个离群元素，但也有 39%。</li>
-  <li><b>浮点格式不怕。</b>浮点的间距随数值大小按比例变化，普通值即使比最大值小两个数量级，相对误差也和原来差不多。FP8 E4M3 的四种粒度都在 2.6% 左右，几乎看不出离群值的影响。这也是 FP8 比 INT8 更适合量化激活的原因之一。</li>
+  <li><b>整数格式怕离群值。</b>整数的可表示值是等间距的，间距等于缩放因子。离群值把缩放因子撑大 100 倍，普通值就落在“第一个台阶”以下，大多被舍入成 0。INT8 每张量的误差因此从 1% 涨到 75%。每 token 好一些（39%）：每行的缩放只由本行 8 个离群元素中的最大值决定，通常小于整张量 512 个离群元素中的最大值，但普通值仍然被挤在很少的几个台阶上。</li>
+  <li><b>浮点格式不怕。</b>浮点的间距随数值大小按比例变化，普通值即使比最大值小两个数量级，相对误差也和原来差不多。FP8 E4M3 的四种粒度（含 MXFP8）都在 2.6%–2.9% 之间，加不加离群通道几乎没有差别。这也是 FP8 比 INT8 更适合量化激活的原因之一。</li>
   <li><b>4 位格式需要小块。</b>4 位浮点只剩 1 位尾数，指数范围也很小，离群值所在的块里，其他元素仍会被挤到很少的几个台阶上。块越小，受牵连的元素越少：128 一组的 INT4 误差 47%，32 一组的 MXFP4 是 24%，16 一组的 NVFP4 是 17%。NVFP4 的缩放因子不必是 2 的幂，在纯高斯数据上也略好于 MXFP4。</li>
 </ol>
 
@@ -2980,7 +2980,7 @@ for h in 本线程负责的元素:
     q[t][h] = 转成 E4M3(x[t][h] / s, 饱和, 就近舍入到偶数)
 scale[t] = s</code></pre>
 
-<p>转换这一步不需要手写位运算。CUDA 的 <code>cuda_fp8.h</code> 提供了 <code>__nv_cvt_float_to_fp8</code> 和一次转两个数的 <code>__nv_cvt_float2_to_fp8x2</code>，参数里指定饱和模式和格式 <span class="cite">[<a href="#ref-fp8api" title="NVIDIA. CUDA Math API: FP8 Conversion and Data Movement（<code>__nv_cvt_float_to_fp8</code>、<code>__nv_saturation_t</code>、<code>__nv_fp8_interpretation_t</code>）。">7</a>]</span>：<code>__NV_SATFINITE</code> 把超出范围的值钳到同号的最大有限值，<code>__NV_NOSAT</code> 则让 E4M3 超范围的值变成 NaN；舍入方式是就近舍入到偶数。它们对应 PTX 的 <code>cvt.satfinite.e4m3x2.f32</code>，要求 sm_89 或 sm_90 以上 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4（<code>cvt</code> 的 FP8 变体与目标要求；§9.7.18.10.7 tcgen05.mma 块缩放的合法组合）。">4</a>]</span>。即使缩放因子是按最大值算的，舍入后仍可能略超 448，所以量化一定要用饱和模式。</p>
+<p>转换这一步不需要手写位运算。CUDA 的 <code>cuda_fp8.h</code> 提供了 <code>__nv_cvt_float_to_fp8</code> 和一次转两个数的 <code>__nv_cvt_float2_to_fp8x2</code>，参数里指定饱和模式和格式 <span class="cite">[<a href="#ref-fp8api" title="NVIDIA. CUDA Math API: FP8 Conversion and Data Movement（<code>__nv_cvt_float_to_fp8</code>、<code>__nv_saturation_t</code>、<code>__nv_fp8_interpretation_t</code>）。">7</a>]</span>：<code>__NV_SATFINITE</code> 把超出范围的值钳到同号的最大有限值，<code>__NV_NOSAT</code> 则让 E4M3 超范围的值变成 NaN；舍入方式是就近舍入到偶数。它们对应 PTX 的 <code>cvt.satfinite.e4m3x2.f32</code>，要求 sm_89 或 sm_90 以上 <span class="cite">[<a href="#ref-ptx" title="NVIDIA. Parallel Thread Execution ISA, Version 9.4（<code>cvt</code> 的 FP8 变体与目标要求；§9.7.18.10.7 tcgen05.mma 块缩放的合法组合）。">4</a>]</span>。即使缩放因子是按最大值算的，\(x/s\) 在 FP32 里的舍入误差也可能让它略大于 448，所以量化要用饱和模式，避免这种边界值在非饱和模式下变成 NaN。</p>
 
 <p>这个 kernel 有三个细节值得注意。</p>
 <ul>
@@ -3085,7 +3085,7 @@ __device__ void dequant4_magic(unsigned q, half2&amp; lo2,
 
 <p><code>lop3</code> 是 PTX 的三输入逻辑指令，一条指令计算任意的三输入布尔函数，函数由一个 8 位查找表给出：把输入 a、b、c 分别看成 0xF0、0xCC、0xAA，对它们做想要的运算，得到的字节就是查找表。这里要的是 <code>(a &amp; b) | c</code>，查找表就是 <code>(0xF0 &amp; 0xCC) | 0xAA</code>。Marlin 的源码注释说，编译器不一定能自己认出这种写法，所以用内联汇编强制生成 <code>lop3</code> <span class="cite">[<a href="#ref-marlincode" title="IST-DASLab. marlin/marlin_cuda_kernel.cu 第 116–151 行（<code>lop3</code> 与 <code>dequant()</code>），提交 <code>1f25790</code>。">9</a>]</span>。</p>
 
-<p>还有两点要知道。第一，这个技巧要求权重在存储时就按“第 0、4 个数在一对，第 1、5 个数在一对”的顺序排好，使解出来的 FP16 正好落在 Tensor Core 需要的寄存器位置上；Marlin 离线重排权重，第 29 篇会讲这部分。第二，FP4（E2M1）只有 16 种取值，常用另一种办法：把 16 个值做成查找表放在寄存器或共享内存里，按 4 位索引取值。不过在 Blackwell 上，FP4 可以直接交给 Tensor Core，见<a href="#sec-hb">后文 Hopper 与 Blackwell 一节</a>。</p>
+<p>还有两点要知道。第一，这个技巧要求权重在存储时就按“第 0、4 个数在一对，第 1、5 个数在一对”的顺序排好，使解出来的 FP16 正好落在 Tensor Core 需要的寄存器位置上；Marlin 离线重排权重，第 29 篇会讲这部分。第二，FP4（E2M1）只有 16 个位模式，可以用另一种办法：把 16 个值做成查找表放在寄存器或共享内存里，按 4 位索引取值。不过在 Blackwell 上，FP4 可以直接交给 Tensor Core，见<a href="#sec-hb">后文 Hopper 与 Blackwell 一节</a>。</p>
 
 <h2 id="sec-gather" data-short="gather 与 scatter">gather 与 scatter：按索引搬运，难点在写冲突</h2>
 

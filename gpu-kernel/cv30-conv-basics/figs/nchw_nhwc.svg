@@ -73,5 +73,5 @@
   <!-- Comparison box -->
   <rect x="40" y="240" width="640" height="48" rx="6" fill="#FFFDE7" stroke="#F0E442" stroke-width="1"/>
   <text x="50" y="260" class="sublabel" fill="#D55E00" font-weight="600">为什么推荐 NHWC：</text>
-  <text x="50" y="276" class="sublabel">Tensor Core 的 GEMM 要求 K 维度（= C_in）连续。NHWC 让通道连续，一次 128B load 就读到多个通道；NCHW 则需转置。cuDNN 默认 NHWC。</text>
+  <text x="50" y="276" class="sublabel">GEMM 的 K 维度含 C_in。NHWC 让通道连续，一次 128B load 就读到多个通道；NCHW 则需转置。cuDNN 的 Tensor Core 卷积要求 NHWC。</text>
 </svg>

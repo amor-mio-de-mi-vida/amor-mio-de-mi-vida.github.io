@@ -69,8 +69,8 @@
   <!-- L2 illustration for (a) -->
   <g transform="translate(40, 232)">
     <text x="110" y="0" text-anchor="middle" class="label">L2: CTA 0 加载 B 的第 0 列块</text>
-    <text x="110" y="16" text-anchor="middle" class="label">CTA 5 已把第 0 列块逐出</text>
-    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#D55E00" font-weight="600">CTA 6 重新加载 → L2 miss</text>
+    <text x="110" y="16" text-anchor="middle" class="label">CTA 4 再次需要它时</text>
+    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#D55E00" font-weight="600">可能已被逐出 → L2 miss</text>
   </g>
 
   <!-- (b) Swizzled -->
@@ -135,8 +135,8 @@
   <!-- L2 illustration for (b) -->
   <g transform="translate(415, 232)">
     <text x="110" y="0" text-anchor="middle" class="label">L2: CTA 0–3 共享 B 的同一列块</text>
-    <text x="110" y="16" text-anchor="middle" class="label">条带宽度 = 4 行，足够复用</text>
-    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#009E73" font-weight="600">CTA 1–3 命中 L2 → 3/4 hit rate</text>
+    <text x="110" y="16" text-anchor="middle" class="label">条带宽度 = 4 行（示意）</text>
+    <text x="110" y="32" text-anchor="middle" font-size="11" fill="#009E73" font-weight="600">CTA 1–3 紧接着读，更可能命中</text>
   </g>
 
   <!-- Legend -->

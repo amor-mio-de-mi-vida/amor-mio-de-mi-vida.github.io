@@ -20,12 +20,15 @@
   <text x="360" y="24" text-anchor="middle" class="d-label" style="font-size:14px">Warp Specialization：Producer / Consumer 流水线</text>
 
   <!-- Swim lane labels -->
-  <text x="16" y="75" class="d-label">Producer</text>
-  <text x="16" y="68" class="d-note">(1 warp, 40 regs)</text>
-  <text x="16" y="165" class="d-label">Consumer 0</text>
-  <text x="16" y="158" class="d-note">(4 warps, 232 regs)</text>
-  <text x="16" y="255" class="d-label">Consumer 1</text>
-  <text x="16" y="248" class="d-note">(4 warps, 232 regs)</text>
+  <text x="16" y="62" class="d-label">Producer</text>
+  <text x="16" y="78" class="d-note">1 warpgroup</text>
+  <text x="16" y="92" class="d-note">40 regs</text>
+  <text x="16" y="140" class="d-label">Consumer 0</text>
+  <text x="16" y="156" class="d-note">1 warpgroup</text>
+  <text x="16" y="170" class="d-note">232 regs</text>
+  <text x="16" y="230" class="d-label">Consumer 1</text>
+  <text x="16" y="246" class="d-note">1 warpgroup</text>
+  <text x="16" y="260" class="d-note">232 regs</text>
 
   <!-- Lane separators -->
   <line x1="110" y1="42" x2="710" y2="42" stroke="var(--rule, #e4e4e0)" stroke-width="0.5"/>
@@ -62,34 +65,40 @@
   <polygon points="420,97 428,90 436,97 428,104" class="fill-acc"/>
   <polygon points="525,97 533,90 541,97 533,104" class="fill-acc"/>
 
-  <!-- Consumer 0: WGMMA (green), staggered -->
+  <!-- Cooperative: both consumer warpgroups work on every stage (each half of M) -->
   <rect x="225" y="122" width="90" height="40" rx="3" class="fill-green"/>
-  <text x="270" y="147" text-anchor="middle" class="d-note" style="fill:white">WGMMA S0</text>
-
+  <text x="270" y="140" text-anchor="middle" class="d-note" style="fill:white">WGMMA S0</text>
+  <text x="270" y="154" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">上半 M</text>
+  <rect x="330" y="122" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="375" y="140" text-anchor="middle" class="d-note" style="fill:white">WGMMA S1</text>
+  <text x="375" y="154" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">上半 M</text>
   <rect x="435" y="122" width="90" height="40" rx="3" class="fill-green"/>
-  <text x="480" y="147" text-anchor="middle" class="d-note" style="fill:white">WGMMA S2</text>
-
-  <rect x="645" y="122" width="60" height="40" rx="3" class="fill-green"/>
-  <text x="675" y="147" text-anchor="middle" class="d-note" style="fill:white">S0'</text>
-
-  <!-- Consumer 1: WGMMA (green), offset -->
+  <text x="480" y="140" text-anchor="middle" class="d-note" style="fill:white">WGMMA S2</text>
+  <text x="480" y="154" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">上半 M</text>
+  <rect x="540" y="122" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="585" y="140" text-anchor="middle" class="d-note" style="fill:white">WGMMA S3</text>
+  <text x="585" y="154" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">上半 M</text>
+  <rect x="225" y="212" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="270" y="230" text-anchor="middle" class="d-note" style="fill:white">WGMMA S0</text>
+  <text x="270" y="244" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">下半 M</text>
   <rect x="330" y="212" width="90" height="40" rx="3" class="fill-green"/>
-  <text x="375" y="237" text-anchor="middle" class="d-note" style="fill:white">WGMMA S1</text>
-
+  <text x="375" y="230" text-anchor="middle" class="d-note" style="fill:white">WGMMA S1</text>
+  <text x="375" y="244" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">下半 M</text>
+  <rect x="435" y="212" width="90" height="40" rx="3" class="fill-green"/>
+  <text x="480" y="230" text-anchor="middle" class="d-note" style="fill:white">WGMMA S2</text>
+  <text x="480" y="244" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">下半 M</text>
   <rect x="540" y="212" width="90" height="40" rx="3" class="fill-green"/>
-  <text x="585" y="237" text-anchor="middle" class="d-note" style="fill:white">WGMMA S3</text>
-
-  <!-- Empty barriers (gray diamonds) -->
-  <polygon points="315,190 323,183 331,190 323,197" class="fill-gray"/>
-  <polygon points="525,190 533,183 541,190 533,197" class="fill-gray"/>
+  <text x="585" y="230" text-anchor="middle" class="d-note" style="fill:white">WGMMA S3</text>
+  <text x="585" y="244" text-anchor="middle" class="d-note" style="fill:white;font-size:9px">下半 M</text>
+  <!-- Empty barriers: arrive after both consumers finish a stage -->
+  <polygon points="315,280 323,273 331,280 323,287" class="fill-gray"/>
   <polygon points="420,280 428,273 436,280 428,287" class="fill-gray"/>
+  <polygon points="525,280 533,273 541,280 533,287" class="fill-gray"/>
   <polygon points="630,280 638,273 646,280 638,287" class="fill-gray"/>
-
-  <!-- Arrows from full barriers to consumers -->
   <path d="M218,104 L218,122" class="d-arrow" style="stroke:#D55E00"/>
-  <path d="M323,104 L323,212" class="d-arrow" style="stroke:#D55E00"/>
+  <path d="M323,104 L323,122" class="d-arrow" style="stroke:#D55E00"/>
   <path d="M428,104 L428,122" class="d-arrow" style="stroke:#D55E00"/>
-  <path d="M533,104 L533,212" class="d-arrow" style="stroke:#D55E00"/>
+  <path d="M533,104 L533,122" class="d-arrow" style="stroke:#D55E00"/>
 
   <!-- Legend -->
   <rect x="120" y="310" width="40" height="14" rx="2" class="fill-blue"/>
@@ -102,6 +111,6 @@
   <text x="534" y="322" class="d-note">empty barrier</text>
 
   <!-- Time arrow -->
-  <line x1="120" y1="350" x2="700" y2="350" class="d-arrow"/>
-  <text x="710" y="354" class="d-note">time</text>
+  <line x1="120" y1="350" x2="670" y2="350" class="d-arrow"/>
+  <text x="678" y="354" class="d-note">time</text>
 </svg>

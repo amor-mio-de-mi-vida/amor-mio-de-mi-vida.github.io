@@ -2318,7 +2318,7 @@ out[bi] = temp[bi + PAD(bi)];</code></pre>
 
 <h3 id="sec-2">树形访问天生有 bank 冲突，padding 能把它消掉</h3>
 
-<p>上扫第 k 层，线程 t 访问的下标是 \(2^k(2t+2) - 1\)，相邻线程的下标相差 \(2^{k+1}\) 个 int。共享内存有 32 个 bank，每个 4 字节（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>），步长为 2 时一个 warp 里有 2 个线程落在同一个 bank，步长为 32 时 32 个线程全落在同一个 bank。GPU Gems 3 的办法是给每个下标加一个偏移：每过一个“bank 数”的元素就多空出一个位置 <span class="cite">[<a href="#ref-gems39" title="Harris, M., Sengupta, S., Owens, J. D. (2007). Parallel Prefix Sum (Scan) with CUDA. 收录于 GPU Gems 3，第 39 章（§39.2.1 naive scan、§39.2.2 work-efficient scan、§39.2.3 避免 bank 冲突、§39.2.4 任意长度数组、§39.3 应用）。">2</a>, §39.2.3]</span>。我们的代码写成 <code>PAD(i) = i &gt;&gt; 5</code>，即每 32 个 int 插一个空位，共享内存多用 \(n/32\) 个 int。</p>
+<p>上扫第 k 层（k 从 1 开始，对应<a href="#tab-banks">表 1</a> 的层号），线程 t 写的下标是 \(2^{k-1}(2t+2) - 1\)，相邻线程的下标相差 \(2^k\) 个 int。共享内存有 32 个 bank，每个 4 字节（<a href="../cu06-shared-memory/cu06-shared-memory.html">第 6 篇</a>），步长为 2 时一个 warp 里有 2 个线程落在同一个 bank，步长为 32 时 32 个线程全落在同一个 bank。GPU Gems 3 的办法是给每个下标加一个偏移：每过一个“bank 数”的元素就多空出一个位置 <span class="cite">[<a href="#ref-gems39" title="Harris, M., Sengupta, S., Owens, J. D. (2007). Parallel Prefix Sum (Scan) with CUDA. 收录于 GPU Gems 3，第 39 章（§39.2.1 naive scan、§39.2.2 work-efficient scan、§39.2.3 避免 bank 冲突、§39.2.4 任意长度数组、§39.3 应用）。">2</a>, §39.2.3]</span>。我们的代码写成 <code>PAD(i) = i &gt;&gt; 5</code>，即每 32 个 int 插一个空位，共享内存多用 \(n/32\) 个 int。</p>
 
 <aside class="sidenote">GPU Gems 3 原文印的宏是 <code>((n) &gt;&gt; NUM_BANKS + (n) &gt;&gt; (2 * LOG_NUM_BANKS))</code>，配合 16 个 bank。按 C 的优先级，<code>+</code> 先于 <code>&gt;&gt;</code> 结合，这个表达式和正文“下标加上下标除以 bank 数”的描述并不一致。这是我们的阅读，原文没有勘误说明；本文代码按正文描述实现。</aside>
 <p>效果可以直接模拟。<code>plots/scan_ref.py</code> 对 \(n = 1024\)、512 个线程的上扫，逐层、逐 warp 统计同一个 bank 里有多少个不同的地址（下扫访问同样的下标对，只是层的顺序相反），结果列在<a href="#tab-banks">表 1</a> 里。不加 padding 时，最坏的一层是 32 路冲突，一次访问要串行 32 次；加上 <code>i &gt;&gt; 5</code> 后，对这个规模每一层都是 1 路，也就是完全没有冲突。</p>
@@ -2360,7 +2360,7 @@ out[bi] = temp[bi + PAD(bi)];</code></pre>
 }</code></pre>
 <p class="src-note">完整代码：<code>code/pp12-scan/block_scan.cuh</code> 第 20–34 行（未在 GPU 上运行）</p>
 
-<p>和 Blelloch 树相比，这个结构只需要两次 <code>__syncthreads</code>，而不是 \(2\log_2 n\) 次；warp 内部的通信全部走寄存器。它在 warp 内做的是 Hillis–Steele，每个元素约 5 次加法而不是 2 次，但这些加法分摊在本来就会空转的 lane 上。哪种在某块 GPU 上更快要测量才知道，本系列没有测；这里只说明两种做法在加法次数、同步次数和共享内存访问上的取舍。</p>
+<p>和 Blelloch 树相比，这个结构只需要两次 <code>__syncthreads</code>，而不是 \(2\log_2 n\) 次；warp 内部的通信全部走寄存器。它在 warp 内做的是 Hillis–Steele，平均每个元素约 4 次加法（<a href="#eq-hs">式 (2)</a> 在 n = 32 时为 129 次）而不是 2 次，但这些加法分摊在本来就会空转的 lane 上。哪种在某块 GPU 上更快要测量才知道，本系列没有测；这里只说明两种做法在加法次数、同步次数和共享内存访问上的取舍。</p>
 
 <p>代码对 block 大小有一个要求：必须是 32 的倍数，这样每个 warp 都是满的，<code>__shfl_up_sync</code> 的全掩码才合法；越界的线程传入单位元 0。还有一个小坑：<code>warp_sums</code> 是共享内存里的静态数组，同一个 kernel 里连续调用两次，第二次的第 2 步可能在别的 warp 还没读完第一次的结果时就覆盖它，所以注释里写明每个 kernel 只调用一次。</p>
 
@@ -5263,7 +5263,7 @@ z
   <figcaption id="fig-lookback-cap"><span class="fig-label">图 6</span><b>look-back 不必等前驱算完前缀：分区 3 越过两个只有局部和（A）的前驱，读到分区 0 的前缀（P）就够了。</b>8 个分区的局部和都是 2；绿色为 P、蓝色为 A、灰色为 X。橙色箭头是分区 3 的 look-back，窗口跨了 3 个前驱；虚线是分区 7 在等仍为 X 的分区 6。快照内容取自 Merrill 与 Garland 的 Fig. 6 <span class="cite">[<a href="#ref-mg16" title="Merrill, D., Garland, M. (2016). Single-pass Parallel Prefix Scan with Decoupled Look-back. NVIDIA Technical Report NVR-2016-002（§3 全局策略与 chained scan、§4.1 描述符与 look-back 步骤、§4.2 性质、§4.3 Fig. 6、§4.4 优化）。">6</a>, §4.3]</span>，箭头和文字说明是我们加的。</figcaption>
 </figure>
 
-<p>这样一来，信号不必一棒一棒地传。只要前面的 block 都已经发布了 A，后面的 block 就能一口气把它们全加起来，不必等任何一个 block 算完它自己的前缀。论文还指出 look-back 的长度有常数上界：在有限个处理器上，每个分区最多看 p 个前驱，就会遇到之前已完成的分区 <span class="cite">[<a href="#ref-mg16" title="Merrill, D., Garland, M. (2016). Single-pass Parallel Prefix Scan with Decoupled Look-back. NVIDIA Technical Report NVR-2016-002（§3 全局策略与 chained scan、§4.1 描述符与 look-back 步骤、§4.2 性质、§4.3 Fig. 6、§4.4 优化）。">6</a>, §4.2]</span>。下面是我们简化后的实现，前半段领取 tile 号、做本块 scan、发布局部和：</p>
+<p>这样一来，信号不必一棒一棒地传。只要前面的 block 都已经发布了 A，后面的 block 就能一口气把它们全加起来，不必等任何一个 block 算完它自己的前缀。论文还指出 look-back 的长度有常数上界：处理器个数 p 有限时，若分区轮流分给各处理器、每个分区做完再取下一个，那么每个分区最多看 p 个前驱，就会遇到同一处理器之前做完的那个分区的前缀 <span class="cite">[<a href="#ref-mg16" title="Merrill, D., Garland, M. (2016). Single-pass Parallel Prefix Scan with Decoupled Look-back. NVIDIA Technical Report NVR-2016-002（§3 全局策略与 chained scan、§4.1 描述符与 look-back 步骤、§4.2 性质、§4.3 Fig. 6、§4.4 优化）。">6</a>, §4.2]</span>。下面是我们简化后的实现，前半段领取 tile 号、做本块 scan、发布局部和：</p>
 
 <pre data-code="code/pp12-scan/decoupled.cu#L23-L33"><code>__shared__ int tile_s, excl_s;
 if (threadIdx.x == 0)        // tile id in start order
@@ -5309,7 +5309,7 @@ if (i &lt; n) out[i] = v + excl_s;</code></pre>
 
 <p>look-back 里有一个“等前驱从 X 变成 A”的自旋循环。如果某个前驱永远不发布，等它的 block 就永远出不来。论文对这一点说得很明确：只有系统保证所有处理器都能向前推进，算法才一定能跑完 <span class="cite">[<a href="#ref-mg16" title="Merrill, D., Garland, M. (2016). Single-pass Parallel Prefix Scan with Decoupled Look-back. NVIDIA Technical Report NVR-2016-002（§3 全局策略与 chained scan、§4.1 描述符与 look-back 步骤、§4.2 性质、§4.3 Fig. 6、§4.4 优化）。">6</a>, §4.2]</span>。那么 CUDA 保证了什么？</p>
 
-<p>CUDA 编程指南的执行模型一节给出的规则是：一个设备线程一旦取得进展，它所在的线程块簇（thread block cluster）里的所有线程最终都会取得进展；协作启动的 grid 例外，那时整个 grid 都会。指南还特意注明，其他簇里的线程不保证最终会取得进展，这也意味着同一个 block 内的所有线程最终都会取得进展 <span class="cite">[<a href="#ref-pgexec" title="NVIDIA. CUDA Programming Guide, §5.8 CUDA C++ Execution Model（§5.8.2 Device threads 的前向进度规则）。">7</a>, §5.8.2]</span>。没有使用 cluster 时，可以把每个 block 看成一个只有一块的簇。</p>
+<p>CUDA 编程指南的执行模型一节给出的规则是：一个设备线程一旦取得进展，它所在的线程块簇（thread block cluster）里的所有线程最终都会取得进展；协作启动的 grid 例外，那时整个 grid 都会。指南还特意注明，其他簇里的线程不保证最终会取得进展，这也意味着同一个 block 内的所有线程最终都会取得进展 <span class="cite">[<a href="#ref-pgexec" title="NVIDIA. CUDA Programming Guide, §5.9 CUDA C++ Execution Model（§5.9.2 Device threads 的前向进度规则；2026-11 核对时的章节号）。">7</a>, §5.9.2]</span>。没有使用 cluster 时，可以把每个 block 看成一个只有一块的簇。</p>
 
 <div class="callout key"><p class="callout-title">核心结论</p><p>按启动顺序领取 tile 号，就把“前驱一定会完成”从运气变成了保证：一个 block 能拿到 tile j，说明拿到 tile 0 到 j−1 的那些 block 都已经执行过 <code>atomicAdd</code>，也就是已经取得了进展；按执行模型，这些 block 的所有线程最终都会推进到发布局部和那一步。</p></div>
 
@@ -5375,14 +5375,14 @@ __global__ void compact_tiles(const int* in, int n,
 
 <p>scan 是访存受限的，所以新 GPU 带给它的第一个好处只是带宽：<a href="#tab-traffic">表 2</a> 里同一个单遍 scan，下界从 H100 的 0.641 ms 降到 HGX B200 的 0.268 ms，比例就是两者带宽之比。算法层面，decoupled look-back 在 Hopper 和 Blackwell 上仍然是标准做法。变化发生在“一个 block 怎样把自己的 tile 搬进来、扫完、写出去”这一层。</p>
 
-<p>NVIDIA 的 CCCL 库（CUB 的现任仓库）在 2025–2026 年的代码里给 <code>DeviceScan</code> 加了一个新的 kernel，代码里称为 lookahead scan。我们在提交 <code>eaf7eb1</code> 中读到的内容是：</p>
+<p>NVIDIA 的 CCCL 库（CUB 的现任仓库）近期给 <code>DeviceScan</code> 加了一个新的 kernel，代码里称为 lookahead scan。我们读的是 2026 年 10 月的提交 <code>eaf7eb1</code>，其中的内容是：</p>
 
 <ul>
   <li><b>按架构选用。</b>策略选择器“先尝试 lookahead，不行再退回 lookback” <span class="cite">[<a href="#ref-ccclscan" title="NVIDIA. CCCL: <code>tuning_scan.cuh</code>（路径 <code>cub/cub/device/dispatch/tuning/</code>），提交 <code>eaf7eb1</code>（scan 算法与调优策略的选择）。">5</a>, L1559–L1567]</span>；计算能力 10.0 及以上有专门的调优参数 <span class="cite">[<a href="#ref-ccclscan" title="NVIDIA. CCCL: <code>tuning_scan.cuh</code>（路径 <code>cub/cub/device/dispatch/tuning/</code>），提交 <code>eaf7eb1</code>（scan 算法与调优策略的选择）。">5</a>, L1013]</span>；在 Hopper 上，只有需要稳定的浮点归约顺序时才用它，并暂时沿用 Blackwell 的默认参数 <span class="cite">[<a href="#ref-ccclscan" title="NVIDIA. CCCL: <code>tuning_scan.cuh</code>（路径 <code>cub/cub/device/dispatch/tuning/</code>），提交 <code>eaf7eb1</code>（scan 算法与调优策略的选择）。">5</a>, L1072–L1076]</span>。它还要求 PTX ISA 8.6 <span class="cite">[<a href="#ref-ccclscan" title="NVIDIA. CCCL: <code>tuning_scan.cuh</code>（路径 <code>cub/cub/device/dispatch/tuning/</code>），提交 <code>eaf7eb1</code>（scan 算法与调优策略的选择）。">5</a>, L1088]</span>。</li>
   <li><b>warp 特化。</b>一个 block 被分成五组 warp（代码里叫 squad）：归约、scan、加载并领取下一个 tile 号、向前看、存储 <span class="cite">[<a href="#ref-cccllah" title="NVIDIA. CCCL: <code>kernel_scan_lookahead.cuh</code>（路径 <code>cub/cub/device/dispatch/kernels/</code>），提交 <code>eaf7eb1</code>。">9</a>, L291–L297]</span>；线程总数是 2 倍的“归约与 scan warp 数”再加 3 个各司其职的 warp <span class="cite">[<a href="#ref-cccllah" title="NVIDIA. CCCL: <code>kernel_scan_lookahead.cuh</code>（路径 <code>cub/cub/device/dispatch/kernels/</code>），提交 <code>eaf7eb1</code>。">9</a>, L70–L76]</span>。这和第 1 篇讲的 Hopper/Blackwell GEMM 结构是同一种思路：搬运、计算、写回由不同的 warp 并行完成。</li>
   <li><b>异步批量拷贝。</b>tile 的加载和存储用 <code>cp.async.bulk</code>（TMA 的一维批量拷贝），不再由每个线程各自发 load/store <span class="cite">[<a href="#ref-cccllds" title="NVIDIA. CCCL: <code>load_store.cuh</code>（路径 <code>cub/cub/detail/warpspeed/squad/</code>），提交 <code>eaf7eb1</code>（<code>cuda::ptx::cp_async_bulk</code> 加载与存储）。">10</a>]</span>。</li>
   <li><b>Blackwell 上用 CLC 领取 tile 号。</b>在 SM100 上，下一个 tile 号通过 <code>clusterlaunchcontrol.try_cancel</code> 获得；在更早的架构上用原子计数器 <span class="cite">[<a href="#ref-cccllah" title="NVIDIA. CCCL: <code>kernel_scan_lookahead.cuh</code>（路径 <code>cub/cub/device/dispatch/kernels/</code>），提交 <code>eaf7eb1</code>。">9</a>, L325–L331]</span>。两种方式都满足上一节“按启动顺序领取”的要求。</li>
-  <li><b>PDL。</b>CUB 在 PTX 版本不低于 9.0 时以 programmatic dependent launch 方式启动 scan kernel <span class="cite">[<a href="#ref-ccclscandisp" title="NVIDIA. CCCL: <code>dispatch_scan.cuh</code> 第 671 行（路径 <code>cub/cub/device/dispatch/</code>），提交 <code>eaf7eb1</code>（<code>dependent_launch</code> 参数）。">11</a>, L671]</span>，让它与前一个 kernel 的尾部重叠（<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）。</li>
+  <li><b>PDL。</b>目标架构不低于 sm_90 时（代码中的 <code>ptx_version &gt;= 900</code>，CUB 用它表示虚拟架构号），CUB 以 programmatic dependent launch 方式启动 scan kernel <span class="cite">[<a href="#ref-ccclscandisp" title="NVIDIA. CCCL: <code>dispatch_scan.cuh</code> 第 671 行（路径 <code>cub/cub/device/dispatch/</code>），提交 <code>eaf7eb1</code>（<code>dependent_launch</code> 参数）。">11</a>, L671]</span>，让它与前一个 kernel 的尾部重叠（<a href="../cu09-streams-host/cu09-streams-host.html">第 9 篇</a>）。</li>
 </ul>
 
 <p>源码注释里有一些调优时的对比数字，但没有写明测量所用的 GPU 型号和条件，本文不引用。Hopper 的 thread block cluster 和分布式共享内存，理论上可以让一个簇内的几个 block 直接交换局部和，减少描述符在 L2 上的往返；我们没有核实是否有库这样做，这里只当作一种可能性提出。</p>
@@ -5435,7 +5435,7 @@ __global__ void compact_tiles(const int* in, int n,
   <li><b>没有性能数字。</b><a href="#tab-traffic">表 2</a> 只是按 datasheet 带宽算的下界；block scan 两种结构（warp 组合与 Blelloch 树）谁更快、look-back 的实际延迟有多大，都需要实测，本文没有做。</li>
   <li><b>示例是简化版。</b>每个线程只处理一个元素（库实现每个线程处理十几个甚至上百个元素以摊薄开销）；look-back 是单线程串行的，没有实现论文的 warp 并行版本；reduce-then-scan 的第一步用了 scan 而不是归约。</li>
   <li><b>bank 冲突是模拟结果。</b><a href="#tab-banks">表 1</a> 只按“同一 bank 内不同地址的个数”计数，只针对 n = 1024 这一种规模，没有考虑 64/128 位访问。</li>
-  <li><b>不死锁的论证是我们的推导。</b>它依赖 CUDA 执行模型 §5.8.2 的一条规则；CUDA 文档本身没有讨论 decoupled look-back。</li>
+  <li><b>不死锁的论证是我们的推导。</b>它依赖 CUDA 执行模型 §5.9.2 的一条规则；CUDA 文档本身没有讨论 decoupled look-back。</li>
   <li><b>CCCL 的 lookahead scan 只读了选择逻辑和结构。</b>它的“向前看”warp 具体怎样工作、与原始 look-back 有何不同，本文没有展开；源码中的调优数字没有引用。</li>
   <li><b>没有覆盖的内容。</b>基数排序（第 13 篇）、MoE 分组（第 18 篇）、NeRF 与 3DGS 中的完整用法（第 41、43 篇）；浮点 scan 的误差分析和确定性 scan。</li>
 </ul>
@@ -5462,7 +5462,7 @@ __global__ void compact_tiles(const int* in, int n,
   <li id="ref-blelloch90">Blelloch, G. E. (1990). <a href="https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf">Prefix Sums and Their Applications</a>. Technical Report CMU-CS-90-190, Carnegie Mellon University（链接为作者主页上的版本）。</li>
   <li id="ref-ccclscan">NVIDIA. <a href="https://github.com/NVIDIA/cccl/blob/eaf7eb1d26f5fab88cf347af33f739e0812d782b/cub/cub/device/dispatch/tuning/tuning_scan.cuh">CCCL: <code>tuning_scan.cuh</code></a>（路径 <code>cub/cub/device/dispatch/tuning/</code>），提交 <code>eaf7eb1</code>（scan 算法与调优策略的选择）。</li>
   <li id="ref-mg16">Merrill, D., Garland, M. (2016). <a href="https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back">Single-pass Parallel Prefix Scan with Decoupled Look-back</a>. NVIDIA Technical Report NVR-2016-002（§3 全局策略与 chained scan、§4.1 描述符与 look-back 步骤、§4.2 性质、§4.3 Fig. 6、§4.4 优化）。</li>
-  <li id="ref-pgexec">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cuda-cpp-execution-model.html">CUDA Programming Guide, §5.8 CUDA C++ Execution Model</a>（§5.8.2 Device threads 的前向进度规则）。</li>
+  <li id="ref-pgexec">NVIDIA. <a href="https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cuda-cpp-execution-model.html">CUDA Programming Guide, §5.9 CUDA C++ Execution Model</a>（§5.9.2 Device threads 的前向进度规则；2026-11 核对时的章节号）。</li>
   <li id="ref-kerbl23">Kerbl, B., Kopanas, G., Leimkühler, T., Drettakis, G. (2023). <a href="https://arxiv.org/abs/2308.04079">3D Gaussian Splatting for Real-Time Radiance Field Rendering</a>. <i>ACM Transactions on Graphics</i>, 42(4)（附录 C：tile 实例化、64 位键、基数排序）。</li>
   <li id="ref-cccllah">NVIDIA. <a href="https://github.com/NVIDIA/cccl/blob/eaf7eb1d26f5fab88cf347af33f739e0812d782b/cub/cub/device/dispatch/kernels/kernel_scan_lookahead.cuh">CCCL: <code>kernel_scan_lookahead.cuh</code></a>（路径 <code>cub/cub/device/dispatch/kernels/</code>），提交 <code>eaf7eb1</code>。</li>
   <li id="ref-cccllds">NVIDIA. <a href="https://github.com/NVIDIA/cccl/blob/eaf7eb1d26f5fab88cf347af33f739e0812d782b/cub/cub/detail/warpspeed/squad/load_store.cuh">CCCL: <code>load_store.cuh</code></a>（路径 <code>cub/cub/detail/warpspeed/squad/</code>），提交 <code>eaf7eb1</code>（<code>cuda::ptx::cp_async_bulk</code> 加载与存储）。</li>
